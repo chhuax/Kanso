@@ -1,11 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { listSystemFonts, type FontFamily } from "../api";
-import { fontChoices, fontStack, installedFonts } from "../fonts";
+import {
+  fontChoices,
+  fontStack,
+  installedFonts,
+  symbolFallbacks,
+} from "../fonts";
 import {
   BUFFER_FONT_SIZE,
   PANEL_FONT_SIZE,
   TERMINAL_SCROLLBACK,
+  useStore,
 } from "../store";
 import type { CursorStyle } from "../terminal";
 
@@ -57,12 +63,15 @@ export function FontSizeDialog({
   );
   // The backend reads the font directories meanwhile: every family it finds
   // joins the suggestions when it answers, and the probe stands on its own if
-  // it never does (see fontChoices).
+  // it never does (see fontChoices). The terminal's icon fallback takes the
+  // fresh list too, so a Nerd Font installed since start-up is picked up
+  // without a restart.
   const [systemFonts, setSystemFonts] = useState<FontFamily[]>([]);
   useEffect(() => {
     let live = true;
     listSystemFonts()
       .then((fonts) => {
+        useStore.getState().setSymbolFontFamilies(symbolFallbacks(fonts));
         if (live) setSystemFonts(fonts);
       })
       .catch(() => undefined);

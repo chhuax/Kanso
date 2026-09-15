@@ -425,6 +425,12 @@ interface AppStore {
   bufferFontSize: number;
   panelFontFamily: string;
   bufferFontFamily: string;
+  /**
+   * Installed families the terminal stack falls back to for Nerd Font icons
+   * (see `symbolFallbacks`). Read off the machine after start-up, never
+   * saved or exported: another machine has its own fonts.
+   */
+  symbolFontFamilies: string[];
   terminalScrollback: number;
   /** The terminal cursor's shape and whether it blinks. */
   cursorStyle: CursorStyle;
@@ -555,6 +561,7 @@ interface AppStore {
   setBufferFontSize: (size: number) => void;
   setPanelFontFamily: (family: string) => void;
   setBufferFontFamily: (family: string) => void;
+  setSymbolFontFamilies: (families: string[]) => void;
   setTerminalScrollback: (rows: number) => void;
   setCursorStyle: (style: CursorStyle) => void;
   setCursorBlink: (blink: boolean) => void;
@@ -707,6 +714,7 @@ export const useStore = create<AppStore>((set, get) => ({
   bufferFontSize: loadFontSize(BUFFER_FONT_SIZE_KEY, BUFFER_FONT_SIZE),
   panelFontFamily: loadFontFamily(PANEL_FONT_FAMILY_KEY),
   bufferFontFamily: loadFontFamily(BUFFER_FONT_FAMILY_KEY),
+  symbolFontFamilies: [],
   terminalScrollback: loadScrollback(),
   cursorStyle: loadCursorStyle(),
   cursorBlink: loadCursorBlink(),
@@ -1112,6 +1120,19 @@ export const useStore = create<AppStore>((set, get) => ({
     const bufferFontFamily = normalizeFontFamily(family);
     set({ bufferFontFamily });
     saveFontFamily(BUFFER_FONT_FAMILY_KEY, bufferFontFamily);
+  },
+
+  setSymbolFontFamilies(families) {
+    // The dialog rescans on every open; finding the same families keeps the
+    // same array, so nothing keyed on it re-renders.
+    const current = get().symbolFontFamilies;
+    if (
+      families.length === current.length &&
+      families.every((name, index) => name === current[index])
+    ) {
+      return;
+    }
+    set({ symbolFontFamilies: families });
   },
 
   setTerminalScrollback(rows) {

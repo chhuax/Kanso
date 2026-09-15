@@ -116,7 +116,11 @@ export async function ensureController(id: string): Promise<TerminalController> 
     useStore.getState().bufferFontSize,
     useStore.getState().terminalScrollback,
     useStore.getState().theme,
-    fontStack("mono", useStore.getState().bufferFontFamily),
+    fontStack(
+      "mono",
+      useStore.getState().bufferFontFamily,
+      useStore.getState().symbolFontFamilies,
+    ),
   );
   controller.setSuggestions(useStore.getState().suggestionsEnabled);
   controller.setRightClickAction(useStore.getState().rightClickAction);

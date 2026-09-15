@@ -38,7 +38,7 @@ import { Workspace } from "./components/Workspace";
 import { FilerPanel } from "./components/panels/FilerPanel";
 import { SenderPanel } from "./components/panels/SenderPanel";
 import { SessionPanel } from "./components/panels/SessionPanel";
-import { applyFonts } from "./fonts";
+import { applyFonts, symbolFallbacks } from "./fonts";
 import { commandHistory } from "./history";
 import { setSemanticColorTheme } from "./semanticColors";
 import { matchAppShortcut } from "./shortcuts";
@@ -78,6 +78,7 @@ export default function App() {
   const terminalScrollback = useStore((s) => s.terminalScrollback);
   const panelFontFamily = useStore((s) => s.panelFontFamily);
   const bufferFontFamily = useStore((s) => s.bufferFontFamily);
+  const symbolFontFamilies = useStore((s) => s.symbolFontFamilies);
   const setPanelFontSize = useStore((s) => s.setPanelFontSize);
   const setBufferFontSize = useStore((s) => s.setBufferFontSize);
   const setPanelFontFamily = useStore((s) => s.setPanelFontFamily);
@@ -148,9 +149,20 @@ export default function App() {
 
   // xterm is loaded with the first session (see `ensureController`), which
   // leaves the start-up bundle small but would make that first session wait
-  // for it. Fetch it in the quiet moment after the window is up instead.
+  // for it. Fetch it in the quiet moment after the window is up instead. The
+  // same moment reads the installed fonts for the terminal stack's icon
+  // fallback (see `symbolFallbacks`); a terminal already open by then just
+  // switches stacks when the answer comes.
   useEffect(() => {
-    const timer = window.setTimeout(() => void import("./terminal"), 1000);
+    const timer = window.setTimeout(() => {
+      void import("./terminal");
+      api
+        .listSystemFonts()
+        .then((fonts) =>
+          useStore.getState().setSymbolFontFamilies(symbolFallbacks(fonts)),
+        )
+        .catch(() => undefined);
+    }, 1000);
     return () => window.clearTimeout(timer);
   }, []);
 
@@ -170,8 +182,8 @@ export default function App() {
   // two CSS variables in step with later changes. Live terminals get theirs
   // from TerminalPane, which owns the xterm instance.
   useEffect(() => {
-    applyFonts(bufferFontFamily, panelFontFamily);
-  }, [bufferFontFamily, panelFontFamily]);
+    applyFonts(bufferFontFamily, panelFontFamily, symbolFontFamilies);
+  }, [bufferFontFamily, panelFontFamily, symbolFontFamilies]);
 
   useEffect(() => {
     const unlisten = api.onSessionOutput(({ id, data }) => {

@@ -2,6 +2,16 @@ import type { FontFamily } from "./api";
 import { IS_MAC, IS_WINDOWS } from "./platform";
 
 /**
+ * The named faces of the monospace stack, without its generic family, so
+ * that icon fallbacks can go in between (see `fontStack`).
+ */
+const MONO_FACES: string = IS_MAC
+  ? "Menlo, Monaco, 'Courier New'"
+  : IS_WINDOWS
+    ? "Consolas, 'Courier New'"
+    : "'Droid Sans Mono', 'monospace'";
+
+/**
  * Monospace font stack for the terminal buffer and code-like UI.
  *
  * EdgeTerm ships no fonts of its own; like VS Code it renders the buffer with
@@ -9,11 +19,7 @@ import { IS_MAC, IS_WINDOWS } from "./platform";
  * The three stacks are VS Code's `editor.fontFamily` defaults verbatim (its
  * integrated terminal inherits the same value), picked at build time.
  */
-export const MONO_FONT_FAMILY: string = IS_MAC
-  ? "Menlo, Monaco, 'Courier New', monospace"
-  : IS_WINDOWS
-    ? "Consolas, 'Courier New', monospace"
-    : "'Droid Sans Mono', 'monospace', monospace";
+export const MONO_FONT_FAMILY = `${MONO_FACES}, monospace`;
 
 /**
  * Interface font stack: the system UI face of each platform with CJK
@@ -99,21 +105,65 @@ const quote = (family: string) => `"${family.replace(/["\\]/g, "")}"`;
  * the chosen family in front of the platform default, which stays as the
  * fallback for glyphs the chosen face has no coverage for. An empty choice
  * means the default alone.
+ *
+ * The monospace stack also takes the machine's Nerd Font families (see
+ * `symbolFallbacks`) after its named faces. The WebView does not search
+ * the installed fonts for a private-use codepoint (WKWebView at least), so
+ * without them a prompt theme's icons are boxes even on a machine that has
+ * the font (issue #56).
+ * They come last so they only ever draw what every face before them lacks.
  */
-export const fontStack = (role: FontRole, family: string): string => {
-  const base = role === "mono" ? MONO_FONT_FAMILY : UI_FONT_FAMILY;
+export const fontStack = (
+  role: FontRole,
+  family: string,
+  symbols: readonly string[] = [],
+): string => {
   const chosen = family.trim();
-  return chosen ? `${quote(chosen)}, ${base}` : base;
+  const front = chosen ? `${quote(chosen)}, ` : "";
+  if (role === "ui") return `${front}${UI_FONT_FAMILY}`;
+  const fallbacks = symbols
+    .filter((name) => name !== chosen)
+    .map((name) => `, ${quote(name)}`)
+    .join("");
+  return `${front}${MONO_FACES}${fallbacks}, monospace`;
 };
 
 /** Publishes both stacks as CSS variables; xterm reads its own from here. */
 export function applyFonts(
   monoFamily = "",
   uiFamily = "",
+  symbols: readonly string[] = [],
   root: HTMLElement = document.documentElement,
 ) {
-  root.style.setProperty("--font-mono", fontStack("mono", monoFamily));
+  root.style.setProperty(
+    "--font-mono",
+    fontStack("mono", monoFamily, symbols),
+  );
   root.style.setProperty("--font-ui", fontStack("ui", uiFamily));
+}
+
+/**
+ * At most this many icon families join the terminal stack. A stack's
+ * families are tried in turn for every character the ones before them
+ * lack, CJK included, and someone with the whole Nerd Fonts collection
+ * installed has a couple of hundred of them.
+ */
+const SYMBOL_FALLBACK_LIMIT = 2;
+
+/**
+ * The families the terminal stack falls back to for Nerd Font icons: those
+ * `list_system_fonts` found drawing them, symbols-only builds first. Those
+ * hold nothing but the icons, whereas a patched text face behind the stack
+ * would also take over the letters the named faces lack (a "Maple Mono NF
+ * CN" would draw the CJK the system face used to).
+ */
+export function symbolFallbacks(system: readonly FontFamily[]): string[] {
+  const names = system.filter((family) => family.symbols).map((f) => f.name);
+  const symbolsOnly = (name: string) => name.startsWith("Symbols Nerd Font");
+  return [
+    ...names.filter(symbolsOnly),
+    ...names.filter((name) => !symbolsOnly(name)),
+  ].slice(0, SYMBOL_FALLBACK_LIMIT);
 }
 
 // Rendering the same string in the candidate and in a generic family gives

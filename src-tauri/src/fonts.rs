@@ -7,18 +7,27 @@
 //! (issue #28). Reading the font directories here fills the gap: `fontdb`
 //! parses each face's name table without rendering anything, and the picker
 //! merges the result with the frontend's own probe.
+//!
+//! The same scan tells which families carry the Nerd Font icons prompt
+//! themes print (Powerlevel10k, Starship, oh-my-posh). The WebView does not
+//! look through the machine's fonts for a private-use codepoint the stack
+//! cannot draw (WKWebView at least), so those icons came out as boxes unless
+//! the user happened to pick a Nerd Font as the terminal family (issue #56);
+//! the frontend appends such a family to the terminal stack as a fallback
+//! instead.
 
 use std::collections::BTreeMap;
 
 use serde::Serialize;
 
-/// One family and whether it is fixed-pitch, which is what the terminal's
-/// picker lists by default.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// One family, whether it is fixed-pitch, which is what the terminal's
+/// picker lists by default, and whether it draws the Nerd Font icons.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FontFamily {
     pub name: String,
     pub monospaced: bool,
+    pub symbols: bool,
 }
 
 /// Every family the system font directories hold, sorted by name. About 900
@@ -27,15 +36,17 @@ pub fn system_font_families() -> Vec<FontFamily> {
     let mut db = fontdb::Database::new();
     db.load_system_fonts();
     collect(db.faces().map(|face| {
-        let monospaced = face.monospaced
-            || db
-                .with_face_data(face.id, |data, index| {
-                    ttf_parser::Face::parse(data, index).is_ok_and(|face| latin_widths_agree(&face))
+        let (latin_monospaced, symbols) = db
+            .with_face_data(face.id, |data, index| {
+                ttf_parser::Face::parse(data, index).map_or((false, false), |face| {
+                    (latin_widths_agree(&face), draws_nerd_font_icons(&face))
                 })
-                .unwrap_or(false);
+            })
+            .unwrap_or((false, false));
         (
             face.families.first().map(|(name, _)| name.as_str()),
-            monospaced,
+            face.monospaced || latin_monospaced,
+            symbols,
         )
     }))
 }
@@ -61,25 +72,45 @@ fn latin_widths_agree(face: &ttf_parser::Face) -> bool {
     width.is_some_and(|w| w > 0)
 }
 
+/// Whether the face maps both a Powerline symbol (the branch mark, U+E0A0)
+/// and a Font Awesome icon (home, U+F015). Only a Nerd Font patch puts the
+/// two sets together, and both sit at the same codepoints in every Nerd
+/// Fonts release: a plain Powerline-patched face lacks the icons the prompt
+/// themes draw, and Font Awesome alone lacks the Powerline range. Checking
+/// the glyphs rather than the name also finds the patched builds that are
+/// not called "Nerd Font" (romkatv's "MesloLGS NF", "Maple Mono NF CN").
+fn draws_nerd_font_icons(face: &ttf_parser::Face) -> bool {
+    ['\u{E0A0}', '\u{F015}']
+        .into_iter()
+        .all(|c| face.glyph_index(c).is_some())
+}
+
 /// Folds faces into families. A face's first name is its English one when
-/// it has one (`fontdb` orders them so); a family counts as monospaced when
-/// any of its faces is, since a "Mono" family's italic or a variable face
-/// does not always flag itself. Names starting with a dot are the private
-/// system faces macOS never lets an application pick by name.
-fn collect<'a>(faces: impl Iterator<Item = (Option<&'a str>, bool)>) -> Vec<FontFamily> {
-    let mut families: BTreeMap<String, bool> = BTreeMap::new();
-    for (name, monospaced) in faces {
+/// it has one (`fontdb` orders them so); a family counts as monospaced, or
+/// as drawing the icons, when any of its faces does, since a "Mono" family's
+/// italic or a variable face does not always flag itself. Names starting
+/// with a dot are the private system faces macOS never lets an application
+/// pick by name.
+fn collect<'a>(faces: impl Iterator<Item = (Option<&'a str>, bool, bool)>) -> Vec<FontFamily> {
+    let mut families: BTreeMap<String, (bool, bool)> = BTreeMap::new();
+    for (name, monospaced, symbols) in faces {
         let Some(name) = name
             .map(str::trim)
             .filter(|n| !n.is_empty() && !n.starts_with('.'))
         else {
             continue;
         };
-        *families.entry(name.to_string()).or_insert(false) |= monospaced;
+        let family = families.entry(name.to_string()).or_default();
+        family.0 |= monospaced;
+        family.1 |= symbols;
     }
     families
         .into_iter()
-        .map(|(name, monospaced)| FontFamily { name, monospaced })
+        .map(|(name, (monospaced, symbols))| FontFamily {
+            name,
+            monospaced,
+            symbols,
+        })
         .collect()
 }
 
@@ -90,31 +121,41 @@ mod tests {
     #[test]
     fn faces_fold_into_sorted_families() {
         let faces = [
-            (Some("Menlo"), true),
-            (Some("Menlo"), true),
-            (Some("Helvetica"), false),
-            (Some(" JetBrains Mono "), true),
+            (Some("Menlo"), true, false),
+            (Some("Menlo"), true, false),
+            (Some("Helvetica"), false, false),
+            (Some(" JetBrains Mono "), true, false),
             // An italic face without the fixed-pitch flag does not demote
             // the family.
-            (Some("JetBrains Mono"), false),
-            (Some(".SF NS Mono"), true),
-            (Some(""), true),
-            (None, true),
+            (Some("JetBrains Mono"), false, false),
+            // Nor does a face of a patched family that lost the icons.
+            (Some("MesloLGS NF"), true, true),
+            (Some("MesloLGS NF"), true, false),
+            (Some(".SF NS Mono"), true, false),
+            (Some(""), true, true),
+            (None, true, true),
         ];
         assert_eq!(
             collect(faces.into_iter()),
             [
                 FontFamily {
                     name: "Helvetica".into(),
-                    monospaced: false
+                    ..Default::default()
                 },
                 FontFamily {
                     name: "JetBrains Mono".into(),
-                    monospaced: true
+                    monospaced: true,
+                    ..Default::default()
                 },
                 FontFamily {
                     name: "Menlo".into(),
-                    monospaced: true
+                    monospaced: true,
+                    ..Default::default()
+                },
+                FontFamily {
+                    name: "MesloLGS NF".into(),
+                    monospaced: true,
+                    symbols: true,
                 },
             ]
         );
@@ -137,6 +178,8 @@ mod tests {
         let proportional = ["Helvetica", "Arial", "DejaVu Sans", "Segoe UI"];
         if let Some(family) = mono.iter().find_map(|name| find(name)) {
             assert!(family.monospaced, "{} should be monospaced", family.name);
+            // No stock face is patched with the Nerd Font icons.
+            assert!(!family.symbols, "{} has no Nerd Font icons", family.name);
         }
         if let Some(family) = proportional.iter().find_map(|name| find(name)) {
             assert!(

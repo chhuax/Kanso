@@ -167,6 +167,8 @@ export interface FontFamily {
   name: string;
   /** True when any face of the family is fixed-pitch. */
   monospaced: boolean;
+  /** True when a face draws the Nerd Font icons prompt themes print. */
+  symbols: boolean;
 }
 
 /** Every family in the machine's font directories, sorted by name. */

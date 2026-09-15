@@ -4,13 +4,13 @@ import { describe, expect, it, vi } from "vitest";
 // does not define.
 vi.mock("./platform", () => ({ IS_MAC: true, IS_WINDOWS: false }));
 
-import { fontChoices, fontStack } from "./fonts";
+import { fontChoices, fontStack, symbolFallbacks } from "./fonts";
 
 describe("fontChoices", () => {
   const system = [
-    { name: "Menlo", monospaced: true },
-    { name: "Helvetica Neue", monospaced: false },
-    { name: "Iosevka Custom", monospaced: true },
+    { name: "Menlo", monospaced: true, symbols: false },
+    { name: "Helvetica Neue", monospaced: false, symbols: false },
+    { name: "Iosevka Custom", monospaced: true, symbols: false },
   ];
 
   it("adds the machine's fixed-pitch families to the terminal list", () => {
@@ -43,5 +43,42 @@ describe("fontStack", () => {
     expect(fontStack("mono", "")).toBe(
       "Menlo, Monaco, 'Courier New', monospace",
     );
+  });
+
+  it("falls back to the icon families before the generic family", () => {
+    expect(fontStack("mono", "", ["Symbols Nerd Font", "MesloLGS NF"])).toBe(
+      "Menlo, Monaco, 'Courier New', \"Symbols Nerd Font\", \"MesloLGS NF\", monospace",
+    );
+    // A chosen Nerd Font is not named twice.
+    expect(fontStack("mono", "MesloLGS NF", ["MesloLGS NF"])).toBe(
+      "\"MesloLGS NF\", Menlo, Monaco, 'Courier New', monospace",
+    );
+  });
+
+  it("leaves the interface stack without icon fallbacks", () => {
+    expect(fontStack("ui", "", ["MesloLGS NF"])).not.toContain("MesloLGS");
+  });
+});
+
+describe("symbolFallbacks", () => {
+  const family = (name: string, symbols: boolean) => ({
+    name,
+    monospaced: true,
+    symbols,
+  });
+
+  it("takes the icon families, symbols-only builds first, at most two", () => {
+    expect(
+      symbolFallbacks([
+        family("Hack Nerd Font", true),
+        family("Menlo", false),
+        family("MesloLGS NF", true),
+        family("Symbols Nerd Font Mono", true),
+      ]),
+    ).toEqual(["Symbols Nerd Font Mono", "Hack Nerd Font"]);
+  });
+
+  it("is empty on a machine without any", () => {
+    expect(symbolFallbacks([family("Menlo", false)])).toEqual([]);
   });
 });

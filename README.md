@@ -49,7 +49,7 @@ Any terminal session — shell, SSH or serial — can be recorded to a file: tic
 
 **Display settings**
 
-**View → Display Settings…** sets the interface and terminal font sizes, the family each uses, the cursor's shape (block, underline or bar) and whether it blinks, and how many lines of scrollback a session keeps. No fonts are bundled: leaving a family blank uses the platform's own stack, and each family field lists the fonts installed on this machine — fixed-pitch ones for the terminal, all of them for the interface — while accepting any name you type, so a private Nerd Font build works too. The window itself opens at the size it had when it was last closed, maximized again if it was.
+**View → Display Settings…** sets the interface and terminal font sizes, the family each uses, the cursor's shape (block, underline or bar) and whether it blinks, and how many lines of scrollback a session keeps. No fonts are bundled: leaving a family blank uses the platform's own stack, and each family field lists the fonts installed on this machine — fixed-pitch ones for the terminal, all of them for the interface — while accepting any name you type, so a private Nerd Font build works too. The icons prompt themes such as Powerlevel10k and Starship print show up without choosing anything: when a Nerd Font is installed, the terminal falls back to it for the glyphs its own font lacks. The window itself opens at the size it had when it was last closed, maximized again if it was.
 
 **Command suggestions**
 

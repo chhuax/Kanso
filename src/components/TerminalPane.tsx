@@ -98,6 +98,7 @@ function TerminalHost({
   const gutterMode = useStore((s) => s.gutterMode);
   const bufferFontSize = useStore((s) => s.bufferFontSize);
   const bufferFontFamily = useStore((s) => s.bufferFontFamily);
+  const symbolFontFamilies = useStore((s) => s.symbolFontFamilies);
   const terminalScrollback = useStore((s) => s.terminalScrollback);
   const cursorStyle = useStore((s) => s.cursorStyle);
   const cursorBlink = useStore((s) => s.cursorBlink);
@@ -237,8 +238,10 @@ function TerminalHost({
   }, [bufferFontSize, terminal]);
 
   useEffect(() => {
-    terminal?.setFontFamily(fontStack("mono", bufferFontFamily));
-  }, [bufferFontFamily, terminal]);
+    terminal?.setFontFamily(
+      fontStack("mono", bufferFontFamily, symbolFontFamilies),
+    );
+  }, [bufferFontFamily, symbolFontFamilies, terminal]);
 
   useEffect(() => {
     terminal?.setScrollback(terminalScrollback);
