@@ -2787,6 +2787,18 @@ textarea:focus {
   background: var(--bg-hover);
 }
 
+/* The active SSH session only connected on algorithms kept for old devices;
+   the tooltip names them. */
+.status-legacy {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: default;
+}
+.status-legacy .icon {
+  color: var(--yellow);
+}
+
 /* --- splitters ------------------------------------------------------------ */
 
 /* The splitter is the 1px divider itself; a 7px hit area (`::after`)

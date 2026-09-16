@@ -56,6 +56,8 @@ function pendingSessionInfo(
     supportsRemoteFiles: profile.kind === "ssh" || isFileSession(profile.kind),
     // Known once the backend has opened the file.
     recording: null,
+    // Known once the backend has connected.
+    legacyAlgorithms: [],
   };
 }
 

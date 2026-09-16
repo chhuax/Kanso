@@ -370,6 +370,7 @@ pub fn make_info(id: &str, profile: &SessionProfile) -> SessionInfo {
             SessionKind::Ssh | SessionKind::Ftp | SessionKind::Sftp
         ),
         recording: None,
+        legacy_algorithms: Vec::new(),
     }
 }
 
@@ -394,6 +395,7 @@ mod tests {
                 color: None,
                 supports_remote_files: true,
                 recording: None,
+                legacy_algorithms: Vec::new(),
             },
             tx,
             encoding: encoding_rs::UTF_8,
@@ -441,6 +443,7 @@ mod tests {
                 color: None,
                 supports_remote_files: true,
                 recording: None,
+                legacy_algorithms: Vec::new(),
             },
             tx,
             encoding: encoding_rs::GBK,

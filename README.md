@@ -33,6 +33,10 @@ A small, lightweight, high-performance terminal, SSH, SFTP, FTP, and serial clie
 | FTP | `suppaftp` | Password or anonymous authentication; passive-mode browsing, UTF-8/GBK filename decoding, and streaming file and folder transfers in both directions |
 | Serial | `serialport` | Configurable baud rate, data bits, stop bits, parity, and flow control |
 
+**Older SSH servers**
+
+Switches, routers, firewalls and other long-lived devices often run SSH servers that stop at algorithms modern clients no longer offer. EdgeTerm still connects to them: besides the NIST ECDH curves (`ecdh-sha2-nistp256/384/521`), it offers the SHA-1 key exchanges `diffie-hellman-group14-sha1`, `diffie-hellman-group-exchange-sha1` and `diffie-hellman-group1-sha1`, the `aes128/192/256-cbc` ciphers and the `hmac-sha1` MACs, with no setting to change. They come after every modern algorithm, so a server that supports anything better gets that, and because both sides' algorithm lists are signed by the server's host key, nobody in between can strip the better choices to force the old ones. A session that did need one shows **Legacy SSH** in the status bar; hover over it to see which server and which algorithms. A server that offers nothing EdgeTerm supports (only `ssh-dss` host keys, `3des-cbc` or `hmac-md5`, say) is refused with the list it offered.
+
 **Text encoding and locale**
 
 Terminal sessions are UTF-8 unless the session dialog's **Encoding** says otherwise: a server or device that talks GB18030 / GBK, Big5, Shift_JIS, EUC-JP, EUC-KR or a Windows / KOI8 code page has its output decoded for the terminal and typed input encoded for the far end, while ZMODEM and XMODEM transfers stay binary. What a shell prints for a non-ASCII file name is decided by *its* locale, not by the terminal — `$'\346\226\207'`-style escapes from `ls` mean the shell's locale is not UTF-8 — so a local shell started with no locale in its environment (every GUI application on macOS) is given a UTF-8 `LANG`, and the dialog's **Locale** field sets `LANG` explicitly: for an SSH session it is sent with the shell request and applied by servers whose `sshd_config` has `AcceptEnv LANG`.

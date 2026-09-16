@@ -22,6 +22,7 @@ const makeTab = (id: string): Tab => ({
     color: "#4ea1f3",
     supportsRemoteFiles: false,
     recording: null,
+    legacyAlgorithms: [],
   },
   profile: { id, name: id, kind: "local" },
   number: id === "one" ? 1 : 2,

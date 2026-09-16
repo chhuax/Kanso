@@ -100,6 +100,19 @@ export interface SessionInfo {
   supportsRemoteFiles: boolean;
   /** Path of the file the session's output is recorded to, if it is. */
   recording: string | null;
+  /**
+   * The SSH servers of this session (jump hosts first) that only connected
+   * on algorithms kept for old devices; empty when none did.
+   */
+  legacyAlgorithms: LegacyAlgorithms[];
+}
+
+/** The legacy algorithms one SSH server was connected with (issue #60). */
+export interface LegacyAlgorithms {
+  /** host:port of the server. */
+  address: string;
+  /** SSH algorithm names, e.g. "diffie-hellman-group14-sha1". */
+  algorithms: string[];
 }
 
 /** An SSH host whose key no longer matches the one recorded in known_hosts. */

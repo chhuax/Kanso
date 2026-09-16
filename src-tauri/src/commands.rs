@@ -285,6 +285,7 @@ pub async fn open_session(
                 .await?
             {
                 ConnectOutcome::Ready(conn) => {
+                    info.legacy_algorithms = conn.legacy_algorithms().to_vec();
                     let recorder = start_recording(&mut info)?;
                     session::ssh::spawn(app.clone(), id.clone(), conn, rx, recorder);
                     None
@@ -306,6 +307,7 @@ pub async fn open_session(
             .await?
             {
                 SftpConnectOutcome::Ready(conn) => {
+                    info.legacy_algorithms = conn.legacy_algorithms().to_vec();
                     session::ssh::spawn_sftp(app.clone(), id.clone(), conn, rx);
                     None
                 }
