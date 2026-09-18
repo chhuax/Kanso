@@ -22,8 +22,6 @@ const DRAG_THRESHOLD = 4;
  * the pane on that side rather than joining it.
  */
 const SPLIT_ZONE = 0.25;
-/** Kept deliberately small: every open tab owns these DOM-only particles. */
-const COMMAND_PARTICLES = 6;
 
 /** The icon a session kind is listed with. */
 const KIND_ICONS: Record<SessionKind, IconName> = {
@@ -406,11 +404,6 @@ export function TabRail() {
                       : (tab.message ?? tab.state)
                 }`}
               >
-                <span className="tab-command-activity" aria-hidden="true">
-                  {Array.from({ length: COMMAND_PARTICLES }, (_, particle) => (
-                    <span className="tab-command-particle" key={particle} />
-                  ))}
-                </span>
                 <span
                   className={`tab-row-icon${tab.aiTool ? " is-agent" : ""}`}
                 >
