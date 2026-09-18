@@ -13,7 +13,7 @@ import {
   type ITheme,
 } from "@xterm/xterm";
 
-import { isAiSessionCommand } from "./aiTools";
+import { aiToolForCommand, type AiTool } from "./aiTools";
 import { readClipboardText } from "./api";
 import { createOutputDecoder } from "./encodings";
 import { MONO_FONT_FAMILY } from "./fonts";
@@ -275,6 +275,13 @@ interface Callbacks {
   ) => void;
   /** Ranked history completions for the current input; [] when none. */
   suggest: (input: string) => CommandSuggestion[];
+  /**
+   * The agentic CLI now holding the terminal, or null once it has exited. It
+   * stays set for the whole session — an idle agent is still the agent, and
+   * that is most of the time. Optional: the tests that drive a terminal
+   * directly have no tabs to mark.
+   */
+  onAiTool?: (tool: AiTool | null) => void;
 }
 
 /**
@@ -378,6 +385,8 @@ export class TerminalController {
   } | null = null;
   /** Set while an agentic CLI (see `aiTools.ts`) owns the terminal. */
   private aiSession = false;
+  /** Which one, for the tab's mark; null outside such a session. */
+  private aiTool: AiTool | null = null;
   /** Open from the user's input until the assistant goes quiet again. */
   private aiTurn = false;
   private aiOutputAt = 0;
@@ -1467,7 +1476,9 @@ export class TerminalController {
     this.commandPromptRecognized = isShellPrompt(`${prompt} `);
     this.commandOutputAdvanced = false;
     this.commandRunning = true;
-    this.aiSession = isAiSessionCommand(sent ?? this.submittedCommand(prompt));
+    this.aiTool = aiToolForCommand(sent ?? this.submittedCommand(prompt));
+    this.aiSession = this.aiTool !== null;
+    this.callbacks.onAiTool?.(this.aiTool);
     // An agentic CLI runs until the user quits it, so reporting its whole
     // session as one running command would say nothing. The tab stays quiet
     // until the assistant itself is working.
@@ -1564,6 +1575,9 @@ export class TerminalController {
     this.commandOutputAdvanced = false;
     this.commandRunning = false;
     this.endAiSession();
+    // The tool exited with the command, so the tab's mark comes off with it.
+    this.aiTool = null;
+    if (!this.disposed) this.callbacks.onAiTool?.(null);
     const waiters = this.commandWaiters;
     this.commandWaiters = [];
     for (const waiter of waiters) waiter();

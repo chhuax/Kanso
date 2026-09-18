@@ -1,5 +1,6 @@
 import { create } from "zustand";
 
+import type { AiTool } from "./aiTools";
 import * as api from "./api";
 import { commandHistory } from "./history";
 import {
@@ -68,6 +69,11 @@ export interface Tab {
    * session and is only worth reporting while the assistant works.
    */
   activityKind: ActivityKind;
+  /**
+   * The agentic CLI running in this tab, or null/absent for none; see
+   * `aiTools.ts`. Set for the whole life of the tool, not just its turns.
+   */
+  aiTool?: AiTool | null;
   message?: string;
   cols: number;
   rows: number;
@@ -548,6 +554,8 @@ interface AppStore {
   applyState: (id: string, state: SessionState, message?: string) => void;
   /** Records a command, or an agentic CLI's turn, starting in a terminal. */
   markCommandStarted: (id: string, kind?: ActivityKind) => void;
+  /** Marks the tab as running an agentic CLI, or clears the mark. */
+  setAiTool: (id: string, tool: AiTool | null) => void;
   /** Leaves an unread completion on a background tab until it is selected. */
   markCommandCompleted: (id: string, kind?: ActivityKind) => void;
   /** Clears activity when a submitted write failed before reaching the shell. */
@@ -1042,6 +1050,10 @@ export const useStore = create<AppStore>((set, get) => ({
     // An ended session has nothing to type into; lock its terminal until a
     // reconnect brings it back.
     getController(id)?.setLocked(state === "closed" || state === "error");
+  },
+
+  setAiTool(id, tool) {
+    set({ tabs: patchTab(get().tabs, id, { aiTool: tool }) });
   },
 
   markCommandStarted(id, kind = "command") {

@@ -389,7 +389,12 @@ export function TabRail() {
                 ]
                   .filter(Boolean)
                   .join(" ")}
-                style={{ "--session-color": sessionColor } as CSSProperties}
+                style={
+                  {
+                    "--session-color": sessionColor,
+                    ...(tab.aiTool ? { "--agent-color": tab.aiTool.color } : {}),
+                  } as CSSProperties
+                }
                 data-tab-id={tab.info.id}
                 data-pane-id={tab.paneId}
                 onMouseDown={() => setActive(tab.info.id)}
@@ -406,13 +411,23 @@ export function TabRail() {
                     <span className="tab-command-particle" key={particle} />
                   ))}
                 </span>
-                <Icon
-                  name={KIND_ICONS[tab.info.kind] ?? "terminal"}
-                  className="tab-row-icon"
-                />
+                <span
+                  className={`tab-row-icon${tab.aiTool ? " is-agent" : ""}`}
+                >
+                  <Icon
+                    name={
+                      tab.aiTool
+                        ? "sparkle"
+                        : (KIND_ICONS[tab.info.kind] ?? "terminal")
+                    }
+                  />
+                </span>
                 <span className="tab-index">{tab.number}.</span>
                 <span className="tab-dot" aria-hidden="true" />
                 <span className="tab-label">{tabTitle(tab)}</span>
+                {tab.aiTool && (
+                  <span className="tab-agent">{tab.aiTool.label}</span>
+                )}
                 <button
                   className="tab-close"
                   onMouseDown={(event) => {

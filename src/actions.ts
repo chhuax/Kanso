@@ -101,6 +101,7 @@ export async function ensureController(
         else store.clearCommandActivity(id);
       },
       suggest: (input) => commandHistory.suggest(input, historyHost(id)),
+      onAiTool: (tool) => useStore.getState().setAiTool(id, tool),
       onResize: (cols, rows) => {
         useStore.getState().setSize(id, cols, rows);
         void api.resizeSession(id, cols, rows).catch(() => undefined);

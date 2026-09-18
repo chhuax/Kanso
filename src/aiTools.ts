@@ -7,26 +7,47 @@
  * instead: busy while it works, finished when it hands the terminal back.
  */
 
-/** Binary names, as they are typed. Basenames, so a full path also matches. */
-const AI_CLIS = new Set([
-  "claude",
-  "codex",
-  "gemini",
-  "aider",
-  "cursor-agent",
-  "copilot",
-  "amp",
-  "opencode",
-  "crush",
-  "goose",
-  "qwen",
-  "droid",
-  "openhands",
-  "grok",
+/** An agentic CLI, as the session list names it. */
+export interface AiTool {
+  /** Stable id; several spellings map to one tool. */
+  id: string;
+  /** Shown beside the tab, e.g. "Claude". */
+  label: string;
+  /**
+   * The mark's tint, near the tool's own colour. Not an official brand
+   * colour and no brand asset is shipped: that needs a licence, which is the
+   * same reason Warp falls back to a plain icon until it has one.
+   */
+  color: string;
+}
+
+const CLAUDE: AiTool = { id: "claude", label: "Claude", color: "#d97757" };
+const CODEX: AiTool = { id: "codex", label: "Codex", color: "#10a37f" };
+const GEMINI: AiTool = { id: "gemini", label: "Gemini", color: "#4285f4" };
+
+/**
+ * Binary names, as they are typed. Basenames, so a full path also matches.
+ * Several names may map to one tool (a package's spelling beside its binary).
+ */
+const AI_CLIS: Record<string, AiTool> = {
+  claude: CLAUDE,
+  codex: CODEX,
+  gemini: GEMINI,
+  aider: { id: "aider", label: "Aider", color: "#8a5cf6" },
+  "cursor-agent": { id: "cursor", label: "Cursor", color: "#8b949e" },
+  copilot: { id: "copilot", label: "Copilot", color: "#6e7681" },
+  amp: { id: "amp", label: "Amp", color: "#e8794a" },
+  opencode: { id: "opencode", label: "OpenCode", color: "#4fb8a8" },
+  crush: { id: "crush", label: "Crush", color: "#e05f8a" },
+  goose: { id: "goose", label: "Goose", color: "#8aa8ff" },
+  qwen: { id: "qwen", label: "Qwen", color: "#7b8cff" },
+  droid: { id: "droid", label: "Droid", color: "#8fd14f" },
+  openhands: { id: "openhands", label: "OpenHands", color: "#6aa9ff" },
+  grok: { id: "grok", label: "Grok", color: "#9aa0a6" },
   // As spelled on npm, for `npx @anthropic-ai/claude-code`.
-  "claude-code",
-  "gemini-cli",
-]);
+  "claude-code": CLAUDE,
+  "gemini-cli": GEMINI,
+};
 
 /** Words that only stand in front of the real command. */
 const PREFIXES = new Set([
@@ -101,18 +122,25 @@ function binaryName(token: string): string {
 }
 
 /**
- * True when the command line starts an interactive session with one of the
- * tools above. `cd repo && claude` counts; a pipeline does not, since a tool
+ * The tool an interactive session would start, or null when the command line
+ * starts none. `cd repo && claude` counts; a pipeline does not, since a tool
  * reading from a pipe is not driving the terminal.
  */
-export function isAiSessionCommand(command: string): boolean {
-  return command
-    .split(/&&|\|\||;/)
-    .filter((segment) => !segment.includes("|"))
-    .some(startsAiSession);
+export function aiToolForCommand(command: string): AiTool | null {
+  for (const segment of command.split(/&&|\|\||;/)) {
+    if (segment.includes("|")) continue;
+    const tool = startsAiSession(segment);
+    if (tool) return tool;
+  }
+  return null;
 }
 
-function startsAiSession(segment: string): boolean {
+/** True when the command line starts an interactive session with one of them. */
+export function isAiSessionCommand(command: string): boolean {
+  return aiToolForCommand(command) !== null;
+}
+
+function startsAiSession(segment: string): AiTool | null {
   const tokens = segment.trim().split(/\s+/).filter(Boolean);
   let index = 0;
   let prefixed = false;
@@ -137,12 +165,13 @@ function startsAiSession(segment: string): boolean {
     break;
   }
 
-  if (!AI_CLIS.has(binaryName(tokens[index] ?? ""))) return false;
+  const tool = AI_CLIS[binaryName(tokens[index] ?? "")];
+  if (!tool) return null;
 
   const args = tokens.slice(index + 1);
-  if (args.some((arg) => ONE_SHOT_FLAGS.has(arg))) return false;
+  if (args.some((arg) => ONE_SHOT_FLAGS.has(arg))) return null;
   // Only the first positional word is a subcommand; a quoted opening prompt
   // (`codex "run the tests"`) keeps its quote and never looks like one.
   const first = args.find((arg) => !arg.startsWith("-"));
-  return first === undefined || !ONE_SHOT_SUBCOMMANDS.has(first);
+  return first === undefined || !ONE_SHOT_SUBCOMMANDS.has(first) ? tool : null;
 }

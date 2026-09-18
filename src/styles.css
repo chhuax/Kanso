@@ -1135,14 +1135,50 @@ textarea:focus {
 }
 
 .tab-row-icon {
-  /* The 24px mark Warp gives each row; the shared `.icon` is 16. */
+  /* Warp's mark: a 24px disk with its glyph at two thirds of it. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
   width: 24px;
   height: 24px;
+  border-radius: 50%;
   color: var(--fg-faint);
+}
+
+.tab-row-icon > .icon {
+  width: 16px;
+  height: 16px;
 }
 
 .tab-row.is-active .tab-row-icon {
   color: var(--session-color, var(--accent));
+}
+
+/* An agentic CLI owns the row's mark: a sparkle on a disk of its own colour,
+   with the tool named beside the title. */
+.tab-row-icon.is-agent {
+  color: var(--agent-color, var(--accent));
+  background: color-mix(
+    in srgb,
+    var(--agent-color, var(--accent)) 20%,
+    transparent
+  );
+}
+
+.tab-agent {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(
+    in srgb,
+    var(--agent-color, var(--accent)) 16%,
+    transparent
+  );
+  color: var(--agent-color, var(--accent));
+  font-size: 10px;
+  font-style: normal;
+  letter-spacing: 0.02em;
 }
 
 .tab-row {
@@ -1459,6 +1495,8 @@ textarea:focus {
 }
 
 .tab-label {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }

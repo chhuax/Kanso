@@ -40,6 +40,7 @@ import save from "@vscode/codicons/src/icons/save.svg?raw";
 import search from "@vscode/codicons/src/icons/search.svg?raw";
 import send from "@vscode/codicons/src/icons/send.svg?raw";
 import server from "@vscode/codicons/src/icons/server.svg?raw";
+import sparkle from "@vscode/codicons/src/icons/sparkle.svg?raw";
 import splitHorizontal from "@vscode/codicons/src/icons/split-horizontal.svg?raw";
 import splitVertical from "@vscode/codicons/src/icons/split-vertical.svg?raw";
 import tag from "@vscode/codicons/src/icons/tag.svg?raw";
@@ -87,6 +88,7 @@ const SVGS = {
   search,
   send,
   server,
+  sparkle,
   "split-horizontal": splitHorizontal,
   "split-vertical": splitVertical,
   tag,
