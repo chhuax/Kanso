@@ -7,7 +7,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-A small, lightweight, high-performance terminal, SSH, SFTP, FTP, and serial client, built with **Rust + Tauri**.
+A small, lightweight, high-performance terminal, SSH and SFTP client, built with **Rust + Tauri**.
 
 <img src="docs/screenshot-dark.png" alt="ZenTerm dark theme" width="100%">
 
@@ -30,8 +30,6 @@ A small, lightweight, high-performance terminal, SSH, SFTP, FTP, and serial clie
 | Local shell | `portable-pty` | A real pseudoterminal with synchronized window resizing; the Shell field takes a command line with arguments, such as `wsl.exe -d Ubuntu` or `pwsh -NoLogo`. On macOS a bare shell starts as a login shell, the way Terminal.app starts it, so `~/.zprofile` and Homebrew's PATH are in place before `~/.zshrc` runs; a command line with arguments runs exactly as written |
 | SSH | `russh` + `russh-sftp` | Password, public-key, and ssh-agent authentication, followed by keyboard-interactive rounds where the server asks for a second factor (a one-time code, a push confirmation); jump hosts (ProxyJump) through another saved session, chained if needed; SFTP reuses the same connection with streaming file and folder transfers |
 | SFTP | `russh` + `russh-sftp` | A file-transfer-only session over SSH — same authentication and host-key policy, opened straight into the dual-pane file manager with no terminal |
-| FTP | `suppaftp` | Password or anonymous authentication; passive-mode browsing, UTF-8/GBK filename decoding, and streaming file and folder transfers in both directions |
-| Serial | `serialport` | Configurable baud rate, data bits, stop bits, parity, and flow control |
 
 **Older SSH servers**
 
@@ -41,15 +39,11 @@ Switches, routers, firewalls and other long-lived devices often run SSH servers 
 
 Terminal sessions are UTF-8 unless the session dialog's **Encoding** says otherwise: a server or device that talks GB18030 / GBK, Big5, Shift_JIS, EUC-JP, EUC-KR or a Windows / KOI8 code page has its output decoded for the terminal and typed input encoded for the far end, while ZMODEM and XMODEM transfers stay binary. What a shell prints for a non-ASCII file name is decided by *its* locale, not by the terminal — `$'\346\226\207'`-style escapes from `ls` mean the shell's locale is not UTF-8 — so a local shell started with no locale in its environment (every GUI application on macOS) is given a UTF-8 `LANG`, and the dialog's **Locale** field sets `LANG` explicitly: for an SSH session it is sent with the shell request and applied by servers whose `sshd_config` has `AcceptEnv LANG`.
 
-**Session recording**
-
-Any terminal session — shell, SSH or serial — can be recorded to a file: tick **Record this session's output to a file** in the session dialog (it is off unless you turn it on) and every connection of that session writes a new file, `<name>_<date>_<time>.log`, to the folder you choose or to *ZenTerm Recordings* in your Documents (a portable copy uses `data/recordings`). The file is the raw output the terminal received, escape sequences included, between a header and a trailer line naming the session and the times, so `cat` replays it in a terminal; what you typed appears only as the far end echoed it, so a password entered without echo is not in it. While a recording runs the status bar shows **REC**; click it to open the folder. The file is written as output arrives and closes with the session. If it cannot be created the connection fails with the reason rather than running unrecorded, and if the disk fails later the session carries on and the status bar says the recording stopped.
-
 **Interface**
 - **Timestamp and line-number gutter** — WindTerm's most recognizable feature. Every output line includes `[HH:MM:SS.SSS]` and a cumulative line number, with the cursor line highlighted. Four display modes are available from the `Session` menu.
 - **Session** (left): saved connection profiles in a collapsible tree; double-click to connect. Right-click a heading or a group to create (nested) groups, rename or delete them; right-click a session to connect, edit, move it to another group, or delete it. The New Session dialog lets you choose which group a session is saved to.
 - **Filer** (right): a file browser that automatically switches to SFTP for SSH sessions, with file and folder upload, download, create-directory, and delete operations. Drag and drop works in both directions, anywhere on the panel: dropping files or folders from Finder / Explorer uploads them into the current remote directory, or copies them into the folder on screen when the Filer is showing local files; dragging an entry out of the window drops it on the desktop or in a file manager — a remote entry is copied down first, so hold the drag until it is ready. A drop the panel cannot take says why instead of doing nothing. Other terminal sessions browse the local filesystem. `⌘J` / `Ctrl+Shift+J` (also in the terminal's context menu and the Filer's locate button) jumps the Filer to the directory the shell is in: a local shell is asked through the OS, an SSH shell through the server (Linux hosts), and a shell that reports its directory with OSC 7 — fish does by default; bash and zsh with a one-line prompt hook — is answered everywhere, `sudo` and nested shells included.
-- **Sender** (bottom): send text with a chosen line ending (none / LF / CRLF) to the current session or to all open sessions at once. Text may span several lines (`Shift+Enter` adds one) and each line is sent in turn, waiting for the shell's prompt between them, so a saved multi-line script runs cleanly instead of arriving as typeahead. The clock button repeats a command on a timer — every N seconds, a set number of times or until stopped — for an inspection loop or to keep a session alive; it keeps running while the panel is hidden and stops from the strip. Saved commands are scoped — to one session, a Session panel group, a session kind (serial / SSH / shell) or everywhere — and the Sender lists the ones that apply to the active tab, most specific first.
+- **Sender** (bottom): send text with a chosen line ending (none / LF / CRLF) to the current session or to all open sessions at once. Text may span several lines (`Shift+Enter` adds one) and each line is sent in turn, waiting for the shell's prompt between them, so a saved multi-line script runs cleanly instead of arriving as typeahead. The clock button repeats a command on a timer — every N seconds, a set number of times or until stopped — for an inspection loop or to keep a session alive; it keeps running while the panel is hidden and stops from the strip. Saved commands are scoped — to one session, a Session panel group, a session kind (SSH / shell) or everywhere — and the Sender lists the ones that apply to the active tab, most specific first.
 
 **Display settings**
 
@@ -75,7 +69,7 @@ The terminal area splits the way VS Code's editor area does: every pane has its 
 
 **ZMODEM and XMODEM transfers**
 
-Local shell, SSH, and serial terminals automatically detect ZMODEM sessions. Run `rz` in the terminal to choose and send one or more local files, or run `sz <file>` to choose where each incoming file is saved.
+Local shell and SSH terminals automatically detect ZMODEM sessions. Run `rz` in the terminal to choose and send one or more local files, or run `sz <file>` to choose where each incoming file is saved.
 
 XMODEM has no handshake to detect, so it is started from **Session → File Transfer**. Start the other end in the terminal first (`rx <file>`, `sx <file>`, a bootloader's `loadx`, …), then choose **Send via XMODEM…** or **Send via XMODEM-1K…** and pick the file, or **Receive via XMODEM…** and pick where to save it. Receiving accepts CRC and checksum blocks of 128 bytes or 1 KiB; sending uses CRC when the receiver asks for it and falls back to plain 128-byte checksum blocks otherwise. XMODEM carries no file size, so a received file keeps the sender's `^Z` padding at the end of its last block. **Cancel Transfer** in the same menu aborts either protocol.
 

@@ -286,14 +286,10 @@ impl Store {
         let profile = self.profiles.lock().iter().find(|p| p.id == id).cloned();
         Ok(profile.map(|mut profile| {
             if let Some(stored) = self.credentials.lock().get(id) {
-                if profile.kind == SessionKind::Ftp {
-                    profile.password = stored.password.clone();
-                } else {
-                    match profile.auth.unwrap_or_default() {
-                        AuthKind::Password => profile.password = stored.password.clone(),
-                        AuthKind::PublicKey => profile.passphrase = stored.passphrase.clone(),
-                        AuthKind::Agent => {}
-                    }
+                match profile.auth.unwrap_or_default() {
+                    AuthKind::Password => profile.password = stored.password.clone(),
+                    AuthKind::PublicKey => profile.passphrase = stored.passphrase.clone(),
+                    AuthKind::Agent => {}
                 }
             }
             profile
@@ -367,7 +363,7 @@ impl Store {
         // editor) must not strand the profile: fall back to the section root.
         if let Some(group_id) = &profile.group_id {
             let valid = self.groups.lock().iter().any(|group| {
-                &group.id == group_id && same_group_category(group.kind, profile.kind)
+                &group.id == group_id && group.kind == profile.kind
             });
             if !valid {
                 profile.group_id = None;
@@ -428,7 +424,7 @@ impl Store {
         {
             let mut groups = self.groups.lock();
             if let Some(existing) = groups.iter().find(|g| g.id == group.id) {
-                if !same_group_category(existing.kind, group.kind) {
+                if existing.kind != group.kind {
                     return Err(AppError::new("a group cannot change its session kind"));
                 }
             }
@@ -438,7 +434,7 @@ impl Store {
                 }
                 match groups.iter().find(|g| &g.id == parent_id) {
                     None => return Err(AppError::new("parent group does not exist")),
-                    Some(parent) if !same_group_category(parent.kind, group.kind) => {
+                    Some(parent) if parent.kind != group.kind => {
                         return Err(AppError::new(
                             "a group can only be nested under a group of the same session kind",
                         ))
@@ -663,7 +659,7 @@ impl Store {
                 match groups.iter_mut().find(|g| g.id == group.id) {
                     // A group cannot change category: its profiles would no
                     // longer belong under it.
-                    Some(existing) if !same_group_category(existing.kind, group.kind) => continue,
+                    Some(existing) if existing.kind != group.kind => continue,
                     Some(existing) => *existing = group,
                     None => groups.push(group),
                 }
@@ -682,7 +678,7 @@ impl Store {
                 }
                 if let Some(group_id) = &profile.group_id {
                     let valid = groups.iter().any(|group| {
-                        &group.id == group_id && same_group_category(group.kind, profile.kind)
+                        &group.id == group_id && group.kind == profile.kind
                     });
                     if !valid {
                         profile.group_id = None;
@@ -921,23 +917,7 @@ pub fn redact_profile(mut profile: SessionProfile) -> SessionProfile {
     profile
 }
 
-/// The grouping namespace a session kind belongs to. FTP and SFTP are both
-/// remote-file sessions that share one Session-panel section and therefore one
-/// set of folders: a group can hold servers of either protocol. Group
-/// membership and nesting are compared by category rather than exact kind.
-/// Mirrors `groupCategory` in the frontend's `sessionGroups.ts`.
-fn group_category(kind: SessionKind) -> SessionKind {
-    match kind {
-        SessionKind::Sftp => SessionKind::Ftp,
-        other => other,
-    }
-}
-
-fn same_group_category(a: SessionKind, b: SessionKind) -> bool {
-    group_category(a) == group_category(b)
-}
-
-/// Drops parent links that point nowhere, to a group of another category, to
+/// Drops parent links that point nowhere, to a group of another kind, to
 /// the group itself or around a cycle. Detaching one link never invalidates
 /// another, so a single pass is enough.
 fn detach_invalid_parents(groups: &mut [SessionGroup]) {
@@ -950,7 +930,7 @@ fn detach_invalid_parents(groups: &mut [SessionGroup]) {
         let valid_parent = parent_id != group_id
             && groups
                 .iter()
-                .any(|group| group.id == parent_id && same_group_category(group.kind, kind));
+                .any(|group| group.id == parent_id && group.kind == kind);
         if !valid_parent || subtree_ids(groups, &group_id).contains(&parent_id) {
             groups[index].parent_id = None;
         }
@@ -1047,25 +1027,10 @@ fn open_credentials(
 }
 
 fn sync_secrets(profile: &SessionProfile, credentials: &mut HashMap<String, StoredSecrets>) {
-    if !matches!(
-        profile.kind,
-        SessionKind::Ssh | SessionKind::Ftp | SessionKind::Sftp
-    ) || (matches!(profile.kind, SessionKind::Ssh | SessionKind::Sftp)
-        && profile.auth == Some(AuthKind::Agent))
+    if !matches!(profile.kind, SessionKind::Ssh | SessionKind::Sftp)
+        || profile.auth == Some(AuthKind::Agent)
     {
         credentials.remove(&profile.id);
-        return;
-    }
-
-    if profile.kind == SessionKind::Ftp {
-        let stored = credentials.entry(profile.id.clone()).or_default();
-        stored.passphrase = None;
-        if let Some(password) = &profile.password {
-            stored.password = (!password.is_empty()).then(|| password.clone());
-        }
-        if stored.password.is_none() {
-            credentials.remove(&profile.id);
-        }
         return;
     }
 

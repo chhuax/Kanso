@@ -1620,9 +1620,9 @@ textarea:focus {
   opacity: 0.92;
 }
 
-/* --- FTP workspace -------------------------------------------------------- */
+/* --- File-transfer workspace ---------------------------------------------- */
 
-.ftp-workspace {
+.filepane-workspace {
   position: absolute;
   inset: 0;
   display: flex;
@@ -1632,13 +1632,13 @@ textarea:focus {
   background: var(--bg-terminal);
 }
 
-.ftp-workspace.is-hidden {
+.filepane-workspace.is-hidden {
   visibility: hidden;
   pointer-events: none;
   z-index: -1;
 }
 
-.ftp-session-state {
+.filepane-session-state {
   display: grid;
   flex: 1;
   place-content: center;
@@ -1647,16 +1647,16 @@ textarea:focus {
   color: var(--fg-dim);
 }
 
-.ftp-session-state strong {
+.filepane-session-state strong {
   color: var(--fg);
   font-size: 14px;
 }
 
-.ftp-session-state.is-error strong {
+.filepane-session-state.is-error strong {
   color: var(--red);
 }
 
-.ftp-dual-pane {
+.filepane-dual-pane {
   display: grid;
   flex: 1;
   min-height: 0;
@@ -1664,7 +1664,7 @@ textarea:focus {
   background: var(--bg-app);
 }
 
-.ftp-file-browser {
+.filepane-file-browser {
   display: flex;
   min-width: 0;
   min-height: 0;
@@ -1673,7 +1673,7 @@ textarea:focus {
   background: var(--bg-panel);
 }
 
-.ftp-browser-header {
+.filepane-browser-header {
   display: flex;
   flex: 0 0 48px;
   align-items: center;
@@ -1684,38 +1684,38 @@ textarea:focus {
   border-bottom: 1px solid var(--border);
 }
 
-.ftp-browser-header > div:first-child {
+.filepane-browser-header > div:first-child {
   display: flex;
   min-width: 0;
   flex-direction: column;
   gap: 1px;
 }
 
-.ftp-browser-header strong,
-.ftp-browser-header span {
+.filepane-browser-header strong,
+.filepane-browser-header span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.ftp-browser-header strong {
+.filepane-browser-header strong {
   color: var(--fg);
   font-size: 13px;
 }
 
-.ftp-browser-header > div:first-child > span {
+.filepane-browser-header > div:first-child > span {
   color: var(--fg-faint);
   font-size: 10px;
 }
 
-.ftp-browser-actions {
+.filepane-browser-actions {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
   gap: 2px;
 }
 
-.ftp-tool-button {
+.filepane-tool-button {
   display: inline-flex;
   width: 25px;
   height: 25px;
@@ -1726,22 +1726,22 @@ textarea:focus {
   color: var(--fg-dim);
 }
 
-.ftp-tool-button:hover:not(:disabled) {
+.filepane-tool-button:hover:not(:disabled) {
   background: var(--bg-hover);
   color: var(--fg);
 }
 
-.ftp-tool-button.is-danger:hover:not(:disabled) {
+.filepane-tool-button.is-danger:hover:not(:disabled) {
   background: color-mix(in srgb, var(--red) 12%, transparent);
   color: var(--red);
 }
 
-.ftp-tool-button:disabled {
+.filepane-tool-button:disabled {
   cursor: default;
   opacity: 0.35;
 }
 
-.ftp-browser-path {
+.filepane-browser-path {
   display: flex;
   flex: 0 0 35px;
   align-items: center;
@@ -1749,7 +1749,7 @@ textarea:focus {
   border-bottom: 1px solid var(--border);
 }
 
-.ftp-browser-path input {
+.filepane-browser-path input {
   width: 100%;
   min-width: 0;
   background: var(--bg-field);
@@ -1757,13 +1757,13 @@ textarea:focus {
   font-size: 11px;
 }
 
-.ftp-browser-columns,
-.ftp-file-row {
+.filepane-browser-columns,
+.filepane-file-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 76px 130px;
 }
 
-.ftp-browser-columns {
+.filepane-browser-columns {
   flex: 0 0 24px;
   align-items: center;
   padding: 0 9px;
@@ -1772,18 +1772,18 @@ textarea:focus {
   font-size: 10px;
 }
 
-.ftp-browser-columns span:nth-child(n + 2),
-.ftp-file-row > span:nth-child(n + 2) {
+.filepane-browser-columns span:nth-child(n + 2),
+.filepane-file-row > span:nth-child(n + 2) {
   text-align: right;
 }
 
-.ftp-browser-list {
+.filepane-browser-list {
   flex: 1;
   min-height: 0;
   overflow: auto;
 }
 
-.ftp-file-row {
+.filepane-file-row {
   min-height: 29px;
   align-items: center;
   padding: 3px 9px;
@@ -1793,22 +1793,22 @@ textarea:focus {
   cursor: default;
 }
 
-.ftp-file-row:hover {
+.filepane-file-row:hover {
   background: var(--bg-hover);
 }
 
-.ftp-file-row.is-selected {
+.filepane-file-row.is-selected {
   background: var(--bg-active);
   color: var(--fg);
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
-.ftp-file-row.is-directory .ftp-file-name {
+.filepane-file-row.is-directory .filepane-file-name {
   color: var(--dir-label);
   font-weight: 600;
 }
 
-.ftp-file-name {
+.filepane-file-name {
   display: flex;
   min-width: 0;
   align-items: center;
@@ -1816,13 +1816,13 @@ textarea:focus {
   overflow: hidden;
 }
 
-.ftp-file-name > span:last-child {
+.filepane-file-name > span:last-child {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.ftp-file-icon {
+.filepane-file-icon {
   display: inline-flex;
   flex: 0 0 16px;
   align-items: center;
@@ -1831,7 +1831,7 @@ textarea:focus {
   height: 16px;
 }
 
-.ftp-file-icon img {
+.filepane-file-icon img {
   display: block;
   width: 16px;
   height: 16px;
@@ -1839,18 +1839,18 @@ textarea:focus {
   user-select: none;
 }
 
-.ftp-browser-message {
+.filepane-browser-message {
   padding: 18px 12px;
   color: var(--fg-faint);
   text-align: center;
   white-space: pre-wrap;
 }
 
-.ftp-browser-message.is-error {
+.filepane-browser-message.is-error {
   color: var(--red);
 }
 
-.ftp-browser-footer {
+.filepane-browser-footer {
   display: flex;
   flex: 0 0 25px;
   align-items: center;
@@ -1862,14 +1862,14 @@ textarea:focus {
   font-size: 10px;
 }
 
-.ftp-browser-footer span:last-child {
+.filepane-browser-footer span:last-child {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.ftp-transfer-rail {
+.filepane-transfer-rail {
   display: flex;
   min-width: 0;
   align-items: center;
@@ -1882,7 +1882,7 @@ textarea:focus {
   background: var(--bg-app);
 }
 
-.ftp-transfer-button {
+.filepane-transfer-button {
   display: flex;
   width: 84px;
   min-height: 32px;
@@ -1897,18 +1897,18 @@ textarea:focus {
   font-size: 11px;
 }
 
-.ftp-transfer-button:hover:not(:disabled) {
+.filepane-transfer-button:hover:not(:disabled) {
   border-color: var(--accent);
   background: var(--accent-soft);
 }
 
-.ftp-transfer-button:disabled {
+.filepane-transfer-button:disabled {
   color: var(--fg-faint);
   cursor: default;
   opacity: 0.45;
 }
 
-.ftp-transfer-status {
+.filepane-transfer-status {
   display: flex;
   flex: 0 0 28px;
   align-items: center;
@@ -1919,14 +1919,14 @@ textarea:focus {
   font-size: 10px;
 }
 
-.ftp-transfer-status.has-transfer {
+.filepane-transfer-status.has-transfer {
   display: block;
   flex-basis: auto;
   min-height: 49px;
   padding: 6px 10px;
 }
 
-.ftp-transfer-summary {
+.filepane-transfer-summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1934,19 +1934,19 @@ textarea:focus {
   color: var(--fg-dim);
 }
 
-.ftp-transfer-summary span:first-child {
+.filepane-transfer-summary span:first-child {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.ftp-transfer-summary span:last-child {
+.filepane-transfer-summary span:last-child {
   flex: 0 0 auto;
   font-family: var(--font-mono);
 }
 
-.ftp-transfer-progress {
+.filepane-transfer-progress {
   height: 5px;
   margin-top: 6px;
   overflow: hidden;
@@ -1954,7 +1954,7 @@ textarea:focus {
   background: var(--border-strong);
 }
 
-.ftp-transfer-progress > span {
+.filepane-transfer-progress > span {
   display: block;
   height: 100%;
   border-radius: inherit;
@@ -1962,12 +1962,12 @@ textarea:focus {
   transition: width 80ms linear;
 }
 
-.ftp-transfer-progress > span.is-indeterminate {
+.filepane-transfer-progress > span.is-indeterminate {
   width: 35%;
-  animation: ftp-transfer-indeterminate 1.2s ease-in-out infinite alternate;
+  animation: filepane-transfer-indeterminate 1.2s ease-in-out infinite alternate;
 }
 
-.ftp-transfer-error {
+.filepane-transfer-error {
   margin-top: 4px;
   overflow: hidden;
   color: var(--red);
@@ -1975,7 +1975,7 @@ textarea:focus {
   white-space: nowrap;
 }
 
-@keyframes ftp-transfer-indeterminate {
+@keyframes filepane-transfer-indeterminate {
   from {
     transform: translateX(-100%);
   }
@@ -1985,27 +1985,27 @@ textarea:focus {
 }
 
 @media (max-width: 800px) {
-  .ftp-dual-pane {
+  .filepane-dual-pane {
     grid-template-columns: minmax(220px, 1fr) 74px minmax(220px, 1fr);
   }
 
-  .ftp-transfer-rail {
+  .filepane-transfer-rail {
     padding: 6px;
   }
 
-  .ftp-transfer-button {
+  .filepane-transfer-button {
     width: 62px;
     flex-direction: column;
     gap: 1px;
   }
 
-  .ftp-browser-columns,
-  .ftp-file-row {
+  .filepane-browser-columns,
+  .filepane-file-row {
     grid-template-columns: minmax(0, 1fr) 64px;
   }
 
-  .ftp-browser-columns span:last-child,
-  .ftp-file-row > span:last-child {
+  .filepane-browser-columns span:last-child,
+  .filepane-file-row > span:last-child {
     display: none;
   }
 }
@@ -2767,26 +2767,6 @@ textarea:focus {
   color: var(--red);
 }
 
-/* The active session is being recorded to a file; the button opens the
-   folder. The dot is the Codicon, tinted the recording red. */
-.status-recording {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 0 4px;
-  border-radius: 4px;
-  color: var(--fg);
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-}
-.status-recording .icon {
-  color: var(--red);
-}
-.status-recording:hover {
-  background: var(--bg-hover);
-}
-
 /* The active SSH session only connected on algorithms kept for old devices;
    the tooltip names them. */
 .status-legacy {
@@ -3121,14 +3101,6 @@ textarea:focus {
   line-height: 1.3;
 }
 
-.session-dialog-subtitle {
-  overflow: hidden;
-  color: var(--fg-faint);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .session-dialog-body {
   min-height: 0;
@@ -3160,15 +3132,6 @@ textarea:focus {
   color: var(--fg-dim);
 }
 
-.session-section-heading small {
-  overflow: hidden;
-  margin-left: auto;
-  color: var(--fg-faint);
-  font-size: 10px;
-  font-weight: 400;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .session-form-grid {
   display: grid;
@@ -3241,14 +3204,6 @@ textarea:focus {
   color-scheme: inherit;
 }
 
-.session-field-hint {
-  overflow: hidden;
-  color: var(--fg-faint);
-  font-size: 10px;
-  line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 /* A hint too long for one line: a tinted block that wraps, with the icon
    saying whether it explains something or warns about it. */
@@ -3320,20 +3275,22 @@ textarea:focus {
   outline-offset: 3px;
 }
 
-.serial-port-row {
+/* 一个占满宽度的输入控件加一个方形图标按钮，例如录制文件夹那一行的
+   输入框 + 浏览按钮。 */
+.input-with-button {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
 }
 
-.serial-refresh {
+.input-with-button > .btn {
   min-width: 32px;
   width: 32px;
   padding: 0;
   color: var(--fg-dim);
 }
 
-.serial-refresh:hover {
+.input-with-button > .btn:hover {
   color: var(--fg);
 }
 
@@ -3936,14 +3893,6 @@ textarea:focus {
   white-space: nowrap;
 }
 
-.protocol-option-hint {
-  max-width: 100%;
-  overflow: hidden;
-  color: var(--fg-faint);
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 /* The SFTP / FTP sub-choice stays a segmented control: two names on one
    track, the chosen one lit in the same accent tint as the cards above. */

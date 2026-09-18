@@ -11,12 +11,11 @@ use crate::fonts::{self, FontFamily};
 use crate::fs_local;
 use crate::model::{
     AppData, CommandHistoryEntry, DataSummary, DirListing, LocalCopySummary, OpenSessionOutcome,
-    SavedCommand, SerialPortDesc, SessionGroup, SessionInfo, SessionKind, SessionProfile, Theme,
+    SavedCommand, SessionGroup, SessionInfo, SessionKind, SessionProfile, Theme,
     ZmodemFileInfo, APP_DATA_EXTENSION,
 };
 use crate::remote_edit::RemoteEdits;
 use crate::session::auth::{AuthPrompter, AuthPrompts};
-use crate::session::recording::{self, Recorder};
 use crate::session::ssh::{ConnectOutcome, SftpConnectOutcome};
 use crate::session::transfer::Transfers;
 use crate::session::{
@@ -239,45 +238,10 @@ pub async fn open_session(
     };
     let (tx, rx) = mpsc::unbounded_channel();
     let mut info = session::make_info(&id, &profile);
-    // The recording a terminal profile asked for. Opened right before the
-    // session starts producing output — after an SSH handshake, so a
-    // refused key or a wrong password leaves no empty file behind.
-    let start_recording = |info: &mut SessionInfo| -> Result<Option<Recorder>> {
-        if !profile.record {
-            return Ok(None);
-        }
-        let recorder = Recorder::start(
-            &id,
-            &profile,
-            recording::report_to_ui(app.clone(), id.clone()),
-        )?;
-        info.recording = Some(recorder.path().display().to_string());
-        Ok(Some(recorder))
-    };
 
-    let owner_thread = match profile.kind {
-        SessionKind::Ftp => {
-            let connect_profile = profile.clone();
-            let conn = tokio::task::spawn_blocking(move || session::ftp::connect(&connect_profile))
-                .await
-                .map_err(|e| AppError::new(format!("ftp connection task failed: {e}")))??;
-            session::ftp::spawn(app.clone(), id.clone(), conn, rx)?;
-            None
-        }
+    match profile.kind {
         SessionKind::Local => {
-            let recorder = start_recording(&mut info)?;
-            session::local::spawn(app.clone(), id.clone(), &profile, rx, recorder)?;
-            None
-        }
-        SessionKind::Serial => {
-            let recorder = start_recording(&mut info)?;
-            Some(session::serial::spawn(
-                app.clone(),
-                id.clone(),
-                &profile,
-                rx,
-                recorder,
-            )?)
+            session::local::spawn(app.clone(), id.clone(), &profile, rx)?;
         }
         SessionKind::Ssh => {
             let prompter = AuthPrompter::ui(&app, &state.auth_prompts, &id);
@@ -286,9 +250,7 @@ pub async fn open_session(
             {
                 ConnectOutcome::Ready(conn) => {
                     info.legacy_algorithms = conn.legacy_algorithms().to_vec();
-                    let recorder = start_recording(&mut info)?;
-                    session::ssh::spawn(app.clone(), id.clone(), conn, rx, recorder);
-                    None
+                    session::ssh::spawn(app.clone(), id.clone(), conn, rx);
                 }
                 // Nothing was opened; the user decides whether to trust the new
                 // key and the frontend retries with the same session id.
@@ -309,7 +271,6 @@ pub async fn open_session(
                 SftpConnectOutcome::Ready(conn) => {
                     info.legacy_algorithms = conn.legacy_algorithms().to_vec();
                     session::ssh::spawn_sftp(app.clone(), id.clone(), conn, rx);
-                    None
                 }
                 // Same host-key decision as a shell session on the same transport.
                 SftpConnectOutcome::HostKeyChanged(change) => {
@@ -317,13 +278,12 @@ pub async fn open_session(
                 }
             }
         }
-    };
+    }
 
     state.sessions.insert(SessionHandle {
         info: info.clone(),
         tx,
         encoding: session::encoding::terminal_encoding(&profile),
-        owner_thread,
     });
     Ok(OpenSessionOutcome::Connected { info })
 }
@@ -352,11 +312,6 @@ pub fn answer_auth_prompt(
 pub fn close_session(state: State<'_, AppState>, id: String) -> Result<()> {
     if let Some(handle) = state.sessions.remove(&id) {
         let _ = handle.tx.send(SessionCommand::Close);
-        if let Some(owner_thread) = handle.owner_thread {
-            owner_thread.join().map_err(|_| {
-                AppError::new(format!("serial session {id} panicked while closing"))
-            })?;
-        }
     }
     Ok(())
 }
@@ -364,13 +319,6 @@ pub fn close_session(state: State<'_, AppState>, id: String) -> Result<()> {
 #[tauri::command]
 pub fn list_sessions(state: State<'_, AppState>) -> Vec<SessionInfo> {
     state.sessions.list()
-}
-
-/// Where a profile's recordings go when it names no folder of its own; the
-/// session dialog shows it as the folder field's placeholder.
-#[tauri::command]
-pub fn default_recording_dir() -> String {
-    recording::default_dir().display().to_string()
 }
 
 /// The font families installed on this machine; see `fonts`. Reading the
@@ -990,13 +938,6 @@ pub fn local_rename(from: String, to: String) -> Result<()> {
 #[tauri::command]
 pub fn local_remove(path: String, is_dir: bool) -> Result<()> {
     fs_local::remove(&path, is_dir)
-}
-
-// --- serial -----------------------------------------------------------------
-
-#[tauri::command]
-pub fn list_serial_ports() -> Result<Vec<SerialPortDesc>> {
-    session::serial::list_ports()
 }
 
 // --- helpers ----------------------------------------------------------------

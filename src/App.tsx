@@ -213,20 +213,6 @@ export default function App() {
     };
   }, [addAuthPrompt]);
 
-  // A recording the backend had to give up on (disk full, folder gone) is
-  // reported against its session; the session itself carries on.
-  useEffect(() => {
-    const unlisten = api.onRecordingError(({ id, path, message }) => {
-      const store = useStore.getState();
-      store.setError(`Recording stopped: ${message} (${path})`, id);
-      const tab = store.tabs.find((item) => item.info.id === id);
-      if (tab) store.updateTabInfo(id, { ...tab.info, recording: null });
-    });
-    return () => {
-      void unlisten.then((off) => off());
-    };
-  }, []);
-
   // A tab-close prompt open underneath would race this dialog for
   // Enter/Esc (both listen on window in the capture phase), so drop it.
   const openQuitPrompt = useCallback(() => {
@@ -582,7 +568,7 @@ export default function App() {
                 ZenTerm{updater.appVersion ? ` ${updater.appVersion}` : ""}
               </strong>
               <span>
-                A small, fast terminal, SSH, SFTP, FTP and serial client. The
+                A small, fast terminal, SSH, SFTP and FTP client. The
                 installer is tiny, it starts instantly, and it stays out of
                 your way.
               </span>

@@ -39,10 +39,11 @@ interface FileBrowserProps {
   onActivate: (entry: FileEntry) => void;
 }
 
-export function FtpPane({ tab, active }: Props) {
+export function FilePane({ tab, active }: Props) {
   const sessionId = tab.info.id;
-  // The pane serves both FTP and SFTP file sessions; only the labels differ.
-  const protocolLabel = tab.info.kind === "sftp" ? "SFTP" : "FTP";
+  // The only file-session protocol left; kept as a constant because the
+  // pane labels itself in several places.
+  const protocolLabel = "SFTP";
 
   const [remoteHome, setRemoteHome] = useState("");
   const [remotePath, setRemotePath] = useState("");
@@ -75,7 +76,7 @@ export function FtpPane({ tab, active }: Props) {
         setRemoteEntries(listing.entries);
         setRemoteSelected(null);
       } catch (error) {
-        setRemoteError(friendlyFtpError(error));
+        setRemoteError(String(error));
       } finally {
         setRemoteLoading(false);
       }
@@ -108,16 +109,16 @@ export function FtpPane({ tab, active }: Props) {
 
     void (async () => {
       try {
-        const [ftpHome, machineHome] = await Promise.all([
+        const [remoteHomePath, machineHome] = await Promise.all([
           api.sftpHome(sessionId),
           api.localHome(),
         ]);
         if (cancelled) return;
-        setRemoteHome(ftpHome);
+        setRemoteHome(remoteHomePath);
         setLocalHome(machineHome);
-        await Promise.all([loadRemote(ftpHome), loadLocal(machineHome)]);
+        await Promise.all([loadRemote(remoteHomePath), loadLocal(machineHome)]);
       } catch (error) {
-        if (!cancelled) setRemoteError(friendlyFtpError(error));
+        if (!cancelled) setRemoteError(String(error));
       }
     })();
 
@@ -286,7 +287,7 @@ export function FtpPane({ tab, active }: Props) {
       await api.sftpMkdir(sessionId, joinRemote(remotePath, name));
       await loadRemote(remotePath);
     } catch (error) {
-      setRemoteError(friendlyFtpError(error));
+      setRemoteError(String(error));
     }
   };
 
@@ -303,7 +304,7 @@ export function FtpPane({ tab, active }: Props) {
       );
       await loadRemote(remotePath);
     } catch (error) {
-      setRemoteError(friendlyFtpError(error));
+      setRemoteError(String(error));
     }
   };
 
@@ -319,7 +320,7 @@ export function FtpPane({ tab, active }: Props) {
       );
       await loadRemote(remotePath);
     } catch (error) {
-      setRemoteError(friendlyFtpError(error));
+      setRemoteError(String(error));
     }
   };
 
@@ -377,9 +378,9 @@ export function FtpPane({ tab, active }: Props) {
     : null;
 
   return (
-    <div className={`ftp-workspace${active ? "" : " is-hidden"}`}>
+    <div className={`filepane-workspace${active ? "" : " is-hidden"}`}>
       {tab.state !== "connected" ? (
-        <div className={`ftp-session-state is-${tab.state}`}>
+        <div className={`filepane-session-state is-${tab.state}`}>
           <strong>
             {tab.state === "connecting"
               ? `Connecting to ${protocolLabel}…`
@@ -389,7 +390,7 @@ export function FtpPane({ tab, active }: Props) {
         </div>
       ) : (
         <>
-          <div className="ftp-dual-pane">
+          <div className="filepane-dual-pane">
             <FileBrowser
               title={`${protocolLabel} Server`}
               subtitle={tab.info.address}
@@ -436,9 +437,9 @@ export function FtpPane({ tab, active }: Props) {
               }
             />
 
-            <div className="ftp-transfer-rail" aria-label="File transfer actions">
+            <div className="filepane-transfer-rail" aria-label="File transfer actions">
               <button
-                className="ftp-transfer-button"
+                className="filepane-transfer-button"
                 onClick={() => void upload()}
                 disabled={!selectedLocal || transferring}
                 title="Upload selected local file or folder"
@@ -447,7 +448,7 @@ export function FtpPane({ tab, active }: Props) {
                 Upload
               </button>
               <button
-                className="ftp-transfer-button"
+                className="filepane-transfer-button"
                 onClick={() => void download()}
                 disabled={!selectedRemote || transferring}
                 title={`Download selected ${protocolLabel} file or folder`}
@@ -506,10 +507,10 @@ export function FtpPane({ tab, active }: Props) {
             />
           </div>
 
-          <div className={`ftp-transfer-status${transfer ? " has-transfer" : ""}`}>
+          <div className={`filepane-transfer-status${transfer ? " has-transfer" : ""}`}>
             {transfer ? (
               <>
-                <div className="ftp-transfer-summary">
+                <div className="filepane-transfer-summary">
                   <span>
                     {transfer.status === "complete"
                       ? "Complete"
@@ -525,7 +526,7 @@ export function FtpPane({ tab, active }: Props) {
                     {transfer.total > 0 ? ` / ${formatBytes(transfer.total)}` : ""}
                   </span>
                 </div>
-                <div className="ftp-transfer-progress">
+                <div className="filepane-transfer-progress">
                   <span
                     className={transferPercent === null ? "is-indeterminate" : ""}
                     style={
@@ -536,7 +537,7 @@ export function FtpPane({ tab, active }: Props) {
                   />
                 </div>
                 {transfer.message && (
-                  <div className="ftp-transfer-error">{transfer.message}</div>
+                  <div className="filepane-transfer-error">{transfer.message}</div>
                 )}
               </>
             ) : (
@@ -569,13 +570,13 @@ function FileBrowser({
 }: FileBrowserProps) {
   const theme = useStore((s) => s.theme);
   return (
-    <section className="ftp-file-browser">
-      <div className="ftp-browser-header">
+    <section className="filepane-file-browser">
+      <div className="filepane-browser-header">
         <div>
           <strong>{title}</strong>
           <span>{subtitle}</span>
         </div>
-        <div className="ftp-browser-actions">
+        <div className="filepane-browser-actions">
           <ToolButton label="Home" onClick={onHome} disabled={loading}>
             <Icon name="home" />
           </ToolButton>
@@ -589,7 +590,7 @@ function FileBrowser({
         </div>
       </div>
 
-      <div className="ftp-browser-path">
+      <div className="filepane-browser-path">
         <input
           value={draft}
           aria-label={`${title} path`}
@@ -601,31 +602,31 @@ function FileBrowser({
         />
       </div>
 
-      <div className="ftp-browser-columns">
+      <div className="filepane-browser-columns">
         <span>Name</span>
         <span>Size</span>
         <span>Modified</span>
       </div>
 
-      <div className="ftp-browser-list" role="listbox" aria-label={`${title} files`}>
-        {error && <div className="ftp-browser-message is-error">{error}</div>}
-        {!error && loading && <div className="ftp-browser-message">Loading…</div>}
+      <div className="filepane-browser-list" role="listbox" aria-label={`${title} files`}>
+        {error && <div className="filepane-browser-message is-error">{error}</div>}
+        {!error && loading && <div className="filepane-browser-message">Loading…</div>}
         {!error && !loading && entries.length === 0 && (
-          <div className="ftp-browser-message">This folder is empty.</div>
+          <div className="filepane-browser-message">This folder is empty.</div>
         )}
         {!error &&
           entries.map((entry) => (
             <div
               key={entry.path}
-              className={`ftp-file-row${selected === entry.path ? " is-selected" : ""}${entry.isDir ? " is-directory" : ""}`}
+              className={`filepane-file-row${selected === entry.path ? " is-selected" : ""}${entry.isDir ? " is-directory" : ""}`}
               role="option"
               aria-selected={selected === entry.path}
               onClick={() => onSelect(entry.path)}
               onDoubleClick={() => onActivate(entry)}
               title={entry.path}
             >
-              <span className="ftp-file-name">
-                <span className="ftp-file-icon" aria-hidden="true">
+              <span className="filepane-file-name">
+                <span className="filepane-file-icon" aria-hidden="true">
                   <FileIcon name={entry.name} isDir={entry.isDir} theme={theme} />
                 </span>
                 <span>{entry.name}</span>
@@ -635,7 +636,7 @@ function FileBrowser({
             </div>
           ))}
       </div>
-      <div className="ftp-browser-footer">
+      <div className="filepane-browser-footer">
         <span>{entries.length} items</span>
         <span>{loading ? "Loading…" : path}</span>
       </div>
@@ -658,7 +659,7 @@ function ToolButton({
 }) {
   return (
     <button
-      className={`ftp-tool-button${danger ? " is-danger" : ""}`}
+      className={`filepane-tool-button${danger ? " is-danger" : ""}`}
       title={label}
       aria-label={label}
       onClick={onClick}
@@ -704,10 +705,3 @@ function formatDate(seconds: number | null): string {
   });
 }
 
-function friendlyFtpError(error: unknown): string {
-  const message = String(error);
-  if (message.includes("Response contains an invalid syntax")) {
-    return "The FTP server returned a legacy or non-UTF-8 directory listing. Reconnect after updating ZenTerm and try again.";
-  }
-  return message;
-}

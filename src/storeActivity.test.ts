@@ -21,7 +21,6 @@ const makeTab = (id: string): Tab => ({
     address: "default shell",
     color: "#4ea1f3",
     supportsRemoteFiles: false,
-    recording: null,
     legacyAlgorithms: [],
   },
   profile: { id, name: id, kind: "local" },

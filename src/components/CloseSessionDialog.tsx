@@ -15,7 +15,7 @@ const LISTED_TABS = 6;
 /**
  * Confirmation shown before a live session tab is closed. Enter confirms and
  * Esc cancels, so a stray ⌘W or a mis-click on the tab's ✕ can no longer
- * drop an open SSH / serial / FTP session and its scrollback without asking.
+ * drop an open SSH / SFTP session and its scrollback without asking.
  */
 export function CloseSessionDialog({ tabs, onConfirm, onCancel }: Props) {
   const confirmRef = useRef<HTMLButtonElement>(null);

@@ -17,8 +17,7 @@ applyFonts(
 );
 
 // The WebView's native context menu exposes a Reload action. Reloading only
-// resets the React page while the Rust session manager (and serial handles)
-// keeps running, leaving invisible sessions behind. ZenTerm provides its own
+// resets the React page while the Rust session manager // keeps running, leaving invisible sessions behind. ZenTerm provides its own
 // context menus where needed, so suppress the native menu and its common
 // keyboard shortcuts entirely.
 document.addEventListener("contextmenu", (event) => event.preventDefault());

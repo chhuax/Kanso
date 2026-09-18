@@ -21,8 +21,8 @@ import { ContextMenu, type MenuItem } from "./ContextMenu";
 
 // The dual-pane file workspace only exists for FTP and SFTP tabs, so it loads
 // with the first one instead of with the window.
-const FtpPane = lazy(() =>
-  import("./FtpPane").then((module) => ({ default: module.FtpPane })),
+const FilePane = lazy(() =>
+  import("./FilePane").then((module) => ({ default: module.FilePane })),
 );
 
 interface Props {
@@ -60,7 +60,7 @@ export function SessionPane({ tab, visible, focused, style }: Props) {
     >
       {isFileSession(tab.info.kind) ? (
         <Suspense fallback={null}>
-          <FtpPane tab={tab} active={visible} />
+          <FilePane tab={tab} active={visible} />
         </Suspense>
       ) : (
         <TerminalHost tab={tab} visible={visible} focused={focused} />

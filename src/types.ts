@@ -1,14 +1,14 @@
-export type SessionKind = "local" | "ssh" | "ftp" | "sftp" | "serial";
+export type SessionKind = "local" | "ssh" | "sftp";
 export type AuthKind = "password" | "publicKey" | "agent";
 
 /**
  * File-transfer sessions with no interactive terminal: they open the dual-pane
  * file manager instead of an xterm, and are skipped by the Sender, search, and
- * terminal-only wiring. FTP speaks its own protocol; SFTP rides an SSH
- * transport but is likewise browse-and-transfer only.
+ * terminal-only wiring. SFTP rides an SSH transport but is browse-and-transfer
+ * only.
  */
 export function isFileSession(kind: SessionKind): boolean {
-  return kind === "ftp" || kind === "sftp";
+  return kind === "sftp";
 }
 
 /** Sessions that ride an SSH transport, and so can be or use a jump host. */
@@ -29,7 +29,7 @@ export interface SessionProfile {
    */
   groupId?: string | null;
 
-  // terminal text (local / ssh / serial)
+  // terminal text (local / ssh)
   /**
    * Character encoding of the terminal byte stream, a WHATWG label such as
    * "gbk"; null / unknown means UTF-8. See encodings.ts.
@@ -40,20 +40,11 @@ export interface SessionProfile {
    * from an SSH server. Null means automatic (see session/locale.rs).
    */
   locale?: string | null;
-  /**
-   * Whether every session opened from this profile writes the output it
-   * receives to a file, one per connection. Off unless the dialog's
-   * checkbox was ticked; see session/recording.rs.
-   */
-  record?: boolean;
-  /** Folder the recordings go to; null / empty means the app's default. */
-  recordDir?: string | null;
-
   // local
   shell?: string | null;
   cwd?: string | null;
 
-  // ssh / ftp
+  // ssh / sftp
   host?: string | null;
   port?: number | null;
   username?: string | null;
@@ -67,14 +58,6 @@ export interface SessionProfile {
    * itself name a jump host, giving a chain.
    */
   jumpProfileId?: string | null;
-
-  // serial
-  portName?: string | null;
-  baudRate?: number | null;
-  dataBits?: number | null;
-  stopBits?: number | null;
-  parity?: string | null;
-  flowControl?: string | null;
 }
 
 /**
@@ -98,8 +81,6 @@ export interface SessionInfo {
   address: string;
   color: string | null;
   supportsRemoteFiles: boolean;
-  /** Path of the file the session's output is recorded to, if it is. */
-  recording: string | null;
   /**
    * The SSH servers of this session (jump hosts first) that only connected
    * on algorithms kept for old devices; empty when none did.
@@ -179,12 +160,6 @@ export interface FileEntry {
 export interface DirListing {
   path: string;
   entries: FileEntry[];
-}
-
-export interface SerialPortDesc {
-  portName: string;
-  portType: string;
-  description: string | null;
 }
 
 export type SessionState = "connecting" | "connected" | "closed" | "error";
