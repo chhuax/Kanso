@@ -1,11 +1,7 @@
 import { useCallback, useMemo, useState, type MouseEvent } from "react";
 import { ask } from "@tauri-apps/plugin-dialog";
 
-import {
-  LOCAL_SHELL_PROFILE,
-  openSession,
-  toggleSessionConnection,
-} from "../../actions";
+import { openSession } from "../../actions";
 import * as api from "../../api";
 import { importSshConfig } from "../../dataTransfer";
 import {
@@ -15,27 +11,18 @@ import {
   effectiveGroupId,
   flattenGroups,
 } from "../../sessionGroups";
-import { tabTitle, useStore } from "../../store";
+import { useStore } from "../../store";
 import {
   colorForSession,
   type SavedCommand,
   type SessionGroup,
   type SessionProfile,
-  type SessionState,
 } from "../../types";
 import { ContextMenu, type MenuItem } from "../ContextMenu";
 import { DeleteProfileDialog } from "../DeleteProfileDialog";
 import { GroupNameDialog } from "../GroupNameDialog";
 import { Icon } from "../icons";
 import { PanelTabs, type PanelTabsProps } from "../PanelTabs";
-
-/** Tooltip of the power toggle, by the active tab's state. */
-const POWER_TITLES: Record<SessionState, string> = {
-  connected: "Disconnect",
-  connecting: "Connecting…",
-  closed: "Reconnect",
-  error: "Reconnect",
-};
 
 /** Horizontal step per tree level; the kind headings sit at level 0. */
 const INDENT = 18;
@@ -101,12 +88,6 @@ export function SessionPanel({ onEditProfile, onNewSession, tabs }: Props) {
   const upsertGroup = useStore((s) => s.upsertGroup);
   const removeGroup = useStore((s) => s.removeGroup);
   const setStatus = useStore((s) => s.setStatus);
-  // The header's power toggle acts on the active tab, like Session →
-  // Disconnect / Reconnect Session.
-  const activeTab = useStore((s) =>
-    s.tabs.find((tab) => tab.info.id === s.activeId),
-  );
-
   const [filter, setFilter] = useState("");
   /**
    * Explicit open / closed state of the tree, keyed `kind:<kind>` for
@@ -138,7 +119,7 @@ export function SessionPanel({ onEditProfile, onNewSession, tabs }: Props) {
   const tree = useMemo(() => {
     const needle = filter.trim().toLowerCase();
     const byGroup = new Map<string | null, SessionProfile[]>();
-    for (const profile of [LOCAL_SHELL_PROFILE, ...profiles]) {
+    for (const profile of profiles) {
       if (needle && !profile.name.toLowerCase().includes(needle)) continue;
       const groupId = effectiveGroupId(groups, profile);
       byGroup.set(groupId, [...(byGroup.get(groupId) ?? []), profile]);
@@ -249,7 +230,15 @@ export function SessionPanel({ onEditProfile, onNewSession, tabs }: Props) {
 
   // Right-clicking the panel's empty space. A group is not made here: it is
   // made where it is used, from the New Session dialog's Group field.
+  // Right-clicking the list is how a session is added: the header's own
+  // buttons are gone, and a group is still made from the New Session dialog.
   const panelMenu = (): MenuItem[] => [
+    {
+      label: "New Session…",
+      icon: "add",
+      action: onNewSession,
+    },
+    "separator",
     // The hosts people already `ssh` to, in bulk.
     {
       label: "Import OpenSSH Config…",
@@ -414,32 +403,6 @@ export function SessionPanel({ onEditProfile, onNewSession, tabs }: Props) {
             Session
           </div>
         )}
-        <button
-          className={`panel-action panel-power${
-            activeTab?.state === "connected" ? " is-connected" : ""
-          }`}
-          disabled={!activeTab || activeTab.state === "connecting"}
-          onClick={() => {
-            if (activeTab) toggleSessionConnection(activeTab.info.id);
-          }}
-          title={
-            activeTab
-              ? `${POWER_TITLES[activeTab.state]} · ${tabTitle(activeTab)}`
-              : "No active session"
-          }
-          aria-label={activeTab ? POWER_TITLES[activeTab.state] : "Disconnect"}
-        >
-          {/* Power symbol: an open ring with a bar through the gap. */}
-          <Icon name="plug" />
-        </button>
-        <button
-          className="panel-action"
-          onClick={onNewSession}
-          title="New session"
-          aria-label="New session"
-        >
-          <Icon name="add" />
-        </button>
       </div>
 
       <div className="panel-filter">
@@ -463,9 +426,11 @@ export function SessionPanel({ onEditProfile, onNewSession, tabs }: Props) {
             ? renderGroup(row)
             : renderProfile(row.profile, row.depth),
         )}
-        {filtering && tree.count === 0 && (
+        {tree.count === 0 && (
           <div className="panel-empty">
-            No sessions match “{filter.trim()}”.
+            {filtering
+              ? `No sessions match “{filter.trim()}”.`
+              : "Right-click here to add a session."}
           </div>
         )}
       </div>

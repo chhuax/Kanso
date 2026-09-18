@@ -134,7 +134,7 @@ export default function App() {
   const [rightTab, setRightTab] = useState<PanelName>("sessions");
   // Tucked away by the header's chevron, leaving only the rail that brings it
   // back. The panel flags are untouched, so the same tabs return.
-  const [rightCollapsed, setRightCollapsed] = useState(false);
+  const [rightCollapsed, setRightCollapsed] = useState(true);
 
   // --- backend events -------------------------------------------------------
 

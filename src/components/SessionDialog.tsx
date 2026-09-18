@@ -71,7 +71,6 @@ const PROTOCOL_OPTIONS: {
 }[] = [
   { label: "SSH", icon: "server", kinds: ["ssh"] },
   { label: "SFTP", icon: "folder", kinds: ["sftp"] },
-  { label: "Shell", icon: "terminal", kinds: ["local"] },
 ];
 
 /** The picker icon of the choice a kind belongs to; also the dialog's badge. */
