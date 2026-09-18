@@ -529,6 +529,41 @@ fn entries_of_removed_kinds_do_not_empty_the_library() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+#[test]
+fn an_export_naming_a_removed_kind_still_imports_the_rest() {
+    // The store's own files are filtered at load, but an export file is the
+    // documented way to carry sessions between installs and goes through
+    // `read_app_data` instead. One retired profile used to fail the whole
+    // file — and say "not a ZenTerm data file" while doing it.
+    let dir = temp_dir("retired-kinds-import");
+    let file = dir.join("backup.zenterm");
+    std::fs::write(
+        &file,
+        format!(
+            r#"{{"app":"{APP_DATA_APP}","format":{APP_DATA_FORMAT},
+                "profiles":[{{"id":"p1","name":"edge","kind":"ssh","host":"example.com"}},
+                            {{"id":"p2","name":"dead","kind":"ftp","host":"ftp.example.com"}}],
+                "groups":[{{"id":"g1","name":"devices","kind":"serial"}},
+                          {{"id":"g2","name":"prod","kind":"ssh"}}],
+                "senderCommands":[{{"id":"c1","name":"ls","text":"ls","ending":"lf",
+                                    "scope":{{"type":"kind","kind":"serial"}}}},
+                                  {{"id":"c2","name":"df","text":"df -h","ending":"lf",
+                                    "scope":{{"type":"global"}}}}]}}"#
+        ),
+    )
+    .expect("write legacy export");
+
+    let data = read_app_data(file.display().to_string()).expect("legacy export imports");
+    assert_eq!(data.profiles.len(), 1, "only the ssh profile survives");
+    assert_eq!(data.profiles[0].name, "edge");
+    assert_eq!(data.groups.len(), 1);
+    assert_eq!(data.groups[0].name, "prod");
+    assert_eq!(data.sender_commands.len(), 1);
+    assert_eq!(data.sender_commands[0].name, "df");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 
 fn command(name: &str, text: &str) -> SavedCommand {
     SavedCommand {

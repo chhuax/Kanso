@@ -147,7 +147,13 @@ pub fn export_app_data(
 pub fn read_app_data(path: String) -> Result<AppData> {
     require_data_file_path(&path)?;
     let raw = std::fs::read_to_string(&path)?;
-    let mut data: AppData = serde_json::from_str(&raw)
+    // An export written before FTP and serial were removed still names those
+    // kinds; they are dropped here so the rest of the file imports (see
+    // `store::strip_retired_kinds`).
+    let mut value: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|error| AppError::new(format!("not a ZenTerm data file: {error}")))?;
+    store::strip_retired_kinds(&mut value);
+    let mut data: AppData = serde_json::from_value(value)
         .map_err(|error| AppError::new(format!("not a ZenTerm data file: {error}")))?;
     store::validate_app_data(&data)?;
     data.profiles = data

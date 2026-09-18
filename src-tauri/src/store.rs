@@ -1084,11 +1084,31 @@ fn names_retired_kind(kind: Option<&serde_json::Value>) -> bool {
 fn read_array_without_retired_kinds<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
     let raw = std::fs::read_to_string(path).ok()?;
     let mut entries: Vec<serde_json::Value> = serde_json::from_str(&raw).ok()?;
+    retain_supported_kinds(&mut entries);
+    serde_json::from_value(serde_json::Value::Array(entries)).ok()
+}
+
+fn retain_supported_kinds(entries: &mut Vec<serde_json::Value>) {
     entries.retain(|entry| {
         !names_retired_kind(entry.get("kind"))
             && !names_retired_kind(entry.get("scope").and_then(|scope| scope.get("kind")))
     });
-    serde_json::from_value(serde_json::Value::Array(entries)).ok()
+}
+
+/// The same retired-kind filter for a parsed export file, applied before it is
+/// deserialized into `AppData`.
+///
+/// Import is the documented way to carry saved sessions across, so an export
+/// written before FTP and serial were removed must still bring in the sessions
+/// that remain. Without this one retired profile fails the whole file and the
+/// user is told it is "not a ZenTerm data file", which is both wrong and
+/// unrecoverable — the export cannot be edited from inside the app.
+pub fn strip_retired_kinds(data: &mut serde_json::Value) {
+    for field in ["profiles", "groups", "senderCommands"] {
+        if let Some(serde_json::Value::Array(entries)) = data.get_mut(field) {
+            retain_supported_kinds(entries);
+        }
+    }
 }
 
 fn credentials_path_for(path: &Path) -> PathBuf {
