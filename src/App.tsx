@@ -34,6 +34,7 @@ import { SshConfigImportDialog } from "./components/SshConfigImportDialog";
 import { Splitter } from "./components/Splitter";
 import { StatusBar } from "./components/StatusBar";
 import { UpdateDialog } from "./components/UpdateDialog";
+import { Icon } from "./components/icons";
 import { Workspace } from "./components/Workspace";
 import { FilerPanel } from "./components/panels/FilerPanel";
 import { SenderPanel } from "./components/panels/SenderPanel";
@@ -131,6 +132,9 @@ export default function App() {
   // Which panel the right sidebar shows; the View menu's two flags decide
   // which ones it offers (see `availableRightTabs`).
   const [rightTab, setRightTab] = useState<PanelName>("sessions");
+  // Tucked away by the header's chevron, leaving only the rail that brings it
+  // back. The panel flags are untouched, so the same tabs return.
+  const [rightCollapsed, setRightCollapsed] = useState(false);
 
   // --- backend events -------------------------------------------------------
 
@@ -382,6 +386,7 @@ export default function App() {
     active: activeRightTab,
     available: availableRightTabs,
     onSelect: setRightTab,
+    onCollapse: () => setRightCollapsed(true),
   };
 
   // The View menu and "reveal the shell's directory in the Filer" switch a
@@ -390,8 +395,13 @@ export default function App() {
   const previousPanels = useRef(panels);
   useEffect(() => {
     const previous = previousPanels.current;
-    if (panels.filer && !previous.filer) setRightTab("filer");
-    else if (panels.sessions && !previous.sessions) setRightTab("sessions");
+    if (panels.filer && !previous.filer) {
+      setRightTab("filer");
+      setRightCollapsed(false);
+    } else if (panels.sessions && !previous.sessions) {
+      setRightTab("sessions");
+      setRightCollapsed(false);
+    }
     previousPanels.current = panels;
   }, [panels]);
 
@@ -400,7 +410,10 @@ export default function App() {
   // the flag transition above only covers turning the panel on.
   const filerTarget = useStore((s) => s.filerTarget);
   useEffect(() => {
-    if (filerTarget) setRightTab("filer");
+    if (filerTarget) {
+      setRightTab("filer");
+      setRightCollapsed(false);
+    }
   }, [filerTarget]);
 
   return (
@@ -434,30 +447,41 @@ export default function App() {
           )}
         </div>
 
-        {availableRightTabs.length > 0 && (
-          <>
-            <Splitter
-              orientation="vertical"
-              onResize={(delta) =>
-                setRightWidth((width) => clamp(width - delta, 150, 520))
-              }
-            />
-            <div
-              className="sidebar sidebar-right"
-              style={{ width: rightWidth, flex: `0 0 ${rightWidth}px` }}
+        {availableRightTabs.length > 0 &&
+          (rightCollapsed ? (
+            <button
+              type="button"
+              className="sidebar-rail"
+              onClick={() => setRightCollapsed(false)}
+              title="Expand panel"
+              aria-label="Expand panel"
             >
-              {activeRightTab === "filer" ? (
-                <FilerPanel tabs={panelTabs} />
-              ) : (
-                <SessionPanel
-                  tabs={panelTabs}
-                  onNewSession={newSession}
-                  onEditProfile={(profile) => setDialog({ profile })}
-                />
-              )}
-            </div>
-          </>
-        )}
+              <Icon name="chevron-left" />
+            </button>
+          ) : (
+            <>
+              <Splitter
+                orientation="vertical"
+                onResize={(delta) =>
+                  setRightWidth((width) => clamp(width - delta, 150, 520))
+                }
+              />
+              <div
+                className="sidebar sidebar-right"
+                style={{ width: rightWidth, flex: `0 0 ${rightWidth}px` }}
+              >
+                {activeRightTab === "filer" ? (
+                  <FilerPanel tabs={panelTabs} />
+                ) : (
+                  <SessionPanel
+                    tabs={panelTabs}
+                    onNewSession={newSession}
+                    onEditProfile={(profile) => setDialog({ profile })}
+                  />
+                )}
+              </div>
+            </>
+          ))}
       </div>
 
       {panels.sender && (

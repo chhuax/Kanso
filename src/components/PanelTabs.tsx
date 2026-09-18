@@ -11,6 +11,8 @@ export interface PanelTabsProps {
   /** Panels the View menu currently offers; a hidden one gets no tab. */
   available: readonly PanelName[];
   onSelect: (panel: PanelName) => void;
+  /** Tucks the sidebar away; the rail at the window edge brings it back. */
+  onCollapse?: () => void;
 }
 
 interface Tab {
@@ -35,6 +37,7 @@ export function PanelTabs({
   active,
   available,
   onSelect,
+  onCollapse,
   filerBadge,
 }: PanelTabsProps & { filerBadge?: string }) {
   const shown = TABS.filter((tab) => available.includes(tab.id));
@@ -60,6 +63,17 @@ export function PanelTabs({
           </button>
         );
       })}
+      {onCollapse && (
+        <button
+          type="button"
+          className="panel-action panel-collapse"
+          onClick={onCollapse}
+          title="Collapse panel"
+          aria-label="Collapse panel"
+        >
+          <Icon name="chevron-right" />
+        </button>
+      )}
       <span className="panel-tabs-spacer" />
     </>
   );
