@@ -9,7 +9,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 
-import { splitSession } from "../actions";
+import { openLocalShell, splitSession } from "../actions";
 import { tabTitle, useStore, type DropTarget, type Tab } from "../store";
 import { colorForSession } from "../types";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
@@ -212,6 +212,20 @@ export function TabStrip({ paneId }: Props) {
     event.preventDefault();
     setTabMenu({ x: event.clientX, y: event.clientY, id });
   };
+
+  /**
+   * A double-click on the blank part of the strip opens a local shell — one
+   * gesture to a plain terminal, and the same thing the Session panel's Local
+   * Shell row does. The tabs and the strip's own buttons keep their own
+   * behaviour; `openLocalShell` activates this pane first, since `addTab`
+   * opens the tab in the active one.
+   */
+  const onDoubleClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+    const target = event.target as Element;
+    if (target.closest(".tab") || target.closest("button")) return;
+    void openLocalShell(paneId);
+  };
+
   const tabMenuItems = (id: string): MenuItem[] => {
     const ids = tabs.map((tab) => tab.info.id);
     const index = ids.indexOf(id);
@@ -474,6 +488,7 @@ export function TabStrip({ paneId }: Props) {
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
       onContextMenu={onContextMenu}
+      onDoubleClick={onDoubleClick}
     >
       <div className="tabstrip-fade-left" aria-hidden="true" />
       {tabs.flatMap((tab, index) => {
