@@ -33,6 +33,7 @@ import { ShortcutsDialog } from "./components/ShortcutsDialog";
 import { SshConfigImportDialog } from "./components/SshConfigImportDialog";
 import { Splitter } from "./components/Splitter";
 import { StatusBar } from "./components/StatusBar";
+import { TabRail } from "./components/TabRail";
 import { UpdateDialog } from "./components/UpdateDialog";
 import { Icon } from "./components/icons";
 import { Workspace } from "./components/Workspace";
@@ -127,6 +128,7 @@ export default function App() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [quitPromptOpen, setQuitPromptOpen] = useState(false);
 
+  const [railWidth, setRailWidth] = useState(190);
   const [rightWidth, setRightWidth] = useState(220);
   const [senderHeight, setSenderHeight] = useState(160);
   // Which panel the right sidebar shows; the View menu's two flags decide
@@ -437,6 +439,19 @@ export default function App() {
       />
 
       <div className="main">
+        <div
+          className="sidebar sidebar-left"
+          style={{ width: railWidth, flex: `0 0 ${railWidth}px` }}
+        >
+          <TabRail />
+        </div>
+        <Splitter
+          orientation="vertical"
+          onResize={(delta) =>
+            setRailWidth((width) => clamp(width + delta, 140, 380))
+          }
+        />
+
         <div className="center">
           <Workspace onNewSession={newSession} />
           {searchOpen && (
