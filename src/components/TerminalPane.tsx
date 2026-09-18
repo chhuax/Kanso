@@ -213,7 +213,7 @@ function TerminalHost({
     // The terminal already exists by the time a session is open; this only
     // waits when the xterm module is still on its way (see ensureController).
     let live = true;
-    void ensureController(id).then((controller) => {
+    void ensureController(id, tab.info.kind === "local").then((controller) => {
       if (!live) return;
       controller.attach(element);
       setTerminal(controller);

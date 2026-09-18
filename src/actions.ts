@@ -76,7 +76,11 @@ function historyHost(id: string): string {
  * session needs them until one is opened, so they arrive with the first
  * terminal instead of with the window.
  */
-export async function ensureController(id: string): Promise<TerminalController> {
+export async function ensureController(
+  id: string,
+  /** Local sessions draw a rule above each prompt; see TerminalController. */
+  dividers = false,
+): Promise<TerminalController> {
   const existing = getController(id);
   if (existing) return existing;
 
@@ -116,6 +120,7 @@ export async function ensureController(id: string): Promise<TerminalController> 
       useStore.getState().bufferFontFamily,
       useStore.getState().symbolFontFamilies,
     ),
+    dividers,
   );
   controller.setSuggestions(useStore.getState().suggestionsEnabled);
   controller.setRightClickAction(useStore.getState().rightClickAction);
@@ -135,7 +140,9 @@ export async function openSession(
   useStore
     .getState()
     .addTab(pendingSessionInfo(id, profile), profile, "connecting");
-  if (!isFileSession(profile.kind)) await ensureController(id);
+  if (!isFileSession(profile.kind)) {
+    await ensureController(id, profile.kind === "local");
+  }
   return connectSession(id, profile);
 }
 

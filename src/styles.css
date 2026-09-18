@@ -2091,10 +2091,30 @@ textarea:focus {
 }
 
 .term-host {
-  position: relative; /* anchors the completion popup */
+  position: relative; /* anchors the completion popup and the command rules */
   flex: 1;
   min-width: 0;
   padding-left: 6px;
+}
+
+/* The rule above each command's prompt, over the terminal content and placed
+   from the gutter's own render pass (see syncDividers). Local sessions only,
+   and never in the alternate buffer. */
+.term-dividers {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.term-divider {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--border);
+  pointer-events: none;
 }
 
 /* IDE-style completion popup: history commands matching the typed input,

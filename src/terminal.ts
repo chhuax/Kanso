@@ -360,6 +360,22 @@ export class TerminalController {
   private commandRunning = false;
   /** Callers waiting for the running command to return; see `waitForCommand`. */
   private commandWaiters: (() => void)[] = [];
+  /**
+   * One marker per command start, oldest first, for the rule drawn above each
+   * prompt (see `dividers`). xterm disposes the marker as its line leaves the
+   * scrollback, which is also what prunes this list.
+   */
+  private commandStarts: IMarker[] = [];
+  /** The rule layer inside the terminal's own box, and its pool of 1px lines. */
+  private dividersLayer: HTMLElement | null = null;
+  private dividerLines: HTMLElement[] = [];
+  /** What the rules were last placed for; see `syncDividers`. */
+  private dividersPainted: {
+    viewportY: number;
+    rows: number;
+    alternate: boolean;
+    starts: number;
+  } | null = null;
   /** Set while an agentic CLI (see `aiTools.ts`) owns the terminal. */
   private aiSession = false;
   /** Open from the user's input until the assistant goes quiet again. */
@@ -424,6 +440,12 @@ export class TerminalController {
     scrollback: number,
     theme: ThemeMode = "dark",
     fontFamily: string = MONO_FONT_FAMILY,
+    /**
+     * Draw a rule above each command's prompt. Local sessions only: a remote
+     * shell prints its own prompts without our integration, and Warp leaves
+     * those sessions unblocked for the same reason.
+     */
+    private readonly dividers = false,
   ) {
     this.scrollback = scrollback;
     this.themeMode = theme;
@@ -764,6 +786,11 @@ export class TerminalController {
     // against the terminal content, past the gutter, and survives
     // re-parenting above.
     this.host.appendChild(this.popup);
+    // The command rules overlay the content rather than the gutter, so they
+    // line up with the terminal's own rows. See `syncDividers`.
+    this.dividersLayer = document.createElement("div");
+    this.dividersLayer.className = "term-dividers";
+    this.host.appendChild(this.dividersLayer);
 
     // WebGL comes with being shown (setVisible); it needs the host, so a
     // terminal that was shown before it was attached loads it here.
@@ -1430,6 +1457,10 @@ export class TerminalController {
 
     this.commandMarker?.dispose();
     this.commandMarker = this.term.registerMarker(0);
+    if (this.dividers) {
+      const start = this.term.registerMarker(0);
+      if (start) this.commandStarts.push(start);
+    }
     this.commandPrompt = prompt;
     // Appending a space lets a compact bare prompt such as `$` satisfy the
     // same look-ahead rule as `$ command` in semantic coloring.
@@ -2243,7 +2274,77 @@ export class TerminalController {
     this.gutterPainted = null;
   }
 
+  /**
+   * Places a rule above every command's prompt that is on screen. Reuses the
+   * gutter's pass — same viewport, same idle bail-out, no second listener —
+   * and draws nothing in the alternate buffer, where a full-screen program
+   * owns the screen and a rule would land across its drawing (Warp skips its
+   * own block dividers there too).
+   */
+  private syncDividers() {
+    if (!this.host || !this.dividers) return;
+    if (this.cellHeight <= 0) this.measureCell();
+    if (this.cellHeight <= 0) return;
+
+    const buf = this.term.buffer.active;
+    const alternate = buf.type === "alternate";
+    const viewportY = buf.viewportY;
+    const rows = this.term.rows;
+    // Trimmed lines take their markers with them; drop the dead ones so the
+    // list stays sorted and short.
+    while (this.commandStarts.length > 0 && this.commandStarts[0].isDisposed) {
+      this.commandStarts.shift();
+    }
+    const painted = this.dividersPainted;
+    if (
+      painted &&
+      painted.viewportY === viewportY &&
+      painted.rows === rows &&
+      painted.alternate === alternate &&
+      painted.starts === this.commandStarts.length
+    ) {
+      return;
+    }
+    this.dividersPainted = {
+      viewportY,
+      rows,
+      alternate,
+      starts: this.commandStarts.length,
+    };
+
+    let used = 0;
+    if (!alternate) {
+      const last = viewportY + rows;
+      for (const marker of this.commandStarts) {
+        if (marker.isDisposed) continue;
+        // Sorted, so the first start past the viewport ends the scan.
+        if (marker.line < viewportY) continue;
+        if (marker.line >= last) break;
+        let line = this.dividerLines[used];
+        if (!line) {
+          line = document.createElement("div");
+          line.className = "term-divider";
+          this.dividersLayer?.appendChild(line);
+          this.dividerLines[used] = line;
+        }
+        line.style.display = "";
+        // A transform keeps this off the layout path, like the gutter rows.
+        line.style.transform = `translateY(${
+          (marker.line - viewportY) * this.cellHeight
+        }px)`;
+        used += 1;
+      }
+    }
+    for (let index = used; index < this.dividerLines.length; index += 1) {
+      this.dividerLines[index].style.display = "none";
+    }
+  }
+
   private syncGutter() {
+    // Same tick and same viewport as the rules, so they cost no extra
+    // listener; placed before the gutter's own off-check so turning the gutter
+    // off does not take the rules with it.
+    this.syncDividers();
     // Output that scrolled without a line feed (a full-screen program's erase)
     // may have trimmed the buffer since the last pass.
     this.followTrimmedLines();
