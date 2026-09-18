@@ -1,7 +1,11 @@
 import { useCallback, useMemo, useState, type MouseEvent } from "react";
 import { ask } from "@tauri-apps/plugin-dialog";
 
-import { openSession, toggleSessionConnection } from "../../actions";
+import {
+  LOCAL_SHELL_PROFILE,
+  openSession,
+  toggleSessionConnection,
+} from "../../actions";
 import * as api from "../../api";
 import { importSshConfig } from "../../dataTransfer";
 import {
@@ -26,13 +30,6 @@ import { ContextMenu, type MenuItem } from "../ContextMenu";
 import { DeleteProfileDialog } from "../DeleteProfileDialog";
 import { GroupNameDialog } from "../GroupNameDialog";
 import { Icon } from "../icons";
-
-export const LOCAL_SHELL_PROFILE: SessionProfile = {
-  id: "",
-  name: "Local Shell",
-  kind: "local",
-  color: "#3fb950",
-};
 
 /** Tooltip of the power toggle, by the active tab's state. */
 const POWER_TITLES: Record<SessionState, string> = {

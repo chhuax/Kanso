@@ -139,6 +139,27 @@ export async function openSession(
   return connectSession(id, profile);
 }
 
+/** The ad-hoc profile behind every "just give me a terminal" entry point. */
+export const LOCAL_SHELL_PROFILE: SessionProfile = {
+  id: "",
+  name: "Local Shell",
+  kind: "local",
+  color: "#3fb950",
+};
+
+/**
+ * Opens a local shell. Double-clicking the blank part of a tab strip and the
+ * Session panel's Local Shell row both mean this.
+ *
+ * `paneId` names the pane to open in: `addTab` uses the *active* pane, so a
+ * double-click on another pane's strip would otherwise open the tab in
+ * whichever pane happened to be active before the press.
+ */
+export async function openLocalShell(paneId?: string): Promise<string | null> {
+  if (paneId) useStore.getState().setActivePane(paneId);
+  return openSession(LOCAL_SHELL_PROFILE);
+}
+
 /**
  * Split Right / Split Down: opens another session of the tab's profile in
  * a new pane beside the tab's own — what a terminal's split means (iTerm2,
