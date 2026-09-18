@@ -707,7 +707,7 @@ function formatDate(seconds: number | null): string {
 function friendlyFtpError(error: unknown): string {
   const message = String(error);
   if (message.includes("Response contains an invalid syntax")) {
-    return "The FTP server returned a legacy or non-UTF-8 directory listing. Reconnect after updating EdgeTerm and try again.";
+    return "The FTP server returned a legacy or non-UTF-8 directory listing. Reconnect after updating ZenTerm and try again.";
   }
   return message;
 }

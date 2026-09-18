@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>EdgeTerm — Terminal, SSH, FTP &amp; Serial Client</title>
-<meta name="description" content="EdgeTerm — a fast, native terminal, SSH, FTP and serial client built with Rust + Tauri. From cloud servers to edge devices: pure-Rust SSH stack, timestamp gutter, ZMODEM transfers, auto updates.">
+<title>ZenTerm — Terminal, SSH, FTP &amp; Serial Client</title>
+<meta name="description" content="ZenTerm — a fast, native terminal, SSH, FTP and serial client built with Rust + Tauri. From cloud servers to edge devices: pure-Rust SSH stack, timestamp gutter, ZMODEM transfers, auto updates.">
 <link rel="icon" type="image/png" href="icon.png?v=2">
 <link rel="stylesheet" href="style.css">
 <style>
@@ -58,20 +58,20 @@
 <header>
   <div class="container nav">
     <a class="brand" href="./">
-      <img src="icon.png" alt="EdgeTerm logo">
-      EdgeTerm
+      <img src="icon.png" alt="ZenTerm logo">
+      ZenTerm
     </a>
     <nav class="nav-links">
       <a class="nav-item" href="tutorial.html"><span data-i18n="en">Tutorial</span><span data-i18n="zh">使用教程</span></a>
       <a class="nav-item" href="#download"><span data-i18n="en">Download</span><span data-i18n="zh">下载</span></a>
-      <a class="nav-item" href="https://github.com/miskin-lee/EdgeTerm">GitHub</a>
+      <a class="nav-item" href="http://10.66.0.60:3000/huaxin/ZenTerm">Forgejo</a>
       <button class="lang-btn" id="langBtn" type="button">中文</button>
     </nav>
   </div>
 </header>
 
 <section class="hero container">
-  <h1>EdgeTerm</h1>
+  <h1>ZenTerm</h1>
   <p class="tagline">
     <span data-i18n="en">From cloud to edge — one terminal for everything</span>
     <span data-i18n="zh">从云端到边缘，一个终端连接一切</span>
@@ -88,13 +88,13 @@
     <span class="badge">GPL-3.0 License</span>
   </div>
   <div class="cta">
-    <a class="btn btn-primary" href="https://github.com/miskin-lee/EdgeTerm/releases/latest">
+    <a class="btn btn-primary" href="http://10.66.0.60:3000/huaxin/ZenTerm/releases/latest">
       <span data-i18n="en">⬇ Download</span><span data-i18n="zh">⬇ 立即下载</span>
     </a>
     <a class="btn btn-ghost" href="tutorial.html">
       <span data-i18n="en">📖 Tutorial</span><span data-i18n="zh">📖 使用教程</span>
     </a>
-    <a class="btn btn-ghost" href="https://github.com/miskin-lee/EdgeTerm">
+    <a class="btn btn-ghost" href="http://10.66.0.60:3000/huaxin/ZenTerm">
       <span data-i18n="en">★ Star on GitHub</span><span data-i18n="zh">★ GitHub 源码</span>
     </a>
   </div>
@@ -104,7 +104,7 @@
 <div class="shot-wrap container">
   <figure>
     <div class="shot">
-      <img src="screenshot-dark.png" alt="EdgeTerm dark theme: Session panel, SSH terminal with timestamp gutter, Filer and Sender" width="3024" height="1716">
+      <img src="screenshot-dark.png" alt="ZenTerm dark theme: Session panel, SSH terminal with timestamp gutter, Filer and Sender" width="3024" height="1716">
     </div>
     <figcaption class="shot-caption">
       <span data-i18n="en">Dark theme — Session panel on the left, terminal with timestamp and line-number gutter in the middle, SFTP Filer on the right, Sender at the bottom.</span>
@@ -113,7 +113,7 @@
   </figure>
   <figure>
     <div class="shot">
-      <img src="screenshot-light.png" alt="EdgeTerm light theme: Session panel, SSH terminal with timestamp gutter, Filer and Sender" width="3024" height="1716" loading="lazy">
+      <img src="screenshot-light.png" alt="ZenTerm light theme: Session panel, SSH terminal with timestamp gutter, Filer and Sender" width="3024" height="1716" loading="lazy">
     </div>
     <figcaption class="shot-caption">
       <span data-i18n="en">Light theme.</span>
@@ -129,36 +129,36 @@
     <span data-i18n="zh">各平台原生安装包，均附带自动更新签名。</span>
   </p>
   <div class="dl-grid">
-    <a class="dl-card" href="https://github.com/miskin-lee/EdgeTerm/releases/latest">
+    <a class="dl-card" href="http://10.66.0.60:3000/huaxin/ZenTerm/releases/latest">
       <div class="os">🪟</div>
       <h3>Windows</h3>
       <p>x64 · NSIS .exe</p>
     </a>
-    <a class="dl-card" href="https://github.com/miskin-lee/EdgeTerm/releases/latest">
+    <a class="dl-card" href="http://10.66.0.60:3000/huaxin/ZenTerm/releases/latest">
       <div class="os">🍎</div>
       <h3>macOS</h3>
       <p>Apple Silicon · .dmg</p>
     </a>
-    <a class="dl-card" href="https://github.com/miskin-lee/EdgeTerm/releases/latest">
+    <a class="dl-card" href="http://10.66.0.60:3000/huaxin/ZenTerm/releases/latest">
       <div class="os">🐧</div>
       <h3>Linux</h3>
       <p>x64 / ARM64 · .AppImage / .deb</p>
     </a>
   </div>
   <p class="dl-note">
-    <span data-i18n="en">All builds on the <a href="https://github.com/miskin-lee/EdgeTerm/releases">GitHub Releases</a> page. New to EdgeTerm? Start with the <a href="tutorial.html">tutorial</a>.</span>
-    <span data-i18n="zh">全部版本见 <a href="https://github.com/miskin-lee/EdgeTerm/releases">GitHub Releases</a> 页面。第一次使用？请从<a href="tutorial.html">使用教程</a>开始。</span>
+    <span data-i18n="en">All builds on the <a href="http://10.66.0.60:3000/huaxin/ZenTerm/releases">Forgejo Releases</a> page. New to ZenTerm? Start with the <a href="tutorial.html">tutorial</a>.</span>
+    <span data-i18n="zh">全部版本见 <a href="http://10.66.0.60:3000/huaxin/ZenTerm/releases">Forgejo Releases</a> 页面。第一次使用？请从<a href="tutorial.html">使用教程</a>开始。</span>
   </p>
 </section>
 
 <footer>
   <div class="container">
     <p>
-      EdgeTerm · GPL-3.0 License ·
+      ZenTerm · GPL-3.0 License ·
       <a href="tutorial.html"><span data-i18n="en">Tutorial</span><span data-i18n="zh">使用教程</span></a> ·
-      <a href="https://github.com/miskin-lee/EdgeTerm">GitHub</a> ·
-      <a href="https://github.com/miskin-lee/EdgeTerm/blob/main/README.md">README</a> ·
-      <a href="https://github.com/miskin-lee/EdgeTerm/blob/main/README.zh-CN.md">简体中文文档</a>
+      <a href="http://10.66.0.60:3000/huaxin/ZenTerm">Forgejo</a> ·
+      <a href="http://10.66.0.60:3000/huaxin/ZenTerm/src/branch/main/README.md">README</a> ·
+      <a href="http://10.66.0.60:3000/huaxin/ZenTerm/src/branch/main/README.zh-CN.md">简体中文文档</a>
     </p>
     <p style="margin-top: 6px;">
       <span data-i18n="en">Built with Rust + Tauri.</span>

@@ -117,7 +117,7 @@ pub fn clear_command_history(state: State<'_, AppState>) -> Result<()> {
 /// Writes saved sessions, their groups, Sender tags and the frontend's
 /// settings to `path` as pretty JSON. Passwords and passphrases are never
 /// included, so the file needs no special permissions. The path must carry
-/// the `.edgeterm` extension (the UI appends it), so every data file is
+/// the `.zenterm` extension (the UI appends it), so every data file is
 /// recognisable by name.
 #[tauri::command]
 pub fn export_app_data(
@@ -139,9 +139,9 @@ pub fn export_app_data(
     })
 }
 
-/// Parses an EdgeTerm data file so the UI can show what an import would
-/// bring in before anything is merged: the name must end in `.edgeterm`, the
-/// contents must be JSON with the EdgeTerm marker and a known layout
+/// Parses a ZenTerm data file so the UI can show what an import would
+/// bring in before anything is merged: the name must end in `.zenterm`, the
+/// contents must be JSON with the ZenTerm marker and a known layout
 /// version. Credentials in the file are dropped here so they never reach
 /// the webview.
 #[tauri::command]
@@ -149,7 +149,7 @@ pub fn read_app_data(path: String) -> Result<AppData> {
     require_data_file_path(&path)?;
     let raw = std::fs::read_to_string(&path)?;
     let mut data: AppData = serde_json::from_str(&raw)
-        .map_err(|error| AppError::new(format!("not an EdgeTerm data file: {error}")))?;
+        .map_err(|error| AppError::new(format!("not a ZenTerm data file: {error}")))?;
     store::validate_app_data(&data)?;
     data.profiles = data
         .profiles
@@ -164,7 +164,7 @@ fn require_data_file_path(path: &str) -> Result<()> {
         Ok(())
     } else {
         Err(AppError::new(format!(
-            "not an EdgeTerm data file: expected a .{APP_DATA_EXTENSION} file"
+            "not a ZenTerm data file: expected a .{APP_DATA_EXTENSION} file"
         )))
     }
 }
@@ -931,7 +931,7 @@ pub fn start_file_drag(
                 &handle,
                 drag::DragItem::Files(files),
                 // The application icon stands in for the file: the platforms
-                // want a preview image and EdgeTerm ships no other bitmap the
+                // want a preview image and ZenTerm ships no other bitmap the
                 // size of a cursor.
                 drag::Image::Raw(DRAG_PREVIEW_ICON.to_vec()),
                 finished,

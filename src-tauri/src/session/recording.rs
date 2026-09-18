@@ -58,7 +58,7 @@ pub fn default_dir() -> PathBuf {
     dirs::document_dir()
         .or_else(dirs::home_dir)
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("EdgeTerm Recordings")
+        .join("ZenTerm Recordings")
 }
 
 /// One recording in progress. Dropping it ends the recording: the writer
@@ -91,7 +91,7 @@ impl Recorder {
         let (path, file) = create_file(&dir, &file_stem(&profile.name), &now)?;
 
         let header = format!(
-            "==== EdgeTerm: {} ({} {}) — recording started {} ====\r\n",
+            "==== ZenTerm: {} ({} {}) — recording started {} ====\r\n",
             profile.name,
             profile.protocol(),
             profile.address(),
@@ -105,7 +105,7 @@ impl Recorder {
             path: path.clone(),
         };
         std::thread::Builder::new()
-            .name(format!("edgeterm-record-{id}"))
+            .name(format!("zenterm-record-{id}"))
             .spawn(move || writer.run(header))
             .map_err(|e| AppError::new(format!("cannot start the recording thread: {e}")))?;
         Ok(Recorder { tx, path })
@@ -260,7 +260,7 @@ mod tests {
     use crate::model::SessionKind;
 
     fn scratch_dir() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("edgeterm-rec-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("zenterm-rec-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -310,7 +310,7 @@ mod tests {
         let contents = wait_for_trailer(&path);
         let text = String::from_utf8_lossy(&contents);
         assert!(
-            text.starts_with("==== EdgeTerm: rec: test (shell "),
+            text.starts_with("==== ZenTerm: rec: test (shell "),
             "header: {text}"
         );
         assert!(text.contains("recording started"), "{text}");
@@ -351,7 +351,7 @@ mod tests {
             .unwrap_or_else(default_dir);
         assert_eq!(dir, default_dir());
         assert!(
-            default_dir().ends_with("EdgeTerm Recordings") || default_dir().ends_with("recordings")
+            default_dir().ends_with("ZenTerm Recordings") || default_dir().ends_with("recordings")
         );
     }
 

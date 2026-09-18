@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>EdgeTerm Tutorial — How to use every feature</title>
-<meta name="description" content="A hands-on guide to every EdgeTerm feature: local shell, SSH, FTP and serial sessions, the Filer, the Sender, ZMODEM transfers, display settings, shortcuts and more.">
+<title>ZenTerm Tutorial — How to use every feature</title>
+<meta name="description" content="A hands-on guide to every ZenTerm feature: local shell, SSH, FTP and serial sessions, the Filer, the Sender, ZMODEM transfers, display settings, shortcuts and more.">
 <link rel="icon" type="image/png" href="icon.png?v=2">
 <link rel="stylesheet" href="style.css">
 <style>
@@ -71,13 +71,13 @@
 <header>
   <div class="container nav">
     <a class="brand" href="./">
-      <img src="icon.png" alt="EdgeTerm logo">
-      EdgeTerm
+      <img src="icon.png" alt="ZenTerm logo">
+      ZenTerm
     </a>
     <nav class="nav-links">
       <a class="nav-item is-active" href="tutorial.html"><span data-i18n="en">Tutorial</span><span data-i18n="zh">使用教程</span></a>
       <a class="nav-item" href="./#download"><span data-i18n="en">Download</span><span data-i18n="zh">下载</span></a>
-      <a class="nav-item" href="https://github.com/miskin-lee/EdgeTerm">GitHub</a>
+      <a class="nav-item" href="http://10.66.0.60:3000/huaxin/ZenTerm">Forgejo</a>
       <button class="lang-btn" id="langBtn" type="button">中文</button>
     </nav>
   </div>
@@ -104,7 +104,7 @@
   </nav>
 
   <main class="doc">
-    <h1><span data-i18n="en">EdgeTerm Tutorial</span><span data-i18n="zh">EdgeTerm 使用教程</span></h1>
+    <h1><span data-i18n="en">ZenTerm Tutorial</span><span data-i18n="zh">ZenTerm 使用教程</span></h1>
     <p class="lede">
       <span data-i18n="en">A hands-on guide to every feature — from your first connection to ZMODEM file transfers.</span>
       <span data-i18n="zh">逐个功能的实操指南 —— 从第一次连接到 ZMODEM 文件传输。</span>
@@ -117,12 +117,12 @@
     <section id="getting-started">
       <h2><span class="sec-icon">🚀</span><span data-i18n="en">Getting Started</span><span data-i18n="zh">快速上手</span></h2>
       <p>
-        <span data-i18n="en">Download the installer for your platform from <a href="https://github.com/miskin-lee/EdgeTerm/releases/latest">GitHub Releases</a>:</span>
-        <span data-i18n="zh">从 <a href="https://github.com/miskin-lee/EdgeTerm/releases/latest">GitHub Releases</a> 下载对应平台的安装包：</span>
+        <span data-i18n="en">Download the installer for your platform from <a href="http://10.66.0.60:3000/huaxin/ZenTerm/releases/latest">Forgejo Releases</a>:</span>
+        <span data-i18n="zh">从 <a href="http://10.66.0.60:3000/huaxin/ZenTerm/releases/latest">Forgejo Releases</a> 下载对应平台的安装包：</span>
       </p>
       <ul>
         <li><strong>Windows</strong> — <span data-i18n="en">run the NSIS <code>.exe</code> installer (x64).</span><span data-i18n="zh">运行 NSIS <code>.exe</code> 安装程序（x64）。</span></li>
-        <li><strong>macOS</strong> — <span data-i18n="en">open the <code>.dmg</code> and drag EdgeTerm into Applications (Apple Silicon).</span><span data-i18n="zh">打开 <code>.dmg</code>，把 EdgeTerm 拖入「应用程序」（Apple Silicon）。</span></li>
+        <li><strong>macOS</strong> — <span data-i18n="en">open the <code>.dmg</code> and drag ZenTerm into Applications (Apple Silicon).</span><span data-i18n="zh">打开 <code>.dmg</code>，把 ZenTerm 拖入「应用程序」（Apple Silicon）。</span></li>
         <li><strong>Linux</strong> — <span data-i18n="en">install the <code>.deb</code>, or <code>chmod +x</code> the <code>.AppImage</code> and run it directly (x64 / ARM64).</span><span data-i18n="zh">安装 <code>.deb</code>，或给 <code>.AppImage</code> 加执行权限（<code>chmod +x</code>）后直接运行（x64 / ARM64）。</span></li>
       </ul>
       <div class="callout warn">
@@ -203,8 +203,8 @@
 
       <h3><span data-i18n="en">Recording</span><span data-i18n="zh">录制</span></h3>
       <p>
-        <span data-i18n="en">Every terminal session (Shell, SSH, Serial) has a <strong>Recording</strong> section at the bottom of the dialog. It is off by default; tick <strong>Record this session's output to a file</strong> and pick a <strong>Folder</strong> (or leave it on the default, <em>EdgeTerm Recordings</em> in your Documents) and each connection writes a new <code>name_date_time.log</code> holding the raw output the terminal received, escape sequences included, so <code>cat</code> replays it in a terminal. Typed text appears only as the far end echoes it, so a password entered without echo is not recorded. The status bar shows <strong>REC</strong> while a recording runs; click it to open the folder.</span>
-        <span data-i18n="zh">每个终端会话（Shell、SSH、串口）的对话框底部都有 <strong>Recording</strong>（录制）一栏，默认关闭；勾选 <strong>Record this session's output to a file</strong> 并选择 <strong>Folder</strong>（留空则用默认的「文稿 / EdgeTerm Recordings」），之后每次连接都会新建一个 <code>名称_日期_时间.log</code>，内容是终端收到的原始输出（含转义序列），用 <code>cat</code> 即可在终端里回放。输入的内容只以对端回显的形式出现，不回显的密码不会被记录。录制进行中状态栏显示 <strong>REC</strong>，点击可打开所在文件夹。</span>
+        <span data-i18n="en">Every terminal session (Shell, SSH, Serial) has a <strong>Recording</strong> section at the bottom of the dialog. It is off by default; tick <strong>Record this session's output to a file</strong> and pick a <strong>Folder</strong> (or leave it on the default, <em>ZenTerm Recordings</em> in your Documents) and each connection writes a new <code>name_date_time.log</code> holding the raw output the terminal received, escape sequences included, so <code>cat</code> replays it in a terminal. Typed text appears only as the far end echoes it, so a password entered without echo is not recorded. The status bar shows <strong>REC</strong> while a recording runs; click it to open the folder.</span>
+        <span data-i18n="zh">每个终端会话（Shell、SSH、串口）的对话框底部都有 <strong>Recording</strong>（录制）一栏，默认关闭；勾选 <strong>Record this session's output to a file</strong> 并选择 <strong>Folder</strong>（留空则用默认的「文稿 / ZenTerm Recordings」），之后每次连接都会新建一个 <code>名称_日期_时间.log</code>，内容是终端收到的原始输出（含转义序列），用 <code>cat</code> 即可在终端里回放。输入的内容只以对端回显的形式出现，不回显的密码不会被记录。录制进行中状态栏显示 <strong>REC</strong>，点击可打开所在文件夹。</span>
       </p>
     </section>
 
@@ -314,8 +314,8 @@
         <span data-i18n="zh">本地 Shell、SSH 和串口终端会自动检测 ZMODEM —— 直接在终端里传文件，无需任何额外配置：</span>
       </p>
       <ul>
-        <li><span data-i18n="en"><strong>Send to the remote</strong> — run <code>rz</code> on the remote side; EdgeTerm pops up a file picker where you can select one or more local files to send.</span><span data-i18n="zh"><strong>发送到远端</strong> —— 在远端执行 <code>rz</code>，EdgeTerm 会弹出文件选择框，可选择一个或多个本地文件发送。</span></li>
-        <li><span data-i18n="en"><strong>Receive from the remote</strong> — run <code>sz &lt;file&gt;</code> on the remote side; EdgeTerm asks where to save each incoming file.</span><span data-i18n="zh"><strong>从远端接收</strong> —— 在远端执行 <code>sz &lt;文件&gt;</code>，EdgeTerm 会为每个接收的文件询问保存位置。</span></li>
+        <li><span data-i18n="en"><strong>Send to the remote</strong> — run <code>rz</code> on the remote side; ZenTerm pops up a file picker where you can select one or more local files to send.</span><span data-i18n="zh"><strong>发送到远端</strong> —— 在远端执行 <code>rz</code>，ZenTerm 会弹出文件选择框，可选择一个或多个本地文件发送。</span></li>
+        <li><span data-i18n="en"><strong>Receive from the remote</strong> — run <code>sz &lt;file&gt;</code> on the remote side; ZenTerm asks where to save each incoming file.</span><span data-i18n="zh"><strong>从远端接收</strong> —— 在远端执行 <code>sz &lt;文件&gt;</code>，ZenTerm 会为每个接收的文件询问保存位置。</span></li>
         <li><span data-i18n="en"><strong>Cancel</strong> — use <span class="menu-path">Session → Cancel ZMODEM Transfer</span> to stop an active transfer.</span><span data-i18n="zh"><strong>取消</strong> —— 通过 <span class="menu-path">Session → Cancel ZMODEM Transfer</span> 中止正在进行的传输。</span></li>
       </ul>
       <div class="callout">
@@ -345,12 +345,12 @@
     <section id="data">
       <h2><span class="sec-icon">💾</span><span data-i18n="en">Export &amp; Import</span><span data-i18n="zh">数据导出与导入</span></h2>
       <p>
-        <span data-i18n="en"><span class="menu-path">Session → Export Data…</span> saves everything you have set up into one <code>.edgeterm</code> file (plain JSON inside): saved sessions with their groups, the Sender's saved commands, and the display settings (panels, gutter mode, theme, font sizes, scrollback, command suggestions, mouse copy / paste). Use it as a backup or to move to another computer.</span>
-        <span data-i18n="zh"><span class="menu-path">Session → Export Data…</span> 把你配置好的一切保存为一个 <code>.edgeterm</code> 文件（内容为 JSON）：保存的会话及其分组、Sender 的常用命令，以及显示设置（面板显示、侧栏模式、主题、字号、回滚行数、命令建议、鼠标复制 / 粘贴）。可用于备份或迁移到另一台电脑。</span>
+        <span data-i18n="en"><span class="menu-path">Session → Export Data…</span> saves everything you have set up into one <code>.zenterm</code> file (plain JSON inside): saved sessions with their groups, the Sender's saved commands, and the display settings (panels, gutter mode, theme, font sizes, scrollback, command suggestions, mouse copy / paste). Use it as a backup or to move to another computer.</span>
+        <span data-i18n="zh"><span class="menu-path">Session → Export Data…</span> 把你配置好的一切保存为一个 <code>.zenterm</code> 文件（内容为 JSON）：保存的会话及其分组、Sender 的常用命令，以及显示设置（面板显示、侧栏模式、主题、字号、回滚行数、命令建议、鼠标复制 / 粘贴）。可用于备份或迁移到另一台电脑。</span>
       </p>
       <p>
-        <span data-i18n="en"><span class="menu-path">Session → Import Data…</span> accepts only <code>.edgeterm</code> files, checks that the contents really are an EdgeTerm export of a known version, shows what the file contains, and merges it after you confirm: entries with the same id replace the local ones, everything else is added, and nothing already on this machine is deleted. Settings in the file are applied immediately.</span>
-        <span data-i18n="zh"><span class="menu-path">Session → Import Data…</span> 只接受 <code>.edgeterm</code> 文件，并校验内容确实是已知版本的 EdgeTerm 导出，先显示其中的内容，确认后再合并：同 id 的条目覆盖本地，其余追加，本机已有的数据一律不会被删除。文件中的设置会立即生效。</span>
+        <span data-i18n="en"><span class="menu-path">Session → Import Data…</span> accepts only <code>.zenterm</code> files, checks that the contents really are a ZenTerm export of a known version, shows what the file contains, and merges it after you confirm: entries with the same id replace the local ones, everything else is added, and nothing already on this machine is deleted. Settings in the file are applied immediately.</span>
+        <span data-i18n="zh"><span class="menu-path">Session → Import Data…</span> 只接受 <code>.zenterm</code> 文件，并校验内容确实是已知版本的 ZenTerm 导出，先显示其中的内容，确认后再合并：同 id 的条目覆盖本地，其余追加，本机已有的数据一律不会被删除。文件中的设置会立即生效。</span>
       </p>
       <p class="dim">
         <span data-i18n="en">Passwords and private-key passphrases are never written to a data file, and any found in one are ignored on import — imported SSH / FTP sessions ask for their credentials again. Host names, user names and key paths are included, so treat the file as you would any configuration backup.</span>
@@ -361,8 +361,8 @@
     <section id="updates">
       <h2><span class="sec-icon">🔄</span><span data-i18n="en">Updates</span><span data-i18n="zh">自动更新</span></h2>
       <p>
-        <span data-i18n="en">EdgeTerm checks the latest GitHub Release on startup. When a newer version exists, it can download, verify, install and restart — all in-app. You can also check manually via <span class="menu-path">Help → Check for Updates…</span>.</span>
-        <span data-i18n="zh">EdgeTerm 启动时自动检查 GitHub 最新 Release。发现新版本后可在应用内完成下载、校验、安装并重启。也可以随时通过 <span class="menu-path">Help → Check for Updates…</span> 手动检查。</span>
+        <span data-i18n="en">ZenTerm checks the latest GitHub Release on startup. When a newer version exists, it can download, verify, install and restart — all in-app. You can also check manually via <span class="menu-path">Help → Check for Updates…</span>.</span>
+        <span data-i18n="zh">ZenTerm 启动时自动检查 GitHub 最新 Release。发现新版本后可在应用内完成下载、校验、安装并重启。也可以随时通过 <span class="menu-path">Help → Check for Updates…</span> 手动检查。</span>
       </p>
       <p class="dim">
         <span data-i18n="en">Update bundles are signed with a Tauri updater key and verification cannot be disabled. Supported: Windows x64, macOS Apple Silicon, Linux x64 / ARM64; Linux AppImage and DEB installs update in their original package format.</span>
@@ -403,8 +403,8 @@
         <li><span data-i18n="en"><strong>OS warning on first install</strong> — expected while releases are not notarized / Authenticode-signed; see <a href="#getting-started">Getting Started</a>.</span><span data-i18n="zh"><strong>首次安装的系统警告</strong> —— 由于版本暂未做公证 / 代码签名，属预期现象；见<a href="#getting-started">快速上手</a>。</span></li>
       </ul>
       <p>
-        <span data-i18n="en">Found a bug or want a feature? Open an issue on <a href="https://github.com/miskin-lee/EdgeTerm/issues">GitHub</a>.</span>
-        <span data-i18n="zh">发现问题或想要新功能？欢迎到 <a href="https://github.com/miskin-lee/EdgeTerm/issues">GitHub</a> 提 issue。</span>
+        <span data-i18n="en">Found a bug or want a feature? Open an issue on <a href="http://10.66.0.60:3000/huaxin/ZenTerm/issues">Forgejo</a>.</span>
+        <span data-i18n="zh">发现问题或想要新功能？欢迎到 <a href="http://10.66.0.60:3000/huaxin/ZenTerm/issues">Forgejo</a> 提 issue。</span>
       </p>
     </section>
 
@@ -414,11 +414,11 @@
 <footer>
   <div class="container">
     <p>
-      EdgeTerm · GPL-3.0 License ·
+      ZenTerm · GPL-3.0 License ·
       <a href="./"><span data-i18n="en">Home</span><span data-i18n="zh">首页</span></a> ·
-      <a href="https://github.com/miskin-lee/EdgeTerm">GitHub</a> ·
-      <a href="https://github.com/miskin-lee/EdgeTerm/blob/main/README.md">README</a> ·
-      <a href="https://github.com/miskin-lee/EdgeTerm/blob/main/README.zh-CN.md">简体中文文档</a>
+      <a href="http://10.66.0.60:3000/huaxin/ZenTerm">Forgejo</a> ·
+      <a href="http://10.66.0.60:3000/huaxin/ZenTerm/src/branch/main/README.md">README</a> ·
+      <a href="http://10.66.0.60:3000/huaxin/ZenTerm/src/branch/main/README.zh-CN.md">简体中文文档</a>
     </p>
     <p style="margin-top: 6px;">
       <span data-i18n="en">Built with Rust + Tauri.</span>

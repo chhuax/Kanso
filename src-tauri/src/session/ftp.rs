@@ -200,7 +200,7 @@ fn control_encoding_proxy(
     let remote_encoding = server_encoding.clone();
 
     std::thread::Builder::new()
-        .name("edgeterm-ftp-control-out".to_string())
+        .name("zenterm-ftp-control-out".to_string())
         .spawn(move || {
             let mut reader = BufReader::new(proxy_reader);
             loop {
@@ -221,7 +221,7 @@ fn control_encoding_proxy(
         })?;
 
     std::thread::Builder::new()
-        .name("edgeterm-ftp-control-in".to_string())
+        .name("zenterm-ftp-control-in".to_string())
         .spawn(move || {
             let mut reader = BufReader::new(remote);
             loop {
@@ -260,7 +260,7 @@ fn listing_decode_proxy(
     configure_socket(&proxy)?;
 
     std::thread::Builder::new()
-        .name("edgeterm-ftp-list-decode".to_string())
+        .name("zenterm-ftp-list-decode".to_string())
         .spawn(move || {
             let mut raw = Vec::new();
             if remote.read_to_end(&mut raw).is_ok() {
@@ -321,7 +321,7 @@ pub fn spawn(
     mut rx: UnboundedReceiver<SessionCommand>,
 ) -> Result<()> {
     std::thread::Builder::new()
-        .name(format!("edgeterm-ftp-{id}"))
+        .name(format!("zenterm-ftp-{id}"))
         .spawn(move || {
             // `open_session` marks the optimistic tab connected only after the
             // manager has inserted its command handle. Emitting that state

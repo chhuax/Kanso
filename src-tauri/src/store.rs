@@ -56,7 +56,7 @@ enum CredentialsFile {
 
 const VAULT_KDF: &str = "hkdf-sha256";
 const VAULT_CIPHER: &str = "chacha20-poly1305";
-const VAULT_INFO: &[u8] = b"EdgeTerm credentials.json v1";
+const VAULT_INFO: &[u8] = b"ZenTerm credentials.json v1";
 const VAULT_SALT_LEN: usize = 16;
 const VAULT_KEY_LEN: usize = 32;
 const VAULT_NONCE_LEN: usize = 12;
@@ -102,14 +102,14 @@ fn machine_key_material() -> &'static [u8] {
     MATERIAL.get_or_init(|| {
         let machine = machine_id().unwrap_or_else(|| {
             eprintln!(
-                "EdgeTerm: no machine id available; credentials are bound to the user name only"
+                "ZenTerm: no machine id available; credentials are bound to the user name only"
             );
             String::new()
         });
         let user = std::env::var("USER")
             .or_else(|_| std::env::var("USERNAME"))
             .unwrap_or_default();
-        format!("EdgeTerm\0{machine}\0{user}").into_bytes()
+        format!("ZenTerm\0{machine}\0{user}").into_bytes()
     })
 }
 
@@ -223,7 +223,7 @@ impl Store {
                 // are unrecoverable, so start over rather than refuse to run.
                 // The next save replaces the file.
                 Err(error) => {
-                    eprintln!("EdgeTerm: {error}; saved passwords are unavailable");
+                    eprintln!("ZenTerm: {error}; saved passwords are unavailable");
                     (HashMap::new(), VaultKey::fresh())
                 }
             },
@@ -889,24 +889,24 @@ fn write_appearance(path: &Path, appearance: &Appearance) -> Result<()> {
     write_owner_only(path, &serde_json::to_string_pretty(appearance)?)
 }
 
-/// Whether `path` carries the data-file extension (`.edgeterm`, any case).
+/// Whether `path` carries the data-file extension (`.zenterm`, any case).
 pub fn is_data_file_path(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| extension.eq_ignore_ascii_case(APP_DATA_EXTENSION))
 }
 
-/// Refuses files that are not EdgeTerm exports or come from a newer layout.
+/// Refuses files that are not ZenTerm exports or come from a newer layout.
 pub fn validate_app_data(data: &AppData) -> Result<()> {
     if data.app != APP_DATA_APP {
-        return Err(AppError::new("not an EdgeTerm data file"));
+        return Err(AppError::new("not a ZenTerm data file"));
     }
     if data.format == 0 {
-        return Err(AppError::new("not an EdgeTerm data file: missing format"));
+        return Err(AppError::new("not a ZenTerm data file: missing format"));
     }
     if data.format > APP_DATA_FORMAT {
         return Err(AppError::new(format!(
-            "this data file was written by a newer EdgeTerm (format {} > {})",
+            "this data file was written by a newer ZenTerm (format {} > {})",
             data.format, APP_DATA_FORMAT
         )));
     }
@@ -1015,7 +1015,7 @@ fn open_credentials(
 ) -> Result<(HashMap<String, StoredSecrets>, VaultKey)> {
     if envelope.kdf != VAULT_KDF || envelope.cipher != VAULT_CIPHER {
         return Err(AppError::new(
-            "credentials.json was written by a newer EdgeTerm (unknown cipher)",
+            "credentials.json was written by a newer ZenTerm (unknown cipher)",
         ));
     }
     let decode = |field: &str, value: &str| {
@@ -1137,7 +1137,7 @@ fn config_path() -> PathBuf {
         Some(dir) => dir.join("sessions.json"),
         None => dirs::config_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("EdgeTerm")
+            .join("ZenTerm")
             .join("sessions.json"),
     }
 }

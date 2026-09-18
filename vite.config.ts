@@ -18,8 +18,8 @@ export default defineConfig(async () => ({
   // the target OS, so the platform is fixed at build time and the other
   // platforms' branches are eliminated from the bundle.
   define: {
-    __EDGETERM_MAC__: JSON.stringify(targetIsMac),
-    __EDGETERM_WINDOWS__: JSON.stringify(targetIsWindows),
+    __ZENTERM_MAC__: JSON.stringify(targetIsMac),
+    __ZENTERM_WINDOWS__: JSON.stringify(targetIsWindows),
   },
 
   build: {

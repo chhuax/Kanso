@@ -112,7 +112,7 @@ export function Workspace({ onNewSession }: Props) {
                     alt=""
                     draggable={false}
                   />
-                  <h1>EdgeTerm</h1>
+                  <h1>ZenTerm</h1>
                   <p className="term-empty-hint">
                     {newSessionKey ? (
                       <>

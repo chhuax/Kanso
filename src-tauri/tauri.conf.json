@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "EdgeTerm",
+  "productName": "ZenTerm",
   "version": "../package.json",
-  "identifier": "com.edgeterm.desktop",
+  "identifier": "com.zenterm.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "EdgeTerm",
+        "title": "ZenTerm",
         "create": false,
         "width": 1440,
         "height": 900,
@@ -50,7 +50,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQzQkI2OTcxQzI3QjE1MkYKUldRdkZYdkNjV203MDV1TGsyMXplU2tyb2VZUzl0bEpMOFlWeWZzVCtsQ2tFeGkrNkpkZ29VRDUK",
       "endpoints": [
-        "https://github.com/miskin-lee/EdgeTerm/releases/latest/download/latest.json"
+        "http://10.66.0.60:3000/huaxin/ZenTerm/releases/download/latest/latest.json"
       ],
       "windows": {
         "installMode": "passive"

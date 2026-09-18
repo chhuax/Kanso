@@ -102,7 +102,7 @@ pub fn spawn(
     );
 
     std::thread::Builder::new()
-        .name(format!("edgeterm-serial-{id}"))
+        .name(format!("zenterm-serial-{id}"))
         .spawn(move || {
             let mut pump = OutputPump::new(app.clone(), id.clone(), recorder);
             let close_requested = run_owner_loop(port, rx, |bytes| {

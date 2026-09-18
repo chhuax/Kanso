@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>EdgeTerm</title>
+    <title>ZenTerm</title>
     <script>
       // The palette in styles.css is the dark one until this attribute says
       // otherwise, and the module bundle below runs too late to set it: a
@@ -11,7 +11,7 @@
       // would see a dark page for a frame (issue #35). Reads the same key
       // loadTheme() does in src/store.ts; App.tsx keeps it in step afterwards.
       try {
-        var theme = localStorage.getItem("edgeterm.theme");
+        var theme = localStorage.getItem("zenterm.theme");
         if (theme === "dark" || theme === "light") {
           document.documentElement.dataset.theme = theme;
         }

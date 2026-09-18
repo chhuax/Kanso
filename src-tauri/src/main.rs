@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    edgeterm_lib::run()
+    zenterm_lib::run()
 }

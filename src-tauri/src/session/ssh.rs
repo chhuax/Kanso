@@ -658,7 +658,7 @@ pub async fn connect(
     // Servers may ignore environment requests, but those that accept them let
     // modern CLI applications select their 24-bit color output automatically.
     let _ = channel.set_env(false, "COLORTERM", "truecolor").await;
-    let _ = channel.set_env(false, "TERM_PROGRAM", "EdgeTerm").await;
+    let _ = channel.set_env(false, "TERM_PROGRAM", "ZenTerm").await;
     // The locale the profile asks the server for, so its `ls` prints UTF-8
     // rather than octal escapes (issue #39). Applied by servers configured
     // with `AcceptEnv LANG`; see `locale::ssh_lang` for why only a locale
@@ -720,7 +720,7 @@ async fn authenticate<H: client::Handler>(
     // A router whose root password was never set is exactly that case
     // (issue #37) — dropbear lets "none" through for a blank password but
     // refuses the empty password that would be sent below, so a device every
-    // other client walks into was the one EdgeTerm could not log in to.
+    // other client walks into was the one ZenTerm could not log in to.
     if matches!(
         handle.authenticate_none(username).await?,
         AuthResult::Success
@@ -781,7 +781,7 @@ async fn authenticate<H: client::Handler>(
     ))
 }
 
-/// Why authentication stopped, when no method is left that EdgeTerm can run.
+/// Why authentication stopped, when no method is left that ZenTerm can run.
 fn auth_failure(
     auth: AuthKind,
     username: &str,
@@ -1673,7 +1673,7 @@ mod tests {
 
     impl KnownHosts {
         fn new() -> Self {
-            let dir = std::env::temp_dir().join(format!("edgeterm-test-{}", uuid::Uuid::new_v4()));
+            let dir = std::env::temp_dir().join(format!("zenterm-test-{}", uuid::Uuid::new_v4()));
             std::fs::create_dir_all(&dir).expect("create temp dir");
             KnownHosts(dir.join("known_hosts"))
         }
@@ -1710,7 +1710,7 @@ mod tests {
     }
 
     /// `user@host:port` from the environment variable `var`, as a profile
-    /// authenticating with the private key named by `EDGETERM_TEST_KEY`.
+    /// authenticating with the private key named by `ZENTERM_TEST_KEY`.
     fn profile_from_env(var: &str) -> SessionProfile {
         let spec = std::env::var(var).unwrap_or_else(|_| panic!("{var} must be user@host:port"));
         let (user, address) = spec.split_once('@').expect("user@host:port");
@@ -1722,23 +1722,23 @@ mod tests {
         profile.username = Some(user.to_string());
         profile.auth = Some(AuthKind::PublicKey);
         profile.private_key_path = Some(
-            std::env::var("EDGETERM_TEST_KEY").expect("EDGETERM_TEST_KEY names a private key"),
+            std::env::var("ZENTERM_TEST_KEY").expect("ZENTERM_TEST_KEY names a private key"),
         );
         profile
     }
 
     /// End-to-end check of a tunnelled connection against real servers, so
     /// it is ignored by default. Run it with
-    /// `EDGETERM_TEST_JUMP=user@host:port EDGETERM_TEST_TARGET=user@host:port
-    /// EDGETERM_TEST_KEY=/path/to/key cargo test -- --ignored jump_host`.
+    /// `ZENTERM_TEST_JUMP=user@host:port ZENTERM_TEST_TARGET=user@host:port
+    /// ZENTERM_TEST_KEY=/path/to/key cargo test -- --ignored jump_host`.
     /// The target must be reachable from the jump host and both must accept
     /// the key. HOME is pointed at a scratch directory so the developer's
     /// own known_hosts is never touched.
     #[tokio::test]
     #[ignore]
     async fn shell_and_sftp_open_through_a_jump_host() {
-        let jump = profile_from_env("EDGETERM_TEST_JUMP");
-        let target = profile_from_env("EDGETERM_TEST_TARGET");
+        let jump = profile_from_env("ZENTERM_TEST_JUMP");
+        let target = profile_from_env("ZENTERM_TEST_TARGET");
         let scratch = KnownHosts::new();
         let home = scratch.path().parent().expect("scratch dir").to_path_buf();
         std::fs::create_dir_all(home.join(".ssh")).expect("create .ssh");
@@ -1758,7 +1758,7 @@ mod tests {
             ConnectOutcome::HostKeyChanged(change) => panic!("{}", change.message),
         };
         conn.channel
-            .data(&b"echo edgeterm-$((40+2)); exit\n"[..])
+            .data(&b"echo zenterm-$((40+2)); exit\n"[..])
             .await
             .expect("send command");
         let mut output = Vec::new();
@@ -1767,7 +1767,7 @@ mod tests {
                 match conn.channel.wait().await {
                     Some(ChannelMsg::Data { data }) => {
                         output.extend_from_slice(&data);
-                        if output.windows(11).any(|w| w == b"edgeterm-42") {
+                        if output.windows(11).any(|w| w == b"zenterm-42") {
                             break true;
                         }
                     }
@@ -1829,16 +1829,16 @@ mod tests {
 
     /// End-to-end check of a cancelled download against a real server, so
     /// it is ignored by default. Run it with
-    /// `EDGETERM_TEST_TARGET=user@host:port EDGETERM_TEST_KEY=/path/to/key
-    /// EDGETERM_TEST_REMOTE_FILE=/path/on/server cargo test -- --ignored
+    /// `ZENTERM_TEST_TARGET=user@host:port ZENTERM_TEST_KEY=/path/to/key
+    /// ZENTERM_TEST_REMOTE_FILE=/path/on/server cargo test -- --ignored
     /// cancelled_download`. The remote file must take longer than a
     /// progress interval to copy: a few hundred MB on a local server.
     #[tokio::test]
     #[ignore]
     async fn a_cancelled_download_removes_its_partial_copy() {
-        let target = profile_from_env("EDGETERM_TEST_TARGET");
-        let remote = std::env::var("EDGETERM_TEST_REMOTE_FILE")
-            .expect("EDGETERM_TEST_REMOTE_FILE names a large remote file");
+        let target = profile_from_env("ZENTERM_TEST_TARGET");
+        let remote = std::env::var("ZENTERM_TEST_REMOTE_FILE")
+            .expect("ZENTERM_TEST_REMOTE_FILE names a large remote file");
         let scratch = KnownHosts::new();
         let home = scratch.path().parent().expect("scratch dir").to_path_buf();
         std::fs::create_dir_all(home.join(".ssh")).expect("create .ssh");
@@ -2035,7 +2035,7 @@ mod tests {
 
     impl SecretKeyFile {
         fn new(key: &PrivateKey) -> Self {
-            let dir = std::env::temp_dir().join(format!("edgeterm-test-{}", uuid::Uuid::new_v4()));
+            let dir = std::env::temp_dir().join(format!("zenterm-test-{}", uuid::Uuid::new_v4()));
             std::fs::create_dir_all(&dir).expect("create temp dir");
             let path = dir.join("id_ed25519");
             let encoded = key.to_openssh(LineEnding::LF).expect("encode key");
@@ -2297,7 +2297,7 @@ mod tests {
 
     /// A device with nothing newer than SHA-1 key exchange, CBC and SHA-1
     /// MACs (issue #60) is out of reach with russh's defaults, connects with
-    /// EdgeTerm's lists, and the session reports what it connected on.
+    /// ZenTerm's lists, and the session reports what it connected on.
     #[tokio::test]
     async fn a_device_that_only_speaks_legacy_algorithms_connects_and_says_so() {
         let offered = || Preferred {
@@ -2330,7 +2330,7 @@ mod tests {
 
         let legacy = connect_to_old_device(offered(), client_config())
             .await
-            .expect("EdgeTerm connects to the device");
+            .expect("ZenTerm connects to the device");
         assert_eq!(
             legacy,
             ["diffie-hellman-group14-sha1", "aes128-cbc", "hmac-sha1"]
@@ -2361,7 +2361,7 @@ mod tests {
         );
         let legacy = connect_to_old_device(offered(), client_config())
             .await
-            .expect("EdgeTerm connects to the switch");
+            .expect("ZenTerm connects to the switch");
         assert!(legacy.is_empty(), "{legacy:?}");
     }
 
@@ -2387,7 +2387,7 @@ mod tests {
         );
         let legacy = connect_to_old_device(offered(), client_config())
             .await
-            .expect("EdgeTerm takes the 2048-bit group");
+            .expect("ZenTerm takes the 2048-bit group");
         assert_eq!(legacy, ["diffie-hellman-group-exchange-sha1"]);
     }
 
@@ -2410,7 +2410,7 @@ mod tests {
         assert!(legacy.is_empty(), "{legacy:?}");
     }
 
-    /// EdgeTerm spells out its own lists, so a russh upgrade that adds an
+    /// ZenTerm spells out its own lists, so a russh upgrade that adds an
     /// algorithm to its defaults must not slip by unoffered.
     #[test]
     fn every_algorithm_russh_offers_by_default_is_still_offered() {
@@ -2622,7 +2622,7 @@ mod tests {
         assert!(user.lock().asked().is_empty());
     }
 
-    /// An accepted credential whose account still needs a factor EdgeTerm
+    /// An accepted credential whose account still needs a factor ZenTerm
     /// cannot run says so, rather than blaming the credential. russh's own
     /// test server cannot set the partial-success flag, so the wording is
     /// checked here rather than over a connection.

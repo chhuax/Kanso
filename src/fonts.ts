@@ -14,7 +14,7 @@ const MONO_FACES: string = IS_MAC
 /**
  * Monospace font stack for the terminal buffer and code-like UI.
  *
- * EdgeTerm ships no fonts of its own; like VS Code it renders the buffer with
+ * ZenTerm ships no fonts of its own; like VS Code it renders the buffer with
  * the platform's stock monospace face so it looks native on every machine.
  * The three stacks are VS Code's `editor.fontFamily` defaults verbatim (its
  * integrated terminal inherits the same value), picked at build time.

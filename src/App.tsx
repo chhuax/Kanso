@@ -55,7 +55,7 @@ const SessionDialog = lazy(() =>
   })),
 );
 
-const REPO_URL = "https://github.com/miskin-lee/EdgeTerm";
+const REPO_URL = "http://10.66.0.60:3000/huaxin/ZenTerm";
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
@@ -576,10 +576,10 @@ export default function App() {
             style={{ width: 380 }}
             onMouseDown={(event) => event.stopPropagation()}
           >
-            <div className="dialog-header">About EdgeTerm</div>
+            <div className="dialog-header">About ZenTerm</div>
             <div className="dialog-body" style={{ lineHeight: 1.7 }}>
               <strong>
-                EdgeTerm{updater.appVersion ? ` ${updater.appVersion}` : ""}
+                ZenTerm{updater.appVersion ? ` ${updater.appVersion}` : ""}
               </strong>
               <span>
                 A small, fast terminal, SSH, SFTP, FTP and serial client. The
@@ -598,7 +598,7 @@ export default function App() {
                     });
                   }}
                 >
-                  github.com/miskin-lee/EdgeTerm
+                  10.66.0.60:3000/huaxin/ZenTerm
                 </a>
               </span>
             </div>

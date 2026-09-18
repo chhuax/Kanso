@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.png">
-    <img src="docs/logo.png" alt="EdgeTerm" width="480">
+    <img src="docs/logo.png" alt="ZenTerm" width="480">
   </picture>
 </p>
 
@@ -9,9 +9,9 @@
 
 一个小巧、轻量、高性能的终端 / SSH / SFTP / FTP / 串口客户端，基于 **Rust + Tauri** 构建。
 
-<img src="docs/screenshot-dark.png" alt="EdgeTerm 深色主题" width="100%">
+<img src="docs/screenshot-dark.png" alt="ZenTerm 深色主题" width="100%">
 
-<img src="docs/screenshot-light.png" alt="EdgeTerm 浅色主题" width="100%">
+<img src="docs/screenshot-light.png" alt="ZenTerm 浅色主题" width="100%">
 
 ## 小巧轻量
 
@@ -35,7 +35,7 @@
 
 **老旧 SSH 设备**
 
-交换机、路由器、防火墙这类长期服役的设备，SSH 服务端往往停留在新版客户端已不再提供的算法上。EdgeTerm 照样能连：除了 NIST ECDH 曲线（`ecdh-sha2-nistp256/384/521`），还提供 SHA-1 密钥交换 `diffie-hellman-group14-sha1`、`diffie-hellman-group-exchange-sha1`、`diffie-hellman-group1-sha1`，`aes128/192/256-cbc` 加密和 `hmac-sha1` 系列 MAC，无需任何设置。它们排在所有现代算法之后，服务器只要支持更好的就会用更好的；双方的算法列表都在服务器主机密钥的签名范围内，中间人也无法剥掉好的选项、逼迫降级到旧算法。确实用到了旧算法的会话，状态栏会显示 **Legacy SSH**，鼠标悬停可看到是哪台服务器、哪些算法。如果服务器提供的算法 EdgeTerm 一个都不支持（比如只有 `ssh-dss` 主机密钥、`3des-cbc` 或 `hmac-md5`），连接会失败，并列出服务器提供的算法。
+交换机、路由器、防火墙这类长期服役的设备，SSH 服务端往往停留在新版客户端已不再提供的算法上。ZenTerm 照样能连：除了 NIST ECDH 曲线（`ecdh-sha2-nistp256/384/521`），还提供 SHA-1 密钥交换 `diffie-hellman-group14-sha1`、`diffie-hellman-group-exchange-sha1`、`diffie-hellman-group1-sha1`，`aes128/192/256-cbc` 加密和 `hmac-sha1` 系列 MAC，无需任何设置。它们排在所有现代算法之后，服务器只要支持更好的就会用更好的；双方的算法列表都在服务器主机密钥的签名范围内，中间人也无法剥掉好的选项、逼迫降级到旧算法。确实用到了旧算法的会话，状态栏会显示 **Legacy SSH**，鼠标悬停可看到是哪台服务器、哪些算法。如果服务器提供的算法 ZenTerm 一个都不支持（比如只有 `ssh-dss` 主机密钥、`3des-cbc` 或 `hmac-md5`），连接会失败，并列出服务器提供的算法。
 
 **界面**
 - **时间戳 + 行号侧栏** —— WindTerm 最有辨识度的特性，每一行输出都带 `[HH:MM:SS.SSS]` 与累计行号，光标行高亮。可在 `Session` 菜单下切换四种显示模式。
@@ -45,7 +45,7 @@
 
 **会话录制**
 
-任何终端会话（Shell、SSH、串口）都可以录制到文件：在会话对话框里勾选 **Record this session's output to a file**（默认关闭，只有手动勾选才会录），之后该会话每次连接都会在你选择的文件夹（未填时为「文稿」下的 *EdgeTerm Recordings*，portable 版为 `data/recordings`）新建一个 `<名称>_<日期>_<时间>.log`。文件内容是终端收到的原始输出（含转义序列），首尾各有一行写明会话与起止时间，用 `cat` 即可在终端里回放；你输入的内容只以对端回显的形式出现，不回显的密码不会被记录。录制进行中状态栏显示 **REC**，点击可打开所在文件夹。录制随输出实时写入、随会话关闭；建不了文件时连接会直接报错而不是悄悄不录，中途磁盘出错则会话照常继续，状态栏提示录制已停止。
+任何终端会话（Shell、SSH、串口）都可以录制到文件：在会话对话框里勾选 **Record this session's output to a file**（默认关闭，只有手动勾选才会录），之后该会话每次连接都会在你选择的文件夹（未填时为「文稿」下的 *ZenTerm Recordings*，portable 版为 `data/recordings`）新建一个 `<名称>_<日期>_<时间>.log`。文件内容是终端收到的原始输出（含转义序列），首尾各有一行写明会话与起止时间，用 `cat` 即可在终端里回放；你输入的内容只以对端回显的形式出现，不回显的密码不会被记录。录制进行中状态栏显示 **REC**，点击可打开所在文件夹。录制随输出实时写入、随会话关闭；建不了文件时连接会直接报错而不是悄悄不录，中途磁盘出错则会话照常继续，状态栏提示录制已停止。
 
 **显示设置**
 
@@ -53,7 +53,7 @@
 
 **命令补全**
 
-开启 **Edit → Command Suggestions** 后，EdgeTerm 会记住在终端里执行过的命令，输入时弹窗列出历史匹配。`↓` 进入列表，`Enter` / `Tab` 采纳，`Esc` 关闭；弹窗尚未选中任何一项时，其余按键仍照常发给 Shell，**Edit → Clear Command History…** 可清空历史。
+开启 **Edit → Command Suggestions** 后，ZenTerm 会记住在终端里执行过的命令，输入时弹窗列出历史匹配。`↓` 进入列表，`Enter` / `Tab` 采纳，`Esc` 关闭；弹窗尚未选中任何一项时，其余按键仍照常发给 Shell，**Edit → Clear Command History…** 可清空历史。
 
 **标签活动**
 
@@ -61,7 +61,7 @@
 
 **数据导出与导入**
 
-**Session → Export Data…** 把保存的会话及其分组、Sender 的常用命令和显示设置导出为一个 `.edgeterm` 文件（内容为 JSON）；**Session → Import Data…** 只接受 `.edgeterm` 文件。
+**Session → Export Data…** 把保存的会话及其分组、Sender 的常用命令和显示设置导出为一个 `.zenterm` 文件（内容为 JSON）；**Session → Import Data…** 只接受 `.zenterm` 文件。
 
 **Session → Import OpenSSH Config…**（SSH Sessions 标题上也有）读取 OpenSSH 客户端配置（默认 `~/.ssh/config`），一次把其中的 `Host` 条目变成保存的 SSH 会话，并按 `ssh` 的规则解析：`HostName`、`Port`、`User`、`IdentityFile` 以及 `Include` 的文件，`Host *` 的默认值也会应用。单跳 `ProxyJump` 会变成保存的跳板会话；多级跳板不导入（会话仍会保存，只是不带跳板）。对话框列出每个主机及其连接目标，可勾选要导入哪些、归到哪个分组；已保存过的主机会标出，导入即就地更新那个会话。配置文件里没有密码，导入的会话首次连接时会再询问。
 
@@ -104,6 +104,12 @@ XMODEM 没有可供检测的握手，需要从 **Session → File Transfer** 菜
 Release 不做 macOS 公证和 Windows Authenticode 代码签名，macOS 应用只使用 ad-hoc 签名，首次安装时系统仍可能弹出安全提示。
 
 
+## 项目来源
+
+ZenTerm 是 miskin-lee 的 [EdgeTerm](https://github.com/miskin-lee/EdgeTerm) 的修改版 fork，分叉点为 2026 年 9 月的 v0.8.3，与该项目无隶属关系、也未获其背书。改动内容见提交历史。
+
+本 fork 已关闭自动更新——上游的发布源会把它替换成 EdgeTerm。开关见 `src/updater.ts` 的 `UPDATES_ENABLED`。
+
 ## 许可证
 
-EdgeTerm 以 [GNU General Public License v3.0](LICENSE) 授权。分发的衍生作品必须以相同许可证发布并提供完整源码。
+ZenTerm 沿用 EdgeTerm 的 [GNU General Public License v3.0](LICENSE) 授权。分发的衍生作品必须以相同许可证发布并提供完整源码。

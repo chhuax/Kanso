@@ -139,7 +139,7 @@ pub fn local_hostname() -> String {
 /// Prefix of the one stdout line of [`REMOTE_CWD_SCRIPT`] that carries the
 /// answer, so anything a login shell's rc file prints (Debian's bash sources
 /// `~/.bashrc` for commands run over ssh) cannot be mistaken for it.
-const REMOTE_CWD_MARKER: &str = "EDGETERM-CWD ";
+const REMOTE_CWD_MARKER: &str = "ZENTERM-CWD ";
 
 /// POSIX `sh` script run on the server, fed through stdin of `sh` so the
 /// user's login shell (sshd runs the command through it) never parses it.
@@ -164,7 +164,7 @@ for f in $(grep -lF -- "$needle" /proc/[0-9]*/environ 2>/dev/null); do
   set -- $(sed 's/^.*) //' "$d/stat" 2>/dev/null)
   [ "${5:-0}" != 0 ] || continue
   cwd=$(readlink "/proc/$6/cwd") || exit 3
-  printf 'EDGETERM-CWD %s\n' "$cwd"
+  printf 'ZENTERM-CWD %s\n' "$cwd"
   exit 0
 done
 exit 1
@@ -207,11 +207,11 @@ mod tests {
 
     #[test]
     fn parse_takes_the_marker_line_and_ignores_rc_noise() {
-        let out = "Welcome banner from .bashrc\nEDGETERM-CWD /srv/www/app\n";
+        let out = "Welcome banner from .bashrc\nZENTERM-CWD /srv/www/app\n";
         assert_eq!(parse_remote_cwd(out, "", Some(0)).unwrap(), "/srv/www/app");
         // Spaces inside the path survive; CRLF from a pty-less channel does
         // not occur, but a stray CR would be stripped by `lines()` anyway.
-        let out = "EDGETERM-CWD /home/me/my docs\n";
+        let out = "ZENTERM-CWD /home/me/my docs\n";
         assert_eq!(parse_remote_cwd(out, "", Some(0)).unwrap(), "/home/me/my docs");
     }
 
@@ -224,7 +224,7 @@ mod tests {
         let none = parse_remote_cwd("", "sh: not found", None).unwrap_err().to_string();
         assert!(none.contains("no answer") && none.contains("sh: not found"), "{none}");
         // A marker with nothing after it is not an answer either.
-        assert!(parse_remote_cwd("EDGETERM-CWD \n", "", Some(0)).is_err());
+        assert!(parse_remote_cwd("ZENTERM-CWD \n", "", Some(0)).is_err());
     }
 
     #[cfg(unix)]
@@ -257,7 +257,7 @@ mod tests {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     fn process_cwd_reads_a_child_process_directory() {
-        let dir = std::env::temp_dir().join(format!("edgeterm-cwd-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("zenterm-cwd-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create dir");
         let mut child = std::process::Command::new("sleep")
             .arg("30")

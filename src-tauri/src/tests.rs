@@ -20,7 +20,7 @@ use crate::store::{
 };
 
 fn temp_dir(tag: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("edgeterm-test-{tag}-{}", uuid::Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("zenterm-test-{tag}-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).expect("create temp dir");
     dir
 }
@@ -916,12 +916,12 @@ fn store_import_refuses_foreign_or_newer_files() {
 
 #[test]
 fn data_files_are_recognised_by_extension_and_contents() {
-    assert_eq!(APP_DATA_EXTENSION, "edgeterm");
-    assert!(is_data_file_path(Path::new("backup.edgeterm")));
-    assert!(is_data_file_path(Path::new("/tmp/A.EDGETERM")));
+    assert_eq!(APP_DATA_EXTENSION, "zenterm");
+    assert!(is_data_file_path(Path::new("backup.zenterm")));
+    assert!(is_data_file_path(Path::new("/tmp/A.ZENTERM")));
     assert!(!is_data_file_path(Path::new("backup.json")));
-    assert!(!is_data_file_path(Path::new("edgeterm")));
-    assert!(!is_data_file_path(Path::new("backup.edgeterm.json")));
+    assert!(!is_data_file_path(Path::new("zenterm")));
+    assert!(!is_data_file_path(Path::new("backup.zenterm.json")));
 
     let dir = temp_dir("data-file");
     let store = Store::load_from(dir.join("sessions.json"));
@@ -935,20 +935,20 @@ fn data_files_are_recognised_by_extension_and_contents() {
     let json = dir.join("backup.json");
     std::fs::write(&json, &valid).expect("write json");
     let error = read_app_data(json.display().to_string()).expect_err("json refused");
-    assert!(error.to_string().contains(".edgeterm"), "{error}");
+    assert!(error.to_string().contains(".zenterm"), "{error}");
 
     // Right name, wrong contents.
-    let garbage = dir.join("garbage.edgeterm");
+    let garbage = dir.join("garbage.zenterm");
     std::fs::write(&garbage, "not json").expect("write garbage");
     assert!(read_app_data(garbage.display().to_string()).is_err());
-    let foreign = dir.join("foreign.edgeterm");
+    let foreign = dir.join("foreign.zenterm");
     std::fs::write(&foreign, r#"{"app":"Other","format":1}"#).expect("write foreign");
     assert!(read_app_data(foreign.display().to_string()).is_err());
-    let missing = dir.join("missing.edgeterm");
+    let missing = dir.join("missing.zenterm");
     assert!(read_app_data(missing.display().to_string()).is_err());
 
     // Right name and contents; a password smuggled into the file is dropped.
-    let good = dir.join("backup.edgeterm");
+    let good = dir.join("backup.zenterm");
     let smuggled = valid.replace("\"password\":null", "\"password\":\"x\"");
     assert_ne!(smuggled, valid, "the snapshot serialises an empty password");
     std::fs::write(&good, smuggled).expect("write");

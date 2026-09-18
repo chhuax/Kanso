@@ -359,7 +359,7 @@ pub struct SavedCommand {
 
 /// Marker every exported data file carries, so a stray JSON file is refused
 /// before anything is merged.
-pub const APP_DATA_APP: &str = "EdgeTerm";
+pub const APP_DATA_APP: &str = "ZenTerm";
 /// Layout version of the export file. Bump it when a change would make an
 /// older build misread a newer file; builds refuse files newer than they know.
 /// 1: initial layout. 2: Sender commands carry a `scope`. 3: Sender
@@ -369,7 +369,7 @@ pub const APP_DATA_FORMAT: u32 = 3;
 /// File extension (without the dot) every data file carries. Export appends
 /// it and import refuses anything else, so a data file is recognisable before
 /// it is opened; the contents are still plain JSON.
-pub const APP_DATA_EXTENSION: &str = "edgeterm";
+pub const APP_DATA_EXTENSION: &str = "zenterm";
 
 /// One export / import file: the frontend's settings, saved sessions with
 /// their groups, and Sender tags. Session passwords and key passphrases are

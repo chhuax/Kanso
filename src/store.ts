@@ -125,19 +125,19 @@ const DEFAULT_PANELS: Record<PanelName, boolean> = {
   sender: false,
 };
 
-const PANEL_FONT_SIZE_KEY = "edgeterm.panelFontSize";
-const BUFFER_FONT_SIZE_KEY = "edgeterm.bufferFontSize";
-const PANEL_FONT_FAMILY_KEY = "edgeterm.panelFontFamily";
-const BUFFER_FONT_FAMILY_KEY = "edgeterm.bufferFontFamily";
-const TERMINAL_SCROLLBACK_KEY = "edgeterm.terminalScrollback";
-const GUTTER_MODE_KEY = "edgeterm.gutterMode";
-const PANELS_KEY = "edgeterm.panels";
-const THEME_KEY = "edgeterm.theme";
-const SUGGESTIONS_KEY = "edgeterm.suggestions";
-const RIGHT_CLICK_KEY = "edgeterm.rightClick";
-const SHORTCUTS_KEY = "edgeterm.shortcuts";
-const CURSOR_STYLE_KEY = "edgeterm.cursorStyle";
-const CURSOR_BLINK_KEY = "edgeterm.cursorBlink";
+const PANEL_FONT_SIZE_KEY = "zenterm.panelFontSize";
+const BUFFER_FONT_SIZE_KEY = "zenterm.bufferFontSize";
+const PANEL_FONT_FAMILY_KEY = "zenterm.panelFontFamily";
+const BUFFER_FONT_FAMILY_KEY = "zenterm.bufferFontFamily";
+const TERMINAL_SCROLLBACK_KEY = "zenterm.terminalScrollback";
+const GUTTER_MODE_KEY = "zenterm.gutterMode";
+const PANELS_KEY = "zenterm.panels";
+const THEME_KEY = "zenterm.theme";
+const SUGGESTIONS_KEY = "zenterm.suggestions";
+const RIGHT_CLICK_KEY = "zenterm.rightClick";
+const SHORTCUTS_KEY = "zenterm.shortcuts";
+const CURSOR_STYLE_KEY = "zenterm.cursorStyle";
+const CURSOR_BLINK_KEY = "zenterm.cursorBlink";
 
 // Opt-in: command capture and the completion popup stay off until the user
 // enables them in the Edit menu.

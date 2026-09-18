@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.png">
-    <img src="docs/logo.png" alt="EdgeTerm" width="480">
+    <img src="docs/logo.png" alt="ZenTerm" width="480">
   </picture>
 </p>
 
@@ -9,9 +9,9 @@
 
 A small, lightweight, high-performance terminal, SSH, SFTP, FTP, and serial client, built with **Rust + Tauri**.
 
-<img src="docs/screenshot-dark.png" alt="EdgeTerm dark theme" width="100%">
+<img src="docs/screenshot-dark.png" alt="ZenTerm dark theme" width="100%">
 
-<img src="docs/screenshot-light.png" alt="EdgeTerm light theme" width="100%">
+<img src="docs/screenshot-light.png" alt="ZenTerm light theme" width="100%">
 
 ## Small and lightweight
 
@@ -35,7 +35,7 @@ A small, lightweight, high-performance terminal, SSH, SFTP, FTP, and serial clie
 
 **Older SSH servers**
 
-Switches, routers, firewalls and other long-lived devices often run SSH servers that stop at algorithms modern clients no longer offer. EdgeTerm still connects to them: besides the NIST ECDH curves (`ecdh-sha2-nistp256/384/521`), it offers the SHA-1 key exchanges `diffie-hellman-group14-sha1`, `diffie-hellman-group-exchange-sha1` and `diffie-hellman-group1-sha1`, the `aes128/192/256-cbc` ciphers and the `hmac-sha1` MACs, with no setting to change. They come after every modern algorithm, so a server that supports anything better gets that, and because both sides' algorithm lists are signed by the server's host key, nobody in between can strip the better choices to force the old ones. A session that did need one shows **Legacy SSH** in the status bar; hover over it to see which server and which algorithms. A server that offers nothing EdgeTerm supports (only `ssh-dss` host keys, `3des-cbc` or `hmac-md5`, say) is refused with the list it offered.
+Switches, routers, firewalls and other long-lived devices often run SSH servers that stop at algorithms modern clients no longer offer. ZenTerm still connects to them: besides the NIST ECDH curves (`ecdh-sha2-nistp256/384/521`), it offers the SHA-1 key exchanges `diffie-hellman-group14-sha1`, `diffie-hellman-group-exchange-sha1` and `diffie-hellman-group1-sha1`, the `aes128/192/256-cbc` ciphers and the `hmac-sha1` MACs, with no setting to change. They come after every modern algorithm, so a server that supports anything better gets that, and because both sides' algorithm lists are signed by the server's host key, nobody in between can strip the better choices to force the old ones. A session that did need one shows **Legacy SSH** in the status bar; hover over it to see which server and which algorithms. A server that offers nothing ZenTerm supports (only `ssh-dss` host keys, `3des-cbc` or `hmac-md5`, say) is refused with the list it offered.
 
 **Text encoding and locale**
 
@@ -43,7 +43,7 @@ Terminal sessions are UTF-8 unless the session dialog's **Encoding** says otherw
 
 **Session recording**
 
-Any terminal session — shell, SSH or serial — can be recorded to a file: tick **Record this session's output to a file** in the session dialog (it is off unless you turn it on) and every connection of that session writes a new file, `<name>_<date>_<time>.log`, to the folder you choose or to *EdgeTerm Recordings* in your Documents (a portable copy uses `data/recordings`). The file is the raw output the terminal received, escape sequences included, between a header and a trailer line naming the session and the times, so `cat` replays it in a terminal; what you typed appears only as the far end echoed it, so a password entered without echo is not in it. While a recording runs the status bar shows **REC**; click it to open the folder. The file is written as output arrives and closes with the session. If it cannot be created the connection fails with the reason rather than running unrecorded, and if the disk fails later the session carries on and the status bar says the recording stopped.
+Any terminal session — shell, SSH or serial — can be recorded to a file: tick **Record this session's output to a file** in the session dialog (it is off unless you turn it on) and every connection of that session writes a new file, `<name>_<date>_<time>.log`, to the folder you choose or to *ZenTerm Recordings* in your Documents (a portable copy uses `data/recordings`). The file is the raw output the terminal received, escape sequences included, between a header and a trailer line naming the session and the times, so `cat` replays it in a terminal; what you typed appears only as the far end echoed it, so a password entered without echo is not in it. While a recording runs the status bar shows **REC**; click it to open the folder. The file is written as output arrives and closes with the session. If it cannot be created the connection fails with the reason rather than running unrecorded, and if the disk fails later the session carries on and the status bar says the recording stopped.
 
 **Interface**
 - **Timestamp and line-number gutter** — WindTerm's most recognizable feature. Every output line includes `[HH:MM:SS.SSS]` and a cumulative line number, with the cursor line highlighted. Four display modes are available from the `Session` menu.
@@ -57,7 +57,7 @@ Any terminal session — shell, SSH or serial — can be recorded to a file: tic
 
 **Command suggestions**
 
-With **Edit → Command Suggestions** enabled, EdgeTerm remembers the commands you run in the terminal and shows matching history in a popup as you type. `↓` steps into the list, `Enter` / `Tab` accepts, `Esc` dismisses; while nothing in the popup is selected, every other key still reaches the shell. **Edit → Clear Command History…** clears the recorded history.
+With **Edit → Command Suggestions** enabled, ZenTerm remembers the commands you run in the terminal and shows matching history in a popup as you type. `↓` steps into the list, `Enter` / `Tab` accepts, `Esc` dismisses; while nothing in the popup is selected, every other key still reaches the shell. **Edit → Clear Command History…** clears the recorded history.
 
 **Tab activity**
 
@@ -69,7 +69,7 @@ The terminal area splits the way VS Code's editor area does: every pane has its 
 
 **Data export and import**
 
-**Session → Export Data…** writes the saved sessions and their groups, the Sender's saved commands, and the display settings to a single `.edgeterm` file (plain JSON inside); **Session → Import Data…** accepts only `.edgeterm` files.
+**Session → Export Data…** writes the saved sessions and their groups, the Sender's saved commands, and the display settings to a single `.zenterm` file (plain JSON inside); **Session → Import Data…** accepts only `.zenterm` files.
 
 **Session → Import OpenSSH Config…** (also on the SSH Sessions heading) reads an OpenSSH client configuration — `~/.ssh/config` by default — and turns its `Host` entries into saved SSH sessions in one step, resolving each the way `ssh` does: `HostName`, `Port`, `User`, `IdentityFile` and `Include`d files, with `Host *` defaults applied. A single-hop `ProxyJump` becomes a saved jump host; a multi-hop chain is not imported (the session is still saved, just without a jump host). The dialog lists every host with what it connects to and lets you pick which to import and which group to file them under; a host already saved is shown so importing it updates that session in place. Passwords are never in the file, so imported sessions ask for theirs on first connect.
 
@@ -110,14 +110,20 @@ Every shortcut above can be rebound in **View → Keyboard Shortcuts…** — cl
 | macOS Apple Silicon | `.dmg`, plus the `.app.tar.gz` bundle used by the in-app updater |
 | Linux x64 / ARM64 | `.AppImage` and `.deb` |
 
-The Windows portable zip needs no installation: it ships a `data` folder next to `EdgeTerm.exe`, and while that folder exists every setting is stored inside it, so the whole folder can move between machines or live on a removable drive (saved passwords are encrypted with a machine-bound key and do not decrypt elsewhere; sessions and settings travel fine). The AppImage likewise runs in place on Linux without installation.
+The Windows portable zip needs no installation: it ships a `data` folder next to `ZenTerm.exe`, and while that folder exists every setting is stored inside it, so the whole folder can move between machines or live on a removable drive (saved passwords are encrypted with a machine-bound key and do not decrypt elsewhere; sessions and settings travel fine). The AppImage likewise runs in place on Linux without installation.
 
 Installed copies check the latest Release on startup and can update in place; **Help → Check for Updates…** does the same on demand. A portable copy is not updated in place — it announces new versions and opens the download page instead.
 
 Releases are not notarized on macOS or code-signed with Windows Authenticode; the macOS application uses ad hoc signing only, so the operating system may show a security warning on first install.
 
+## Origin
+
+ZenTerm is a modified fork of [EdgeTerm](https://github.com/miskin-lee/EdgeTerm) by miskin-lee, taken at v0.8.3 in September 2026, and is not affiliated with or endorsed by that project. See the commit history for what was changed.
+
+Automatic updates are off in this fork: the upstream release feed would offer to replace it with EdgeTerm. See `UPDATES_ENABLED` in `src/updater.ts`.
+
 ## License
 
-EdgeTerm is licensed under the [GNU General Public License v3.0](LICENSE). Derivative works that are distributed must be released under the same license with their full source code.
+ZenTerm is licensed under the [GNU General Public License v3.0](LICENSE), inherited from EdgeTerm. Derivative works that are distributed must be released under the same license with their full source code.
 
 The interface icons are [Codicons](https://github.com/microsoft/vscode-codicons) by Microsoft, used under the Creative Commons Attribution 4.0 license.

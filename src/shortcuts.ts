@@ -422,8 +422,8 @@ export function chordLabel(binding: KeyChord | null | undefined): string {
 const RESERVED_CHORDS: { chord: KeyChord; owner: string }[] = IS_MAC
   ? [
       { chord: chord("KeyX", { meta: true }), owner: "Cut" },
-      { chord: chord("KeyQ", { meta: true }), owner: "Quit EdgeTerm" },
-      { chord: chord("KeyH", { meta: true }), owner: "Hide EdgeTerm" },
+      { chord: chord("KeyQ", { meta: true }), owner: "Quit ZenTerm" },
+      { chord: chord("KeyH", { meta: true }), owner: "Hide ZenTerm" },
       { chord: chord("KeyM", { meta: true }), owner: "Minimize" },
     ]
   : [];
