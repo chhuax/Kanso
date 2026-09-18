@@ -1,11 +1,8 @@
 pub mod auth;
 pub mod cwd;
 pub mod encoding;
-pub mod ftp;
 pub mod local;
 pub mod locale;
-pub mod recording;
-pub mod serial;
 pub mod ssh;
 pub mod transfer;
 
@@ -18,7 +15,6 @@ use serde::Serialize;
 use tauri::{ipc::Channel, AppHandle, Emitter};
 use tokio::sync::{mpsc, oneshot};
 
-use self::recording::Recorder;
 use self::transfer::CancelFlag;
 use crate::error::{AppError, Result};
 use crate::model::{DirListing, FileEntry, SessionInfo, SessionKind, SessionProfile};
@@ -95,7 +91,7 @@ pub enum SessionCommand {
     Write(Vec<u8>),
     /// Binary protocol data that needs transport-level backpressure. The
     /// owner resolves `reply` only after the bytes have actually been written
-    /// to the PTY, SSH channel, or serial port.
+    /// to the PTY or SSH channel.
     WriteConfirmed {
         data: Vec<u8>,
         reply: oneshot::Sender<Result<()>>,
@@ -122,9 +118,6 @@ pub struct SessionHandle {
     /// What the session's bytes are in; keyboard text is encoded to it by
     /// `write_text` (see `encoding`).
     pub encoding: &'static Encoding,
-    /// Serial sessions use a blocking owner thread. Joining it during close
-    /// guarantees that the OS device handle is gone before the command returns.
-    pub owner_thread: Option<std::thread::JoinHandle<()>>,
 }
 
 #[derive(Default)]
@@ -258,31 +251,24 @@ pub fn emit_state(app: &AppHandle, id: &str, state: &str, message: Option<String
 
 /// Coalesces small writes so a flood of output does not turn into a flood of
 /// IPC messages. Callers must `flush` whenever their read loop goes idle.
-/// Every byte pushed also goes to the session's recording, when the profile
-/// asked for one (see `recording`); dropping the pump ends the recording.
 pub struct OutputPump {
     app: AppHandle,
     id: String,
     buf: Vec<u8>,
-    recorder: Option<Recorder>,
 }
 
 impl OutputPump {
     const MAX: usize = 64 * 1024;
 
-    pub fn new(app: AppHandle, id: String, recorder: Option<Recorder>) -> Self {
+    pub fn new(app: AppHandle, id: String) -> Self {
         Self {
             app,
             id,
             buf: Vec::with_capacity(8192),
-            recorder,
         }
     }
 
     pub fn push(&mut self, bytes: &[u8]) {
-        if let Some(recorder) = &self.recorder {
-            recorder.write(bytes);
-        }
         self.buf.extend_from_slice(bytes);
         if self.buf.len() >= Self::MAX {
             self.flush();
@@ -365,11 +351,7 @@ pub fn make_info(id: &str, profile: &SessionProfile) -> SessionInfo {
         protocol: profile.protocol().to_string(),
         address: profile.address(),
         color: profile.color.clone(),
-        supports_remote_files: matches!(
-            profile.kind,
-            SessionKind::Ssh | SessionKind::Ftp | SessionKind::Sftp
-        ),
-        recording: None,
+        supports_remote_files: matches!(profile.kind, SessionKind::Ssh | SessionKind::Sftp),
         legacy_algorithms: Vec::new(),
     }
 }
@@ -394,12 +376,10 @@ mod tests {
                 address: "example.test:22".into(),
                 color: None,
                 supports_remote_files: true,
-                recording: None,
                 legacy_algorithms: Vec::new(),
             },
             tx,
             encoding: encoding_rs::UTF_8,
-            owner_thread: None,
         });
 
         let write_task = tokio::spawn({
@@ -442,12 +422,10 @@ mod tests {
                 address: "example.test:22".into(),
                 color: None,
                 supports_remote_files: true,
-                recording: None,
                 legacy_algorithms: Vec::new(),
             },
             tx,
             encoding: encoding_rs::GBK,
-            owner_thread: None,
         });
 
         manager.write_text("gbk", "ls 你好\r").expect("write");

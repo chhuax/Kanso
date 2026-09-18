@@ -92,15 +92,25 @@ function useWindowFlag(
 const readFullscreen = (win: TauriWindow) => win.isFullscreen();
 const readMaximized = (win: TauriWindow) => win.isMaximized();
 
-// Windows / Linux: a press on the drag region does not hand the window to
-// the OS straight away. `startDragging` gives the press to the OS move loop
-// (`WM_NCLBUTTONDOWN` / `begin_move_drag`), which takes the mouse away from
-// the webview until the button is released: the page never sees that mouseup,
-// and on Windows the loop is entered through an IPC round trip, so a
-// double-click's second press races it and is eaten by it whenever it lands
-// first — the double-click then never reaches the page. Starting the drag
-// only once the pointer has moved past a small threshold (as GTK header bars
-// do) keeps plain clicks and double-clicks entirely inside the webview; the
+// A press on the drag region does not hand the window to the OS straight
+// away. `startDragging` gives the press to the OS move loop
+// (`WM_NCLBUTTONDOWN` / `begin_move_drag` on Windows it is a modal loop;
+// `performWindowDragWithEvent:` on macOS), which takes the mouse away from the
+// webview until the button is released: the page never sees that mouseup, and
+// the command is an `async` one, so `start_dragging` reaches the OS through an
+// IPC round trip that only lands after the press itself has been dispatched.
+//
+// That round trip is what the drag cannot survive. On Windows the modal loop
+// then eats a double-click's second press whenever it lands first, so the
+// double-click never reaches the page. On macOS tao hands whatever
+// `NSApp.currentEvent` happens to be to `performWindowDragWithEvent:` without
+// checking it — the guard that would rebuild a live mouse-down
+// (`event_type == 0x15`) matches no `NSEventType`, since `LeftMouseDown` is 1
+// and 21 is unassigned — so a drag started once the press is already over is
+// not anchored to a held button and the window follows the cursor until the
+// next click. Starting the drag only once the pointer has moved past a small
+// threshold (as GTK header bars do) keeps plain clicks and double-clicks
+// entirely inside the webview and hands the OS a press that is still down; the
 // window only misses the first few pixels of travel, which is not visible.
 const DRAG_THRESHOLD_PX = 4;
 
@@ -293,7 +303,7 @@ export function MenuBar(props: Props) {
     if (activeId) fn(activeId);
   };
 
-  // File transfers run over a terminal's byte stream; (S)FTP tabs have none.
+  // File transfers run over a terminal's byte stream; SFTP tabs have none.
   const withTerminal = (fn: (terminal: TerminalController) => void) =>
     withActive((id) => {
       const terminal = getController(id);
@@ -595,16 +605,16 @@ export function MenuBar(props: Props) {
   // (everything carrying the attribute, not the menu titles) and stopped
   // before it reaches the script's document listener, which would otherwise
   // toggle through the animation-less tao path on Windows. A single press is
-  // handled per platform: on macOS it falls through to the script, which
-  // starts the native drag from the mousedown itself; on Windows / Linux it
-  // is stopped as well and the drag starts from `startDragOnMove` once the
-  // pointer actually moves (see the note above it).
+  // stopped as well, on every platform: the drag starts from `startDragOnMove`
+  // once the pointer actually moves, never from the mousedown itself (see the
+  // note above it).
   const onDragRegionMouseDown = (event: ReactMouseEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     if (!(event.target instanceof HTMLElement)) return;
     if (!event.target.hasAttribute("data-tauri-drag-region")) return;
-    // The document-level dismiss listener never sees this press (stopped
-    // here, or by the script's `stopImmediatePropagation` on macOS).
+    // The document-level dismiss listener never sees this press (stopped here,
+    // or by the script's `stopImmediatePropagation` on the platforms where the
+    // script still runs).
     setOpen(null);
     dragWatch.current?.();
     dragWatch.current = null;
@@ -620,7 +630,6 @@ export function MenuBar(props: Props) {
       void windowControl("toggle-maximize").catch(() => {});
       return;
     }
-    if (IS_MAC) return;
     // No text selection, and keyboard focus stays in the terminal.
     event.preventDefault();
     event.stopPropagation();

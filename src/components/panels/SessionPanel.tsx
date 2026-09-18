@@ -56,10 +56,6 @@ function describeProfile(
       return `${profile.username ?? ""}@${profile.host ?? ""}:${profile.port ?? 22}${via}`;
     case "sftp":
       return `${profile.username ?? ""}@${profile.host ?? ""}:${profile.port ?? 22}${via}`;
-    case "ftp":
-      return `${profile.username || "anonymous"}@${profile.host ?? ""}:${profile.port ?? 21}`;
-    case "serial":
-      return `${profile.portName ?? ""} @ ${profile.baudRate ?? 115200}`;
     default:
       return profile.shell ?? "default shell";
   }

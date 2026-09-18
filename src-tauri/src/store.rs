@@ -212,7 +212,8 @@ impl Store {
     }
 
     pub fn load_from(path: PathBuf) -> Self {
-        let mut profiles: Vec<SessionProfile> = read_json(&path).unwrap_or_default();
+        let mut profiles: Vec<SessionProfile> =
+            read_array_without_retired_kinds(&path).unwrap_or_default();
         // Older files may have contained credentials. Move them into the
         // private credential map when loading, then keep the UI copy redacted.
         let mut reseal = false;
@@ -236,9 +237,10 @@ impl Store {
             None => (HashMap::new(), VaultKey::fresh()),
         };
         let groups_path = groups_path_for(&path);
-        let groups = read_json(&groups_path).unwrap_or_default();
+        let groups = read_array_without_retired_kinds(&groups_path).unwrap_or_default();
         let sender_commands_path = sender_commands_path_for(&path);
-        let sender_commands = read_json(&sender_commands_path).unwrap_or_default();
+        let sender_commands =
+            read_array_without_retired_kinds(&sender_commands_path).unwrap_or_default();
         let command_history_path = command_history_path_for(&path);
         let command_history = read_json(&command_history_path).unwrap_or_default();
         let mut imported_legacy_credentials = false;
@@ -286,14 +288,10 @@ impl Store {
         let profile = self.profiles.lock().iter().find(|p| p.id == id).cloned();
         Ok(profile.map(|mut profile| {
             if let Some(stored) = self.credentials.lock().get(id) {
-                if profile.kind == SessionKind::Ftp {
-                    profile.password = stored.password.clone();
-                } else {
-                    match profile.auth.unwrap_or_default() {
-                        AuthKind::Password => profile.password = stored.password.clone(),
-                        AuthKind::PublicKey => profile.passphrase = stored.passphrase.clone(),
-                        AuthKind::Agent => {}
-                    }
+                match profile.auth.unwrap_or_default() {
+                    AuthKind::Password => profile.password = stored.password.clone(),
+                    AuthKind::PublicKey => profile.passphrase = stored.passphrase.clone(),
+                    AuthKind::Agent => {}
                 }
             }
             profile
@@ -367,7 +365,7 @@ impl Store {
         // editor) must not strand the profile: fall back to the section root.
         if let Some(group_id) = &profile.group_id {
             let valid = self.groups.lock().iter().any(|group| {
-                &group.id == group_id && same_group_category(group.kind, profile.kind)
+                &group.id == group_id && group.kind == profile.kind
             });
             if !valid {
                 profile.group_id = None;
@@ -428,7 +426,7 @@ impl Store {
         {
             let mut groups = self.groups.lock();
             if let Some(existing) = groups.iter().find(|g| g.id == group.id) {
-                if !same_group_category(existing.kind, group.kind) {
+                if existing.kind != group.kind {
                     return Err(AppError::new("a group cannot change its session kind"));
                 }
             }
@@ -438,7 +436,7 @@ impl Store {
                 }
                 match groups.iter().find(|g| &g.id == parent_id) {
                     None => return Err(AppError::new("parent group does not exist")),
-                    Some(parent) if !same_group_category(parent.kind, group.kind) => {
+                    Some(parent) if parent.kind != group.kind => {
                         return Err(AppError::new(
                             "a group can only be nested under a group of the same session kind",
                         ))
@@ -663,7 +661,7 @@ impl Store {
                 match groups.iter_mut().find(|g| g.id == group.id) {
                     // A group cannot change category: its profiles would no
                     // longer belong under it.
-                    Some(existing) if !same_group_category(existing.kind, group.kind) => continue,
+                    Some(existing) if existing.kind != group.kind => continue,
                     Some(existing) => *existing = group,
                     None => groups.push(group),
                 }
@@ -682,7 +680,7 @@ impl Store {
                 }
                 if let Some(group_id) = &profile.group_id {
                     let valid = groups.iter().any(|group| {
-                        &group.id == group_id && same_group_category(group.kind, profile.kind)
+                        &group.id == group_id && group.kind == profile.kind
                     });
                     if !valid {
                         profile.group_id = None;
@@ -921,23 +919,7 @@ pub fn redact_profile(mut profile: SessionProfile) -> SessionProfile {
     profile
 }
 
-/// The grouping namespace a session kind belongs to. FTP and SFTP are both
-/// remote-file sessions that share one Session-panel section and therefore one
-/// set of folders: a group can hold servers of either protocol. Group
-/// membership and nesting are compared by category rather than exact kind.
-/// Mirrors `groupCategory` in the frontend's `sessionGroups.ts`.
-fn group_category(kind: SessionKind) -> SessionKind {
-    match kind {
-        SessionKind::Sftp => SessionKind::Ftp,
-        other => other,
-    }
-}
-
-fn same_group_category(a: SessionKind, b: SessionKind) -> bool {
-    group_category(a) == group_category(b)
-}
-
-/// Drops parent links that point nowhere, to a group of another category, to
+/// Drops parent links that point nowhere, to a group of another kind, to
 /// the group itself or around a cycle. Detaching one link never invalidates
 /// another, so a single pass is enough.
 fn detach_invalid_parents(groups: &mut [SessionGroup]) {
@@ -950,7 +932,7 @@ fn detach_invalid_parents(groups: &mut [SessionGroup]) {
         let valid_parent = parent_id != group_id
             && groups
                 .iter()
-                .any(|group| group.id == parent_id && same_group_category(group.kind, kind));
+                .any(|group| group.id == parent_id && group.kind == kind);
         if !valid_parent || subtree_ids(groups, &group_id).contains(&parent_id) {
             groups[index].parent_id = None;
         }
@@ -1047,25 +1029,10 @@ fn open_credentials(
 }
 
 fn sync_secrets(profile: &SessionProfile, credentials: &mut HashMap<String, StoredSecrets>) {
-    if !matches!(
-        profile.kind,
-        SessionKind::Ssh | SessionKind::Ftp | SessionKind::Sftp
-    ) || (matches!(profile.kind, SessionKind::Ssh | SessionKind::Sftp)
-        && profile.auth == Some(AuthKind::Agent))
+    if !matches!(profile.kind, SessionKind::Ssh | SessionKind::Sftp)
+        || profile.auth == Some(AuthKind::Agent)
     {
         credentials.remove(&profile.id);
-        return;
-    }
-
-    if profile.kind == SessionKind::Ftp {
-        let stored = credentials.entry(profile.id.clone()).or_default();
-        stored.passphrase = None;
-        if let Some(password) = &profile.password {
-            stored.password = (!password.is_empty()).then(|| password.clone());
-        }
-        if stored.password.is_none() {
-            credentials.remove(&profile.id);
-        }
         return;
     }
 
@@ -1095,6 +1062,53 @@ fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
     std::fs::read_to_string(path)
         .ok()
         .and_then(|raw| serde_json::from_str(&raw).ok())
+}
+
+/// Session kinds this build no longer supports. A file written by an older
+/// build can still name one, and `SessionKind` rejects an unknown variant —
+/// which fails the whole array the entry appears in. `read_json` turns any
+/// error into "no file", so a single retired entry would silently empty the
+/// saved sessions, groups or Sender commands rather than losing only that
+/// entry. Dropping the retired entries at load keeps the rest; a file that is
+/// malformed for any other reason still falls back to empty as before.
+const RETIRED_KINDS: [&str; 2] = ["ftp", "serial"];
+
+fn names_retired_kind(kind: Option<&serde_json::Value>) -> bool {
+    kind.and_then(serde_json::Value::as_str)
+        .is_some_and(|kind| RETIRED_KINDS.contains(&kind))
+}
+
+/// `read_json` for a file holding a JSON array, minus the entries naming a
+/// retired kind — at `kind` (a profile or group) or at `scope.kind` (a Sender
+/// command scoped to a kind).
+fn read_array_without_retired_kinds<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    let mut entries: Vec<serde_json::Value> = serde_json::from_str(&raw).ok()?;
+    retain_supported_kinds(&mut entries);
+    serde_json::from_value(serde_json::Value::Array(entries)).ok()
+}
+
+fn retain_supported_kinds(entries: &mut Vec<serde_json::Value>) {
+    entries.retain(|entry| {
+        !names_retired_kind(entry.get("kind"))
+            && !names_retired_kind(entry.get("scope").and_then(|scope| scope.get("kind")))
+    });
+}
+
+/// The same retired-kind filter for a parsed export file, applied before it is
+/// deserialized into `AppData`.
+///
+/// Import is the documented way to carry saved sessions across, so an export
+/// written before FTP and serial were removed must still bring in the sessions
+/// that remain. Without this one retired profile fails the whole file and the
+/// user is told it is "not a ZenTerm data file", which is both wrong and
+/// unrecoverable — the export cannot be edited from inside the app.
+pub fn strip_retired_kinds(data: &mut serde_json::Value) {
+    for field in ["profiles", "groups", "senderCommands"] {
+        if let Some(serde_json::Value::Array(entries)) = data.get_mut(field) {
+            retain_supported_kinds(entries);
+        }
+    }
 }
 
 fn credentials_path_for(path: &Path) -> PathBuf {

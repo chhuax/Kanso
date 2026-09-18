@@ -33,7 +33,6 @@ import newFile from "@vscode/codicons/src/icons/new-file.svg?raw";
 import newFolder from "@vscode/codicons/src/icons/new-folder.svg?raw";
 import newline from "@vscode/codicons/src/icons/newline.svg?raw";
 import plug from "@vscode/codicons/src/icons/plug.svg?raw";
-import record from "@vscode/codicons/src/icons/record.svg?raw";
 import refresh from "@vscode/codicons/src/icons/refresh.svg?raw";
 import rename from "@vscode/codicons/src/icons/rename.svg?raw";
 import runCompact from "@vscode/codicons/src/icons/run-compact.svg?raw";
@@ -81,7 +80,6 @@ const SVGS = {
   "new-folder": newFolder,
   newline,
   plug,
-  record,
   refresh,
   rename,
   "run-compact": runCompact,

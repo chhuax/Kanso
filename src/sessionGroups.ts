@@ -1,30 +1,15 @@
 import type { SessionGroup, SessionKind, SessionProfile } from "./types";
 
 /**
- * Per-kind display names. The Session panel groups by section (see
- * `SESSION_SECTIONS`, which merges FTP and SFTP under one heading); these
- * single-kind labels are used where an individual kind is named, such as the
- * Sender's kind-scope description.
+ * Per-kind display names, used where an individual kind is named — the
+ * Sender's kind-scope description, for instance. The Session panel itself
+ * lists by section (see `SESSION_SECTIONS`).
  */
 export const KIND_LABELS: Record<SessionKind, string> = {
   ssh: "SSH Sessions",
   sftp: "SFTP Sessions",
-  ftp: "FTP Sessions",
-  serial: "Serial Sessions",
   local: "Shell Sessions",
 };
-
-/**
- * The grouping namespace a session kind belongs to. FTP and SFTP are both
- * remote-file sessions that share one panel section, so they share one set of
- * folders: a group can hold servers of either protocol. Groups are always
- * stored under the category's canonical kind (`ftp`), and membership and
- * nesting are compared by category rather than by exact kind — both here and
- * in the Rust store's `group_category`.
- */
-export function groupCategory(kind: SessionKind): SessionKind {
-  return kind === "sftp" ? "ftp" : kind;
-}
 
 /** A top-level Session-panel heading, covering one or more session kinds. */
 export interface SessionSection {
@@ -38,12 +23,11 @@ export interface SessionSection {
 /** Top-level headings of the Session panel, in display order. */
 export const SESSION_SECTIONS: readonly SessionSection[] = [
   { kind: "ssh", kinds: ["ssh"], label: "SSH Sessions" },
-  { kind: "ftp", kinds: ["ftp", "sftp"], label: "(S)FTP Sessions" },
-  { kind: "serial", kinds: ["serial"], label: "Serial Sessions" },
+  { kind: "sftp", kinds: ["sftp"], label: "SFTP Sessions" },
   { kind: "local", kinds: ["local"], label: "Shell Sessions" },
 ];
 
-/** The heading a kind is listed under — merged for FTP / SFTP. */
+/** The heading a kind is listed under. */
 export function sectionLabel(kind: SessionKind): string {
   return (
     SESSION_SECTIONS.find((section) => section.kinds.includes(kind))?.label ??
@@ -77,7 +61,7 @@ export function effectiveParentId(
   if (parentId === null || parentId === group.id) return null;
   return groups.some(
     (g) =>
-      g.id === parentId && groupCategory(g.kind) === groupCategory(group.kind),
+      g.id === parentId && g.kind === group.kind,
   )
     ? parentId
     : null;
@@ -92,7 +76,7 @@ export function effectiveGroupId(
   if (groupId === null) return null;
   return groups.some(
     (g) =>
-      g.id === groupId && groupCategory(g.kind) === groupCategory(profile.kind),
+      g.id === groupId && g.kind === profile.kind,
   )
     ? groupId
     : null;
@@ -107,7 +91,7 @@ export function childGroups(
   return groups
     .filter(
       (g) =>
-        groupCategory(g.kind) === groupCategory(kind) &&
+        g.kind === kind &&
         effectiveParentId(groups, g) === parentId,
     )
     .sort(byName);

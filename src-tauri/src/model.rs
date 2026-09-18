@@ -5,9 +5,7 @@ use serde::{Deserialize, Serialize};
 pub enum SessionKind {
     Local,
     Ssh,
-    Ftp,
     Sftp,
-    Serial,
 }
 
 /// The colour theme of the user interface. It is a front-end setting kept in
@@ -58,7 +56,7 @@ pub struct SessionProfile {
     #[serde(default)]
     pub group_id: Option<String>,
 
-    // --- terminal text (local / ssh / serial) ---
+    // --- terminal text (local / ssh) ---
     /// Character encoding of the terminal byte stream, as a WHATWG label
     /// (`gbk`, `big5`, `shift_jis`, …); absent or unknown means UTF-8.
     /// Output is decoded in the frontend right before it reaches xterm —
@@ -72,15 +70,6 @@ pub struct SessionProfile {
     /// `AcceptEnv LANG`). Absent means automatic; see `session::locale`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub locale: Option<String>,
-    /// Whether every session opened from this profile writes the terminal
-    /// output it receives to a file, one file per connection. Off unless the
-    /// dialog's checkbox was ticked; see `session::recording`.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub record: bool,
-    /// Folder the recordings are written to; absent means
-    /// `session::recording::default_dir`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub record_dir: Option<String>,
 
     // --- local ---
     #[serde(default)]
@@ -88,7 +77,7 @@ pub struct SessionProfile {
     #[serde(default)]
     pub cwd: Option<String>,
 
-    // --- ssh / ftp ---
+    // --- ssh / sftp ---
     #[serde(default)]
     pub host: Option<String>,
     #[serde(default)]
@@ -111,22 +100,6 @@ pub struct SessionProfile {
     /// `Store::jump_chain`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub jump_profile_id: Option<String>,
-
-    // --- serial ---
-    #[serde(default)]
-    pub port_name: Option<String>,
-    #[serde(default)]
-    pub baud_rate: Option<u32>,
-    #[serde(default)]
-    pub data_bits: Option<u8>,
-    #[serde(default)]
-    pub stop_bits: Option<u8>,
-    /// `none` | `odd` | `even`
-    #[serde(default)]
-    pub parity: Option<String>,
-    /// `none` | `software` | `hardware`
-    #[serde(default)]
-    pub flow_control: Option<String>,
 }
 
 /// Longest jump-host chain a session may be tunnelled through. Deeper chains
@@ -162,20 +135,10 @@ impl SessionProfile {
                 self.host.as_deref().unwrap_or("localhost"),
                 self.port.unwrap_or(22)
             ),
-            SessionKind::Ftp => format!(
-                "{}:{}",
-                self.host.as_deref().unwrap_or("localhost"),
-                self.port.unwrap_or(21)
-            ),
             SessionKind::Sftp => format!(
                 "{}:{}",
                 self.host.as_deref().unwrap_or("localhost"),
                 self.port.unwrap_or(22)
-            ),
-            SessionKind::Serial => format!(
-                "{}@{}",
-                self.port_name.as_deref().unwrap_or("-"),
-                self.baud_rate.unwrap_or(115_200)
             ),
         }
     }
@@ -184,9 +147,7 @@ impl SessionProfile {
         match self.kind {
             SessionKind::Local => "shell",
             SessionKind::Ssh => "ssh",
-            SessionKind::Ftp => "ftp",
             SessionKind::Sftp => "sftp",
-            SessionKind::Serial => "serial",
         }
     }
 }
@@ -218,9 +179,6 @@ pub struct SessionInfo {
     pub color: Option<String>,
     /// Whether the Filer pane can browse this session's remote filesystem.
     pub supports_remote_files: bool,
-    /// Path of the file this session's output is being recorded to, when
-    /// the profile asked for a recording; see `session::recording`.
-    pub recording: Option<String>,
     /// The SSH transports of this session — its jump hosts, first hop first,
     /// then the target — that only connected on algorithms kept for old
     /// servers; empty when none did. See `session::ssh::LEGACY_KEX`.
@@ -445,14 +403,6 @@ pub struct ZmodemFileInfo {
     pub size: u64,
     /// Unix seconds.
     pub modified: Option<u64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SerialPortDesc {
-    pub port_name: String,
-    pub port_type: String,
-    pub description: Option<String>,
 }
 
 /// Splits the Shell field into a program and its arguments, so a profile can

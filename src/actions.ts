@@ -24,7 +24,7 @@ function pendingSessionInfo(
   profile: SessionProfile,
 ): SessionInfo {
   const name =
-    profile.name || profile.host || profile.portName || "session";
+    profile.name || profile.host || "session";
 
   let protocol: string;
   let address: string;
@@ -34,12 +34,6 @@ function pendingSessionInfo(
   } else if (profile.kind === "sftp") {
     protocol = "sftp";
     address = `${profile.host || "localhost"}:${profile.port ?? 22}`;
-  } else if (profile.kind === "ftp") {
-    protocol = "ftp";
-    address = `${profile.host || "localhost"}:${profile.port ?? 21}`;
-  } else if (profile.kind === "serial") {
-    protocol = "serial";
-    address = `${profile.portName || "-"}@${profile.baudRate ?? 115_200}`;
   } else {
     protocol = "shell";
     address = profile.shell || "default shell";
@@ -55,7 +49,6 @@ function pendingSessionInfo(
     color: profile.color ?? null,
     supportsRemoteFiles: profile.kind === "ssh" || isFileSession(profile.kind),
     // Known once the backend has opened the file.
-    recording: null,
     // Known once the backend has connected.
     legacyAlgorithms: [],
   };
@@ -238,7 +231,7 @@ async function connectSession(
   const pending = store.tabs.find((item) => item.info.id === id);
   const label = pending
     ? tabTitle(pending)
-    : profile.name || profile.host || profile.portName || "session";
+    : profile.name || profile.host || "session";
 
   store.setStatus(`Connecting to ${label}…`);
   store.setError(null);

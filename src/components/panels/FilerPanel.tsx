@@ -119,7 +119,7 @@ export function FilerPanel() {
   /** The last `filerTarget.token` this panel navigated to. */
   const consumedTarget = useRef(0);
   // Shell and SSH sessions have a working directory to reveal (⌘J); file
-  // sessions bring their own pane and serial lines have no shell.
+  // sessions bring their own pane instead.
   const canReveal = Boolean(
     tab &&
       (tab.info.kind === "local" || tab.info.kind === "ssh") &&
@@ -175,7 +175,7 @@ export function FilerPanel() {
 
   /**
    * Shows `kind` starting in the footer. A cancellable transfer (the SFTP
-   * and FTP copies) gets the id to pass along; the footer's Cancel button
+   * and SFTP copies) gets the id to pass along; the footer's Cancel button
    * and a released drag reach it through `cancelTransfer`.
    */
   const beginTransfer = (

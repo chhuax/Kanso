@@ -580,8 +580,6 @@ fn new_profile(entry: &SshConfigEntry, group_id: Option<String>) -> SessionProfi
         group_id,
         encoding: None,
         locale: None,
-        record: false,
-        record_dir: None,
         shell: None,
         cwd: None,
         host: Some(entry.host.clone()),
@@ -592,12 +590,6 @@ fn new_profile(entry: &SshConfigEntry, group_id: Option<String>) -> SessionProfi
         private_key_path: entry.private_key_path.clone(),
         passphrase: None,
         jump_profile_id: None,
-        port_name: None,
-        baud_rate: None,
-        data_bits: None,
-        stop_bits: None,
-        parity: None,
-        flow_control: None,
     }
 }
 

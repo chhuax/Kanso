@@ -1,13 +1,8 @@
 import { useEffect, useState } from "react";
 
-import * as api from "../api";
 import { useActiveTab, useStore } from "../store";
 import { isFileSession, type LegacyAlgorithms } from "../types";
 import { Icon } from "./icons";
-
-/** The folder half of a recording's path, for the Reveal click. */
-const parentDir = (path: string): string =>
-  path.replace(/[\\/][^\\/]*$/, "") || path;
 
 /** The tooltip naming each server's legacy algorithms, one server a line. */
 const legacyTitle = (servers: LegacyAlgorithms[]): string =>
@@ -32,7 +27,6 @@ export function StatusBar() {
     clock.getHours(),
   )}:${pad(clock.getMinutes())}`;
 
-  const recording = tab?.state === "connected" ? tab.info.recording : null;
   const legacy = tab?.state === "connected" ? tab.info.legacyAlgorithms : [];
 
   return (
@@ -48,19 +42,6 @@ export function StatusBar() {
               <Icon name="warning" />
               Legacy SSH
             </span>
-          )}
-          {recording && (
-            <button
-              type="button"
-              className="status-item status-recording"
-              title={`Recording to ${recording} — click to open the folder`}
-              onClick={() =>
-                void api.openLocalPath(parentDir(recording)).catch(() => undefined)
-              }
-            >
-              <Icon name="record" />
-              REC
-            </button>
           )}
           {isFileSession(tab.info.kind) ? (
             <span className="status-item">Dual-pane file transfer</span>
