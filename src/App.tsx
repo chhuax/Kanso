@@ -128,7 +128,7 @@ export default function App() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [quitPromptOpen, setQuitPromptOpen] = useState(false);
 
-  const [railWidth, setRailWidth] = useState(190);
+  const [railWidth, setRailWidth] = useState(248);
   const [rightWidth, setRightWidth] = useState(220);
   const [senderHeight, setSenderHeight] = useState(160);
   // Which panel the right sidebar shows; the View menu's two flags decide
@@ -448,7 +448,9 @@ export default function App() {
         <Splitter
           orientation="vertical"
           onResize={(delta) =>
-            setRailWidth((width) => clamp(width + delta, 140, 380))
+            setRailWidth((width) =>
+              clamp(width + delta, 200, window.innerWidth / 2),
+            )
           }
         />
 
