@@ -237,7 +237,7 @@ impl Store {
             None => (HashMap::new(), VaultKey::fresh()),
         };
         let groups_path = groups_path_for(&path);
-        let groups = read_array_without_retired_kinds(&groups_path).unwrap_or_default();
+        let groups = read_json(&groups_path).unwrap_or_default();
         let sender_commands_path = sender_commands_path_for(&path);
         let sender_commands =
             read_array_without_retired_kinds(&sender_commands_path).unwrap_or_default();
@@ -361,12 +361,14 @@ impl Store {
             }
         }
 
-        // A stale or foreign group id (deleted group, category switched in the
-        // editor) must not strand the profile: fall back to the section root.
+        // A stale group id (deleted group) must not strand the profile: fall
+        // back to the top level.
         if let Some(group_id) = &profile.group_id {
-            let valid = self.groups.lock().iter().any(|group| {
-                &group.id == group_id && group.kind == profile.kind
-            });
+            let valid = self
+                .groups
+                .lock()
+                .iter()
+                .any(|group| &group.id == group_id);
             if !valid {
                 profile.group_id = None;
             }
@@ -425,23 +427,12 @@ impl Store {
 
         {
             let mut groups = self.groups.lock();
-            if let Some(existing) = groups.iter().find(|g| g.id == group.id) {
-                if existing.kind != group.kind {
-                    return Err(AppError::new("a group cannot change its session kind"));
-                }
-            }
             if let Some(parent_id) = &group.parent_id {
                 if *parent_id == group.id {
                     return Err(AppError::new("a group cannot contain itself"));
                 }
-                match groups.iter().find(|g| &g.id == parent_id) {
-                    None => return Err(AppError::new("parent group does not exist")),
-                    Some(parent) if parent.kind != group.kind => {
-                        return Err(AppError::new(
-                            "a group can only be nested under a group of the same session kind",
-                        ))
-                    }
-                    Some(_) => {}
+                if !groups.iter().any(|g| &g.id == parent_id) {
+                    return Err(AppError::new("parent group does not exist"));
                 }
                 if subtree_ids(&groups, &group.id).contains(parent_id) {
                     return Err(AppError::new(
@@ -659,9 +650,6 @@ impl Store {
                     group.parent_id = None;
                 }
                 match groups.iter_mut().find(|g| g.id == group.id) {
-                    // A group cannot change category: its profiles would no
-                    // longer belong under it.
-                    Some(existing) if existing.kind != group.kind => continue,
                     Some(existing) => *existing = group,
                     None => groups.push(group),
                 }
@@ -679,9 +667,7 @@ impl Store {
                     profile.id = uuid::Uuid::new_v4().to_string();
                 }
                 if let Some(group_id) = &profile.group_id {
-                    let valid = groups.iter().any(|group| {
-                        &group.id == group_id && group.kind == profile.kind
-                    });
+                    let valid = groups.iter().any(|group| &group.id == group_id);
                     if !valid {
                         profile.group_id = None;
                     }
@@ -928,11 +914,8 @@ fn detach_invalid_parents(groups: &mut [SessionGroup]) {
             continue;
         };
         let group_id = groups[index].id.clone();
-        let kind = groups[index].kind;
         let valid_parent = parent_id != group_id
-            && groups
-                .iter()
-                .any(|group| group.id == parent_id && group.kind == kind);
+            && groups.iter().any(|group| group.id == parent_id);
         if !valid_parent || subtree_ids(groups, &group_id).contains(&parent_id) {
             groups[index].parent_id = None;
         }
@@ -1079,8 +1062,9 @@ fn names_retired_kind(kind: Option<&serde_json::Value>) -> bool {
 }
 
 /// `read_json` for a file holding a JSON array, minus the entries naming a
-/// retired kind — at `kind` (a profile or group) or at `scope.kind` (a Sender
-/// command scoped to a kind).
+/// retired kind — at `kind` (a profile) or at `scope.kind` (a Sender command
+/// scoped to a kind). Groups carry no kind, so they are read plainly; an old
+/// file's `kind` on a group is ignored rather than dropping the folder.
 fn read_array_without_retired_kinds<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
     let raw = std::fs::read_to_string(path).ok()?;
     let mut entries: Vec<serde_json::Value> = serde_json::from_str(&raw).ok()?;
@@ -1104,7 +1088,9 @@ fn retain_supported_kinds(entries: &mut Vec<serde_json::Value>) {
 /// user is told it is "not a ZenTerm data file", which is both wrong and
 /// unrecoverable — the export cannot be edited from inside the app.
 pub fn strip_retired_kinds(data: &mut serde_json::Value) {
-    for field in ["profiles", "groups", "senderCommands"] {
+    // Groups are left alone: they no longer name a kind, so an old `kind` on
+    // one is ignored by serde instead of costing the user a folder.
+    for field in ["profiles", "senderCommands"] {
         if let Some(serde_json::Value::Array(entries)) = data.get_mut(field) {
             retain_supported_kinds(entries);
         }

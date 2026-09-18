@@ -3,7 +3,7 @@ import type { SessionGroup, SessionKind, SessionProfile } from "./types";
 /**
  * Per-kind display names, used where an individual kind is named — the
  * Sender's kind-scope description, for instance. The Session panel itself
- * lists by section (see `SESSION_SECTIONS`).
+ * lists groups and sessions without them.
  */
 export const KIND_LABELS: Record<SessionKind, string> = {
   ssh: "SSH Sessions",
@@ -11,31 +11,7 @@ export const KIND_LABELS: Record<SessionKind, string> = {
   local: "Shell Sessions",
 };
 
-/** A top-level Session-panel heading, covering one or more session kinds. */
-export interface SessionSection {
-  /** Canonical grouping kind — used to create groups and look them up. */
-  kind: SessionKind;
-  /** Profile kinds listed under this heading. */
-  kinds: SessionKind[];
-  label: string;
-}
-
-/** Top-level headings of the Session panel, in display order. */
-export const SESSION_SECTIONS: readonly SessionSection[] = [
-  { kind: "ssh", kinds: ["ssh"], label: "SSH Sessions" },
-  { kind: "sftp", kinds: ["sftp"], label: "SFTP Sessions" },
-  { kind: "local", kinds: ["local"], label: "Shell Sessions" },
-];
-
-/** The heading a kind is listed under. */
-export function sectionLabel(kind: SessionKind): string {
-  return (
-    SESSION_SECTIONS.find((section) => section.kinds.includes(kind))?.label ??
-    KIND_LABELS[kind]
-  );
-}
-
-/** A group with its nesting depth (0 = directly under the kind heading). */
+/** A group with its nesting depth (0 = top level). */
 export interface GroupNode {
   group: SessionGroup;
   depth: number;
@@ -51,7 +27,7 @@ export const byName = (a: { name: string }, b: { name: string }) =>
 /**
  * The parent a group is drawn under. A parent that no longer exists (a
  * hand-edited file) is treated as "none" so the group still shows up at the
- * kind root instead of silently disappearing with everything in it.
+ * top level instead of silently disappearing with everything in it.
  */
 export function effectiveParentId(
   groups: readonly SessionGroup[],
@@ -59,53 +35,37 @@ export function effectiveParentId(
 ): string | null {
   const parentId = group.parentId ?? null;
   if (parentId === null || parentId === group.id) return null;
-  return groups.some(
-    (g) =>
-      g.id === parentId && g.kind === group.kind,
-  )
-    ? parentId
-    : null;
+  return groups.some((g) => g.id === parentId) ? parentId : null;
 }
 
-/** The group a profile is drawn in, or null for its kind's root. */
+/** The group a profile is drawn in, or null for the top level. */
 export function effectiveGroupId(
   groups: readonly SessionGroup[],
   profile: SessionProfile,
 ): string | null {
   const groupId = profile.groupId ?? null;
   if (groupId === null) return null;
-  return groups.some(
-    (g) =>
-      g.id === groupId && g.kind === profile.kind,
-  )
-    ? groupId
-    : null;
+  return groups.some((g) => g.id === groupId) ? groupId : null;
 }
 
-/** Direct subgroups of `parentId` (null = kind root), sorted by name. */
+/** Direct subgroups of `parentId` (null = top level), sorted by name. */
 export function childGroups(
   groups: readonly SessionGroup[],
-  kind: SessionKind,
   parentId: string | null,
 ): SessionGroup[] {
   return groups
-    .filter(
-      (g) =>
-        g.kind === kind &&
-        effectiveParentId(groups, g) === parentId,
-    )
+    .filter((g) => effectiveParentId(groups, g) === parentId)
     .sort(byName);
 }
 
-/** Every group of a kind, depth-first in the order the panel draws them. */
+/** Every group, depth-first in the order the panel draws them. */
 export function flattenGroups(
   groups: readonly SessionGroup[],
-  kind: SessionKind,
 ): GroupNode[] {
   const out: GroupNode[] = [];
   const seen = new Set<string>();
   const visit = (parentId: string | null, depth: number) => {
-    for (const group of childGroups(groups, kind, parentId)) {
+    for (const group of childGroups(groups, parentId)) {
       // Defensive against a cycle in a hand-edited file.
       if (seen.has(group.id)) continue;
       seen.add(group.id);
@@ -117,7 +77,7 @@ export function flattenGroups(
   return out;
 }
 
-/** Names from the kind root down to the group, e.g. ["prod", "eu"]. */
+/** Names from the top level down to the group, e.g. ["prod", "eu"]. */
 export function groupPath(
   groups: readonly SessionGroup[],
   id: string | null,
@@ -135,11 +95,14 @@ export function groupPath(
   return names;
 }
 
-/** "SSH Sessions / prod / eu" — where a group or profile lives. */
+/**
+ * "prod / eu" — where a group or profile lives. Reads inside a sentence
+ * ("In {location}"), so the top level names itself with its article.
+ */
 export function describeLocation(
   groups: readonly SessionGroup[],
-  kind: SessionKind,
   groupId: string | null,
 ): string {
-  return [sectionLabel(kind), ...groupPath(groups, groupId)].join(" / ");
+  const path = groupPath(groups, groupId);
+  return path.length > 0 ? path.join(" / ") : "the top level";
 }

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 interface Props {
   title: string;
-  /** Where the group lives, e.g. "SSH Sessions / prod". */
+  /** Where the group lives, e.g. "prod" or "the top level". */
   location: string;
   initialName?: string;
   submitLabel: string;

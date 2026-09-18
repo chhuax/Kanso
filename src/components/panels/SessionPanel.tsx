@@ -14,15 +14,12 @@ import {
   describeLocation,
   effectiveGroupId,
   flattenGroups,
-  sectionLabel,
-  SESSION_SECTIONS,
 } from "../../sessionGroups";
 import { tabTitle, useStore } from "../../store";
 import {
   colorForSession,
   type SavedCommand,
   type SessionGroup,
-  type SessionKind,
   type SessionProfile,
   type SessionState,
 } from "../../types";
@@ -30,6 +27,7 @@ import { ContextMenu, type MenuItem } from "../ContextMenu";
 import { DeleteProfileDialog } from "../DeleteProfileDialog";
 import { GroupNameDialog } from "../GroupNameDialog";
 import { Icon } from "../icons";
+import { PanelTabs, type PanelTabsProps } from "../PanelTabs";
 
 /** Tooltip of the power toggle, by the active tab's state. */
 const POWER_TITLES: Record<SessionState, string> = {
@@ -59,12 +57,11 @@ function describeProfile(
 }
 
 /**
- * Whether a tree node is open. Kind headings start open so every section is
- * visible; groups start closed so a long list of servers folds down to its
- * top-level folders until the user opens one.
+ * Whether a group is open. Groups start closed so a long list of servers
+ * folds down to its top-level folders until the user opens one.
  */
 function isOpen(open: Record<string, boolean>, key: string): boolean {
-  return open[key] ?? key.startsWith("kind:");
+  return open[key] ?? false;
 }
 
 type Row =
@@ -78,14 +75,6 @@ type Row =
     }
   | { type: "profile"; profile: SessionProfile; depth: number };
 
-interface KindSection {
-  kind: SessionKind;
-  label: string;
-  count: number;
-  collapsed: boolean;
-  rows: Row[];
-}
-
 interface MenuState {
   x: number;
   y: number;
@@ -93,15 +82,18 @@ interface MenuState {
 }
 
 type GroupDialogState =
-  | { mode: "create"; kind: SessionKind; parentId: string | null }
+  | { mode: "create"; parentId: string | null }
   | { mode: "rename"; group: SessionGroup };
 
 interface Props {
   onEditProfile: (profile: SessionProfile) => void;
   onNewSession: () => void;
+  /** Docked in the right sidebar: draw the Session / Filer tabs instead of
+      this panel's own title. Standalone, it keeps the title. */
+  tabs?: PanelTabsProps;
 }
 
-export function SessionPanel({ onEditProfile, onNewSession }: Props) {
+export function SessionPanel({ onEditProfile, onNewSession, tabs }: Props) {
   const profiles = useStore((s) => s.profiles);
   const groups = useStore((s) => s.groups);
   const removeProfile = useStore((s) => s.removeProfile);
@@ -140,60 +132,44 @@ export function SessionPanel({ onEditProfile, onNewSession }: Props) {
 
   const filtering = filter.trim().length > 0;
 
-  const sections = useMemo<KindSection[]>(() => {
+  // One tree: the folders the user made, with the sessions inside them and the
+  // ones without a folder at the top level. Nothing is pre-grouped by session
+  // kind — a group holds any of them.
+  const tree = useMemo(() => {
     const needle = filter.trim().toLowerCase();
-    const visible = [LOCAL_SHELL_PROFILE, ...profiles].filter(
-      (p) => !needle || p.name.toLowerCase().includes(needle),
-    );
+    const byGroup = new Map<string | null, SessionProfile[]>();
+    for (const profile of [LOCAL_SHELL_PROFILE, ...profiles]) {
+      if (needle && !profile.name.toLowerCase().includes(needle)) continue;
+      const groupId = effectiveGroupId(groups, profile);
+      byGroup.set(groupId, [...(byGroup.get(groupId) ?? []), profile]);
+    }
+    for (const members of byGroup.values()) members.sort(byName);
 
-    return SESSION_SECTIONS.map((section) => {
-      const byGroup = new Map<string | null, SessionProfile[]>();
-      for (const profile of visible) {
-        if (!section.kinds.includes(profile.kind)) continue;
-        const groupId = effectiveGroupId(groups, profile);
-        byGroup.set(groupId, [...(byGroup.get(groupId) ?? []), profile]);
+    // Folders first, then the profiles at that level, both A→Z — the shape of
+    // a file tree. While filtering, empty groups are dropped and collapse
+    // state is ignored so every match is on screen.
+    const walk = (
+      parentId: string | null,
+      depth: number,
+    ): { rows: Row[]; count: number } => {
+      const rows: Row[] = [];
+      let count = 0;
+      for (const group of childGroups(groups, parentId)) {
+        const sub = walk(group.id, depth + 1);
+        if (needle && sub.count === 0) continue;
+        const collapsed = !needle && !isOpen(open, `group:${group.id}`);
+        rows.push({ type: "group", group, depth, count: sub.count, collapsed });
+        if (!collapsed) rows.push(...sub.rows);
+        count += sub.count;
       }
-      for (const members of byGroup.values()) members.sort(byName);
+      for (const profile of byGroup.get(parentId) ?? []) {
+        rows.push({ type: "profile", profile, depth });
+        count++;
+      }
+      return { rows, count };
+    };
 
-      // Folders first, then the profiles at that level, both A→Z — the shape
-      // of a file tree. While filtering, empty groups are dropped and
-      // collapse state is ignored so every match is on screen.
-      const walk = (
-        parentId: string | null,
-        depth: number,
-      ): { rows: Row[]; count: number } => {
-        const rows: Row[] = [];
-        let count = 0;
-        for (const group of childGroups(groups, section.kind, parentId)) {
-          const sub = walk(group.id, depth + 1);
-          if (needle && sub.count === 0) continue;
-          const isCollapsed = !needle && !isOpen(open, `group:${group.id}`);
-          rows.push({
-            type: "group",
-            group,
-            depth,
-            count: sub.count,
-            collapsed: isCollapsed,
-          });
-          if (!isCollapsed) rows.push(...sub.rows);
-          count += sub.count;
-        }
-        for (const profile of byGroup.get(parentId) ?? []) {
-          rows.push({ type: "profile", profile, depth });
-          count++;
-        }
-        return { rows, count };
-      };
-
-      const { rows, count } = walk(null, 1);
-      return {
-        kind: section.kind,
-        label: section.label,
-        count,
-        collapsed: !needle && !isOpen(open, `kind:${section.kind}`),
-        rows,
-      };
-    });
+    return walk(null, 0);
   }, [profiles, groups, filter, open]);
 
   const toggle = (key: string) =>
@@ -271,35 +247,22 @@ export function SessionPanel({ onEditProfile, onNewSession }: Props) {
     }
   };
 
-  const kindMenu = (kind: SessionKind): MenuItem[] => [
-    {
-      label: "New Group…",
-      icon: "new-folder",
-      action: () => setGroupDialog({ mode: "create", kind, parentId: null }),
-    },
+  // Right-clicking the panel's empty space. A group is not made here: it is
+  // made where it is used, from the New Session dialog's Group field.
+  const panelMenu = (): MenuItem[] => [
     // The hosts people already `ssh` to, in bulk.
-    ...(kind === "ssh"
-      ? [
-          "separator" as const,
-          {
-            label: "Import OpenSSH Config…",
-            icon: "cloud-download" as const,
-            action: () => void importSshConfig(),
-          },
-        ]
-      : []),
+    {
+      label: "Import OpenSSH Config…",
+      icon: "cloud-download",
+      action: () => void importSshConfig(),
+    },
   ];
 
   const groupMenu = (group: SessionGroup): MenuItem[] => [
     {
       label: "New Subgroup…",
       icon: "new-folder",
-      action: () =>
-        setGroupDialog({
-          mode: "create",
-          kind: group.kind,
-          parentId: group.id,
-        }),
+      action: () => setGroupDialog({ mode: "create", parentId: group.id }),
     },
     "separator",
     {
@@ -331,13 +294,13 @@ export function SessionPanel({ onEditProfile, onNewSession }: Props) {
       );
     const choices: MenuItem[] = [
       {
-        label: `${sectionLabel(profile.kind)} (no group)`,
+        label: "Top level (no group)",
         checked: current === null,
         mark: "radio",
         action: move(null),
       },
     ];
-    const nodes = flattenGroups(groups, profile.kind);
+    const nodes = flattenGroups(groups);
     if (nodes.length > 0) {
       choices.push("separator");
       for (const { group, depth } of nodes) {
@@ -426,11 +389,7 @@ export function SessionPanel({ onEditProfile, onNewSession }: Props) {
         if (event.button === 0) toggle(`group:${row.group.id}`);
       }}
       onContextMenu={(event) => openMenu(event, groupMenu(row.group))}
-      title={`${describeLocation(
-        groups,
-        row.group.kind,
-        row.group.id,
-      )} · right-click for options`}
+      title={`${describeLocation(groups, row.group.id)} · right-click for options`}
     >
       <span className={`row-caret${row.collapsed ? "" : " is-open"}`}>
         <Icon name="chevron-right" />
@@ -447,10 +406,14 @@ export function SessionPanel({ onEditProfile, onNewSession }: Props) {
   return (
     <div className="panel" style={{ flex: 1 }}>
       <div className="panel-header">
-        <div className="panel-title is-session">
-          <Icon name="server" />
-          Session
-        </div>
+        {tabs ? (
+          <PanelTabs {...tabs} />
+        ) : (
+          <div className="panel-title is-session">
+            <Icon name="server" />
+            Session
+          </div>
+        )}
         <button
           className={`panel-action panel-power${
             activeTab?.state === "connected" ? " is-connected" : ""
@@ -491,37 +454,16 @@ export function SessionPanel({ onEditProfile, onNewSession }: Props) {
         />
       </div>
 
-      <div className="panel-body">
-        {sections.map((section) => (
-          <div key={section.kind}>
-            <div
-              className="row is-section"
-              onMouseDown={(event) => {
-                if (event.button === 0) toggle(`kind:${section.kind}`);
-              }}
-              onContextMenu={(event) =>
-                openMenu(event, kindMenu(section.kind))
-              }
-              title="Right-click to add a group"
-            >
-              <span
-                className={`row-caret${section.collapsed ? "" : " is-open"}`}
-              >
-                <Icon name="chevron-right" />
-              </span>
-              <span className="row-label">{section.label}</span>
-              <span className="row-meta">{section.count}</span>
-            </div>
-
-            {!section.collapsed &&
-              section.rows.map((row) =>
-                row.type === "group"
-                  ? renderGroup(row)
-                  : renderProfile(row.profile, row.depth),
-              )}
-          </div>
-        ))}
-        {filtering && sections.every((section) => section.count === 0) && (
+      <div
+        className="panel-body"
+        onContextMenu={(event) => openMenu(event, panelMenu())}
+      >
+        {tree.rows.map((row) =>
+          row.type === "group"
+            ? renderGroup(row)
+            : renderProfile(row.profile, row.depth),
+        )}
+        {filtering && tree.count === 0 && (
           <div className="panel-empty">
             No sessions match “{filter.trim()}”.
           </div>
@@ -541,27 +483,21 @@ export function SessionPanel({ onEditProfile, onNewSession }: Props) {
         (groupDialog.mode === "create" ? (
           <GroupNameDialog
             title={groupDialog.parentId ? "New Subgroup" : "New Group"}
-            location={describeLocation(
-              groups,
-              groupDialog.kind,
-              groupDialog.parentId,
-            )}
+            location={describeLocation(groups, groupDialog.parentId)}
             submitLabel="Create"
             onSubmit={async (name) => {
               const saved = await upsertGroup({
                 id: "",
                 name,
-                kind: groupDialog.kind,
                 parentId: groupDialog.parentId,
               });
-              // A new group is empty, so make sure its parents are open.
-              setOpen((prev) => ({
-                ...prev,
-                [`kind:${saved.kind}`]: true,
-                ...(saved.parentId
-                  ? { [`group:${saved.parentId}`]: true }
-                  : {}),
-              }));
+              // A new group is empty, so make sure its parent is open.
+              if (saved.parentId) {
+                setOpen((prev) => ({
+                  ...prev,
+                  [`group:${saved.parentId}`]: true,
+                }));
+              }
               setGroupDialog(null);
             }}
             onCancel={() => setGroupDialog(null)}
@@ -569,11 +505,7 @@ export function SessionPanel({ onEditProfile, onNewSession }: Props) {
         ) : (
           <GroupNameDialog
             title="Rename Group"
-            location={describeLocation(
-              groups,
-              groupDialog.group.kind,
-              groupDialog.group.parentId,
-            )}
+            location={describeLocation(groups, groupDialog.group.parentId)}
             initialName={groupDialog.group.name}
             submitLabel="Rename"
             onSubmit={async (name) => {

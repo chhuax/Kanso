@@ -52,10 +52,11 @@ export function SshConfigImportDialog({ preview, onClose }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const sshGroups = useMemo(
+  // Groups hold any session kind, so every one of them can receive the
+  // imported hosts.
+  const groupTargets = useMemo(
     () =>
       groups
-        .filter((group) => group.kind === "ssh")
         .map((group) => ({
           id: group.id,
           label: groupPath(groups, group.id).join(" / "),
@@ -217,8 +218,8 @@ export function SshConfigImportDialog({ preview, onClose }: Props) {
                 value={groupId}
                 onChange={(event) => setGroupId(event.target.value)}
               >
-                <option value="">SSH Sessions (no group)</option>
-                {sshGroups.map((group) => (
+                <option value="">Top level (no group)</option>
+                {groupTargets.map((group) => (
                   <option key={group.id} value={group.id}>
                     {group.label}
                   </option>

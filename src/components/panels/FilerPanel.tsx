@@ -19,6 +19,7 @@ import { ContextMenu, type MenuItem } from "../ContextMenu";
 import { DeleteEntryDialog } from "../DeleteEntryDialog";
 import { FileIcon } from "../FileIcon";
 import { Icon } from "../icons";
+import { PanelTabs, type PanelTabsProps } from "../PanelTabs";
 import type { FileEntry, ThemeMode } from "../../types";
 
 interface TransferState {
@@ -103,7 +104,7 @@ interface DropVerdict {
 const dropPoint = (position: PhysicalPosition): { x: number; y: number } =>
   IS_WINDOWS ? position.toLogical(window.devicePixelRatio) : position;
 
-export function FilerPanel() {
+export function FilerPanel({ tabs }: { tabs?: PanelTabsProps }) {
   const tab = useActiveTab();
   const theme = useStore((s) => s.theme);
   const remote = Boolean(
@@ -1116,13 +1117,20 @@ export function FilerPanel() {
       style={{ flex: 1 }}
     >
       <div className="panel-header">
-        <div className="panel-title is-filer">
-          <Icon name="folder" />
-          Filer
-          <span className="panel-badge">
-            {remote ? tab?.info.protocol : "local"}
-          </span>
-        </div>
+        {tabs ? (
+          <PanelTabs
+            {...tabs}
+            filerBadge={remote ? tab?.info.protocol : "local"}
+          />
+        ) : (
+          <div className="panel-title is-filer">
+            <Icon name="folder" />
+            Filer
+            <span className="panel-badge">
+              {remote ? tab?.info.protocol : "local"}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Upload and download stay visible on local sessions, just disabled. */}

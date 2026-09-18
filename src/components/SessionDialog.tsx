@@ -10,15 +10,16 @@ import {
 } from "../encodings";
 import { IS_WINDOWS } from "../platform";
 import {
+  describeLocation,
   flattenGroups,
   groupPath,
-  sectionLabel,
 } from "../sessionGroups";
 import { useStore } from "../store";
 import {
   endDialogAttention,
   requestDialogAttention,
 } from "./dialogAttention";
+import { GroupNameDialog } from "./GroupNameDialog";
 import { useDialogDrag } from "./useDialogDrag";
 import {
   colorForSession,
@@ -30,6 +31,12 @@ import {
   type SessionProfile,
 } from "../types";
 import { Icon, type IconName } from "./icons";
+
+/**
+ * Sentinel for the Group field's "New group…" choice; group ids are uuids, so
+ * it cannot collide with a real one.
+ */
+const NEW_GROUP = "__new__";
 
 interface Props {
   initial: SessionProfile | null;
@@ -161,11 +168,14 @@ export function SessionDialog({ initial, onClose }: Props) {
   );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The Group field's "New group…" prompt, drawn over this dialog.
+  const [creatingGroup, setCreatingGroup] = useState(false);
 
   const upsertProfile = useStore((s) => s.upsertProfile);
+  const upsertGroup = useStore((s) => s.upsertGroup);
   const groups = useStore((s) => s.groups);
   const profiles = useStore((s) => s.profiles);
-  const groupChoices = flattenGroups(groups, profile.kind);
+  const groupChoices = flattenGroups(groups);
   const jumpChoices = jumpHostChoices(profile, profiles);
   // The chosen jump session was deleted (or now loops back here): keep it
   // visible so the user sees what is wrong; saving drops it.
@@ -577,18 +587,25 @@ export function SessionDialog({ initial, onClose }: Props) {
                 <select
                   id="session-group"
                   value={profile.groupId ?? ""}
-                  onChange={(event) =>
-                    patch({ groupId: event.target.value || null })
-                  }
+                  onChange={(event) => {
+                    // A group is made where it is used. Picking this opens the
+                    // name prompt and selects whatever it creates; the select
+                    // snaps back meanwhile, since `profile.groupId` is
+                    // untouched until the group exists.
+                    if (event.target.value === NEW_GROUP) {
+                      setCreatingGroup(true);
+                      return;
+                    }
+                    patch({ groupId: event.target.value || null });
+                  }}
                 >
-                  <option value="">
-                    {sectionLabel(profile.kind)} (no group)
-                  </option>
+                  <option value="">Top level (no group)</option>
                   {groupChoices.map(({ group }) => (
                     <option key={group.id} value={group.id}>
                       {groupPath(groups, group.id).join(" / ")}
                     </option>
                   ))}
+                  <option value={NEW_GROUP}>New group…</option>
                 </select>
               </div>
             </div>
@@ -744,6 +761,20 @@ export function SessionDialog({ initial, onClose }: Props) {
           </button>
         </div>
       </div>
+
+      {creatingGroup && (
+        <GroupNameDialog
+          title="New Group"
+          location={describeLocation(groups, null)}
+          submitLabel="Create"
+          onSubmit={async (name) => {
+            const saved = await upsertGroup({ id: "", name, parentId: null });
+            patch({ groupId: saved.id });
+            setCreatingGroup(false);
+          }}
+          onCancel={() => setCreatingGroup(false)}
+        />
+      )}
     </div>
   );
 }

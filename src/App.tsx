@@ -42,7 +42,7 @@ import { applyFonts, symbolFallbacks } from "./fonts";
 import { commandHistory } from "./history";
 import { setSemanticColorTheme } from "./semanticColors";
 import { matchAppShortcut } from "./shortcuts";
-import { useActiveTab, useStore } from "./store";
+import { useActiveTab, useStore, type PanelName } from "./store";
 import { allControllers, getController } from "./terminalRegistry";
 import { isFileSession, type SessionProfile, type SessionState } from "./types";
 import { useUpdater } from "./updater";
@@ -126,9 +126,11 @@ export default function App() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [quitPromptOpen, setQuitPromptOpen] = useState(false);
 
-  const [leftWidth, setLeftWidth] = useState(220);
   const [rightWidth, setRightWidth] = useState(220);
   const [senderHeight, setSenderHeight] = useState(160);
+  // Which panel the right sidebar shows; the View menu's two flags decide
+  // which ones it offers (see `availableRightTabs`).
+  const [rightTab, setRightTab] = useState<PanelName>("sessions");
 
   // --- backend events -------------------------------------------------------
 
@@ -366,10 +368,40 @@ export default function App() {
 
   // --- layout ---------------------------------------------------------------
 
-  // Session panel docks on the left, Filer on the right; FTP and SFTP tabs
-  // bring their own dual-pane file manager, so the Filer stays hidden there.
-  const showLeft = panels.sessions;
-  const showRight = panels.filer && !fileMode;
+  // The session list and the Filer share the right sidebar as two tabs, each
+  // with its own View-menu flag; a file session brings its own dual-pane
+  // manager, so the Filer tab is not offered alongside it.
+  const availableRightTabs: PanelName[] = [
+    ...(panels.sessions ? (["sessions"] as PanelName[]) : []),
+    ...(panels.filer && !fileMode ? (["filer"] as PanelName[]) : []),
+  ];
+  const activeRightTab = availableRightTabs.includes(rightTab)
+    ? rightTab
+    : availableRightTabs[0];
+  const panelTabs = {
+    active: activeRightTab,
+    available: availableRightTabs,
+    onSelect: setRightTab,
+  };
+
+  // The View menu and "reveal the shell's directory in the Filer" switch a
+  // panel on without knowing about the tabs; showing the one they turned on
+  // is what turning it on means.
+  const previousPanels = useRef(panels);
+  useEffect(() => {
+    const previous = previousPanels.current;
+    if (panels.filer && !previous.filer) setRightTab("filer");
+    else if (panels.sessions && !previous.sessions) setRightTab("sessions");
+    previousPanels.current = panels;
+  }, [panels]);
+
+  // "Reveal the shell's directory in the Filer" bumps `filerTarget` whether or
+  // not the Filer is already switched on, so it has to move the tab itself —
+  // the flag transition above only covers turning the panel on.
+  const filerTarget = useStore((s) => s.filerTarget);
+  useEffect(() => {
+    if (filerTarget) setRightTab("filer");
+  }, [filerTarget]);
 
   return (
     <div
@@ -392,26 +424,6 @@ export default function App() {
       />
 
       <div className="main">
-        {showLeft && (
-          <>
-            <div
-              className="sidebar sidebar-left"
-              style={{ width: leftWidth, flex: `0 0 ${leftWidth}px` }}
-            >
-              <SessionPanel
-                onNewSession={newSession}
-                onEditProfile={(profile) => setDialog({ profile })}
-              />
-            </div>
-            <Splitter
-              orientation="vertical"
-              onResize={(delta) =>
-                setLeftWidth((width) => clamp(width + delta, 150, 520))
-              }
-            />
-          </>
-        )}
-
         <div className="center">
           <Workspace onNewSession={newSession} />
           {searchOpen && (
@@ -422,7 +434,7 @@ export default function App() {
           )}
         </div>
 
-        {showRight && (
+        {availableRightTabs.length > 0 && (
           <>
             <Splitter
               orientation="vertical"
@@ -434,7 +446,15 @@ export default function App() {
               className="sidebar sidebar-right"
               style={{ width: rightWidth, flex: `0 0 ${rightWidth}px` }}
             >
-              <FilerPanel />
+              {activeRightTab === "filer" ? (
+                <FilerPanel tabs={panelTabs} />
+              ) : (
+                <SessionPanel
+                  tabs={panelTabs}
+                  onNewSession={newSession}
+                  onEditProfile={(profile) => setDialog({ profile })}
+                />
+              )}
             </div>
           </>
         )}

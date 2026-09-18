@@ -760,6 +760,56 @@ textarea:focus {
   color: currentColor;
 }
 
+/* Session / Filer switcher of the right sidebar, drawn where a single panel
+   title used to sit. The chosen tab wears that panel's colour; the other one
+   stays a quiet button until it is picked. */
+.panel-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 auto;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg-faint);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.panel-tab:hover {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg-dim);
+}
+
+.panel-tab.is-active {
+  cursor: default;
+}
+
+.panel-tab.is-active.is-session {
+  color: var(--panel-session);
+  background: color-mix(in srgb, var(--panel-session) 12%, transparent);
+}
+
+.panel-tab.is-active.is-filer {
+  color: var(--panel-filer);
+  background: color-mix(in srgb, var(--panel-filer) 12%, transparent);
+}
+
+.panel-tab > .icon {
+  color: currentColor;
+}
+
+/* Pushes whatever the docked panel draws after the tabs to the far end. */
+.panel-tabs-spacer {
+  flex: 1;
+}
+
 /* Secondary word beside a title ("local", "ssh"): a lowercase pill. */
 .panel-badge {
   padding: 1px 6px;
