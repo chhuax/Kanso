@@ -248,9 +248,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
-            #[cfg(desktop)]
-            app.handle()
-                .plugin(tauri_plugin_updater::Builder::new().build())?;
+            // 更新器插件不再注册：本分支关闭了自动更新（见 src/updater.ts 的
+            // `UPDATES_ENABLED`），而插件在启动时就会去解析 `plugins.updater`
+            // 配置并对非 HTTPS 的更新源直接 panic，等于让应用启动即崩。重新
+            // 启用时要一起恢复：这里的注册、tauri.conf.json 的 `plugins.updater`
+            // 与 `createUpdaterArtifacts`，且更新源必须是 https。
             create_main_window(app)?;
             #[cfg(target_os = "macos")]
             install_menu(app)?;
