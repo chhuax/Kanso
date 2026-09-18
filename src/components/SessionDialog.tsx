@@ -9,11 +9,7 @@ import {
   TERMINAL_ENCODINGS,
 } from "../encodings";
 import { IS_WINDOWS } from "../platform";
-import {
-  describeLocation,
-  flattenGroups,
-  groupPath,
-} from "../sessionGroups";
+import { sortedGroups } from "../sessionGroups";
 import { useStore } from "../store";
 import {
   endDialogAttention,
@@ -174,7 +170,7 @@ export function SessionDialog({ initial, onClose }: Props) {
   const upsertGroup = useStore((s) => s.upsertGroup);
   const groups = useStore((s) => s.groups);
   const profiles = useStore((s) => s.profiles);
-  const groupChoices = flattenGroups(groups);
+  const groupChoices = sortedGroups(groups);
   const jumpChoices = jumpHostChoices(profile, profiles);
   // The chosen jump session was deleted (or now loops back here): keep it
   // visible so the user sees what is wrong; saving drops it.
@@ -599,9 +595,9 @@ export function SessionDialog({ initial, onClose }: Props) {
                   }}
                 >
                   <option value="">Top level (no group)</option>
-                  {groupChoices.map(({ group }) => (
+                  {groupChoices.map((group) => (
                     <option key={group.id} value={group.id}>
-                      {groupPath(groups, group.id).join(" / ")}
+                      {group.name}
                     </option>
                   ))}
                   <option value={NEW_GROUP}>New group…</option>
@@ -764,10 +760,9 @@ export function SessionDialog({ initial, onClose }: Props) {
       {creatingGroup && (
         <GroupNameDialog
           title="New Group"
-          location={describeLocation(groups, null)}
           submitLabel="Create"
           onSubmit={async (name) => {
-            const saved = await upsertGroup({ id: "", name, parentId: null });
+            const saved = await upsertGroup({ id: "", name });
             patch({ groupId: saved.id });
             setCreatingGroup(false);
           }}

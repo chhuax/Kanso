@@ -4,13 +4,7 @@ import { ask } from "@tauri-apps/plugin-dialog";
 import { openSession } from "../../actions";
 import * as api from "../../api";
 import { importSshConfig } from "../../dataTransfer";
-import {
-  byName,
-  childGroups,
-  describeLocation,
-  effectiveGroupId,
-  flattenGroups,
-} from "../../sessionGroups";
+import { byName, effectiveGroupId, sortedGroups } from "../../sessionGroups";
 import { useStore } from "../../store";
 import {
   colorForSession,
@@ -55,8 +49,7 @@ type Row =
   | {
       type: "group";
       group: SessionGroup;
-      depth: number;
-      /** Profiles in the group and all of its subgroups. */
+      /** Sessions the group holds. */
       count: number;
       collapsed: boolean;
     }
@@ -67,10 +60,6 @@ interface MenuState {
   y: number;
   items: MenuItem[];
 }
-
-type GroupDialogState =
-  | { mode: "create"; parentId: string | null }
-  | { mode: "rename"; group: SessionGroup };
 
 interface Props {
   onEditProfile: (profile: SessionProfile) => void;
@@ -90,9 +79,8 @@ export function SessionPanel({ onEditProfile, onNewSession, tabs }: Props) {
   const setStatus = useStore((s) => s.setStatus);
   const [filter, setFilter] = useState("");
   /**
-   * Explicit open / closed state of the tree, keyed `kind:<kind>` for
-   * headings and `group:<id>` for groups. Anything not in here is at its
-   * default — see `isOpen`.
+   * Explicit open / closed state of the list, keyed `group:<id>`. Anything
+   * not in here is at its default — see `isOpen`.
    */
   const [open, setOpen] = useState<Record<string, boolean>>({});
   /**
@@ -105,17 +93,16 @@ export function SessionPanel({ onEditProfile, onNewSession, tabs }: Props) {
     scopedCommands: number;
   } | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
-  const [groupDialog, setGroupDialog] = useState<GroupDialogState | null>(
-    null,
-  );
+  /** The group being renamed, if the name prompt is up. */
+  const [groupDialog, setGroupDialog] = useState<SessionGroup | null>(null);
 
   const closeMenu = useCallback(() => setMenu(null), []);
 
   const filtering = filter.trim().length > 0;
 
-  // One tree: the folders the user made, with the sessions inside them and the
-  // ones without a folder at the top level. Nothing is pre-grouped by session
-  // kind — a group holds any of them.
+  // Groups first, then the sessions that are in none, both A→Z. A group is
+  // one level deep, so its own members are listed straight under it; nothing
+  // is pre-grouped by session kind, and a group holds any of them.
   const tree = useMemo(() => {
     const needle = filter.trim().toLowerCase();
     const byGroup = new Map<string | null, SessionProfile[]>();
@@ -126,31 +113,27 @@ export function SessionPanel({ onEditProfile, onNewSession, tabs }: Props) {
     }
     for (const members of byGroup.values()) members.sort(byName);
 
-    // Folders first, then the profiles at that level, both A→Z — the shape of
-    // a file tree. While filtering, empty groups are dropped and collapse
-    // state is ignored so every match is on screen.
-    const walk = (
-      parentId: string | null,
-      depth: number,
-    ): { rows: Row[]; count: number } => {
-      const rows: Row[] = [];
-      let count = 0;
-      for (const group of childGroups(groups, parentId)) {
-        const sub = walk(group.id, depth + 1);
-        if (needle && sub.count === 0) continue;
-        const collapsed = !needle && !isOpen(open, `group:${group.id}`);
-        rows.push({ type: "group", group, depth, count: sub.count, collapsed });
-        if (!collapsed) rows.push(...sub.rows);
-        count += sub.count;
+    const rows: Row[] = [];
+    let count = 0;
+    for (const group of sortedGroups(groups)) {
+      const members = byGroup.get(group.id) ?? [];
+      // While filtering, a group with no match is dropped and collapse state
+      // is ignored so every match is on screen.
+      if (needle && members.length === 0) continue;
+      const collapsed = !needle && !isOpen(open, `group:${group.id}`);
+      rows.push({ type: "group", group, count: members.length, collapsed });
+      if (!collapsed) {
+        for (const profile of members) {
+          rows.push({ type: "profile", profile, depth: 1 });
+        }
       }
-      for (const profile of byGroup.get(parentId) ?? []) {
-        rows.push({ type: "profile", profile, depth });
-        count++;
-      }
-      return { rows, count };
-    };
-
-    return walk(null, 0);
+      count += members.length;
+    }
+    for (const profile of byGroup.get(null) ?? []) {
+      rows.push({ type: "profile", profile, depth: 0 });
+      count++;
+    }
+    return { rows, count };
   }, [profiles, groups, filter, open]);
 
   const toggle = (key: string) =>
@@ -179,25 +162,15 @@ export function SessionPanel({ onEditProfile, onNewSession, tabs }: Props) {
   };
 
   const confirmDeleteGroup = async (group: SessionGroup) => {
-    const inSubtree = (groupId: string | null) => {
-      let cursor = groupId;
-      const seen = new Set<string>();
-      while (cursor && !seen.has(cursor)) {
-        if (cursor === group.id) return true;
-        seen.add(cursor);
-        cursor = groups.find((g) => g.id === cursor)?.parentId ?? null;
-      }
-      return false;
-    };
-    const insideProfiles = profiles.filter((p) =>
-      inSubtree(effectiveGroupId(groups, p)),
+    const insideProfiles = profiles.filter(
+      (p) => effectiveGroupId(groups, p) === group.id,
     );
     const insideIds = new Set(insideProfiles.map((p) => p.id));
-    // Everything scoped to the subtree goes with it: commands of the groups
-    // and commands of the sessions in them.
+    // Everything scoped to the group goes with it: commands of the group and
+    // commands of the sessions in it.
     const scopedCommands = (await listSenderCommands()).filter(
       (command) =>
-        (command.scope.type === "group" && inSubtree(command.scope.id)) ||
+        (command.scope.type === "group" && command.scope.id === group.id) ||
         (command.scope.type === "profile" && insideIds.has(command.scope.id)),
     ).length;
     const plural = (count: number, noun: string) =>
@@ -209,7 +182,7 @@ export function SessionPanel({ onEditProfile, onNewSession, tabs }: Props) {
     const consequence =
       contents.length === 0
         ? "It contains no sessions."
-        : `Its subgroups, ${contents.join(" and ")} will be deleted with it. This cannot be undone.`;
+        : `${contents.join(" and ")} will be deleted with it. This cannot be undone.`;
     const confirmed = await ask(
       `Delete the group "${group.name}" and everything in it? ${consequence}`,
       {
@@ -228,8 +201,6 @@ export function SessionPanel({ onEditProfile, onNewSession, tabs }: Props) {
     }
   };
 
-  // Right-clicking the panel's empty space. A group is not made here: it is
-  // made where it is used, from the New Session dialog's Group field.
   // Right-clicking the list is how a session is added: the header's own
   // buttons are gone, and a group is still made from the New Session dialog.
   const panelMenu = (): MenuItem[] => [
@@ -249,15 +220,9 @@ export function SessionPanel({ onEditProfile, onNewSession, tabs }: Props) {
 
   const groupMenu = (group: SessionGroup): MenuItem[] => [
     {
-      label: "New Subgroup…",
-      icon: "new-folder",
-      action: () => setGroupDialog({ mode: "create", parentId: group.id }),
-    },
-    "separator",
-    {
       label: "Rename Group…",
       icon: "rename",
-      action: () => setGroupDialog({ mode: "rename", group }),
+      action: () => setGroupDialog(group),
     },
     {
       label: "Delete Group…",
@@ -289,13 +254,12 @@ export function SessionPanel({ onEditProfile, onNewSession, tabs }: Props) {
         action: move(null),
       },
     ];
-    const nodes = flattenGroups(groups);
+    const nodes = sortedGroups(groups);
     if (nodes.length > 0) {
       choices.push("separator");
-      for (const { group, depth } of nodes) {
+      for (const group of nodes) {
         choices.push({
           label: group.name,
-          indent: depth,
           checked: current === group.id,
           mark: "radio",
           action: move(group.id),
@@ -369,16 +333,16 @@ export function SessionPanel({ onEditProfile, onNewSession, tabs }: Props) {
   );
 
   const renderGroup = (row: Extract<Row, { type: "group" }>) => (
-    // Location breadcrumb doubles as the hint that a menu exists here.
+    // The tooltip doubles as the hint that a menu exists here.
     <div
       key={`group:${row.group.id}`}
       className="row is-group"
-      style={{ paddingLeft: 6 + INDENT * row.depth }}
+      style={{ paddingLeft: 6 }}
       onMouseDown={(event) => {
         if (event.button === 0) toggle(`group:${row.group.id}`);
       }}
       onContextMenu={(event) => openMenu(event, groupMenu(row.group))}
-      title={`${describeLocation(groups, row.group.id)} · right-click for options`}
+      title={`${row.group.name} · right-click for options`}
     >
       <span className={`row-caret${row.collapsed ? "" : " is-open"}`}>
         <Icon name="chevron-right" />
@@ -444,42 +408,18 @@ export function SessionPanel({ onEditProfile, onNewSession, tabs }: Props) {
         />
       )}
 
-      {groupDialog &&
-        (groupDialog.mode === "create" ? (
-          <GroupNameDialog
-            title={groupDialog.parentId ? "New Subgroup" : "New Group"}
-            location={describeLocation(groups, groupDialog.parentId)}
-            submitLabel="Create"
-            onSubmit={async (name) => {
-              const saved = await upsertGroup({
-                id: "",
-                name,
-                parentId: groupDialog.parentId,
-              });
-              // A new group is empty, so make sure its parent is open.
-              if (saved.parentId) {
-                setOpen((prev) => ({
-                  ...prev,
-                  [`group:${saved.parentId}`]: true,
-                }));
-              }
-              setGroupDialog(null);
-            }}
-            onCancel={() => setGroupDialog(null)}
-          />
-        ) : (
-          <GroupNameDialog
-            title="Rename Group"
-            location={describeLocation(groups, groupDialog.group.parentId)}
-            initialName={groupDialog.group.name}
-            submitLabel="Rename"
-            onSubmit={async (name) => {
-              await upsertGroup({ ...groupDialog.group, name });
-              setGroupDialog(null);
-            }}
-            onCancel={() => setGroupDialog(null)}
-          />
-        ))}
+      {groupDialog && (
+        <GroupNameDialog
+          title="Rename Group"
+          initialName={groupDialog.name}
+          submitLabel="Rename"
+          onSubmit={async (name) => {
+            await upsertGroup({ ...groupDialog, name });
+            setGroupDialog(null);
+          }}
+          onCancel={() => setGroupDialog(null)}
+        />
+      )}
 
       {pendingDelete && (
         <DeleteProfileDialog

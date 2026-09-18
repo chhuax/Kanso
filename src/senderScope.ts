@@ -1,9 +1,4 @@
-import {
-  effectiveGroupId,
-  effectiveParentId,
-  groupPath,
-  KIND_LABELS,
-} from "./sessionGroups";
+import { effectiveGroupId, KIND_LABELS } from "./sessionGroups";
 import type { Tab } from "./store";
 import type {
   CommandScope,
@@ -69,17 +64,11 @@ export function scopeChain(
     ? profiles.find((candidate) => candidate.id === tab.profile.id)
     : undefined;
   if (profile) {
-    // Walk up from the profile's group, then list the groups outermost first.
-    const lineage: CommandScope[] = [];
-    const seen = new Set<string>();
-    let groupId = effectiveGroupId(groups, profile);
-    while (groupId !== null && !seen.has(groupId)) {
-      seen.add(groupId);
-      lineage.unshift({ type: "group", id: groupId });
-      const group = groups.find((candidate) => candidate.id === groupId);
-      groupId = group ? effectiveParentId(groups, group) : null;
-    }
-    chain.push(...lineage, { type: "profile", id: profile.id });
+    // Groups are one level deep, so the profile's own group is the only one
+    // in the chain.
+    const groupId = effectiveGroupId(groups, profile);
+    if (groupId !== null) chain.push({ type: "group", id: groupId });
+    chain.push({ type: "profile", id: profile.id });
   }
   return chain;
 }
@@ -100,8 +89,8 @@ export function scopeLabel(
     case "kind":
       return KIND_LABELS[scope.kind];
     case "group": {
-      const path = groupPath(groups, scope.id);
-      return path.length > 0 ? `Group “${path.join(" / ")}”` : "Group";
+      const group = groups.find((candidate) => candidate.id === scope.id);
+      return group ? `Group “${group.name}”` : "Group";
     }
     case "profile": {
       const profile = profiles.find((candidate) => candidate.id === scope.id);

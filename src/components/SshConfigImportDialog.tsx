@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import * as api from "../api";
-import { groupPath } from "../sessionGroups";
+import type { SessionGroup } from "../types";
 import { useStore } from "../store";
 import type { SshConfigEntry, SshConfigPreview } from "../types";
 import { endDialogAttention, requestDialogAttention } from "./dialogAttention";
@@ -56,11 +56,8 @@ export function SshConfigImportDialog({ preview, onClose }: Props) {
   // imported hosts.
   const groupTargets = useMemo(
     () =>
-      groups
-        .map((group) => ({
-          id: group.id,
-          label: groupPath(groups, group.id).join(" / "),
-        }))
+      [...groups]
+        .map((group: SessionGroup) => ({ id: group.id, label: group.name }))
         .sort((a, b) => a.label.localeCompare(b.label)),
     [groups],
   );

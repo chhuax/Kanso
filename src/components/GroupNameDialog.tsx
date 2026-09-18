@@ -2,8 +2,6 @@ import { useEffect, useRef, useState } from "react";
 
 interface Props {
   title: string;
-  /** Where the group lives, e.g. "prod" or "the top level". */
-  location: string;
   initialName?: string;
   submitLabel: string;
   /** Rejections are shown inline and keep the dialog open. */
@@ -14,7 +12,6 @@ interface Props {
 /** Asks for a group name when creating or renaming a Session panel group. */
 export function GroupNameDialog({
   title,
-  location,
   initialName = "",
   submitLabel,
   onSubmit,
@@ -89,7 +86,6 @@ export function GroupNameDialog({
               onChange={(event) => setName(event.target.value)}
             />
           </label>
-          <span className="confirm-dialog-hint">In {location}</span>
           {error && <div className="dialog-error">{error}</div>}
         </div>
         <div className="dialog-footer confirm-dialog-footer">
