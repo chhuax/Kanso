@@ -212,7 +212,8 @@ impl Store {
     }
 
     pub fn load_from(path: PathBuf) -> Self {
-        let mut profiles: Vec<SessionProfile> = read_json(&path).unwrap_or_default();
+        let mut profiles: Vec<SessionProfile> =
+            read_array_without_retired_kinds(&path).unwrap_or_default();
         // Older files may have contained credentials. Move them into the
         // private credential map when loading, then keep the UI copy redacted.
         let mut reseal = false;
@@ -236,9 +237,10 @@ impl Store {
             None => (HashMap::new(), VaultKey::fresh()),
         };
         let groups_path = groups_path_for(&path);
-        let groups = read_json(&groups_path).unwrap_or_default();
+        let groups = read_array_without_retired_kinds(&groups_path).unwrap_or_default();
         let sender_commands_path = sender_commands_path_for(&path);
-        let sender_commands = read_json(&sender_commands_path).unwrap_or_default();
+        let sender_commands =
+            read_array_without_retired_kinds(&sender_commands_path).unwrap_or_default();
         let command_history_path = command_history_path_for(&path);
         let command_history = read_json(&command_history_path).unwrap_or_default();
         let mut imported_legacy_credentials = false;
@@ -1060,6 +1062,33 @@ fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
     std::fs::read_to_string(path)
         .ok()
         .and_then(|raw| serde_json::from_str(&raw).ok())
+}
+
+/// Session kinds this build no longer supports. A file written by an older
+/// build can still name one, and `SessionKind` rejects an unknown variant —
+/// which fails the whole array the entry appears in. `read_json` turns any
+/// error into "no file", so a single retired entry would silently empty the
+/// saved sessions, groups or Sender commands rather than losing only that
+/// entry. Dropping the retired entries at load keeps the rest; a file that is
+/// malformed for any other reason still falls back to empty as before.
+const RETIRED_KINDS: [&str; 2] = ["ftp", "serial"];
+
+fn names_retired_kind(kind: Option<&serde_json::Value>) -> bool {
+    kind.and_then(serde_json::Value::as_str)
+        .is_some_and(|kind| RETIRED_KINDS.contains(&kind))
+}
+
+/// `read_json` for a file holding a JSON array, minus the entries naming a
+/// retired kind — at `kind` (a profile or group) or at `scope.kind` (a Sender
+/// command scoped to a kind).
+fn read_array_without_retired_kinds<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    let mut entries: Vec<serde_json::Value> = serde_json::from_str(&raw).ok()?;
+    entries.retain(|entry| {
+        !names_retired_kind(entry.get("kind"))
+            && !names_retired_kind(entry.get("scope").and_then(|scope| scope.get("kind")))
+    });
+    serde_json::from_value(serde_json::Value::Array(entries)).ok()
 }
 
 fn credentials_path_for(path: &Path) -> PathBuf {

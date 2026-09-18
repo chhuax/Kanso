@@ -490,6 +490,45 @@ fn sender_commands_saved_with_a_format_still_load() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+#[test]
+fn entries_of_removed_kinds_do_not_empty_the_library() {
+    // FTP and serial are gone from `SessionKind`, and serde rejects the
+    // unknown variant, which fails the whole array the entry sits in. Since
+    // `read_json` falls back to nothing, one retired profile used to take
+    // every saved session, group and Sender command down with it.
+    let dir = temp_dir("retired-kinds");
+    std::fs::write(
+        dir.join("sessions.json"),
+        r#"[{"name":"edge","kind":"ssh","host":"example.com"},
+            {"name":"router","kind":"serial","portName":"/dev/ttyUSB0"},
+            {"name":"files","kind":"sftp","host":"files.example.com"},
+            {"name":"dead","kind":"ftp","host":"ftp.example.com"}]"#,
+    )
+    .expect("write legacy sessions");
+    std::fs::write(
+        dir.join("session_groups.json"),
+        r#"[{"id":"g1","name":"devices","kind":"serial"},
+            {"id":"g2","name":"prod","kind":"ssh"}]"#,
+    )
+    .expect("write legacy groups");
+    std::fs::write(
+        dir.join("sender_commands.json"),
+        r#"[{"name":"reboot","text":"reboot","ending":"lf","scope":{"type":"kind","kind":"serial"}},
+            {"name":"ls","text":"ls","ending":"lf","scope":{"type":"global"}}]"#,
+    )
+    .expect("write legacy sender commands");
+
+    let data = Store::load_from(dir.join("sessions.json")).snapshot();
+    let names: Vec<&str> = data.profiles.iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(names, vec!["edge", "files"]);
+    assert_eq!(data.groups.len(), 1);
+    assert_eq!(data.groups[0].name, "prod");
+    assert_eq!(data.sender_commands.len(), 1);
+    assert_eq!(data.sender_commands[0].name, "ls");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 
 fn command(name: &str, text: &str) -> SavedCommand {
     SavedCommand {
