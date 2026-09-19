@@ -44,7 +44,11 @@ pub fn local_shell_cwd(
     let mut last_error = AppError::new("the shell has no process to inspect");
     for pid in candidates {
         match process_cwd(pid) {
-            Ok(path) => return Ok(path),
+            // A process with no vnode to name answers with an empty path. That
+            // is not a directory, and taking it as the answer would end the
+            // search before the shell itself was asked.
+            Ok(path) if !path.is_empty() => return Ok(path),
+            Ok(_) => last_error = AppError::new(format!("process {pid} reports no directory")),
             Err(e) => last_error = e,
         }
     }

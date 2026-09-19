@@ -1963,3 +1963,46 @@ Host db
         "db is saved as a plain session; its chain was left off"
     );
 }
+
+/// The rail's second line and the Filer's "Reveal Working Directory" both ask
+/// the OS where a local shell is; see `session::cwd`. A real pty is the only
+/// way to cover it: the foreground process group comes off the master.
+#[test]
+#[ignore = "needs a pty; run with --ignored where the sandbox allows openpty"]
+fn a_local_shells_working_directory_is_read_from_the_os() {
+    use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+
+    let pty = native_pty_system()
+        .openpty(PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .expect("open a pty");
+    let mut child = pty
+        .slave
+        .spawn_command(CommandBuilder::new("sh"))
+        .expect("spawn a shell");
+    drop(pty.slave);
+
+    let fd = pty.master.as_raw_fd().expect("master fd");
+    let pgrp = unsafe { libc::tcgetpgrp(fd) };
+    let shell_pid = child.process_id();
+    println!("tcgetpgrp(master) = {pgrp}, child pid = {shell_pid:?}");
+    if pgrp > 0 {
+        println!("  process_cwd({pgrp}) = {:?}", crate::session::cwd::process_cwd(pgrp as u32));
+    }
+    if let Some(pid) = shell_pid {
+        println!("  process_cwd({pid}) = {:?}", crate::session::cwd::process_cwd(pid));
+    }
+
+    let result = crate::session::cwd::local_shell_cwd(pty.master.as_ref(), child.as_ref());
+    println!("local_shell_cwd -> {result:?}");
+    let cwd = result.expect("read the shell's directory");
+    assert!(!cwd.is_empty(), "an empty answer is not a directory");
+    assert!(Path::new(&cwd).is_absolute(), "not absolute: {cwd}");
+
+    let _ = child.kill();
+    let _ = child.wait();
+}

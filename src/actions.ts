@@ -98,11 +98,24 @@ function userFriendlyPath(path: string, home: string): string {
   return /^[/\\]/.test(rest) ? `~${rest}` : path;
 }
 
-/** Reads a local shell's working directory into its tab; see `Tab.cwd`. */
+/**
+ * Reads a local shell's working directory into its tab; see `Tab.cwd`. The
+ * Filer's "Reveal Working Directory" asks the same question through
+ * `shellCwd`, so a shell the OS cannot be asked about still has its own OSC 7
+ * report used here. A read that comes back with nothing says so: the line
+ * would otherwise stay blank with no way to tell why.
+ */
 function refreshLocalCwd(id: string) {
-  void Promise.all([api.sessionCwd(id), homeDir()])
-    .then(([cwd, home]) => useStore.getState().setCwd(id, userFriendlyPath(cwd, home)))
-    .catch(() => undefined);
+  const tab = useStore.getState().tabs.find((item) => item.info.id === id);
+  if (!tab || tab.info.kind !== "local") return;
+  void Promise.all([shellCwd(tab), homeDir()])
+    .then(([cwd, home]) => {
+      if (!cwd) throw new Error("the shell reported no directory");
+      useStore.getState().setCwd(id, userFriendlyPath(cwd, home));
+    })
+    .catch((error) =>
+      useStore.getState().setStatus(`Working directory: ${String(error)}`),
+    );
 }
 
 export async function ensureController(
