@@ -7,6 +7,8 @@
  * instead: busy while it works, finished when it hands the terminal back.
  */
 
+import type { IconName } from "./components/icons";
+
 /** An agentic CLI, as the session list names it. */
 export interface AiTool {
   /** Stable id; several spellings map to one tool. */
@@ -14,16 +16,37 @@ export interface AiTool {
   /** Shown beside the tab, e.g. "Claude". */
   label: string;
   /**
-   * The mark's tint, near the tool's own colour. Not an official brand
-   * colour and no brand asset is shipped: that needs a licence, which is the
-   * same reason Warp falls back to a plain icon until it has one.
+   * The mark's tint, near the tool's own colour. It is what the mark is drawn
+   * in, so a tool with a glyph of its own (below) looks like itself.
    */
   color: string;
+  /**
+   * The tool's own glyph, where VS Code's Codicons — the set every other icon
+   * in the chrome comes from — carries one. Those are vendor marks drawn for
+   * exactly this: naming the tool a session is running in. A tool with none
+   * keeps the generic sparkle rather than having a mark invented for it.
+   */
+  icon?: IconName;
 }
 
-const CLAUDE: AiTool = { id: "claude", label: "Claude", color: "#d97757" };
-const CODEX: AiTool = { id: "codex", label: "Codex", color: "#10a37f" };
-const GEMINI: AiTool = { id: "gemini", label: "Gemini", color: "#4285f4" };
+const CLAUDE: AiTool = {
+  id: "claude",
+  label: "Claude",
+  color: "#d97757",
+  icon: "claude",
+};
+const CODEX: AiTool = {
+  id: "codex",
+  label: "Codex",
+  color: "#10a37f",
+  icon: "openai",
+};
+const GEMINI: AiTool = {
+  id: "gemini",
+  label: "Gemini",
+  color: "#4285f4",
+  icon: "google-gemini",
+};
 
 /**
  * Binary names, as they are typed. Basenames, so a full path also matches.
@@ -34,8 +57,13 @@ const AI_CLIS: Record<string, AiTool> = {
   codex: CODEX,
   gemini: GEMINI,
   aider: { id: "aider", label: "Aider", color: "#8a5cf6" },
-  "cursor-agent": { id: "cursor", label: "Cursor", color: "#8b949e" },
-  copilot: { id: "copilot", label: "Copilot", color: "#6e7681" },
+  "cursor-agent": {
+    id: "cursor",
+    label: "Cursor",
+    color: "#8b949e",
+    icon: "cursor",
+  },
+  copilot: { id: "copilot", label: "Copilot", color: "#6e7681", icon: "copilot" },
   amp: { id: "amp", label: "Amp", color: "#e8794a" },
   opencode: { id: "opencode", label: "OpenCode", color: "#4fb8a8" },
   crush: { id: "crush", label: "Crush", color: "#e05f8a" },

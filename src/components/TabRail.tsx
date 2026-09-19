@@ -543,6 +543,8 @@ export function TabRail({ onNewSession, onManageSessions }: Props) {
                   onMouseDown={() => setActive(tab.info.id)}
                   title={[
                     `${tab.info.protocol} · ${tab.info.address}`,
+                    // The mark says which tool; this names it in words.
+                    tab.aiTool?.label,
                     tab.branch,
                     tab.commandActivity === "running"
                       ? activityLabel(tab)
@@ -559,7 +561,7 @@ export function TabRail({ onNewSession, onManageSessions }: Props) {
                     <Icon
                       name={
                         tab.aiTool
-                          ? "sparkle"
+                          ? (tab.aiTool.icon ?? "sparkle")
                           : (KIND_ICONS[tab.info.kind] ?? "terminal")
                       }
                     />

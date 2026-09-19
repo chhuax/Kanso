@@ -1202,8 +1202,8 @@ textarea:focus {
   color: var(--session-color, var(--accent));
 }
 
-/* An agentic CLI owns the row's mark: a sparkle on a disk of its own colour,
-   with the tool named beside the title. */
+/* An agentic CLI owns the row's mark: the tool's own glyph, on a disk of its
+   own colour, so a Claude session wears Claude's mark. */
 .tab-row-icon.is-agent {
   color: var(--agent-color, var(--accent));
   background: color-mix(
@@ -1211,6 +1211,13 @@ textarea:focus {
     var(--agent-color, var(--accent)) 20%,
     transparent
   );
+}
+
+/* The mark keeps the tool's colour on the active row as well: it is that
+   tool's logo, and the session's colour is not what it is saying. This has to
+   out-specify `.tab-row.is-active .tab-row-icon` above. */
+.tab-row.is-active .tab-row-icon.is-agent {
+  color: var(--agent-color, var(--accent));
 }
 
 /* A row is two lines when it has a second fact to show — a local shell's

@@ -12,18 +12,22 @@ import chevronDown from "@vscode/codicons/src/icons/chevron-down.svg?raw";
 import chevronLeft from "@vscode/codicons/src/icons/chevron-left.svg?raw";
 import chevronRight from "@vscode/codicons/src/icons/chevron-right.svg?raw";
 import circuitBoard from "@vscode/codicons/src/icons/circuit-board.svg?raw";
+import claude from "@vscode/codicons/src/icons/claude.svg?raw";
 import clearAll from "@vscode/codicons/src/icons/clear-all.svg?raw";
 import clippy from "@vscode/codicons/src/icons/clippy.svg?raw";
 import close from "@vscode/codicons/src/icons/close.svg?raw";
 import cloudDownload from "@vscode/codicons/src/icons/cloud-download.svg?raw";
 import cloudUpload from "@vscode/codicons/src/icons/cloud-upload.svg?raw";
+import copilot from "@vscode/codicons/src/icons/copilot.svg?raw";
 import copy from "@vscode/codicons/src/icons/copy.svg?raw";
+import cursor from "@vscode/codicons/src/icons/cursor.svg?raw";
 import debugStop from "@vscode/codicons/src/icons/debug-stop.svg?raw";
 import edit from "@vscode/codicons/src/icons/edit.svg?raw";
 import error from "@vscode/codicons/src/icons/error.svg?raw";
 import folder from "@vscode/codicons/src/icons/folder.svg?raw";
 import folderOpened from "@vscode/codicons/src/icons/folder-opened.svg?raw";
 import goToFile from "@vscode/codicons/src/icons/go-to-file.svg?raw";
+import googleGemini from "@vscode/codicons/src/icons/google-gemini.svg?raw";
 import home from "@vscode/codicons/src/icons/home.svg?raw";
 import info from "@vscode/codicons/src/icons/info.svg?raw";
 import linkExternal from "@vscode/codicons/src/icons/link-external.svg?raw";
@@ -32,6 +36,7 @@ import move from "@vscode/codicons/src/icons/move.svg?raw";
 import newFile from "@vscode/codicons/src/icons/new-file.svg?raw";
 import newFolder from "@vscode/codicons/src/icons/new-folder.svg?raw";
 import newline from "@vscode/codicons/src/icons/newline.svg?raw";
+import openai from "@vscode/codicons/src/icons/openai.svg?raw";
 import plug from "@vscode/codicons/src/icons/plug.svg?raw";
 import refresh from "@vscode/codicons/src/icons/refresh.svg?raw";
 import rename from "@vscode/codicons/src/icons/rename.svg?raw";
@@ -61,23 +66,28 @@ const SVGS = {
   "chevron-right": chevronRight,
   "circuit-board": circuitBoard,
   "clear-all": clearAll,
+  claude,
   clippy,
+  copilot,
   close,
   "cloud-download": cloudDownload,
   "cloud-upload": cloudUpload,
   copy,
+  cursor,
   "debug-stop": debugStop,
   edit,
   error,
   folder,
   "folder-opened": folderOpened,
   "go-to-file": goToFile,
+  "google-gemini": googleGemini,
   home,
   info,
   "link-external": linkExternal,
   "list-selection": listSelection,
   move,
   "new-file": newFile,
+  openai,
   "new-folder": newFolder,
   newline,
   plug,
