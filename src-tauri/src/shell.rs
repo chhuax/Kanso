@@ -91,8 +91,18 @@ zenterm_precmd() {
   ZENTERM_BASE=${ZENTERM_BASE//"%~"/}
   ZENTERM_BASE=${ZENTERM_BASE//"%\/"/}
   ZENTERM_BASE=${ZENTERM_BASE//"%d"/}
+  # The user's name goes too: in a shell started here it is always the same
+  # name, and the chip says the part that changes.
+  ZENTERM_BASE=${ZENTERM_BASE//'%n'/}
+  ZENTERM_BASE=${ZENTERM_BASE//'%N'/}
   while [[ $ZENTERM_BASE == *'  '* ]]; do
     ZENTERM_BASE=${ZENTERM_BASE//'  '/' '}
+  done
+  while [[ $ZENTERM_BASE == ' '* ]]; do
+    ZENTERM_BASE=${ZENTERM_BASE# }
+  done
+  while [[ $ZENTERM_BASE == *' ' ]]; do
+    ZENTERM_BASE=${ZENTERM_BASE% }
   done
   shown=${(%):-${ZENTERM_BASE}}
   local directory_is_shown=no
@@ -280,8 +290,8 @@ mod tests {
             Some("feature/x")
         );
 
-        // The prompt's own directory escape moves into the chip, and the chip
-        // lands after the user's name: the directory is said once.
+        // The directory and the user's name move into the chip, which is the
+        // part that changes; the prompt keeps its sign.
         let with_dir = run(
             &deep,
             "PROMPT='%n %~ %# '; ZENTERM_USER_PROMPT=$PROMPT; zenterm_precmd; print -r -- \"$PROMPT\"",
@@ -294,9 +304,10 @@ mod tests {
             "the prompt kept a directory of its own: {with_dir}"
         );
         assert!(
-            with_dir.contains("%n "),
-            "the chips are not after the user: {with_dir}"
+            !with_dir.contains("%n"),
+            "the user's name is still on the line: {with_dir}"
         );
+        assert!(with_dir.contains("%#"), "the sign is gone: {with_dir}");
         assert!(
             with_dir.contains("\u{1b}]133;A\u{7}"),
             "no prompt-start marker: {with_dir}"
