@@ -70,20 +70,22 @@ zenterm_precmd() {
   local box=$'%{\e[48;5;236m\e[38;5;252m%}'
   local green=$'%{\e[48;5;236m\e[38;5;114m%}'
   local off=$'%{\e[0m%}'
-  local folder=$'\uf07b'
-  local fork=$'\ue0a0'
+  # Written as the characters themselves: as `$'\uf07b'` a shell whose
+  # locale cannot encode them fails with "character not in range" instead
+  # of drawing the line.
+  local folder=""
+  local fork=""
 
   if [[ -n $branch ]]; then
     ZENTERM_CHIPS="${box} ${folder} ${path} ${off} ${green} ${fork} ${branch} ${off} "
   else
     ZENTERM_CHIPS="${box} ${folder} ${path} ${off} "
   fi
-  PROMPT="${ZENTERM_CHIPS}${ZENTERM_USER_PROMPT}"
-
   # The prompt line begins here. The terminal brackets commands with this
   # (OSC 133), so a command's end is told rather than guessed from the shape
   # of a prompt the chips have changed.
-  print -rn -- $'\e]133;A\a'
+  local mark=$'%{\e]133;A\a%}'
+  PROMPT="${mark}${ZENTERM_CHIPS}${ZENTERM_USER_PROMPT}"
 }
 
 ZENTERM_USER_PROMPT=${PROMPT-'%m %~ %# '}
