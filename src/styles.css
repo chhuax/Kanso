@@ -3194,39 +3194,6 @@ textarea:focus {
 }
 
 
-/* A hint too long for one line: a tinted block that wraps, with the icon
-   saying whether it explains something or warns about it. */
-.session-note {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 8px 10px;
-  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-  color: var(--fg-dim);
-  font-size: 11px;
-  line-height: 1.45;
-}
-
-.session-note .icon {
-  margin-top: 1px;
-  color: var(--accent);
-}
-
-.session-note.is-warning {
-  border-color: color-mix(in srgb, var(--yellow) 32%, transparent);
-  background: color-mix(in srgb, var(--yellow) 12%, transparent);
-}
-
-.session-note.is-warning .icon {
-  color: var(--yellow);
-}
-
-.session-note.is-wide {
-  grid-column: 1 / -1;
-}
-
 .session-color-picker {
   display: grid;
   grid-template-columns: repeat(8, 20px);
@@ -3937,8 +3904,7 @@ textarea:focus {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .session-field.is-wide,
-  .session-note.is-wide {
+  .session-field.is-wide {
     grid-column: auto;
   }
 

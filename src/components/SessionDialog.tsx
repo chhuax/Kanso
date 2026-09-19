@@ -248,19 +248,6 @@ export function SessionDialog({ initial, onClose }: Props) {
                 ))}
               </datalist>
             </label>
-            <div className="session-note is-wide">
-              <Icon name="info" />
-              <span>
-                {profile.kind === "ssh"
-                  ? "The locale is sent as LANG when the shell starts, so " +
-                    "a server with AcceptEnv LANG prints file names in " +
-                    "UTF-8 instead of octal escapes. Empty keeps the " +
-                    "server's default."
-                  : "The locale becomes the shell's LANG. Empty inherits " +
-                    "the environment, with a UTF-8 locale filled in when " +
-                    "the environment names none."}
-              </span>
-            </div>
           </>
         )}
       </>
@@ -292,13 +279,6 @@ export function SessionDialog({ initial, onClose }: Props) {
           ))}
         </select>
       </label>
-      <div className="session-note is-wide">
-        <Icon name="info" />
-        <span>
-          Connect through a saved SSH session (ProxyJump) to reach a host that
-          is only visible from its network.
-        </span>
-      </div>
     </>
   );
 
