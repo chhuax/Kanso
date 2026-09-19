@@ -95,7 +95,7 @@ zenterm_precmd() {
   # themselves: as `$'\uf114'` a shell whose locale cannot encode them fails
   # with "character not in range" instead of drawing the line.
   local folder=""
-  local fork=""
+  local fork=""
 
   ZENTERM_CHIPS=""
   [[ $directory_is_shown == no ]] &&
@@ -341,7 +341,7 @@ mod tests {
         .expect("zsh");
         assert!(prompt.contains("\u{f114}"), "unexpected prompt: {prompt}");
         assert!(
-            !prompt.contains("\u{e0a0}"),
+            !prompt.contains("\u{f126}"),
             "a branch appeared from nowhere: {prompt}"
         );
 
