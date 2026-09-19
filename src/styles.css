@@ -1439,6 +1439,39 @@ textarea:focus {
   color: var(--red);
 }
 
+/* The quiet word that a selection reached the clipboard. Fixed where the
+   release happened, and gone on its own; it never takes a click. */
+.term-copied {
+  position: fixed;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border: 1px solid var(--border-menu);
+  border-radius: 5px;
+  background: var(--bg-menu);
+  color: var(--fg-dim);
+  font-size: 11px;
+  pointer-events: none;
+  animation: term-copied-fade 1200ms ease-out forwards;
+}
+
+@keyframes term-copied-fade {
+  0% {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  12%,
+  70% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
 /* --- terminal search ------------------------------------------------------ */
 
 .terminal-search {

@@ -1109,9 +1109,17 @@ export class TerminalController {
   }
 
   /** Copies the selection to the clipboard; false when there is none. */
+  /**
+   * Copies the selection, if there is one, and says so when the clipboard
+   * refuses: a rejected write is the one failure of this that would otherwise
+   * be completely silent — the user sees a selection, expects it to be
+   * pasteable, and finds out elsewhere.
+   */
   copySelection(): boolean {
     if (!this.term.hasSelection()) return false;
-    void navigator.clipboard.writeText(this.term.getSelection());
+    navigator.clipboard.writeText(this.term.getSelection()).catch((error) => {
+      this.callbacks.onStatus(`Copy failed: ${String(error)}`, true);
+    });
     return true;
   }
 
