@@ -2183,7 +2183,9 @@ textarea:focus {
 }
 
 .term-suggest-item {
-  display: block;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
   overflow: hidden;
   padding: 3px 10px;
   border-radius: 4px;
@@ -2216,6 +2218,22 @@ textarea:focus {
 .term-suggest-match {
   color: var(--accent);
   font-weight: 600;
+}
+
+/* What a row completes to, held in one column so the names line up down the
+   list, and the note beside it — "directory", a flag's meaning — which is the
+   part that says why the row is the right one. */
+.term-suggest-label {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.term-suggest-hint {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: var(--fg-faint);
+  font-size: 0.9em;
 }
 
 /* --accent is muddy on its own tint in the dark palette; lighten it there.

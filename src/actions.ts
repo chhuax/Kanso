@@ -1,7 +1,7 @@
 import * as api from "./api";
 import { fontStack } from "./fonts";
 import { commandHistory } from "./history";
-import { suggestCommands } from "./suggestions";
+import { sessionCompletions } from "./sessionCompletions";
 import { IS_WINDOWS } from "./platform";
 import { tabTitle, useStore, type HostKeyPrompt, type Tab } from "./store";
 import type { TerminalController } from "./terminal";
@@ -155,7 +155,18 @@ export async function ensureController(
           if (local) refreshLocalWhere(id);
         } else store.clearCommandActivity(id);
       },
-      suggest: (input) => suggestCommands(input, historyHost(id)),
+      // Completions know what the line is asking for: a path lists this
+      // session's own filesystem, a tool's subcommands and flags come from
+      // its table, and the shell's history answers the rest. The directory is
+      // the one the shell last reported, so `cd` in the pane moves it.
+      suggest: sessionCompletions(
+        {
+          id,
+          local,
+          cwd: () => getController(id)?.reportedCwd?.path ?? null,
+        },
+        historyHost(id),
+      ),
       onAiTool: (tool) => useStore.getState().setAiTool(id, tool),
       onResize: (cols, rows) => {
         useStore.getState().setSize(id, cols, rows);

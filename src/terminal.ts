@@ -17,7 +17,7 @@ import { aiToolForCommand, type AiTool } from "./aiTools";
 import { readClipboardText } from "./api";
 import { createOutputDecoder } from "./encodings";
 import { MONO_FONT_FAMILY } from "./fonts";
-import type { CommandSuggestion } from "./history";
+import { tabAction, type Completion } from "./completion";
 import { patchImeInput } from "./imePatch";
 import { IS_MAC, IS_WINDOWS } from "./platform";
 import { matchAppShortcut } from "./shortcuts";
@@ -275,8 +275,8 @@ interface Callbacks {
     state: "idle" | "running" | "complete",
     kind: "command" | "ai",
   ) => void;
-  /** Ranked history completions for the current input; [] when none. */
-  suggest: (input: string) => CommandSuggestion[];
+  /** Ranked completions for the current input; [] when none. */
+  suggest: (input: string) => Completion[] | Promise<Completion[]>;
   /**
    * The agentic CLI now holding the terminal, or null once it has exited. It
    * stays set for the whole session — an idle agent is still the agent, and
@@ -395,7 +395,7 @@ export class TerminalController {
   private aiQuietTimer: number | null = null;
   private readonly popup: HTMLElement;
   /** Rows currently displayed; [] while the popup is hidden. */
-  private candidates: CommandSuggestion[] = [];
+  private candidates: Completion[] = [];
   /** Selected row, or -1 while the popup is passive (keys pass through). */
   private popupIndex = -1;
   /** The input the current candidates were computed for. */
@@ -403,6 +403,15 @@ export class TerminalController {
   /** Input the user dismissed the popup for (Esc / accept); "" = none. */
   private dismissedInput = "";
   private popupSyncScheduled = false;
+  /**
+   * Completions come from the filesystem for a path — an IPC round trip for a
+   * remote one — so a keystroke can arrive while the previous answer is still
+   * in flight. Only the newest request may paint, and until it has, Tab is
+   * held back rather than handed to the shell, whose own completion would
+   * fight the popup's.
+   */
+  private popupRequest = 0;
+  private popupPending = false;
   /** A viewport pass is queued for the end of the current task; see onScroll. */
   private viewportSyncQueued = false;
   /**
@@ -652,44 +661,67 @@ export class TerminalController {
     const key = event.key.toLowerCase();
 
     // IDE-style completion popup. While it is *passive* every key still
-    // reaches the shell (so ↑ history, Tab completion and a remote shell's
-    // own → autosuggest keep working); only ↓ (step into the list) and Esc
-    // (dismiss) are taken. Once a row is selected the list owns ↑/↓ and
-    // Enter/Tab accept — the user opted in by stepping into it.
+    // reaches the shell (so ↑ history and a remote shell's own → autosuggest
+    // keep working); only ↓ steps into the list, Esc dismisses, and Tab takes
+    // the first row or accepts the selected one. With no popup and no answer
+    // on the way, Tab is left to the shell's own completion.
     if (
-      this.candidates.length > 0 &&
       !event.isComposing &&
       !event.ctrlKey &&
       !event.altKey &&
-      !event.metaKey &&
-      !event.shiftKey
+      !event.metaKey
     ) {
-      if (key === "escape") {
-        event.preventDefault();
-        this.dismissedInput = this.popupInput;
-        this.hidePopup();
-        return false;
-      }
-      if (key === "arrowdown") {
-        event.preventDefault();
-        this.setPopupIndex(
-          this.popupIndex >= this.candidates.length - 1
-            ? this.candidates.length - 1
-            : this.popupIndex + 1,
-        );
-        return false;
-      }
-      if (this.popupIndex >= 0) {
-        if (key === "arrowup") {
+      if (this.candidates.length > 0) {
+        if (key === "escape" && !event.shiftKey) {
           event.preventDefault();
-          this.setPopupIndex(this.popupIndex - 1);
+          this.dismissedInput = this.popupInput;
+          this.hidePopup();
           return false;
         }
-        if (key === "enter" || key === "tab") {
+        if (key === "arrowdown" && !event.shiftKey) {
           event.preventDefault();
-          this.acceptSuggestion(this.popupIndex);
+          this.setPopupIndex(
+            this.popupIndex >= this.candidates.length - 1
+              ? this.candidates.length - 1
+              : this.popupIndex + 1,
+          );
           return false;
         }
+        if (key === "tab") {
+          const action = tabAction(
+            this.candidates.length,
+            this.popupIndex,
+            this.popupPending,
+            event.shiftKey,
+          );
+          if (action === "shell") return true;
+          event.preventDefault();
+          if (action === "accept") this.acceptSuggestion(this.popupIndex);
+          else if (action === "first") this.setPopupIndex(0);
+          else if (action === "last") this.setPopupIndex(this.candidates.length - 1);
+          else if (action === "next") this.setPopupIndex(this.popupIndex + 1);
+          else if (action === "previous") this.setPopupIndex(this.popupIndex - 1);
+          return action === "hold";
+        }
+        if (this.popupIndex >= 0) {
+          if (key === "arrowup" && !event.shiftKey) {
+            event.preventDefault();
+            this.setPopupIndex(this.popupIndex - 1);
+            return false;
+          }
+          if (key === "enter" && !event.shiftKey) {
+            event.preventDefault();
+            this.acceptSuggestion(this.popupIndex);
+            return false;
+          }
+        }
+      } else if (key === "tab" && this.popupPending) {
+        // The rows for what has been typed are still being read — a path in
+        // an SSH session is a round trip. Handing Tab to the shell now would
+        // race the popup against the shell's own completion; the next press,
+        // once the list is up, completes from it.
+        event.preventDefault();
+        return false;
       }
     }
 
@@ -1799,10 +1831,14 @@ export class TerminalController {
   }
 
   /**
-   * Shows history matches for the typed input as a floating completion list
-   * anchored to the cursor, IDE-style. The input is read up to the cursor
-   * only, so a remote shell's own inline autosuggestion (fish,
-   * zsh-autosuggestions) after the cursor never feeds back into ours.
+   * Shows completions for the typed input as a floating list anchored to the
+   * input, IDE-style. The input is read up to the cursor only, so a remote
+   * shell's own inline autosuggestion (fish, zsh-autosuggestions) after the
+   * cursor never feeds back into ours.
+   *
+   * The answer may be asynchronous — a path row lists a directory, which for
+   * an SSH session is a round trip — so each request carries its number and
+   * only the newest one is allowed to paint.
    */
   private syncPopup() {
     const anchor = this.inputAnchor;
@@ -1821,13 +1857,7 @@ export class TerminalController {
       row: cursorRow,
       col: buf.cursorX,
     });
-    if (!input || input === this.dismissedInput) {
-      this.hidePopup();
-      return;
-    }
-
-    const candidates = this.callbacks.suggest(input);
-    if (candidates.length === 0) {
+    if (input === null || input === this.dismissedInput) {
       this.hidePopup();
       return;
     }
@@ -1849,6 +1879,41 @@ export class TerminalController {
       return;
     }
 
+    const request = (this.popupRequest += 1);
+    this.popupPending = true;
+    const settled = this.callbacks.suggest(input);
+    if (Array.isArray(settled)) {
+      this.paintPopup(input, settled, viewRow, screen, anchor);
+      return;
+    }
+    void settled
+      .then((candidates) => {
+        if (this.disposed || request !== this.popupRequest) return;
+        this.paintPopup(input, candidates, viewRow, screen, anchor);
+      })
+      .catch(() => {
+        if (!this.disposed && request === this.popupRequest) {
+          this.popupPending = false;
+          this.hidePopup();
+        }
+      });
+  }
+
+  /** Places the rows an answer produced, and lays the popup out under them. */
+  private paintPopup(
+    input: string,
+    candidates: Completion[],
+    viewRow: number,
+    screen: HTMLElement,
+    anchor: InputAnchor,
+  ) {
+    this.popupPending = false;
+    if (this.disposed || !this.host) return;
+    if (candidates.length === 0) {
+      this.hidePopup();
+      return;
+    }
+
     const inputChanged = input !== this.popupInput;
     this.popupInput = input;
     this.candidates = candidates;
@@ -1865,6 +1930,7 @@ export class TerminalController {
     const screenRect = screen.getBoundingClientRect();
     const hostRect = this.host.getBoundingClientRect();
     const cellWidth = screenRect.width / this.term.cols;
+    const cursorRow = this.term.buffer.active.baseY + this.term.buffer.active.cursorY;
     const anchorCol = cursorRow === anchor.marker.line ? anchor.col : 0;
     const screenLeft = screenRect.left - hostRect.left;
     const screenTop = screenRect.top - hostRect.top;
@@ -1895,16 +1961,27 @@ export class TerminalController {
       }`;
       row.setAttribute("role", "option");
 
-      const { command, matchStart } = candidate;
-      const matchEnd = matchStart + this.popupInput.length;
+      // The typed text is highlighted where it sits in the label, which is not
+      // always its start: a path row reads as the file name, a subcommand row
+      // as the command.
+      const matchEnd = candidate.matchStart + candidate.matchLength;
+      const label = document.createElement("span");
+      label.className = "term-suggest-label";
       const pre = document.createElement("span");
-      pre.textContent = command.slice(0, matchStart);
+      pre.textContent = candidate.label.slice(0, candidate.matchStart);
       const match = document.createElement("span");
       match.className = "term-suggest-match";
-      match.textContent = command.slice(matchStart, matchEnd);
+      match.textContent = candidate.label.slice(candidate.matchStart, matchEnd);
       const post = document.createElement("span");
-      post.textContent = command.slice(matchEnd);
-      row.append(pre, match, post);
+      post.textContent = candidate.label.slice(matchEnd);
+      label.append(pre, match, post);
+      row.appendChild(label);
+      if (candidate.hint) {
+        const hint = document.createElement("span");
+        hint.className = "term-suggest-hint";
+        hint.textContent = candidate.hint;
+        row.appendChild(hint);
+      }
 
       row.addEventListener("mousedown", (event) => {
         // preventDefault keeps focus in the terminal.
@@ -1926,17 +2003,28 @@ export class TerminalController {
     }
   }
 
+  /**
+   * Puts a row on the shell's line. Only the range the row said it replaces
+   * changes: a path completes inside the command the user already typed, and
+   * a command row replaces the whole line. Keystrokes are sent as if typed,
+   * one backspace per code point, so the shell edits its own line and its own
+   * history and undo see the change.
+   */
   private acceptSuggestion(index: number) {
     const candidate = this.candidates[index] ?? this.candidates[0];
     if (!candidate) return;
     const input = this.popupInput;
-    // A prefix match completes in place. Any other match erases the typed
-    // input first — one backspace per code point, so the shell edits its own
-    // line — then sends the full command.
-    const data = candidate.command.startsWith(input)
-      ? candidate.command.slice(input.length)
-      : "\x7f".repeat([...input].length) + candidate.command;
-    this.dismissedInput = candidate.command;
+    const typed = [...input.slice(candidate.replaceStart, candidate.replaceEnd)].length;
+    const insert = candidate.line.slice(candidate.replaceStart);
+    let data: string;
+    if (candidate.line.startsWith(input)) {
+      data = candidate.line.slice(input.length);
+    } else if (candidate.line.startsWith(input.slice(0, candidate.replaceStart))) {
+      data = "\x7f".repeat(typed) + insert;
+    } else {
+      data = "\x7f".repeat([...input].length) + candidate.line;
+    }
+    this.dismissedInput = candidate.line;
     this.hidePopup();
     if (data && !this.locked && !this.isTransferActive()) {
       this.callbacks.onData(data);
