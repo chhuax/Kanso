@@ -98,11 +98,10 @@ zenterm_precmd() {
   while [[ $ZENTERM_BASE == *'  '* ]]; do
     ZENTERM_BASE=${ZENTERM_BASE//'  '/' '}
   done
+  # Only the front: the trailing space is where the cursor sits after the
+  # sign, and the prompt had one.
   while [[ $ZENTERM_BASE == ' '* ]]; do
     ZENTERM_BASE=${ZENTERM_BASE# }
-  done
-  while [[ $ZENTERM_BASE == *' ' ]]; do
-    ZENTERM_BASE=${ZENTERM_BASE% }
   done
   shown=${(%):-${ZENTERM_BASE}}
   local directory_is_shown=no
@@ -292,9 +291,11 @@ mod tests {
 
         // The directory and the user's name move into the chip, which is the
         // part that changes; the prompt keeps its sign.
+        // The marker after the prompt keeps a trailing space from being
+        // trimmed away with the newline by the helper above.
         let with_dir = run(
             &deep,
-            "PROMPT='%n %~ %# '; ZENTERM_USER_PROMPT=$PROMPT; zenterm_precmd; print -r -- \"$PROMPT\"",
+            "PROMPT='%n %~ %# '; ZENTERM_USER_PROMPT=$PROMPT; zenterm_precmd; print -rn -- \"$PROMPT\"; print -r -- '|'",
         )
         .expect("zsh");
         assert!(with_dir.contains(".../"), "no directory chip: {with_dir}");
@@ -308,6 +309,10 @@ mod tests {
             "the user's name is still on the line: {with_dir}"
         );
         assert!(with_dir.contains("%#"), "the sign is gone: {with_dir}");
+        assert!(
+            with_dir.ends_with("%# |"),
+            "the cursor has no room after the sign: {with_dir:?}"
+        );
         assert!(
             with_dir.contains("\u{1b}]133;A\u{7}"),
             "no prompt-start marker: {with_dir}"
