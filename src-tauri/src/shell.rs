@@ -24,11 +24,11 @@ const ZSH_STARTUP: &[&str] = &[".zshenv", ".zprofile", ".zshrc", ".zlogin", ".zl
 /// shape the coding CLIs print. Pure zsh builtins — finding the repository
 /// walks up for a `.git` and reads `HEAD` rather than running `git`, which on
 /// a machine without the developer tools raises a system prompt.
-const ZSH_HOOK: &str = r#"# ZenTerm: where the shell is, on the prompt line in front of the cursor, as
-# the chips the coding CLIs print. They go into the prompt rather than being
-# printed above it so zsh still knows how wide its prompt is — `%{...%}` is
-# what tells it the colour codes take no room — and the prompt's own text is
-# kept as it was, with the chips in front.
+const ZSH_HOOK: &str = r#"# ZenTerm: where the shell is, as the chips the coding CLIs print, after the
+# user's name on the prompt line. The prompt's own directory escape is taken
+# out and shown in the chip instead, so the directory is said once; the chips
+# go into `PROMPT` rather than being printed above it so zsh still knows how
+# wide its prompt is (`%{...%}` marks the colour codes as taking no room).
 zenterm_branch() {
   local dir=$1 head line target
   # `##` (one or more) is off by default in zsh, and trimming the space after
@@ -59,7 +59,8 @@ zenterm_branch() {
 }
 
 zenterm_precmd() {
-  local path branch
+  setopt localoptions extendedglob
+  local path branch shown
   path=${(%):-%~}
   # A long path keeps its end: that is the half that says where you are.
   local -a parts
@@ -67,27 +68,58 @@ zenterm_precmd() {
   (( ${#parts} > 4 )) && path=".../${(j:/:)parts[-3,-1]}"
   branch=$(zenterm_branch $PWD)
 
-  local box=$'%{\e[48;5;236m\e[38;5;252m%}'
-  local green=$'%{\e[48;5;236m\e[38;5;114m%}'
+  # The directory escapes (`%~`, `%/`, `%d`, `%2~`) move into the chip. A
+  # prompt that spells its directory another way — `$PWD`, say — is left alone
+  # and simply goes without the chip, rather than being said twice.
+  ZENTERM_BASE=$ZENTERM_USER_PROMPT
+  # `~` is zsh's pattern-exclusion operator, so each of these is quoted to be
+  # taken as the characters it is; the space the escape sat in goes with it,
+  # and the run of spaces that can leave is closed up again.
+  ZENTERM_BASE=${ZENTERM_BASE//"%~"/}
+  ZENTERM_BASE=${ZENTERM_BASE//"%\/"/}
+  ZENTERM_BASE=${ZENTERM_BASE//"%d"/}
+  while [[ $ZENTERM_BASE == *'  '* ]]; do
+    ZENTERM_BASE=${ZENTERM_BASE//'  '/' '}
+  done
+  shown=${(%):-${ZENTERM_BASE}}
+  local directory_is_shown=no
+  [[ $shown == *${(%):-%~}* || $ZENTERM_BASE == *PWD* || $ZENTERM_BASE == *pwd* ]] &&
+    directory_is_shown=yes
+
+  local chip=$'%{\e[48;5;236m%}'
+  local text=$'%{\e[38;5;252m%}'
+  local green=$'%{\e[38;5;114m%}'
   local off=$'%{\e[0m%}'
   # The outline folder (`fa-folder-o`), not the solid one, which at the
   # prompt's own brightness is a bright blob. Written as the characters
-  # themselves: as `$'\uf114'` a shell whose
-  # locale cannot encode them fails with "character not in range" instead
-  # of drawing the line.
+  # themselves: as `$'\uf114'` a shell whose locale cannot encode them fails
+  # with "character not in range" instead of drawing the line.
   local folder=""
   local fork=""
 
+  ZENTERM_CHIPS=""
+  [[ $directory_is_shown == no ]] &&
+    ZENTERM_CHIPS="${chip} ${text}${folder} ${path} ${off}"
   if [[ -n $branch ]]; then
-    ZENTERM_CHIPS="${box} ${folder} ${path} ${off} ${green} ${fork} ${branch} ${off} "
-  else
-    ZENTERM_CHIPS="${box} ${folder} ${path} ${off} "
+    [[ -n $ZENTERM_CHIPS ]] && ZENTERM_CHIPS+=" "
+    ZENTERM_CHIPS+="${chip} ${green}${fork} ${branch} ${off}"
   fi
+
+  # After the user's name, where a prompt usually has the directory; in front
+  # of the prompt for one that starts with something else.
+  if [[ -z $ZENTERM_CHIPS ]]; then
+    PROMPT=$ZENTERM_BASE
+  elif [[ $ZENTERM_BASE == '%'[nNmM]* ]]; then
+    PROMPT="${ZENTERM_BASE[1,2]} ${ZENTERM_CHIPS}${ZENTERM_BASE[3,-1]}"
+  else
+    PROMPT="${ZENTERM_CHIPS} ${ZENTERM_BASE}"
+  fi
+
   # The prompt line begins here. The terminal brackets commands with this
   # (OSC 133), so a command's end is told rather than guessed from the shape
   # of a prompt the chips have changed.
   local mark=$'%{\e]133;A\a%}'
-  PROMPT="${mark}${ZENTERM_CHIPS}${ZENTERM_USER_PROMPT}"
+  PROMPT="${mark}${PROMPT}"
 }
 
 ZENTERM_USER_PROMPT=${PROMPT-'%m %~ %# '}
@@ -240,19 +272,52 @@ mod tests {
             Some("feature/x")
         );
 
-        // The prompt carries the chips: the end of a long path, the branch,
-        // and the colour codes marked as taking no room.
-        let prompt = run(&deep, "zenterm_precmd; print -r -- \"$PROMPT\"").expect("zsh");
-        assert!(prompt.contains(".../"), "path not shortened: {prompt}");
-        assert!(prompt.contains("feature/x"), "no branch in: {prompt}");
-        assert!(prompt.contains("%{"), "colour codes are not zero-width: {prompt}");
-        assert!(prompt.contains("\u{f114}"), "no directory mark in: {prompt}");
-        // And it says where the prompt starts, which is what the terminal
-        // needs to know a command has returned.
+        // The prompt's own directory escape moves into the chip, and the chip
+        // lands after the user's name: the directory is said once.
+        let with_dir = run(
+            &deep,
+            "PROMPT='%n %~ %# '; ZENTERM_USER_PROMPT=$PROMPT; zenterm_precmd; print -r -- \"$PROMPT\"",
+        )
+        .expect("zsh");
+        assert!(with_dir.contains(".../"), "no directory chip: {with_dir}");
+        assert!(with_dir.contains("feature/x"), "no branch in: {with_dir}");
         assert!(
-            prompt.contains("\u{1b}]133;A\u{7}"),
-            "no prompt-start marker: {prompt}"
+            !with_dir.contains("%~"),
+            "the prompt kept a directory of its own: {with_dir}"
         );
+        assert!(
+            with_dir.contains("%n "),
+            "the chips are not after the user: {with_dir}"
+        );
+        assert!(
+            with_dir.contains("\u{1b}]133;A\u{7}"),
+            "no prompt-start marker: {with_dir}"
+        );
+
+        // A prompt that names its directory as `$PWD` cannot be edited safely;
+        // it keeps its own and goes without the chip rather than saying it twice.
+        let literal = run(
+            &deep,
+            "PROMPT='%n $PWD %# '; ZENTERM_USER_PROMPT=$PROMPT; zenterm_precmd; print -r -- \"$PROMPT\"",
+        )
+        .expect("zsh");
+        assert!(
+            !literal.contains(".../"),
+            "the directory is on the line twice: {literal}"
+        );
+        assert!(literal.contains("feature/x"), "no branch in: {literal}");
+
+        // A prompt with no user in front gets the chips in front of it, with
+        // the colour codes marked as taking no room.
+        let bare = run(
+            &deep,
+            "PROMPT='$ '; ZENTERM_USER_PROMPT=$PROMPT; zenterm_precmd; print -r -- \"$PROMPT\"",
+        )
+        .expect("zsh");
+        assert!(bare.contains(".../"), "no directory chip: {bare}");
+        assert!(bare.contains("feature/x"), "no branch in: {bare}");
+        assert!(bare.contains("%{"), "colour codes are not zero-width: {bare}");
+        assert!(bare.contains("\u{f114}"), "no directory mark in: {bare}");
 
         // A worktree's `.git` is a file naming the real git directory.
         let elsewhere = root.join("real-git");
@@ -266,9 +331,14 @@ mod tests {
             Some("from-a-worktree")
         );
 
-        // Somewhere with no repository, the chips are the path alone.
+        // Somewhere with no repository, a bare prompt still gets the path and
+        // nothing else.
         fs::remove_dir_all(repo.join(".git")).expect("remove the repository");
-        let prompt = run(&repo, "zenterm_precmd; print -r -- \"$PROMPT\"").expect("zsh");
+        let prompt = run(
+            &repo,
+            "PROMPT='$ '; ZENTERM_USER_PROMPT=$PROMPT; zenterm_precmd; print -r -- \"$PROMPT\"",
+        )
+        .expect("zsh");
         assert!(prompt.contains("\u{f114}"), "unexpected prompt: {prompt}");
         assert!(
             !prompt.contains("\u{e0a0}"),
