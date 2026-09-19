@@ -14,6 +14,7 @@ import {
 
 import {
   acceptHostKey,
+  openLocalShell,
   revealCwdInFiler,
   SESSION_CLOSED_NOTICE,
   splitSession,
@@ -145,6 +146,19 @@ export default function App() {
     // Opt-in feature: fetch the history only for users who enabled it.
     if (useStore.getState().suggestionsEnabled) commandHistory.load();
   }, [loadProfiles]);
+
+  // The application opens on a terminal, the way a terminal app is expected
+  // to: a fresh launch should not ask for a session to be created first. Tabs
+  // live only in memory, so an empty store at mount means this is that first
+  // paint — the empty state in the workspace stays for the moment the last tab
+  // is closed instead. The ref keeps StrictMode's double-invoked effect (and
+  // any later re-run) from opening a second shell.
+  const launched = useRef(false);
+  useEffect(() => {
+    if (launched.current) return;
+    launched.current = true;
+    if (useStore.getState().tabs.length === 0) void openLocalShell();
+  }, []);
 
   // The window is hidden until there is an interface to show, so the
   // application opens on the UI rather than on an empty frame (issue #35).

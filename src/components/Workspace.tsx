@@ -2,7 +2,6 @@ import { useMemo, useRef, type CSSProperties } from "react";
 
 import appIcon from "../../src-tauri/icons/128x128@2x.png";
 import { layoutRects, type Rect, type SplitterRect } from "../layout";
-import { chordLabel } from "../shortcuts";
 import { useStore } from "../store";
 import { Splitter } from "./Splitter";
 import { SessionPane } from "./TerminalPane";
@@ -59,7 +58,6 @@ export function Workspace({ onNewSession }: Props) {
   const activePaneId = useStore((s) => s.activePaneId);
   const dropTarget = useStore((s) => s.dropTarget);
   const resizeLayout = useStore((s) => s.resizeLayout);
-  const newSessionKey = useStore((s) => chordLabel(s.shortcuts.newSession));
   const ref = useRef<HTMLDivElement>(null);
   const rects = useMemo(() => layoutRects(layout), [layout]);
 
@@ -104,16 +102,6 @@ export function Workspace({ onNewSession }: Props) {
                     draggable={false}
                   />
                   <h1>ZenTerm</h1>
-                  <p className="term-empty-hint">
-                    {newSessionKey ? (
-                      <>
-                        Press <kbd>{newSessionKey}</kbd> for a new session, or
-                        pick one from the Session panel.
-                      </>
-                    ) : (
-                      "Open a new session, or pick one from the Session panel."
-                    )}
-                  </p>
                   <button className="btn is-primary" onClick={onNewSession}>
                     New Session
                   </button>

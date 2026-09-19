@@ -2237,23 +2237,6 @@ textarea:focus {
   letter-spacing: 0.5px;
 }
 
-.term-empty-hint {
-  margin: 0;
-  line-height: 1.7;
-  text-align: center;
-}
-
-.term-empty kbd {
-  display: inline-block;
-  padding: 1px 5px;
-  border: 1px solid var(--border-strong);
-  border-bottom-width: 2px;
-  border-radius: 3px;
-  background: var(--bg-panel-alt);
-  font-family: var(--font-mono);
-  font-size: 11px;
-}
-
 /* --- sender --------------------------------------------------------------- */
 
 /* Three rows: the panel header carries the send options on its right (line
