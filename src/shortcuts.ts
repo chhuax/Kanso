@@ -45,8 +45,6 @@ export type ShortcutCommand =
   | "splitDown"
   | "prevPane"
   | "nextPane"
-  | "previousBlock"
-  | "nextBlock"
   | "copy"
   | "paste"
   | "selectAll"
@@ -69,7 +67,6 @@ export type AppShortcut =
   | { kind: "tab"; number: number }
   | { kind: "splitPane"; side: "right" | "down" }
   | { kind: "paneStep"; step: -1 | 1 }
-  | { kind: "blockStep"; step: -1 | 1 }
   | { kind: "copy" }
   | { kind: "paste" }
   | { kind: "selectAll" }
@@ -135,18 +132,6 @@ export const SHORTCUT_COMMANDS: {
     label: "Next Pane",
     hint: "Focus the pane after this one",
     action: { kind: "paneStep", step: 1 },
-  },
-  {
-    id: "previousBlock",
-    label: "Previous Block",
-    hint: "Scroll back to the previous command block",
-    action: { kind: "blockStep", step: -1 },
-  },
-  {
-    id: "nextBlock",
-    label: "Next Block",
-    hint: "Scroll on to the next command block",
-    action: { kind: "blockStep", step: 1 },
   },
   {
     id: "copy",
@@ -243,9 +228,6 @@ const MAC_DEFAULTS: ShortcutBindings = {
   splitDown: chord("Backslash", { meta: true, shift: true }),
   prevPane: chord("BracketLeft", { meta: true, alt: true }),
   nextPane: chord("BracketRight", { meta: true, alt: true }),
-  // Warp reaches the neighbouring block with cmd-up / cmd-down.
-  previousBlock: chord("ArrowUp", { meta: true }),
-  nextBlock: chord("ArrowDown", { meta: true }),
   copy: chord("KeyC", { meta: true }),
   paste: chord("KeyV", { meta: true }),
   selectAll: chord("KeyA", { meta: true }),
@@ -288,8 +270,6 @@ const OTHER_DEFAULTS: ShortcutBindings = {
   // Ctrl+Shift+C / V is what WindTerm, MobaXterm, GNOME Terminal and VS Code
   // paste with; Ctrl+Insert / Shift+Insert (PuTTY) and plain Ctrl+C / V are
   // a rebinding away.
-  previousBlock: chord("ArrowUp", { ctrl: true }),
-  nextBlock: chord("ArrowDown", { ctrl: true }),
   copy: chord("KeyC", { ctrl: true, shift: true }),
   paste: chord("KeyV", { ctrl: true, shift: true }),
   selectAll: chord("KeyA", { ctrl: true, shift: true }),

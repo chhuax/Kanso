@@ -14,7 +14,7 @@ import { fontStack } from "../fonts";
 import { IS_MAC } from "../platform";
 import { chordLabel, type ShortcutCommand } from "../shortcuts";
 import { useStore, type Tab } from "../store";
-import type { CommandBlock, TerminalController } from "../terminal";
+import type { TerminalController } from "../terminal";
 import { getController } from "../terminalRegistry";
 import { isFileSession } from "../types";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
@@ -74,8 +74,6 @@ interface TerminalMenu {
   x: number;
   y: number;
   canCopy: boolean;
-  /** The command block under the pointer; null where the session has none. */
-  block: CommandBlock | null;
 }
 
 /**
@@ -145,7 +143,6 @@ function TerminalHost({
       x: event.clientX,
       y: event.clientY,
       canCopy: controller.hasSelection(),
-      block: controller.blockAtPoint(event.clientY),
     });
   };
 
@@ -173,33 +170,7 @@ function TerminalHost({
     fn(controller);
   };
 
-  // A local shell's output is divided into command blocks by the rules above
-  // its prompts (see `dividers`), so one of them can be taken whole. A remote
-  // session has no blocks and simply does not show these entries.
-  const block = menu?.block ?? null;
-  const blockOutput = block ? (terminal?.blockText(block, "output") ?? "") : "";
   const menuItems: MenuItem[] = [
-    ...(block
-      ? ([
-          {
-            label: "Copy Block Output",
-            icon: "copy",
-            disabled: !blockOutput,
-            action: withTerminal((controller) =>
-              controller.copyBlock(block, "output"),
-            ),
-          },
-          {
-            label: "Copy Block Command",
-            icon: "terminal",
-            disabled: !block.command.trim(),
-            action: withTerminal((controller) =>
-              controller.copyBlock(block, "command"),
-            ),
-          },
-          "separator",
-        ] as MenuItem[])
-      : []),
     {
       label: "Copy",
       icon: "copy",
