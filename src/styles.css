@@ -1172,7 +1172,8 @@ textarea:focus {
 .tab-row-text {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  /* Warp's `Flex::column().with_spacing(2.)` between title and metadata. */
+  gap: 2px;
   flex: 1;
   min-width: 0;
 }
@@ -1185,6 +1186,10 @@ textarea:focus {
 }
 
 .tab-row-path {
+  /* Warp's METADATA_ROW_HEIGHT: a fixed 14px, so the row keeps its height
+     whatever the line holds. */
+  height: 14px;
+  line-height: 14px;
   overflow: hidden;
   color: var(--fg-faint);
   font-size: 10px;
@@ -1198,7 +1203,9 @@ textarea:focus {
   isolation: isolate;
   display: flex;
   align-items: center;
-  gap: 7px;
+  /* Warp's ICON_WITH_STATUS_GAP, and its one-line row: 24px icon + 16px of
+     padding. A row with a path is 48px, the icon-taller of the two lines. */
+  gap: 8px;
   min-height: 40px;
   padding: 8px;
   border-radius: 4px;
