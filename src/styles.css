@@ -2768,6 +2768,29 @@ textarea:focus {
   color: var(--yellow);
 }
 
+/* Where the active local shell is — its directory and the branch it is on —
+   read off the same two fields the rail's row uses. The pair is one thought,
+   so it is spaced tighter than the bar's own items. */
+.status-place {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.status-path,
+.status-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: default;
+}
+
+.status-path .icon,
+.status-branch .icon {
+  flex: none;
+  color: var(--fg-faint);
+}
+
 /* --- splitters ------------------------------------------------------------ */
 
 /* The splitter is the 1px divider itself; a 7px hit area (`::after`)

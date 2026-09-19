@@ -26,6 +26,7 @@ import edit from "@vscode/codicons/src/icons/edit.svg?raw";
 import error from "@vscode/codicons/src/icons/error.svg?raw";
 import folder from "@vscode/codicons/src/icons/folder.svg?raw";
 import folderOpened from "@vscode/codicons/src/icons/folder-opened.svg?raw";
+import gitBranch from "@vscode/codicons/src/icons/git-branch.svg?raw";
 import goToFile from "@vscode/codicons/src/icons/go-to-file.svg?raw";
 import googleGemini from "@vscode/codicons/src/icons/google-gemini.svg?raw";
 import home from "@vscode/codicons/src/icons/home.svg?raw";
@@ -79,6 +80,7 @@ const SVGS = {
   error,
   folder,
   "folder-opened": folderOpened,
+  "git-branch": gitBranch,
   "go-to-file": goToFile,
   "google-gemini": googleGemini,
   home,
