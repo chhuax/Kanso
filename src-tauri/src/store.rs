@@ -1076,14 +1076,20 @@ pub(crate) fn portable_data_dir_in(exe_dir: &Path) -> Option<PathBuf> {
     dir.is_dir().then_some(dir)
 }
 
-fn config_path() -> PathBuf {
+/// The directory this app keeps its own files in: the store, the credentials
+/// beside it, and the shell shim that gives a local prompt its line above
+/// (see `shell`). Portable mode moves the whole thing next to the executable.
+pub(crate) fn data_dir() -> PathBuf {
     match portable_data_dir() {
-        Some(dir) => dir.join("sessions.json"),
+        Some(dir) => dir,
         None => dirs::config_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("ZenTerm")
-            .join("sessions.json"),
+            .join("ZenTerm"),
     }
+}
+
+fn config_path() -> PathBuf {
+    data_dir().join("sessions.json")
 }
 
 fn write_owner_only(path: &Path, contents: &str) -> Result<()> {

@@ -11,17 +11,6 @@ const legacyTitle = (servers: LegacyAlgorithms[]): string =>
     ...servers.map(({ address, algorithms }) => `${address}: ${algorithms.join(", ")}`),
   ].join("\n");
 
-/**
- * A path short enough for the status bar. What says where a shell is is the
- * end of its path, so a long one loses its head rather than its tail — the
- * shape the coding CLIs show under their prompt.
- */
-function shortPath(path: string, max = 44): string {
-  const parts = path.split("/").filter(Boolean);
-  if (path.length <= max || parts.length <= 3) return path;
-  return `…/${parts.slice(-3).join("/")}`;
-}
-
 export function StatusBar() {
   const tab = useActiveTab();
   const status = useStore((s) => s.status);
@@ -62,29 +51,6 @@ export function StatusBar() {
             </span>
           )}
           <span className="status-item">{tab.info.protocol}</span>
-          {/* Where a local shell is: its directory and the branch on it, kept
-              up to date with every command. A remote session has neither —
-              reading them would cost a round trip, and the rail shows the
-              connection instead (see `Tab.cwd` / `Tab.branch`). */}
-          {tab.info.kind === "local" && (tab.cwd || tab.branch) && (
-            <span className="status-place">
-              {tab.cwd && (
-                <span className="status-path" title={tab.cwd}>
-                  <Icon name="folder" />
-                  {shortPath(tab.cwd)}
-                </span>
-              )}
-              {tab.branch && (
-                <span
-                  className="status-branch"
-                  title={`On branch ${tab.branch}`}
-                >
-                  <Icon name="git-branch" />
-                  {tab.branch}
-                </span>
-              )}
-            </span>
-          )}
         </>
       )}
       <span className="status-item">{stamp}</span>

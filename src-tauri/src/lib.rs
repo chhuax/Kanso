@@ -7,6 +7,7 @@ mod git;
 mod model;
 mod remote_edit;
 mod session;
+mod shell;
 mod ssh_config;
 mod store;
 mod window_state;
