@@ -2481,9 +2481,12 @@ export class TerminalController {
         }
         line.style.display = "";
         // A transform keeps this off the layout path, like the gutter rows.
-        line.style.transform = `translateY(${
-          (marker.line - viewportY) * this.cellHeight
-        }px)`;
+        // Snapped to the device pixel grid: a 1px line left on a half pixel is
+        // antialiased into two fainter ones, which over a terminal's own
+        // background is the same as not drawing it.
+        line.style.transform = `translateY(${snapToPixel(
+          (marker.line - viewportY) * this.cellHeight,
+        )}px)`;
         used += 1;
       }
     }
@@ -2582,4 +2585,15 @@ function formatTime(epochMs: number | undefined): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   const milliseconds = String(d.getMilliseconds()).padStart(3, "0");
   return `[${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${milliseconds}]`;
+}
+
+/**
+ * A length snapped to the device pixel grid, for the 1px rule above a
+ * command's prompt: a hairline landing between two pixels is antialiased
+ * across both, which over a terminal's own background reads as no line at
+ * all. A retina screen's grid is finer than a CSS pixel, hence the ratio.
+ */
+function snapToPixel(value: number): number {
+  const ratio = window.devicePixelRatio || 1;
+  return Math.round(value * ratio) / ratio;
 }

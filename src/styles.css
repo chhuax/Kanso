@@ -2067,7 +2067,10 @@ textarea:focus {
   left: 0;
   right: 0;
   height: 1px;
-  background: var(--border);
+  /* Not `--border`: on the terminal's own background that is a 5% step and
+     reads as nothing at all. This is the palette's hairline for a rule that
+     has to be seen. */
+  background: var(--border-strong);
   pointer-events: none;
 }
 

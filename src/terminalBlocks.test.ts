@@ -131,3 +131,59 @@ describe("command blocks", () => {
     expect(controller.blockAt(0)).toBeNull();
   });
 });
+
+describe("the rule above each prompt", () => {
+  /** Attaches to a real (jsdom) host, as a pane does, and places the rules. */
+  function attachHost(controller: TerminalController) {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    controller.attach(host);
+    // jsdom lays nothing out, so the cell height the rules are placed by is
+    // stubbed. What is under test is that a rule is placed at all, and where.
+    const internals = controller as unknown as {
+      cellHeight: number;
+      syncDividers(): void;
+    };
+    internals.cellHeight = 16;
+    return { host, place: () => internals.syncDividers() };
+  }
+
+  it("places one rule per block, on the block's own prompt row", async () => {
+    const controller = createController();
+    const { host, place } = attachHost(controller);
+    const prompt = "huaxin ~ % ";
+
+    await write(controller, prompt);
+    await run(controller, "ls", "README.md\r\n");
+    await write(controller, prompt);
+    await run(controller, "pwd", "/Users/huaxin\r\n");
+    await write(controller, prompt);
+    place();
+
+    const [first, second] = controller.blocks();
+    const rules = [...host.querySelectorAll<HTMLElement>(".term-divider")].filter(
+      (rule) => rule.style.display !== "none",
+    );
+    expect(rules).toHaveLength(2);
+    expect(rules[0].style.transform).toBe(`translateY(${first.line * 16}px)`);
+    expect(rules[1].style.transform).toBe(
+      `translateY(${(second.line - first.line) * 16}px)`,
+    );
+  });
+
+  it("places no rules at all where there are no blocks", async () => {
+    const controller = createController(true);
+    const { host, place } = attachHost(controller);
+
+    await write(controller, "alice@server:~/work$ ");
+    await run(controller, "ls", "README.md\r\n");
+    await write(controller, "alice@server:~/work$ ");
+    place();
+
+    expect(
+      [...host.querySelectorAll<HTMLElement>(".term-divider")].filter(
+        (rule) => rule.style.display !== "none",
+      ),
+    ).toEqual([]);
+  });
+});
