@@ -45,6 +45,18 @@ function isOpen(open: Record<string, boolean>, key: string): boolean {
   return open[key] ?? false;
 }
 
+/**
+ * Whether a session answers the filter box. It matches what the row shows and
+ * what the user knows a host by — the name it was saved under, and the host
+ * and user it connects as — since an imported session is often named by its
+ * alias rather than by the machine it reaches.
+ */
+function matchesFilter(profile: SessionProfile, needle: string): boolean {
+  return [profile.name, profile.host, profile.username].some((field) =>
+    field?.toLowerCase().includes(needle),
+  );
+}
+
 type Row =
   | {
       type: "group";
@@ -107,7 +119,7 @@ export function SessionPanel({ onEditProfile, onNewSession, tabs }: Props) {
     const needle = filter.trim().toLowerCase();
     const byGroup = new Map<string | null, SessionProfile[]>();
     for (const profile of profiles) {
-      if (needle && !profile.name.toLowerCase().includes(needle)) continue;
+      if (needle && !matchesFilter(profile, needle)) continue;
       const groupId = effectiveGroupId(groups, profile);
       byGroup.set(groupId, [...(byGroup.get(groupId) ?? []), profile]);
     }

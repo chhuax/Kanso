@@ -216,19 +216,27 @@ export function TabRail({ onNewSession, onManageSessions }: Props) {
     else setRailMenu({ x: event.clientX, y: event.clientY });
   };
 
-  const profileEntry = (profile: SessionProfile): MenuItem => ({
+  /**
+   * A saved session's entry. `inset` is for the ones listed at the top level,
+   * where the menu's other entries are commands: the inset is what says a
+   * session is the menu's content rather than a command of its own. Inside a
+   * group's submenu there is nothing to tell apart.
+   */
+  const profileEntry = (profile: SessionProfile, inset = false): MenuItem => ({
     label: profile.name,
     icon: KIND_ICONS[profile.kind] ?? "terminal",
+    ...(inset ? { indent: 1 } : {}),
     action: () => void openSession(profile),
   });
 
   /**
-   * What the rail offers for a new session, Warp's "tab configs" menu: a plain
-   * local terminal first, then every saved session, then the doors into making
-   * or editing one. The saved part is built from the same store the Session
-   * panel lists — groups A→Z as headings, then whatever is in none — so a
-   * session added, renamed or moved there is here with nothing to keep in
-   * step.
+   * What the rail offers for a new session, Warp's "tab configs" menu: the two
+   * commands that make a session, the saved ones between them, then the way
+   * into managing them. The saved part is read from the same store the Session
+   * panel lists and shaped the same way — a group is a submenu, and the
+   * sessions in no group follow under their own heading — so a session added,
+   * renamed or moved there is here with nothing to keep in step. A group keeps
+   * the menu short no matter how many sessions are in it.
    */
   const sessionMenu = (): MenuItem[] => {
     const byGroup = new Map<string | null, SessionProfile[]>();
@@ -241,21 +249,23 @@ export function TabRail({ onNewSession, onManageSessions }: Props) {
     for (const members of byGroup.values()) members.sort(byName);
 
     const saved: MenuItem[] = [];
-    let headed = 0;
     for (const group of sortedGroups(groups)) {
       const members = byGroup.get(group.id) ?? [];
-      // An empty group is left out: this is a launcher, and the panel is where
-      // a group with nothing in it still deserves a row.
+      // An empty group is left out: this is a launcher, and a group with
+      // nothing in it is the panel's business rather than the menu's.
       if (members.length === 0) continue;
-      saved.push({ heading: group.name });
-      headed += 1;
-      for (const profile of members) saved.push(profileEntry(profile));
+      saved.push({
+        label: group.name,
+        icon: "folder",
+        children: members.map((profile) => profileEntry(profile)),
+      });
     }
     const loose = byGroup.get(null) ?? [];
     if (loose.length > 0) {
-      // With no groups above it the list needs no label of its own.
-      if (headed > 0) saved.push({ heading: "Ungrouped" });
-      for (const profile of loose) saved.push(profileEntry(profile));
+      // Named only where it contrasts with groups above it; on its own the
+      // inset already says these sit one level in.
+      if (saved.length > 0) saved.push({ heading: "Ungrouped" });
+      for (const profile of loose) saved.push(profileEntry(profile, true));
     }
 
     return [
@@ -265,14 +275,14 @@ export function TabRail({ onNewSession, onManageSessions }: Props) {
         shortcut: newShellKey,
         action: () => void openLocalShell(activePaneId),
       },
-      ...(saved.length > 0 ? (["separator", ...saved] as MenuItem[]) : []),
-      "separator",
       {
         label: "New Session…",
         icon: "add",
         shortcut: newSessionKey,
         action: onNewSession,
       },
+      ...(saved.length > 0 ? (["separator", ...saved] as MenuItem[]) : []),
+      "separator",
       {
         label: "Manage Sessions…",
         icon: "list-selection",
