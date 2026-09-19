@@ -62,7 +62,7 @@ zenterm_precmd() {
   setopt localoptions extendedglob
   # Not `path`: that is zsh's array twin of `PATH`, so a scalar assigned to it
   # lands in an array and `${#path}` counts elements rather than characters.
-  local where branch shown
+  local where branch
   where=${(%):-%~}
   # A path too long for the line keeps its end — that is the half that says
   # where you are — whole components at a time, with `...` where the rest of
@@ -81,10 +81,17 @@ zenterm_precmd() {
   fi
   branch=$(zenterm_branch $PWD)
 
-  # The directory escapes (`%~`, `%/`, `%d`, `%2~`) move into the chip. A
-  # prompt that spells its directory another way — `$PWD`, say — is left alone
-  # and simply goes without the chip, rather than being said twice.
+  # A prompt that says its directory itself keeps it, and the chip stays off
+  # the line: the same fact twice is worse than a short prompt. Read from the
+  # template rather than from what it prints, because a numbered escape such
+  # as `%1~` prints the last component alone, which is not the path it stands
+  # for — `%~`, `%/`, `%d` and their numbered forms all count, and so does a
+  # prompt that spells the directory out as `$PWD`.
   ZENTERM_BASE=$ZENTERM_USER_PROMPT
+  local directory_is_shown=no
+  [[ $ZENTERM_BASE == *$'%'[0-9]#[~/d]* || $ZENTERM_BASE == *PWD* || $ZENTERM_BASE == *pwd* ]] &&
+    directory_is_shown=yes
+
   # `~` is zsh's pattern-exclusion operator, so each of these is quoted to be
   # taken as the characters it is; the space the escape sat in goes with it,
   # and the run of spaces that can leave is closed up again.
@@ -92,9 +99,13 @@ zenterm_precmd() {
   ZENTERM_BASE=${ZENTERM_BASE//"%\/"/}
   ZENTERM_BASE=${ZENTERM_BASE//"%d"/}
   # The user's name goes too: in a shell started here it is always the same
-  # name, and the chip says the part that changes.
+  # name, and the chip says the part that changes. The host it was joined to
+  # goes with it — `%n@%m` would otherwise leave a bare `@` on the line, and
+  # which machine the shell is on is what the window is for.
   ZENTERM_BASE=${ZENTERM_BASE//'%n'/}
   ZENTERM_BASE=${ZENTERM_BASE//'%N'/}
+  [[ $ZENTERM_BASE == *'@%m'* ]] && ZENTERM_BASE=${ZENTERM_BASE//'@%m'/}
+  [[ $ZENTERM_BASE == *'@%M'* ]] && ZENTERM_BASE=${ZENTERM_BASE//'@%M'/}
   while [[ $ZENTERM_BASE == *'  '* ]]; do
     ZENTERM_BASE=${ZENTERM_BASE//'  '/' '}
   done
@@ -103,10 +114,6 @@ zenterm_precmd() {
   while [[ $ZENTERM_BASE == ' '* ]]; do
     ZENTERM_BASE=${ZENTERM_BASE# }
   done
-  shown=${(%):-${ZENTERM_BASE}}
-  local directory_is_shown=no
-  [[ $shown == *${(%):-%~}* || $ZENTERM_BASE == *PWD* || $ZENTERM_BASE == *pwd* ]] &&
-    directory_is_shown=yes
 
   local chip=$'%{\e[48;5;236m%}'
   local text=$'%{\e[38;5;252m%}'
@@ -289,8 +296,9 @@ mod tests {
             Some("feature/x")
         );
 
-        // The directory and the user's name move into the chip, which is the
-        // part that changes; the prompt keeps its sign.
+        // A prompt that prints its own directory keeps it: the chip would be
+        // the same fact a second time, so the prompt keeps its directory and
+        // its sign, and the chips are left with the branch.
         // The marker after the prompt keeps a trailing space from being
         // trimmed away with the newline by the helper above.
         let with_dir = run(
@@ -298,11 +306,14 @@ mod tests {
             "PROMPT='%n %~ %# '; ZENTERM_USER_PROMPT=$PROMPT; zenterm_precmd; print -rn -- \"$PROMPT\"; print -r -- '|'",
         )
         .expect("zsh");
-        assert!(with_dir.contains(".../"), "no directory chip: {with_dir}");
+        assert!(
+            !with_dir.contains(".../"),
+            "the directory is on the line twice: {with_dir}"
+        );
         assert!(with_dir.contains("feature/x"), "no branch in: {with_dir}");
         assert!(
             !with_dir.contains("%~"),
-            "the prompt kept a directory of its own: {with_dir}"
+            "the prompt kept a directory the chip alone should say: {with_dir}"
         );
         assert!(
             !with_dir.contains("%n"),
@@ -330,6 +341,44 @@ mod tests {
             "the directory is on the line twice: {literal}"
         );
         assert!(literal.contains("feature/x"), "no branch in: {literal}");
+
+        // A numbered escape prints the last component (`%1~`) or a tail of the
+        // path (`%2~`), not the path itself. The chip would repeat what the
+        // line already says, so the prompt is left to say it and the chip
+        // carries the branch alone.
+        let tail = run(
+            &deep,
+            "PROMPT='%n@%m %1~ %# '; ZENTERM_USER_PROMPT=$PROMPT; zenterm_precmd; print -r -- \"$PROMPT\"",
+        )
+        .expect("zsh");
+        assert!(
+            !tail.contains(".../"),
+            "the directory is on the line twice: {tail}"
+        );
+        assert!(tail.contains("feature/x"), "no branch in: {tail}");
+        assert!(
+            tail.contains("%1~"),
+            "the prompt lost its own directory: {tail}"
+        );
+        assert!(
+            !tail.contains("@%m") && !tail.contains("@%M"),
+            "the host stayed behind with no user: {tail}"
+        );
+        assert!(tail.contains("%#"), "the sign is gone: {tail}");
+
+        let numbered = run(
+            &deep,
+            "PROMPT='%n %2~ %# '; ZENTERM_USER_PROMPT=$PROMPT; zenterm_precmd; print -r -- \"$PROMPT\"",
+        )
+        .expect("zsh");
+        assert!(
+            !numbered.contains(".../"),
+            "the chip repeated a path the prompt already shows: {numbered}"
+        );
+        assert!(
+            numbered.contains("%2~"),
+            "the prompt lost its own directory: {numbered}"
+        );
 
         // A prompt with no user in front gets the chips in front of it, with
         // the colour codes marked as taking no room.

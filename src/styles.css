@@ -2054,9 +2054,33 @@ textarea:focus {
   font-variant-numeric: tabular-nums;
 }
 
+/* The row the cursor is on: the one line the eye is looking for, so it gets a
+   tint that reads from across the window and both its columns come up with it.
+   The text is the window's own foreground rather than the accent or white —
+   white on the accent's own tint washes out in the light theme, where the tint
+   is pale and the contrast has to come from the text being dark. The `color`
+   is set on the two columns by name: each of them sets its own further down,
+   which outranks a colour on the row. */
 .gutter-row.is-cursor {
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--fg);
+}
+
+.gutter-row.is-cursor .gutter-time,
+.gutter-row.is-cursor .gutter-line {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+:root[data-theme="light"] .gutter-row.is-cursor {
+  /* The light accent is a mid blue; full strength is the only place it reads
+     as a mark rather than as a smudge on a white terminal. */
+  background: var(--accent);
+}
+
+:root[data-theme="light"] .gutter-row.is-cursor .gutter-time,
+:root[data-theme="light"] .gutter-row.is-cursor .gutter-line {
+  color: var(--accent-contrast);
 }
 
 .gutter-time {

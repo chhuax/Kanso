@@ -7,6 +7,9 @@
 /coverage/
 /src-tauri/target/
 /src-tauri/gen/schemas/
+# Sandboxed builds keep cargo/npm caches inside the repo (see docs)
+/.cargo-home/
+/.npm-cache/
 *.tsbuildinfo
 
 # 图标方案的比稿产物：随时可由 scripts/icon/build.mjs 重出，不入库
