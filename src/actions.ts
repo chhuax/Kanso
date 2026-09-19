@@ -76,11 +76,32 @@ function historyHost(id: string): string {
  * session needs them until one is opened, so they arrive with the first
  * terminal instead of with the window.
  */
+let localHome: Promise<string> | null = null;
+
+/** The OS home directory, read once; used to write paths the way people do. */
+function homeDir(): Promise<string> {
+  localHome ??= api.localHome().catch(() => "");
+  return localHome;
+}
+
+/**
+ * Warp's `user_friendly_path`: a path inside the home directory is written
+ * with `~`, and nothing else is shortened — the row clips what is left with a
+ * trailing ellipsis, which is exactly what Warp does too.
+ */
+function userFriendlyPath(path: string, home: string): string {
+  if (!home) return path;
+  if (path === home) return "~";
+  if (!path.startsWith(home)) return path;
+  const rest = path.slice(home.length);
+  // Only a real child of it: `/home/me2` is not under `/home/me`.
+  return /^[/\\]/.test(rest) ? `~${rest}` : path;
+}
+
 /** Reads a local shell's working directory into its tab; see `Tab.cwd`. */
 function refreshLocalCwd(id: string) {
-  void api
-    .sessionCwd(id)
-    .then((cwd) => useStore.getState().setCwd(id, cwd))
+  void Promise.all([api.sessionCwd(id), homeDir()])
+    .then(([cwd, home]) => useStore.getState().setCwd(id, userFriendlyPath(cwd, home)))
     .catch(() => undefined);
 }
 
