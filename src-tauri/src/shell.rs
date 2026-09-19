@@ -70,10 +70,12 @@ zenterm_precmd() {
   local box=$'%{\e[48;5;236m\e[38;5;252m%}'
   local green=$'%{\e[48;5;236m\e[38;5;114m%}'
   local off=$'%{\e[0m%}'
-  # Written as the characters themselves: as `$'\uf07b'` a shell whose
+  # The outline folder (`fa-folder-o`), not the solid one, which at the
+  # prompt's own brightness is a bright blob. Written as the characters
+  # themselves: as `$'\uf114'` a shell whose
   # locale cannot encode them fails with "character not in range" instead
   # of drawing the line.
-  local folder=""
+  local folder=""
   local fork=""
 
   if [[ -n $branch ]]; then
@@ -244,7 +246,7 @@ mod tests {
         assert!(prompt.contains(".../"), "path not shortened: {prompt}");
         assert!(prompt.contains("feature/x"), "no branch in: {prompt}");
         assert!(prompt.contains("%{"), "colour codes are not zero-width: {prompt}");
-        assert!(prompt.contains("\u{f07b}"), "no directory mark in: {prompt}");
+        assert!(prompt.contains("\u{f114}"), "no directory mark in: {prompt}");
         // And it says where the prompt starts, which is what the terminal
         // needs to know a command has returned.
         assert!(
@@ -267,7 +269,7 @@ mod tests {
         // Somewhere with no repository, the chips are the path alone.
         fs::remove_dir_all(repo.join(".git")).expect("remove the repository");
         let prompt = run(&repo, "zenterm_precmd; print -r -- \"$PROMPT\"").expect("zsh");
-        assert!(prompt.contains("\u{f07b}"), "unexpected prompt: {prompt}");
+        assert!(prompt.contains("\u{f114}"), "unexpected prompt: {prompt}");
         assert!(
             !prompt.contains("\u{e0a0}"),
             "a branch appeared from nowhere: {prompt}"
