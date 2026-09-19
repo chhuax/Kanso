@@ -75,11 +75,16 @@ export interface Tab {
    */
   aiTool?: AiTool | null;
   /**
-   * A local shell's working directory, for the rail's second line. Remote
+   * A local shell's working directory, for the rail's first line. Remote
    * sessions never set it: their path would cost a round trip to read and
    * the row shows the connection instead.
    */
   cwd?: string | null;
+  /**
+   * The branch that directory is on, for the line under it — nothing when the
+   * directory is in no repository, so the row keeps one line.
+   */
+  branch?: string | null;
   message?: string;
   cols: number;
   rows: number;
@@ -564,6 +569,8 @@ interface AppStore {
   setAiTool: (id: string, tool: AiTool | null) => void;
   /** Records a local shell's working directory for the rail. */
   setCwd: (id: string, cwd: string | null) => void;
+  /** Records the branch that directory is on, for the line under it. */
+  setBranch: (id: string, branch: string | null) => void;
   /** Leaves an unread completion on a background tab until it is selected. */
   markCommandCompleted: (id: string, kind?: ActivityKind) => void;
   /** Clears activity when a submitted write failed before reaching the shell. */
@@ -1069,6 +1076,13 @@ export const useStore = create<AppStore>((set, get) => ({
     const tab = get().tabs.find((item) => item.info.id === id);
     if (!tab || tab.cwd === cwd) return;
     set({ tabs: patchTab(get().tabs, id, { cwd }) });
+  },
+
+  setBranch(id, branch) {
+    // A `git checkout` shows up here as the branch moving, and nothing else.
+    const tab = get().tabs.find((item) => item.info.id === id);
+    if (!tab || tab.branch === branch) return;
+    set({ tabs: patchTab(get().tabs, id, { branch }) });
   },
 
   markCommandStarted(id, kind = "command") {

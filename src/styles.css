@@ -1213,8 +1213,9 @@ textarea:focus {
   );
 }
 
-/* A row is two lines when it has a path to show: the title on the first, the
-   local shell's working directory on the second. */
+/* A row is two lines when it has a second fact to show — a local shell's
+   directory on the first, the branch it is on under it. A row with one line
+   is the common case: every session that is not in a repository. */
 .tab-row-text {
   display: flex;
   flex-direction: column;
@@ -1229,14 +1230,14 @@ textarea:focus {
   align-items: center;
   gap: 6px;
   min-width: 0;
-  /* Pinned so a row with a path lands on Warp's 48px: 16 (this line) + 2
-     (spacing) + 14 (the metadata row) + 8 + 8 (the row's padding). A row
-     without one keeps the 24px icon as its tallest part, so 40px. */
+  /* Pinned so a two-line row lands on Warp's 48px: 16 (this line) + 2
+     (spacing) + 14 (the metadata row) + 8 + 8 (the row's padding). A one-line
+     row keeps the 24px icon as its tallest part, so 40px. */
   height: 16px;
   line-height: 16px;
 }
 
-.tab-row-path {
+.tab-row-meta {
   /* Warp's METADATA_ROW_HEIGHT: a fixed 14px, so the row keeps its height
      whatever the line holds. */
   height: 14px;

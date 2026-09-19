@@ -99,19 +99,24 @@ function userFriendlyPath(path: string, home: string): string {
 }
 
 /**
- * Reads a local shell's working directory into its tab; see `Tab.cwd`. The
- * Filer's "Reveal Working Directory" asks the same question through
+ * Reads where a local shell is into its tab: the directory for the row's first
+ * line and the branch it is on for the second (see `Tab.cwd` / `Tab.branch`).
+ * The Filer's "Reveal Working Directory" asks the same question through
  * `shellCwd`, so a shell the OS cannot be asked about still has its own OSC 7
- * report used here. A read that comes back with nothing says so: the line
- * would otherwise stay blank with no way to tell why.
+ * report used here. A read that comes back with nothing says so: the row would
+ * otherwise stay as it was with no way to tell why.
  */
-function refreshLocalCwd(id: string) {
+function refreshLocalWhere(id: string) {
   const tab = useStore.getState().tabs.find((item) => item.info.id === id);
   if (!tab || tab.info.kind !== "local") return;
   void Promise.all([shellCwd(tab), homeDir()])
-    .then(([cwd, home]) => {
+    .then(async ([cwd, home]) => {
       if (!cwd) throw new Error("the shell reported no directory");
-      useStore.getState().setCwd(id, userFriendlyPath(cwd, home));
+      const store = useStore.getState();
+      store.setCwd(id, userFriendlyPath(cwd, home));
+      // The branch is read from the directory itself, and a checkout is a
+      // command like any other, so it arrives with the directory that moved.
+      store.setBranch(id, await api.gitBranch(cwd).catch(() => null));
     })
     .catch((error) =>
       useStore.getState().setStatus(`Working directory: ${String(error)}`),
@@ -146,7 +151,7 @@ export async function ensureController(
           store.markCommandCompleted(id, kind);
           // A shell only moves while a command runs, and asking the OS where a
           // local one is costs no round trip.
-          if (local) refreshLocalCwd(id);
+          if (local) refreshLocalWhere(id);
         } else store.clearCommandActivity(id);
       },
       suggest: (input) => commandHistory.suggest(input, historyHost(id)),
@@ -347,7 +352,7 @@ async function connectSession(
     const { info } = outcome;
     connectedStore.updateTabInfo(id, info);
     connectedStore.applyState(id, "connected");
-    if (info.kind === "local") refreshLocalCwd(id);
+    if (info.kind === "local") refreshLocalWhere(id);
     connectedStore.setStatus(
       `Connected to ${tabTitle({ info, ordinal: tab.ordinal })}`,
     );

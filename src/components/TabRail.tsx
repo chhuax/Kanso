@@ -54,6 +54,25 @@ function activityLabel(tab: Tab): string | null {
   return `${subject} ${tab.commandActivity === "running" ? "running" : "finished"}`;
 }
 
+/**
+ * What a row is named. A local shell is named for *where* it is rather than
+ * what it is — the icon in front of it already says it is a shell, and one
+ * directory's shell is what tells it from the next. Everything else is named
+ * for its session: its name is what says which host it reaches.
+ */
+function rowTitle(tab: Tab): string {
+  return tab.info.kind === "local" && tab.cwd ? tab.cwd : tabTitle(tab);
+}
+
+/**
+ * The line under a row's name: the branch its directory is on, and nothing at
+ * all outside a repository — a directory repeated under itself would be the
+ * same fact twice.
+ */
+function rowMeta(tab: Tab): string | null {
+  return tab.info.kind === "local" ? (tab.branch ?? null) : null;
+}
+
 interface RailDrag {
   id: string;
   paneId: string;
@@ -500,6 +519,7 @@ export function TabRail({ onNewSession, onManageSessions }: Props) {
               const sessionColor =
                 tab.info.color ??
                 colorForSession(tab.info.profileId ?? tab.info.name);
+              const meta = rowMeta(tab);
               return (
                 <div
                   key={tab.info.id}
@@ -521,13 +541,17 @@ export function TabRail({ onNewSession, onManageSessions }: Props) {
                   data-tab-id={tab.info.id}
                   data-pane-id={tab.paneId}
                   onMouseDown={() => setActive(tab.info.id)}
-                  title={`${tab.info.protocol} · ${tab.info.address} · ${
+                  title={[
+                    `${tab.info.protocol} · ${tab.info.address}`,
+                    tab.branch,
                     tab.commandActivity === "running"
                       ? activityLabel(tab)
                       : tab.commandActivity === "complete"
                         ? `${activityLabel(tab)} — select to view`
-                        : (tab.message ?? tab.state)
-                  }`}
+                        : (tab.message ?? tab.state),
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                 >
                   <span
                     className={`tab-row-icon${tab.aiTool ? " is-agent" : ""}`}
@@ -544,9 +568,9 @@ export function TabRail({ onNewSession, onManageSessions }: Props) {
                     <div className="tab-row-title">
                       <span className="tab-index">{tab.number}.</span>
                       <span className="tab-dot" aria-hidden="true" />
-                      <span className="tab-label">{tabTitle(tab)}</span>
+                      <span className="tab-label">{rowTitle(tab)}</span>
                     </div>
-                    {tab.cwd && <div className="tab-row-path">{tab.cwd}</div>}
+                    {meta && <div className="tab-row-meta">{meta}</div>}
                   </div>
                   <button
                     className="tab-close"
