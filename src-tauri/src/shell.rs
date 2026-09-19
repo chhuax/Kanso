@@ -24,10 +24,11 @@ const ZSH_STARTUP: &[&str] = &[".zshenv", ".zprofile", ".zshrc", ".zlogin", ".zl
 /// shape the coding CLIs print. Pure zsh builtins — finding the repository
 /// walks up for a `.git` and reads `HEAD` rather than running `git`, which on
 /// a machine without the developer tools raises a system prompt.
-const ZSH_HOOK: &str = r#"# ZenTerm: one line above each prompt saying where the shell is, drawn as the
-# chips the coding CLIs show under theirs: a box for the directory, a green
-# one for the branch. A terminal cannot round a corner, so the boxes are
-# square; everything else is the shape they use.
+const ZSH_HOOK: &str = r#"# ZenTerm: where the shell is, on the prompt line in front of the cursor, as
+# the chips the coding CLIs print. They go into the prompt rather than being
+# printed above it so zsh still knows how wide its prompt is — `%{...%}` is
+# what tells it the colour codes take no room — and the prompt's own text is
+# kept as it was, with the chips in front.
 zenterm_branch() {
   local dir=$1 head line target
   # `##` (one or more) is off by default in zsh, and trimming the space after
@@ -57,29 +58,36 @@ zenterm_branch() {
   print -r -- "${line#ref: refs/heads/}"
 }
 
-zenterm_prompt_line() {
+zenterm_precmd() {
   local path branch
   path=${(%):-%~}
   # A long path keeps its end: that is the half that says where you are.
   local -a parts
   parts=(${(s:/:)path})
   (( ${#parts} > 4 )) && path=".../${(j:/:)parts[-3,-1]}"
+  branch=$(zenterm_branch $PWD)
 
-  local box=$'\e[48;5;236m\e[38;5;252m'
-  local green=$'\e[48;5;236m\e[38;5;114m'
-  local off=$'\e[0m'
+  local box=$'%{\e[48;5;236m\e[38;5;252m%}'
+  local green=$'%{\e[48;5;236m\e[38;5;114m%}'
+  local off=$'%{\e[0m%}'
   local folder=$'\uf07b'
   local fork=$'\ue0a0'
 
-  branch=$(zenterm_branch $PWD)
   if [[ -n $branch ]]; then
-    print -r -- "${box} ${folder} ${path} ${off} ${green} ${fork} ${branch} ${off}"
+    ZENTERM_CHIPS="${box} ${folder} ${path} ${off} ${green} ${fork} ${branch} ${off} "
   else
-    print -r -- "${box} ${folder} ${path} ${off}"
+    ZENTERM_CHIPS="${box} ${folder} ${path} ${off} "
   fi
+  PROMPT="${ZENTERM_CHIPS}${ZENTERM_USER_PROMPT}"
+
+  # The prompt line begins here. The terminal brackets commands with this
+  # (OSC 133), so a command's end is told rather than guessed from the shape
+  # of a prompt the chips have changed.
+  print -rn -- $'\e]133;A\a'
 }
 
-autoload -Uz add-zsh-hook 2>/dev/null && add-zsh-hook precmd zenterm_prompt_line
+ZENTERM_USER_PROMPT=${PROMPT-'%m %~ %# '}
+autoload -Uz add-zsh-hook 2>/dev/null && add-zsh-hook precmd zenterm_precmd
 "#;
 
 /// Where the user's own startup files are: their `ZDOTDIR` if they set one,
@@ -228,11 +236,19 @@ mod tests {
             Some("feature/x")
         );
 
-        // A line carries the path (its end, if long) and the branch.
-        let line = run(&deep, "zenterm_prompt_line").expect("zsh");
-        assert!(line.contains(".../"), "path not shortened: {line}");
-        assert!(line.ends_with("feature/x \u{1b}[0m"), "no branch in: {line}");
-        assert!(line.contains("\u{f07b}"), "no directory mark in: {line}");
+        // The prompt carries the chips: the end of a long path, the branch,
+        // and the colour codes marked as taking no room.
+        let prompt = run(&deep, "zenterm_precmd; print -r -- \"$PROMPT\"").expect("zsh");
+        assert!(prompt.contains(".../"), "path not shortened: {prompt}");
+        assert!(prompt.contains("feature/x"), "no branch in: {prompt}");
+        assert!(prompt.contains("%{"), "colour codes are not zero-width: {prompt}");
+        assert!(prompt.contains("\u{f07b}"), "no directory mark in: {prompt}");
+        // And it says where the prompt starts, which is what the terminal
+        // needs to know a command has returned.
+        assert!(
+            prompt.contains("\u{1b}]133;A\u{7}"),
+            "no prompt-start marker: {prompt}"
+        );
 
         // A worktree's `.git` is a file naming the real git directory.
         let elsewhere = root.join("real-git");
@@ -246,13 +262,13 @@ mod tests {
             Some("from-a-worktree")
         );
 
-        // Somewhere with no repository, the line is the path alone.
+        // Somewhere with no repository, the chips are the path alone.
         fs::remove_dir_all(repo.join(".git")).expect("remove the repository");
-        let line = run(&repo, "zenterm_prompt_line").expect("zsh");
-        assert!(line.contains("\u{f07b}"), "unexpected line: {line}");
+        let prompt = run(&repo, "zenterm_precmd; print -r -- \"$PROMPT\"").expect("zsh");
+        assert!(prompt.contains("\u{f07b}"), "unexpected prompt: {prompt}");
         assert!(
-            !line.contains("\u{e0a0}"),
-            "a branch appeared from nowhere: {line}"
+            !prompt.contains("\u{e0a0}"),
+            "a branch appeared from nowhere: {prompt}"
         );
 
         fs::remove_dir_all(root).ok();
