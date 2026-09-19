@@ -35,6 +35,11 @@ import move from "@vscode/codicons/src/icons/move.svg?raw";
 import newFile from "@vscode/codicons/src/icons/new-file.svg?raw";
 import newFolder from "@vscode/codicons/src/icons/new-folder.svg?raw";
 import newline from "@vscode/codicons/src/icons/newline.svg?raw";
+// Brand marks the Codicons set does not carry, from simple-icons (CC0-1.0;
+// https://github.com/simple-icons/simple-icons): a tool is named by its own
+// logo, so no shape is invented for it here.
+import opencode from "../assets/brands/opencode.svg?raw";
+import qwen from "../assets/brands/qwen.svg?raw";
 import openai from "@vscode/codicons/src/icons/openai.svg?raw";
 import plug from "@vscode/codicons/src/icons/plug.svg?raw";
 import refresh from "@vscode/codicons/src/icons/refresh.svg?raw";
@@ -86,6 +91,8 @@ const SVGS = {
   move,
   "new-file": newFile,
   openai,
+  opencode,
+  qwen,
   "new-folder": newFolder,
   newline,
   plug,
