@@ -47,6 +47,20 @@ export type RightClickAction = "menu" | "copyPaste";
 /** The cursor's shape; `cursorBlink` in the store says whether it blinks. */
 export type CursorStyle = "block" | "underline" | "bar";
 
+/**
+ * One command and what it printed, as the rule above its prompt divides it
+ * (see `dividers`). A remote shell has none: without shell integration there
+ * is nothing to divide its output by, and its rules are off for that reason.
+ */
+export interface CommandBlock {
+  /** Buffer row of the prompt the command was typed on. */
+  line: number;
+  /** Buffer row one past the last row of its output. */
+  end: number;
+  /** The command as submitted, with the prompt cut off. */
+  command: string;
+}
+
 /** The xterm-owned inputs to a gutter paint; see `gutterPainted`. */
 type GutterView = {
   viewportY: number;
@@ -368,11 +382,16 @@ export class TerminalController {
   /** Callers waiting for the running command to return; see `waitForCommand`. */
   private commandWaiters: (() => void)[] = [];
   /**
-   * One marker per command start, oldest first, for the rule drawn above each
-   * prompt (see `dividers`). xterm disposes the marker as its line leaves the
-   * scrollback, which is also what prunes this list.
+   * One entry per command, oldest first: the rule above its prompt is drawn
+   * from `marker`, `command` is what it ran, and `end` is the prompt that
+   * followed it, marked when the command returned. xterm disposes a marker as
+   * its line leaves the scrollback, which is also what prunes this list.
    */
-  private commandStarts: IMarker[] = [];
+  private commandBlocks: {
+    marker: IMarker;
+    command: string;
+    end: IMarker | null;
+  }[] = [];
   /** The rule layer inside the terminal's own box, and its pool of 1px lines. */
   private dividersLayer: HTMLElement | null = null;
   private dividerLines: HTMLElement[] = [];
@@ -381,7 +400,7 @@ export class TerminalController {
     viewportY: number;
     rows: number;
     alternate: boolean;
-    starts: number;
+    blocks: number;
   } | null = null;
   /** Set while an agentic CLI (see `aiTools.ts`) owns the terminal. */
   private aiSession = false;
@@ -1124,6 +1143,117 @@ export class TerminalController {
   }
 
   /**
+   * The command blocks of this session, oldest first. Empty for a remote
+   * shell, and for a local one until something has been run in it.
+   */
+  blocks(): CommandBlock[] {
+    const buf = this.term.buffer.active;
+    const cursor = buf.baseY + buf.cursorY;
+    const live = this.commandBlocks.filter(({ marker }) => !marker.isDisposed);
+    return live.map(({ marker, command, end }, index) => {
+      // Where a block's output stops: the prompt that followed it, marked when
+      // the command returned; else the next command's prompt; else the cursor,
+      // for the command still printing.
+      const next = live[index + 1];
+      const stop =
+        end && !end.isDisposed
+          ? end.line
+          : next
+            ? next.marker.line
+            : cursor + 1;
+      return { line: marker.line, end: stop, command };
+    });
+  }
+
+  /** The block a buffer row falls in; null above the first prompt. */
+  blockAt(row: number): CommandBlock | null {
+    let found: CommandBlock | null = null;
+    for (const block of this.blocks()) {
+      if (block.line > row) break;
+      found = block;
+    }
+    return found;
+  }
+
+  /**
+   * The block a point in the terminal's box falls in, for the context menu
+   * that asked. Points outside the rows, and the alternate screen — where the
+   * buffer is a full-screen program's, not the shell's — answer null.
+   */
+  blockAtPoint(y: number): CommandBlock | null {
+    if (this.term.buffer.active.type === "alternate") return null;
+    const row = this.rowAtViewportY(y);
+    return row === null ? null : this.blockAt(row);
+  }
+
+  /**
+   * A block's text: the command as it was submitted, or what it printed —
+   * the rows between its prompt and the next one, which is exactly what the
+   * rule above the next prompt divides off.
+   */
+  blockText(block: CommandBlock, part: "command" | "output"): string {
+    if (part === "command") return block.command.trim();
+    return this.rowsText(block.line + 1, block.end);
+  }
+
+  /** Copies a block's command or output the way a selection is copied. */
+  copyBlock(block: CommandBlock, part: "command" | "output"): boolean {
+    const text = this.blockText(block, part);
+    if (!text) return false;
+    void navigator.clipboard.writeText(text);
+    return true;
+  }
+
+  /**
+   * Scrolls to the previous or next block's prompt, so the blocks are one key
+   * apart. What "previous" and "next" mean is measured from the top row on
+   * screen: the block above the one being read, or the one below it. False
+   * when there is no such block, so a caller can leave the view alone.
+   */
+  stepBlock(delta: -1 | 1): boolean {
+    if (this.term.buffer.active.type === "alternate") return false;
+    const top = this.term.buffer.active.viewportY;
+    const lines = this.blocks().map((block) => block.line);
+    const target =
+      delta < 0
+        ? [...lines].reverse().find((line) => line < top)
+        : lines.find((line) => line > top);
+    if (target === undefined) return false;
+    this.term.scrollToLine(target);
+    return true;
+  }
+
+  /**
+   * Rows `first` (inclusive) to `last` (exclusive) as plain text, without the
+   * trailing blank rows a shell leaves between its output and the next prompt.
+   */
+  private rowsText(first: number, last: number): string {
+    const buf = this.term.buffer.active;
+    const lines: string[] = [];
+    for (let row = first; row < last; row += 1) {
+      const line = buf.getLine(row);
+      if (!line) break;
+      lines.push(line.translateToString(true));
+    }
+    while (lines.length > 0 && lines[lines.length - 1].trim() === "") {
+      lines.pop();
+    }
+    return lines.join("\n");
+  }
+
+  /** The buffer row a viewport point lands on, or null outside the rows. */
+  private rowAtViewportY(y: number): number | null {
+    const screen = this.host?.querySelector<HTMLElement>(".xterm-screen");
+    if (!screen) return null;
+    if (this.cellHeight <= 0) this.measureCell();
+    if (this.cellHeight <= 0) return null;
+    const box = screen.getBoundingClientRect();
+    const viewRow = Math.floor((y - box.top) / this.cellHeight);
+    if (viewRow < 0 || viewRow >= this.term.rows) return null;
+    return this.term.buffer.active.viewportY + viewRow;
+  }
+
+  /**
    * `rightClickSelectsWord` follows the right-click mode: in "menu" mode a
    * right click selects the word under the pointer so the menu's Copy has
    * something to copy (VS Code); in "copyPaste" mode it must stay off, or a
@@ -1466,9 +1596,10 @@ export class TerminalController {
 
     this.commandMarker?.dispose();
     this.commandMarker = this.term.registerMarker(0);
+    const command = sent ?? this.submittedCommand(prompt);
     if (this.dividers) {
       const start = this.term.registerMarker(0);
-      if (start) this.commandStarts.push(start);
+      if (start) this.commandBlocks.push({ marker: start, command, end: null });
     }
     this.commandPrompt = prompt;
     // Appending a space lets a compact bare prompt such as `$` satisfy the
@@ -1476,7 +1607,7 @@ export class TerminalController {
     this.commandPromptRecognized = isShellPrompt(`${prompt} `);
     this.commandOutputAdvanced = false;
     this.commandRunning = true;
-    this.aiTool = aiToolForCommand(sent ?? this.submittedCommand(prompt));
+    this.aiTool = aiToolForCommand(command);
     this.aiSession = this.aiTool !== null;
     this.callbacks.onAiTool?.(this.aiTool);
     // An agentic CLI runs until the user quits it, so reporting its whole
@@ -1562,6 +1693,10 @@ export class TerminalController {
     // the next command line. The anchor they left points at a row the
     // program painted, which history would then record as a command.
     this.dropAnchor();
+    // The prompt that just came back is where this block's output stops; a
+    // marker on that line keeps it known as the buffer scrolls away.
+    const block = this.commandBlocks[this.commandBlocks.length - 1];
+    if (block && !block.end) block.end = this.term.registerMarker(0) ?? null;
     const kind = this.aiSession ? "ai" : "command";
     this.resetCommandTracking();
     if (!this.disposed) this.callbacks.onCommandState("complete", kind);
@@ -2306,8 +2441,11 @@ export class TerminalController {
     const rows = this.term.rows;
     // Trimmed lines take their markers with them; drop the dead ones so the
     // list stays sorted and short.
-    while (this.commandStarts.length > 0 && this.commandStarts[0].isDisposed) {
-      this.commandStarts.shift();
+    while (
+      this.commandBlocks.length > 0 &&
+      this.commandBlocks[0].marker.isDisposed
+    ) {
+      this.commandBlocks.shift();
     }
     const painted = this.dividersPainted;
     if (
@@ -2315,7 +2453,7 @@ export class TerminalController {
       painted.viewportY === viewportY &&
       painted.rows === rows &&
       painted.alternate === alternate &&
-      painted.starts === this.commandStarts.length
+      painted.blocks === this.commandBlocks.length
     ) {
       return;
     }
@@ -2323,13 +2461,13 @@ export class TerminalController {
       viewportY,
       rows,
       alternate,
-      starts: this.commandStarts.length,
+      blocks: this.commandBlocks.length,
     };
 
     let used = 0;
     if (!alternate) {
       const last = viewportY + rows;
-      for (const marker of this.commandStarts) {
+      for (const { marker } of this.commandBlocks) {
         if (marker.isDisposed) continue;
         // Sorted, so the first start past the viewport ends the scan.
         if (marker.line < viewportY) continue;

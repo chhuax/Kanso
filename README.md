@@ -75,7 +75,7 @@ XMODEM has no handshake to detect, so it is started from **Session → File Tran
 
 **Mouse copy / paste**
 
-A right click in the terminal opens a context menu — Copy, Paste, Select All, Clear Buffer and Reveal Working Directory in Filer — with the word under the pointer selected first; middle-click pastes. On Windows and Linux, **Edit → Right Click** switches that to *Copy or Paste*, the console convention: a right click copies the selection if there is one and pastes otherwise, and no menu appears. macOS always uses the menu. Programs that take over the mouse (vim, tmux with mouse support, htop) receive the clicks instead; on Windows / Linux hold `Shift` to bypass them.
+A right click in the terminal opens a context menu — Copy, Paste, Select All, Clear Buffer and Reveal Working Directory in Filer — with the word under the pointer selected first; middle-click pastes. A local shell's output is divided into command blocks by a rule above each prompt, so its menu also offers **Copy Block Output** and **Copy Block Command** for the block under the pointer, and `⌘↑` / `⌘↓` step from one block to the next. On Windows and Linux, **Edit → Right Click** switches that to *Copy or Paste*, the console convention: a right click copies the selection if there is one and pastes otherwise, and no menu appears. macOS always uses the menu. Programs that take over the mouse (vim, tmux with mouse support, htop) receive the clicks instead; on Windows / Linux hold `Shift` to bypass them.
 
 **Keyboard shortcuts**
 
@@ -88,6 +88,7 @@ A right click in the terminal opens a context menu — Copy, Paste, Select All, 
 | `⌘K` | `Alt+K` | Clear the screen |
 | `⌘J` | `Ctrl+Shift+J` | Reveal the shell's working directory in the Filer |
 | `⌘[` / `⌘]` | `Alt+[` / `Alt+]` | Switch to the previous / next tab of the pane |
+| `⌘↑` / `⌘↓` | `Ctrl+↑` / `Ctrl+↓` | Jump to the previous / next command block (local shells) |
 | `⌘\` / `⌘⇧\` | `Ctrl+Shift+\` / `Ctrl+Alt+\` | Split the pane: open the current session's profile again to the right / below |
 | `⌘⌥[` / `⌘⌥]` | `Ctrl+Alt+[` / `Ctrl+Alt+]` | Focus the previous / next pane |
 | `⌘1`–`⌘9` | `Alt+1`–`Alt+9` | Switch to tab N |

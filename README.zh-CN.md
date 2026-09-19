@@ -67,7 +67,7 @@ XMODEM 没有可供检测的握手，需要从 **Session → File Transfer** 菜
 
 **鼠标复制 / 粘贴**
 
-在终端里点击右键会弹出上下文菜单——Copy / Paste / Select All / Clear Buffer / Reveal Working Directory in Filer，并先选中指针所在的单词；中键粘贴。Windows 和 Linux 下可在 **Edit → Right Click** 改为 *Copy or Paste*，即控制台惯例：右键有选区时复制、没有选区时粘贴，不再弹菜单。macOS 始终使用菜单。vim、tmux（开启鼠标）、htop 等接管了鼠标的程序会收到这些点击；Windows / Linux 下按住 `Shift` 可绕过它们。
+在终端里点击右键会弹出上下文菜单——Copy / Paste / Select All / Clear Buffer / Reveal Working Directory in Filer，并先选中指针所在的单词；中键粘贴。本地 shell 的输出按命令分块（每条提示符上方有一条分隔线），因此它的菜单还对指针所在的块提供 **Copy Block Output** 与 **Copy Block Command**，`⌘↑` / `⌘↓` 则在块之间前后跳转。Windows 和 Linux 下可在 **Edit → Right Click** 改为 *Copy or Paste*，即控制台惯例：右键有选区时复制、没有选区时粘贴，不再弹菜单。macOS 始终使用菜单。vim、tmux（开启鼠标）、htop 等接管了鼠标的程序会收到这些点击；Windows / Linux 下按住 `Shift` 可绕过它们。
 
 **快捷键**
 
@@ -79,6 +79,7 @@ XMODEM 没有可供检测的握手，需要从 **Session → File Transfer** 菜
 | `⌘F` / `⌘G` | `Ctrl+Shift+F` / `Ctrl+Shift+G` | 缓冲区内查找 / 下一个匹配 |
 | `⌘K` | `Alt+K` | 清屏 |
 | `⌘[` / `⌘]` | `Alt+[` / `Alt+]` | 切换到上一个 / 下一个已打开会话 |
+| `⌘↑` / `⌘↓` | `Ctrl+↑` / `Ctrl+↓` | 跳到上一条 / 下一条命令块（仅本地 shell） |
 | `⌘1`–`⌘9` | `Alt+1`–`Alt+9` | 切换到第 N 个标签 |
 | `⌘⌥←` / `⌘⌥→` / `⌘⌥↓` | `Ctrl+Alt+←` / `Ctrl+Alt+→` / `Ctrl+Alt+↓` | 显示或隐藏 Session / Filer / Sender |
 | `⌘C` / `⌘V` | `Ctrl+Shift+C` / `Ctrl+Shift+V` | 复制 / 粘贴（终端内） |

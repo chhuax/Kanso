@@ -340,6 +340,16 @@ export default function App() {
             getController(activeId)?.clear();
           }
           return;
+        case "blockStep": {
+          // Only a local shell divides its output into blocks. Anywhere else
+          // the key is left alone: on Windows and Linux a Ctrl+arrow is a
+          // sequence a remote program may be waiting for.
+          const controller = activeId ? getController(activeId) : undefined;
+          if (!controller || controller.blocks().length === 0) return;
+          event.preventDefault();
+          controller.stepBlock(shortcut.step);
+          return;
+        }
         case "revealCwd":
           if (activeId && !fileMode) {
             event.preventDefault();
