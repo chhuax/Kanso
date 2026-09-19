@@ -1,6 +1,7 @@
 import * as api from "./api";
 import { fontStack } from "./fonts";
 import { commandHistory } from "./history";
+import { suggestCommands } from "./suggestions";
 import { IS_WINDOWS } from "./platform";
 import { tabTitle, useStore, type HostKeyPrompt, type Tab } from "./store";
 import type { TerminalController } from "./terminal";
@@ -154,7 +155,7 @@ export async function ensureController(
           if (local) refreshLocalWhere(id);
         } else store.clearCommandActivity(id);
       },
-      suggest: (input) => commandHistory.suggest(input, historyHost(id)),
+      suggest: (input) => suggestCommands(input, historyHost(id)),
       onAiTool: (tool) => useStore.getState().setAiTool(id, tool),
       onResize: (cols, rows) => {
         useStore.getState().setSize(id, cols, rows);
