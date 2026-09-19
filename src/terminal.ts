@@ -61,12 +61,14 @@ type GutterView = {
  * takes the oldest one away; with one context per tab, opening enough tabs
  * stranded the earliest ones on the DOM renderer for good, where a
  * selection drag crawls (issue #14). A hidden tab has no use for the fast
- * renderer and every context pins a window-sized GPU surface, so the least
- * recently shown terminals give theirs up and load it again when shown.
- * Six covers the tabs someone actually cycles through, keeps GPU memory to
- * a few hundred megabytes and stays well clear of the limit.
+ * renderer and every context pins a window-sized GPU surface — about 8 MB
+ * on a Retina display, and it is the surface rather than the glyphs that
+ * costs — so the least recently shown terminals give theirs up and load it
+ * again when shown. Two covers the tab on screen and the one switched away
+ * from, which is what a person cycles between: the GPU surfaces held come
+ * down from six windows' worth to two.
  */
-const WEBGL_MAX_TERMINALS = 6;
+const WEBGL_MAX_TERMINALS = 2;
 /**
  * A lost context (WKWebView reclaims them under memory pressure or after a
  * long stay in the background) is recreated after a pause, a few times per
