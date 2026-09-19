@@ -14,6 +14,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 
 import appIcon from "../../src-tauri/icons/32x32.png";
 import {
+  openLocalShell,
   revealCwdInFiler,
   splitSession,
   toggleSessionConnection,
@@ -274,6 +275,8 @@ export function MenuBar(props: Props) {
   const suggestionsEnabled = useStore((s) => s.suggestionsEnabled);
   const setSuggestionsEnabled = useStore((s) => s.setSuggestionsEnabled);
   const rightClickAction = useStore((s) => s.rightClickAction);
+  const copyOnSelect = useStore((s) => s.copyOnSelect);
+  const setCopyOnSelect = useStore((s) => s.setCopyOnSelect);
   const setRightClickAction = useStore((s) => s.setRightClickAction);
   const resetSettings = useStore((s) => s.resetSettings);
   // The accelerators as the user has bound them (see shortcuts.ts); only
@@ -341,6 +344,11 @@ export function MenuBar(props: Props) {
           label: "New Session…",
           shortcut: accel("newSession"),
           action: props.onNewSession,
+        },
+        {
+          label: "New Local Shell",
+          shortcut: accel("newLocalShell"),
+          action: () => void openLocalShell(),
         },
         "separator",
         {
@@ -441,6 +449,11 @@ export function MenuBar(props: Props) {
           label: "Select All",
           shortcut: accel("selectAll"),
           action: withActive((id) => getController(id)?.selectAll()),
+        },
+        {
+          label: "Copy on Select",
+          checked: copyOnSelect,
+          action: () => setCopyOnSelect(!copyOnSelect),
         },
         // Mouse copy / paste is a Windows / Linux choice; macOS terminals
         // always open the menu, so the submenu is left out there.

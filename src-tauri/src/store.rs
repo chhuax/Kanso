@@ -237,7 +237,7 @@ impl Store {
             None => (HashMap::new(), VaultKey::fresh()),
         };
         let groups_path = groups_path_for(&path);
-        let groups = read_array_without_retired_kinds(&groups_path).unwrap_or_default();
+        let groups = read_json(&groups_path).unwrap_or_default();
         let sender_commands_path = sender_commands_path_for(&path);
         let sender_commands =
             read_array_without_retired_kinds(&sender_commands_path).unwrap_or_default();
@@ -361,12 +361,14 @@ impl Store {
             }
         }
 
-        // A stale or foreign group id (deleted group, category switched in the
-        // editor) must not strand the profile: fall back to the section root.
+        // A stale group id (deleted group) must not strand the profile: fall
+        // back to the top level.
         if let Some(group_id) = &profile.group_id {
-            let valid = self.groups.lock().iter().any(|group| {
-                &group.id == group_id && group.kind == profile.kind
-            });
+            let valid = self
+                .groups
+                .lock()
+                .iter()
+                .any(|group| &group.id == group_id);
             if !valid {
                 profile.group_id = None;
             }
@@ -419,36 +421,9 @@ impl Store {
         if group.id.is_empty() {
             group.id = uuid::Uuid::new_v4().to_string();
         }
-        if group.parent_id.as_deref() == Some("") {
-            group.parent_id = None;
-        }
 
         {
             let mut groups = self.groups.lock();
-            if let Some(existing) = groups.iter().find(|g| g.id == group.id) {
-                if existing.kind != group.kind {
-                    return Err(AppError::new("a group cannot change its session kind"));
-                }
-            }
-            if let Some(parent_id) = &group.parent_id {
-                if *parent_id == group.id {
-                    return Err(AppError::new("a group cannot contain itself"));
-                }
-                match groups.iter().find(|g| &g.id == parent_id) {
-                    None => return Err(AppError::new("parent group does not exist")),
-                    Some(parent) if parent.kind != group.kind => {
-                        return Err(AppError::new(
-                            "a group can only be nested under a group of the same session kind",
-                        ))
-                    }
-                    Some(_) => {}
-                }
-                if subtree_ids(&groups, &group.id).contains(parent_id) {
-                    return Err(AppError::new(
-                        "a group cannot be moved into one of its own subgroups",
-                    ));
-                }
-            }
             match groups.iter_mut().find(|g| g.id == group.id) {
                 Some(existing) => *existing = group.clone(),
                 None => groups.push(group.clone()),
@@ -458,30 +433,24 @@ impl Store {
         Ok(group)
     }
 
-    /// Removes a group with everything in it: the groups nested below it,
-    /// the profiles in any of them (with their credentials) and the Sender
-    /// commands scoped to any of those groups or profiles.
+    /// Removes a group with everything in it: the profiles it holds (with
+    /// their credentials) and the Sender commands scoped to it or to those
+    /// profiles.
     pub fn delete_group(&self, id: &str) -> Result<()> {
-        let removed_groups = {
+        {
             let mut groups = self.groups.lock();
             if !groups.iter().any(|g| g.id == id) {
                 return Ok(());
             }
-            let removed = subtree_ids(&groups, id);
-            groups.retain(|g| !removed.contains(&g.id));
-            removed
-        };
+            groups.retain(|g| g.id != id);
+        }
         self.persist_groups()?;
 
         let removed_profiles: Vec<String> = {
             let mut profiles = self.profiles.lock();
             let removed: Vec<String> = profiles
                 .iter()
-                .filter(|p| {
-                    p.group_id
-                        .as_ref()
-                        .is_some_and(|group_id| removed_groups.contains(group_id))
-                })
+                .filter(|p| p.group_id.as_deref() == Some(id))
                 .map(|p| p.id.clone())
                 .collect();
             profiles.retain(|p| !removed.contains(&p.id));
@@ -500,8 +469,8 @@ impl Store {
             let mut commands = self.sender_commands.lock();
             let before = commands.len();
             commands.retain(|command| match &command.scope {
-                CommandScope::Group { id } => !removed_groups.contains(id),
-                CommandScope::Profile { id } => !removed_profiles.contains(id),
+                CommandScope::Group { id: group_id } => group_id != id,
+                CommandScope::Profile { id: profile_id } => !removed_profiles.contains(profile_id),
                 CommandScope::Global | CommandScope::Kind { .. } => true,
             });
             commands.len() != before
@@ -655,19 +624,12 @@ impl Store {
                 if group.id.is_empty() {
                     group.id = uuid::Uuid::new_v4().to_string();
                 }
-                if group.parent_id.as_deref() == Some("") {
-                    group.parent_id = None;
-                }
                 match groups.iter_mut().find(|g| g.id == group.id) {
-                    // A group cannot change category: its profiles would no
-                    // longer belong under it.
-                    Some(existing) if existing.kind != group.kind => continue,
                     Some(existing) => *existing = group,
                     None => groups.push(group),
                 }
                 summary.groups += 1;
             }
-            detach_invalid_parents(&mut groups);
         }
 
         {
@@ -679,9 +641,7 @@ impl Store {
                     profile.id = uuid::Uuid::new_v4().to_string();
                 }
                 if let Some(group_id) = &profile.group_id {
-                    let valid = groups.iter().any(|group| {
-                        &group.id == group_id && group.kind == profile.kind
-                    });
+                    let valid = groups.iter().any(|group| &group.id == group_id);
                     if !valid {
                         profile.group_id = None;
                     }
@@ -922,39 +882,6 @@ pub fn redact_profile(mut profile: SessionProfile) -> SessionProfile {
 /// Drops parent links that point nowhere, to a group of another kind, to
 /// the group itself or around a cycle. Detaching one link never invalidates
 /// another, so a single pass is enough.
-fn detach_invalid_parents(groups: &mut [SessionGroup]) {
-    for index in 0..groups.len() {
-        let Some(parent_id) = groups[index].parent_id.clone() else {
-            continue;
-        };
-        let group_id = groups[index].id.clone();
-        let kind = groups[index].kind;
-        let valid_parent = parent_id != group_id
-            && groups
-                .iter()
-                .any(|group| group.id == parent_id && group.kind == kind);
-        if !valid_parent || subtree_ids(groups, &group_id).contains(&parent_id) {
-            groups[index].parent_id = None;
-        }
-    }
-}
-
-/// Ids of `root` and every group nested below it, in no particular order.
-fn subtree_ids(groups: &[SessionGroup], root: &str) -> Vec<String> {
-    let mut ids = vec![root.to_string()];
-    let mut cursor = 0;
-    while cursor < ids.len() {
-        let parent = ids[cursor].clone();
-        for group in groups {
-            if group.parent_id.as_deref() == Some(parent.as_str()) && !ids.contains(&group.id) {
-                ids.push(group.id.clone());
-            }
-        }
-        cursor += 1;
-    }
-    ids
-}
-
 fn unix_millis() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1079,8 +1006,9 @@ fn names_retired_kind(kind: Option<&serde_json::Value>) -> bool {
 }
 
 /// `read_json` for a file holding a JSON array, minus the entries naming a
-/// retired kind — at `kind` (a profile or group) or at `scope.kind` (a Sender
-/// command scoped to a kind).
+/// retired kind — at `kind` (a profile) or at `scope.kind` (a Sender command
+/// scoped to a kind). Groups carry no kind, so they are read plainly; an old
+/// file's `kind` on a group is ignored rather than dropping the folder.
 fn read_array_without_retired_kinds<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
     let raw = std::fs::read_to_string(path).ok()?;
     let mut entries: Vec<serde_json::Value> = serde_json::from_str(&raw).ok()?;
@@ -1104,7 +1032,9 @@ fn retain_supported_kinds(entries: &mut Vec<serde_json::Value>) {
 /// user is told it is "not a ZenTerm data file", which is both wrong and
 /// unrecoverable — the export cannot be edited from inside the app.
 pub fn strip_retired_kinds(data: &mut serde_json::Value) {
-    for field in ["profiles", "groups", "senderCommands"] {
+    // Groups are left alone: they no longer name a kind, so an old `kind` on
+    // one is ignored by serde instead of costing the user a folder.
+    for field in ["profiles", "senderCommands"] {
         if let Some(serde_json::Value::Array(entries)) = data.get_mut(field) {
             retain_supported_kinds(entries);
         }
@@ -1146,14 +1076,20 @@ pub(crate) fn portable_data_dir_in(exe_dir: &Path) -> Option<PathBuf> {
     dir.is_dir().then_some(dir)
 }
 
-fn config_path() -> PathBuf {
+/// The directory this app keeps its own files in: the store, the credentials
+/// beside it, and the shell shim that gives a local prompt its line above
+/// (see `shell`). Portable mode moves the whole thing next to the executable.
+pub(crate) fn data_dir() -> PathBuf {
     match portable_data_dir() {
-        Some(dir) => dir.join("sessions.json"),
+        Some(dir) => dir,
         None => dirs::config_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("ZenTerm")
-            .join("sessions.json"),
+            .join("ZenTerm"),
     }
+}
+
+fn config_path() -> PathBuf {
+    data_dir().join("sessions.json")
 }
 
 fn write_owner_only(path: &Path, contents: &str) -> Result<()> {

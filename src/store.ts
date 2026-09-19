@@ -1,5 +1,6 @@
 import { create } from "zustand";
 
+import type { AiTool } from "./aiTools";
 import * as api from "./api";
 import { commandHistory } from "./history";
 import {
@@ -68,6 +69,22 @@ export interface Tab {
    * session and is only worth reporting while the assistant works.
    */
   activityKind: ActivityKind;
+  /**
+   * The agentic CLI running in this tab, or null/absent for none; see
+   * `aiTools.ts`. Set for the whole life of the tool, not just its turns.
+   */
+  aiTool?: AiTool | null;
+  /**
+   * A local shell's working directory, for the rail's first line. Remote
+   * sessions never set it: their path would cost a round trip to read and
+   * the row shows the connection instead.
+   */
+  cwd?: string | null;
+  /**
+   * The branch that directory is on, for the line under it — nothing when the
+   * directory is in no repository, so the row keeps one line.
+   */
+  branch?: string | null;
   message?: string;
   cols: number;
   rows: number;
@@ -168,6 +185,22 @@ const parseRightClickAction = (value: unknown): RightClickAction | null =>
  * have no such convention, so the value is pinned there: a stored or
  * imported `copyPaste` never applies and the menu doesn't offer it.
  */
+const COPY_ON_SELECT_KEY = "zenterm.copyOnSelect";
+
+/**
+ * Whether a finished selection goes straight to the clipboard. On by default:
+ * selecting text in a terminal is nearly always the first half of pasting it
+ * somewhere. It is a setting because a selection made only to *read* — a log
+ * line, a diff — should not quietly overwrite what is on the clipboard.
+ */
+const loadCopyOnSelect = (): boolean => {
+  try {
+    return localStorage.getItem(COPY_ON_SELECT_KEY) !== "false";
+  } catch {
+    return true;
+  }
+};
+
 const loadRightClickAction = (): RightClickAction => {
   if (IS_MAC) return "menu";
   try {
@@ -397,6 +430,8 @@ export interface AppSettings {
   suggestionsEnabled: boolean;
   /** Windows / Linux only; macOS always opens the menu. */
   rightClickAction: RightClickAction;
+  /** Whether finishing a selection copies it; see `loadCopyOnSelect`. */
+  copyOnSelect: boolean;
   /** Only the key bindings that differ from the platform defaults. */
   shortcuts: Partial<ShortcutBindings>;
 }
@@ -439,6 +474,8 @@ interface AppStore {
   suggestionsEnabled: boolean;
   /** What a right click in the terminal does; see `RightClickAction`. */
   rightClickAction: RightClickAction;
+  /** Whether finishing a selection copies it; see `loadCopyOnSelect`. */
+  copyOnSelect: boolean;
   /** The chord each app command answers; see `shortcuts.ts`. */
   shortcuts: ShortcutBindings;
   panels: Record<PanelName, boolean>;
@@ -548,6 +585,12 @@ interface AppStore {
   applyState: (id: string, state: SessionState, message?: string) => void;
   /** Records a command, or an agentic CLI's turn, starting in a terminal. */
   markCommandStarted: (id: string, kind?: ActivityKind) => void;
+  /** Marks the tab as running an agentic CLI, or clears the mark. */
+  setAiTool: (id: string, tool: AiTool | null) => void;
+  /** Records a local shell's working directory for the rail. */
+  setCwd: (id: string, cwd: string | null) => void;
+  /** Records the branch that directory is on, for the line under it. */
+  setBranch: (id: string, branch: string | null) => void;
   /** Leaves an unread completion on a background tab until it is selected. */
   markCommandCompleted: (id: string, kind?: ActivityKind) => void;
   /** Clears activity when a submitted write failed before reaching the shell. */
@@ -567,6 +610,7 @@ interface AppStore {
   setCursorBlink: (blink: boolean) => void;
   setSuggestionsEnabled: (enabled: boolean) => void;
   setRightClickAction: (action: RightClickAction) => void;
+  setCopyOnSelect: (on: boolean) => void;
   setShortcuts: (bindings: ShortcutBindings) => void;
   resetSettings: () => void;
   /** The preferences a data export carries; see `applySettings`. */
@@ -720,6 +764,7 @@ export const useStore = create<AppStore>((set, get) => ({
   cursorBlink: loadCursorBlink(),
   suggestionsEnabled: loadSuggestionsEnabled(),
   rightClickAction: loadRightClickAction(),
+  copyOnSelect: loadCopyOnSelect(),
   shortcuts: initialShortcuts,
   panels: loadPanels(),
   status: "Ready",
@@ -1044,6 +1089,24 @@ export const useStore = create<AppStore>((set, get) => ({
     getController(id)?.setLocked(state === "closed" || state === "error");
   },
 
+  setAiTool(id, tool) {
+    set({ tabs: patchTab(get().tabs, id, { aiTool: tool }) });
+  },
+
+  setCwd(id, cwd) {
+    // Reported after every command; nothing to do while it has not moved.
+    const tab = get().tabs.find((item) => item.info.id === id);
+    if (!tab || tab.cwd === cwd) return;
+    set({ tabs: patchTab(get().tabs, id, { cwd }) });
+  },
+
+  setBranch(id, branch) {
+    // A `git checkout` shows up here as the branch moving, and nothing else.
+    const tab = get().tabs.find((item) => item.info.id === id);
+    if (!tab || tab.branch === branch) return;
+    set({ tabs: patchTab(get().tabs, id, { branch }) });
+  },
+
   markCommandStarted(id, kind = "command") {
     set({
       tabs: patchTab(get().tabs, id, {
@@ -1164,6 +1227,15 @@ export const useStore = create<AppStore>((set, get) => ({
     }
   },
 
+  setCopyOnSelect(on) {
+    set({ copyOnSelect: on });
+    try {
+      localStorage.setItem(COPY_ON_SELECT_KEY, String(on));
+    } catch {
+      // The setting still applies for this run when storage is unavailable.
+    }
+  },
+
   setRightClickAction(action) {
     // Nothing to choose on macOS; see loadRightClickAction.
     if (IS_MAC) return;
@@ -1199,6 +1271,7 @@ export const useStore = create<AppStore>((set, get) => ({
       cursorBlink: true,
       suggestionsEnabled: false,
       rightClickAction: "menu",
+      copyOnSelect: true,
     });
     try {
       localStorage.removeItem(PANELS_KEY);
@@ -1213,6 +1286,7 @@ export const useStore = create<AppStore>((set, get) => ({
       localStorage.removeItem(CURSOR_BLINK_KEY);
       localStorage.removeItem(SUGGESTIONS_KEY);
       localStorage.removeItem(RIGHT_CLICK_KEY);
+      localStorage.removeItem(COPY_ON_SELECT_KEY);
       localStorage.removeItem(SHORTCUTS_KEY);
     } catch {
       // The defaults still apply for this run when storage is unavailable.
@@ -1234,6 +1308,7 @@ export const useStore = create<AppStore>((set, get) => ({
       cursorBlink: state.cursorBlink,
       suggestionsEnabled: state.suggestionsEnabled,
       rightClickAction: state.rightClickAction,
+      copyOnSelect: state.copyOnSelect,
       shortcuts: shortcutOverrides(state.shortcuts),
     };
   },
@@ -1278,6 +1353,9 @@ export const useStore = create<AppStore>((set, get) => ({
     }
     const rightClickAction = parseRightClickAction(values.rightClickAction);
     if (rightClickAction) state.setRightClickAction(rightClickAction);
+    if (typeof values.copyOnSelect === "boolean") {
+      state.setCopyOnSelect(values.copyOnSelect);
+    }
     const shortcuts = parseShortcuts(values.shortcuts, state.shortcuts);
     if (shortcuts) state.setShortcuts(shortcuts);
   },

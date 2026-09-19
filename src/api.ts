@@ -333,6 +333,13 @@ export const localHome = () => invoke<string>("local_home");
 export const sessionCwd = (id: string) =>
   invoke<string>("session_cwd", { id });
 
+/**
+ * The branch the repository holding `path` is on, for the line under a local
+ * shell's directory in the rail; null when the directory is in no repository.
+ */
+export const gitBranch = (path: string) =>
+  invoke<string | null>("git_branch", { path });
+
 export const localHostname = () => invoke<string>("local_hostname");
 
 /**

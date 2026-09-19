@@ -14,6 +14,7 @@ import {
 
 import {
   acceptHostKey,
+  openLocalShell,
   revealCwdInFiler,
   SESSION_CLOSED_NOTICE,
   splitSession,
@@ -33,7 +34,9 @@ import { ShortcutsDialog } from "./components/ShortcutsDialog";
 import { SshConfigImportDialog } from "./components/SshConfigImportDialog";
 import { Splitter } from "./components/Splitter";
 import { StatusBar } from "./components/StatusBar";
+import { TabRail } from "./components/TabRail";
 import { UpdateDialog } from "./components/UpdateDialog";
+import { Icon } from "./components/icons";
 import { Workspace } from "./components/Workspace";
 import { FilerPanel } from "./components/panels/FilerPanel";
 import { SenderPanel } from "./components/panels/SenderPanel";
@@ -42,7 +45,7 @@ import { applyFonts, symbolFallbacks } from "./fonts";
 import { commandHistory } from "./history";
 import { setSemanticColorTheme } from "./semanticColors";
 import { matchAppShortcut } from "./shortcuts";
-import { useActiveTab, useStore } from "./store";
+import { useActiveTab, useStore, type PanelName } from "./store";
 import { allControllers, getController } from "./terminalRegistry";
 import { isFileSession, type SessionProfile, type SessionState } from "./types";
 import { useUpdater } from "./updater";
@@ -126,9 +129,15 @@ export default function App() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [quitPromptOpen, setQuitPromptOpen] = useState(false);
 
-  const [leftWidth, setLeftWidth] = useState(220);
+  const [railWidth, setRailWidth] = useState(248);
   const [rightWidth, setRightWidth] = useState(220);
   const [senderHeight, setSenderHeight] = useState(160);
+  // Which panel the right sidebar shows; the View menu's two flags decide
+  // which ones it offers (see `availableRightTabs`).
+  const [rightTab, setRightTab] = useState<PanelName>("sessions");
+  // Tucked away by the header's chevron, leaving only the rail that brings it
+  // back. The panel flags are untouched, so the same tabs return.
+  const [rightCollapsed, setRightCollapsed] = useState(true);
 
   // --- backend events -------------------------------------------------------
 
@@ -137,6 +146,19 @@ export default function App() {
     // Opt-in feature: fetch the history only for users who enabled it.
     if (useStore.getState().suggestionsEnabled) commandHistory.load();
   }, [loadProfiles]);
+
+  // The application opens on a terminal, the way a terminal app is expected
+  // to: a fresh launch should not ask for a session to be created first. Tabs
+  // live only in memory, so an empty store at mount means this is that first
+  // paint — the empty state in the workspace stays for the moment the last tab
+  // is closed instead. The ref keeps StrictMode's double-invoked effect (and
+  // any later re-run) from opening a second shell.
+  const launched = useRef(false);
+  useEffect(() => {
+    if (launched.current) return;
+    launched.current = true;
+    if (useStore.getState().tabs.length === 0) void openLocalShell();
+  }, []);
 
   // The window is hidden until there is an interface to show, so the
   // application opens on the UI rather than on an empty frame (issue #35).
@@ -296,6 +318,10 @@ export default function App() {
           event.preventDefault();
           newSession();
           return;
+        case "newLocalShell":
+          event.preventDefault();
+          void openLocalShell();
+          return;
         case "closeSession":
           event.preventDefault();
           if (activeId) requestCloseTab(activeId);
@@ -366,10 +392,58 @@ export default function App() {
 
   // --- layout ---------------------------------------------------------------
 
-  // Session panel docks on the left, Filer on the right; FTP and SFTP tabs
-  // bring their own dual-pane file manager, so the Filer stays hidden there.
-  const showLeft = panels.sessions;
-  const showRight = panels.filer && !fileMode;
+  // The session list and the Filer share the right sidebar as two tabs, each
+  // with its own View-menu flag; a file session brings its own dual-pane
+  // manager, so the Filer tab is not offered alongside it.
+  const availableRightTabs: PanelName[] = [
+    ...(panels.sessions ? (["sessions"] as PanelName[]) : []),
+    ...(panels.filer && !fileMode ? (["filer"] as PanelName[]) : []),
+  ];
+  const activeRightTab = availableRightTabs.includes(rightTab)
+    ? rightTab
+    : availableRightTabs[0];
+  const panelTabs = {
+    active: activeRightTab,
+    available: availableRightTabs,
+    onSelect: setRightTab,
+    onCollapse: () => setRightCollapsed(true),
+  };
+
+  // The View menu and "reveal the shell's directory in the Filer" switch a
+  // panel on without knowing about the tabs; showing the one they turned on
+  // is what turning it on means.
+  const previousPanels = useRef(panels);
+  useEffect(() => {
+    const previous = previousPanels.current;
+    if (panels.filer && !previous.filer) {
+      setRightTab("filer");
+      setRightCollapsed(false);
+    } else if (panels.sessions && !previous.sessions) {
+      setRightTab("sessions");
+      setRightCollapsed(false);
+    }
+    previousPanels.current = panels;
+  }, [panels]);
+
+  // "Reveal the shell's directory in the Filer" bumps `filerTarget` whether or
+  // not the Filer is already switched on, so it has to move the tab itself —
+  // the flag transition above only covers turning the panel on.
+  const filerTarget = useStore((s) => s.filerTarget);
+  useEffect(() => {
+    if (filerTarget) {
+      setRightTab("filer");
+      setRightCollapsed(false);
+    }
+  }, [filerTarget]);
+
+  // "Manage Sessions…" from the rail's menu: the Session panel is where a
+  // saved session is edited, so turn it on if it is off — what revealing a
+  // directory in the Filer does for its own panel — and bring it forward.
+  const manageSessions = useCallback(() => {
+    if (!useStore.getState().panels.sessions) togglePanel("sessions");
+    setRightTab("sessions");
+    setRightCollapsed(false);
+  }, [togglePanel]);
 
   return (
     <div
@@ -392,25 +466,20 @@ export default function App() {
       />
 
       <div className="main">
-        {showLeft && (
-          <>
-            <div
-              className="sidebar sidebar-left"
-              style={{ width: leftWidth, flex: `0 0 ${leftWidth}px` }}
-            >
-              <SessionPanel
-                onNewSession={newSession}
-                onEditProfile={(profile) => setDialog({ profile })}
-              />
-            </div>
-            <Splitter
-              orientation="vertical"
-              onResize={(delta) =>
-                setLeftWidth((width) => clamp(width + delta, 150, 520))
-              }
-            />
-          </>
-        )}
+        <div
+          className="sidebar sidebar-left"
+          style={{ width: railWidth, flex: `0 0 ${railWidth}px` }}
+        >
+          <TabRail onNewSession={newSession} onManageSessions={manageSessions} />
+        </div>
+        <Splitter
+          orientation="vertical"
+          onResize={(delta) =>
+            setRailWidth((width) =>
+              clamp(width + delta, 200, window.innerWidth / 2),
+            )
+          }
+        />
 
         <div className="center">
           <Workspace onNewSession={newSession} />
@@ -422,22 +491,41 @@ export default function App() {
           )}
         </div>
 
-        {showRight && (
-          <>
-            <Splitter
-              orientation="vertical"
-              onResize={(delta) =>
-                setRightWidth((width) => clamp(width - delta, 150, 520))
-              }
-            />
-            <div
-              className="sidebar sidebar-right"
-              style={{ width: rightWidth, flex: `0 0 ${rightWidth}px` }}
+        {availableRightTabs.length > 0 &&
+          (rightCollapsed ? (
+            <button
+              type="button"
+              className="sidebar-rail"
+              onClick={() => setRightCollapsed(false)}
+              title="Expand panel"
+              aria-label="Expand panel"
             >
-              <FilerPanel />
-            </div>
-          </>
-        )}
+              <Icon name="chevron-left" />
+            </button>
+          ) : (
+            <>
+              <Splitter
+                orientation="vertical"
+                onResize={(delta) =>
+                  setRightWidth((width) => clamp(width - delta, 150, 520))
+                }
+              />
+              <div
+                className="sidebar sidebar-right"
+                style={{ width: rightWidth, flex: `0 0 ${rightWidth}px` }}
+              >
+                {activeRightTab === "filer" ? (
+                  <FilerPanel tabs={panelTabs} />
+                ) : (
+                  <SessionPanel
+                    tabs={panelTabs}
+                    onNewSession={newSession}
+                    onEditProfile={(profile) => setDialog({ profile })}
+                  />
+                )}
+              </div>
+            </>
+          ))}
       </div>
 
       {panels.sender && (

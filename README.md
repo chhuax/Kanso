@@ -44,6 +44,7 @@ Terminal sessions are UTF-8 unless the session dialog's **Encoding** says otherw
 - **Session** (left): saved connection profiles in a collapsible tree; double-click to connect. Right-click a heading or a group to create (nested) groups, rename or delete them; right-click a session to connect, edit, move it to another group, or delete it. The New Session dialog lets you choose which group a session is saved to.
 - **Filer** (right): a file browser that automatically switches to SFTP for SSH sessions, with file and folder upload, download, create-directory, and delete operations. Drag and drop works in both directions, anywhere on the panel: dropping files or folders from Finder / Explorer uploads them into the current remote directory, or copies them into the folder on screen when the Filer is showing local files; dragging an entry out of the window drops it on the desktop or in a file manager — a remote entry is copied down first, so hold the drag until it is ready. A drop the panel cannot take says why instead of doing nothing. Other terminal sessions browse the local filesystem. `⌘J` / `Ctrl+Shift+J` (also in the terminal's context menu and the Filer's locate button) jumps the Filer to the directory the shell is in: a local shell is asked through the OS, an SSH shell through the server (Linux hosts), and a shell that reports its directory with OSC 7 — fish does by default; bash and zsh with a one-line prompt hook — is answered everywhere, `sudo` and nested shells included.
 - **Sender** (bottom): send text with a chosen line ending (none / LF / CRLF) to the current session or to all open sessions at once. Text may span several lines (`Shift+Enter` adds one) and each line is sent in turn, waiting for the shell's prompt between them, so a saved multi-line script runs cleanly instead of arriving as typeahead. The clock button repeats a command on a timer — every N seconds, a set number of times or until stopped — for an inspection loop or to keep a session alive; it keeps running while the panel is hidden and stops from the strip. Saved commands are scoped — to one session, a Session panel group, a session kind (SSH / shell) or everywhere — and the Sender lists the ones that apply to the active tab, most specific first.
+- **Prompt line** (local shells): a line above each prompt saying where the shell is — the directory (its last three parts when it is long) and the git branch, in the chips Starship and the coding CLIs print. It is the shell's own `precmd`, added through a `ZDOTDIR` shim that sources your real startup files and changes nothing in them: only the local shells ZenTerm starts see it, and deleting `shell/` beside the store takes it away again.
 
 **Display settings**
 
@@ -75,13 +76,14 @@ XMODEM has no handshake to detect, so it is started from **Session → File Tran
 
 **Mouse copy / paste**
 
-A right click in the terminal opens a context menu — Copy, Paste, Select All, Clear Buffer and Reveal Working Directory in Filer — with the word under the pointer selected first; middle-click pastes. On Windows and Linux, **Edit → Right Click** switches that to *Copy or Paste*, the console convention: a right click copies the selection if there is one and pastes otherwise, and no menu appears. macOS always uses the menu. Programs that take over the mouse (vim, tmux with mouse support, htop) receive the clicks instead; on Windows / Linux hold `Shift` to bypass them.
+A right click in the terminal opens a context menu — Copy, Paste, Select All, Clear Buffer and Reveal Working Directory in Filer — with the word under the pointer selected first; middle-click pastes. A local shell draws a thin rule above each prompt, so its output is easy to read command by command. On Windows and Linux, **Edit → Right Click** switches that to *Copy or Paste*, the console convention: a right click copies the selection if there is one and pastes otherwise, and no menu appears. macOS always uses the menu. Programs that take over the mouse (vim, tmux with mouse support, htop) receive the clicks instead; on Windows / Linux hold `Shift` to bypass them.
 
 **Keyboard shortcuts**
 
 | macOS | Windows / Linux | Action |
 | --- | --- | --- |
 | `⌘N` | `Alt+N` | Open the new-session dialog |
+| `⌘T` | `Ctrl+Shift+T` | Open a local shell in a new tab |
 | `⌘W` | `Ctrl+Shift+W` | Close the current session (asks for confirmation while it is still connected) |
 | `⌘F` / `⌘G` | `Ctrl+Shift+F` / `Ctrl+Shift+G` | Search the terminal buffer / find next |
 | `⌘K` | `Alt+K` | Clear the screen |

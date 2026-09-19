@@ -1,6 +1,7 @@
 import * as api from "./api";
 import { fontStack } from "./fonts";
 import { commandHistory } from "./history";
+import { suggestCommands } from "./suggestions";
 import { IS_WINDOWS } from "./platform";
 import { tabTitle, useStore, type HostKeyPrompt, type Tab } from "./store";
 import type { TerminalController } from "./terminal";
@@ -76,7 +77,61 @@ function historyHost(id: string): string {
  * session needs them until one is opened, so they arrive with the first
  * terminal instead of with the window.
  */
-export async function ensureController(id: string): Promise<TerminalController> {
+let localHome: Promise<string> | null = null;
+
+/** The OS home directory, read once; used to write paths the way people do. */
+function homeDir(): Promise<string> {
+  localHome ??= api.localHome().catch(() => "");
+  return localHome;
+}
+
+/**
+ * Warp's `user_friendly_path`: a path inside the home directory is written
+ * with `~`, and nothing else is shortened — the row clips what is left with a
+ * trailing ellipsis, which is exactly what Warp does too.
+ */
+function userFriendlyPath(path: string, home: string): string {
+  if (!home) return path;
+  if (path === home) return "~";
+  if (!path.startsWith(home)) return path;
+  const rest = path.slice(home.length);
+  // Only a real child of it: `/home/me2` is not under `/home/me`.
+  return /^[/\\]/.test(rest) ? `~${rest}` : path;
+}
+
+/**
+ * Reads where a local shell is into its tab: the directory for the row's first
+ * line and the branch it is on for the second (see `Tab.cwd` / `Tab.branch`).
+ * The Filer's "Reveal Working Directory" asks the same question through
+ * `shellCwd`, so a shell the OS cannot be asked about still has its own OSC 7
+ * report used here. A read that comes back with nothing says so: the row would
+ * otherwise stay as it was with no way to tell why.
+ */
+function refreshLocalWhere(id: string) {
+  const tab = useStore.getState().tabs.find((item) => item.info.id === id);
+  if (!tab || tab.info.kind !== "local") return;
+  void Promise.all([shellCwd(tab), homeDir()])
+    .then(async ([cwd, home]) => {
+      if (!cwd) throw new Error("the shell reported no directory");
+      const store = useStore.getState();
+      store.setCwd(id, userFriendlyPath(cwd, home));
+      // The branch is read from the directory itself, and a checkout is a
+      // command like any other, so it arrives with the directory that moved.
+      store.setBranch(id, await api.gitBranch(cwd).catch(() => null));
+    })
+    .catch((error) =>
+      useStore.getState().setStatus(`Working directory: ${String(error)}`),
+    );
+}
+
+export async function ensureController(
+  id: string,
+  /**
+   * True for a local shell: it draws a rule above each prompt (see
+   * TerminalController) and is the only kind whose path the rail shows.
+   */
+  local = false,
+): Promise<TerminalController> {
   const existing = getController(id);
   if (existing) return existing;
 
@@ -93,10 +148,15 @@ export async function ensureController(id: string): Promise<TerminalController> 
       onCommandState: (state, kind) => {
         const store = useStore.getState();
         if (state === "running") store.markCommandStarted(id, kind);
-        else if (state === "complete") store.markCommandCompleted(id, kind);
-        else store.clearCommandActivity(id);
+        else if (state === "complete") {
+          store.markCommandCompleted(id, kind);
+          // A shell only moves while a command runs, and asking the OS where a
+          // local one is costs no round trip.
+          if (local) refreshLocalWhere(id);
+        } else store.clearCommandActivity(id);
       },
-      suggest: (input) => commandHistory.suggest(input, historyHost(id)),
+      suggest: (input) => suggestCommands(input, historyHost(id)),
+      onAiTool: (tool) => useStore.getState().setAiTool(id, tool),
       onResize: (cols, rows) => {
         useStore.getState().setSize(id, cols, rows);
         void api.resizeSession(id, cols, rows).catch(() => undefined);
@@ -116,6 +176,7 @@ export async function ensureController(id: string): Promise<TerminalController> 
       useStore.getState().bufferFontFamily,
       useStore.getState().symbolFontFamilies,
     ),
+    local,
   );
   controller.setSuggestions(useStore.getState().suggestionsEnabled);
   controller.setRightClickAction(useStore.getState().rightClickAction);
@@ -135,7 +196,9 @@ export async function openSession(
   useStore
     .getState()
     .addTab(pendingSessionInfo(id, profile), profile, "connecting");
-  if (!isFileSession(profile.kind)) await ensureController(id);
+  if (!isFileSession(profile.kind)) {
+    await ensureController(id, profile.kind === "local");
+  }
   return connectSession(id, profile);
 }
 
@@ -290,6 +353,7 @@ async function connectSession(
     const { info } = outcome;
     connectedStore.updateTabInfo(id, info);
     connectedStore.applyState(id, "connected");
+    if (info.kind === "local") refreshLocalWhere(id);
     connectedStore.setStatus(
       `Connected to ${tabTitle({ info, ordinal: tab.ordinal })}`,
     );

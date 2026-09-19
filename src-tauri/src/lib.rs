@@ -3,9 +3,11 @@ mod error;
 mod file_promise;
 mod fonts;
 mod fs_local;
+mod git;
 mod model;
 mod remote_edit;
 mod session;
+mod shell;
 mod ssh_config;
 mod store;
 mod window_state;
@@ -335,6 +337,7 @@ pub fn run() {
             commands::cancel_transfer,
             commands::local_home,
             commands::session_cwd,
+            commands::git_branch,
             commands::local_hostname,
             commands::local_list,
             commands::local_parent,

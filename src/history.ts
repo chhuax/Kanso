@@ -2,18 +2,18 @@ import * as api from "./api";
 import type { CommandHistoryEntry } from "./api";
 
 const MAX_ENTRIES = 5000;
-const MAX_SUGGESTIONS = 8;
+export const MAX_SUGGESTIONS = 8;
 /**
  * A candidate must add at least this many characters beyond the input:
  * picking `cd ..` for `cd .` costs more keystrokes than finishing it, and
  * such rows only hide the output underneath.
  */
-const MIN_GAIN = 3;
+export const MIN_GAIN = 3;
 /**
  * Typed characters (whitespace excluded) before suggestions appear: a single
  * letter matches too much of the history to be worth a popup.
  */
-const MIN_INPUT = 2;
+export const MIN_INPUT = 2;
 
 /** One row of the completion popup. */
 export interface CommandSuggestion {

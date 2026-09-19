@@ -9,6 +9,7 @@ use crate::error::{err, AppError, Result};
 use crate::file_promise::{self, PromisedDragEvent};
 use crate::fonts::{self, FontFamily};
 use crate::fs_local;
+use crate::git;
 use crate::model::{
     AppData, CommandHistoryEntry, DataSummary, DirListing, LocalCopySummary, OpenSessionOutcome,
     SavedCommand, SessionGroup, SessionInfo, SessionKind, SessionProfile, Theme,
@@ -643,6 +644,13 @@ pub async fn session_cwd(state: State<'_, AppState>, id: String) -> Result<Strin
 
 /// This machine's host name, so the frontend can tell a local shell's OSC 7
 /// directory report from one a remote shell sent through a hand-typed ssh.
+/// The branch the repository holding `path` is on, for the line under a local
+/// shell's directory in the rail; None when the directory is in no repository.
+#[tauri::command]
+pub fn git_branch(path: String) -> Option<String> {
+    git::branch_for(Path::new(&path))
+}
+
 #[tauri::command]
 pub fn local_hostname() -> String {
     session::cwd::local_hostname()

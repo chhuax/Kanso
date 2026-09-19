@@ -175,15 +175,20 @@ export function ContextMenu({
       }
     };
     // Capture phase: a scroll anywhere (the panel body included) would leave
-    // the fixed-position menu floating away from its row.
+    // the fixed-position menu floating away from its row. A menu long enough
+    // to scroll itself is the exception — that scroll is the menu being used.
+    const onScroll = (event: Event) => {
+      if (ref.current?.contains(event.target as Node)) return;
+      onClose();
+    };
     document.addEventListener("mousedown", onMouseDown, true);
-    document.addEventListener("scroll", onClose, true);
+    document.addEventListener("scroll", onScroll, true);
     window.addEventListener("keydown", onKeyDown, true);
     window.addEventListener("blur", onClose);
     window.addEventListener("resize", onClose);
     return () => {
       document.removeEventListener("mousedown", onMouseDown, true);
-      document.removeEventListener("scroll", onClose, true);
+      document.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("blur", onClose);
       window.removeEventListener("resize", onClose);

@@ -61,15 +61,13 @@ export interface SessionProfile {
 }
 
 /**
- * A user-defined folder in the Session panel. Groups belong to one session
- * kind and may nest under another group of the same kind.
+ * A user-defined folder in the Session panel. Groups are one level deep and
+ * hold any session kind, so one folder can gather the SSH and SFTP sessions of
+ * the same host; nothing ties a group to a kind or to another group.
  */
 export interface SessionGroup {
   id: string;
   name: string;
-  kind: SessionKind;
-  /** Enclosing group, or null for a group directly under the kind heading. */
-  parentId: string | null;
 }
 
 export interface SessionInfo {

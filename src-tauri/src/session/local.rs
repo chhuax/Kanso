@@ -78,6 +78,13 @@ pub fn spawn(
     if let Some(lang) = locale::local_shell_lang(profile) {
         cmd.env("LANG", lang);
     }
+    // The line above each prompt is printed by the shell itself, from the
+    // shim this points zsh at; see `shell`. A shell that is not zsh ignores
+    // the variable, and a shim that cannot be written is simply absent.
+    if let Some((shim, user)) = crate::shell::zsh_env() {
+        cmd.env("ZDOTDIR", shim);
+        cmd.env("ZENTERM_USER_ZDOTDIR", user);
+    }
     if let Some(cwd) = profile.cwd.as_deref().filter(|c| !c.is_empty()) {
         cmd.cwd(cwd);
     } else if let Some(home) = dirs::home_dir() {

@@ -13,7 +13,7 @@ import {
   type ITheme,
 } from "@xterm/xterm";
 
-import { isAiSessionCommand } from "./aiTools";
+import { aiToolForCommand, type AiTool } from "./aiTools";
 import { readClipboardText } from "./api";
 import { createOutputDecoder } from "./encodings";
 import { MONO_FONT_FAMILY } from "./fonts";
@@ -275,6 +275,13 @@ interface Callbacks {
   ) => void;
   /** Ranked history completions for the current input; [] when none. */
   suggest: (input: string) => CommandSuggestion[];
+  /**
+   * The agentic CLI now holding the terminal, or null once it has exited. It
+   * stays set for the whole session — an idle agent is still the agent, and
+   * that is most of the time. Optional: the tests that drive a terminal
+   * directly have no tabs to mark.
+   */
+  onAiTool?: (tool: AiTool | null) => void;
 }
 
 /**
@@ -360,8 +367,26 @@ export class TerminalController {
   private commandRunning = false;
   /** Callers waiting for the running command to return; see `waitForCommand`. */
   private commandWaiters: (() => void)[] = [];
+  /**
+   * One marker per command start, oldest first, for the rule drawn above each
+   * prompt (see `dividers`). xterm disposes the marker as its line leaves the
+   * scrollback, which is also what prunes this list.
+   */
+  private commandStarts: IMarker[] = [];
+  /** The rule layer inside the terminal's own box, and its pool of 1px lines. */
+  private dividersLayer: HTMLElement | null = null;
+  private dividerLines: HTMLElement[] = [];
+  /** What the rules were last placed for; see `syncDividers`. */
+  private dividersPainted: {
+    viewportY: number;
+    rows: number;
+    alternate: boolean;
+    starts: number;
+  } | null = null;
   /** Set while an agentic CLI (see `aiTools.ts`) owns the terminal. */
   private aiSession = false;
+  /** Which one, for the tab's mark; null outside such a session. */
+  private aiTool: AiTool | null = null;
   /** Open from the user's input until the assistant goes quiet again. */
   private aiTurn = false;
   private aiOutputAt = 0;
@@ -424,6 +449,12 @@ export class TerminalController {
     scrollback: number,
     theme: ThemeMode = "dark",
     fontFamily: string = MONO_FONT_FAMILY,
+    /**
+     * Draw a rule above each command's prompt. Local sessions only: a remote
+     * shell prints its own prompts without our integration, and Warp leaves
+     * those sessions unblocked for the same reason.
+     */
+    private readonly dividers = false,
   ) {
     this.scrollback = scrollback;
     this.themeMode = theme;
@@ -764,6 +795,11 @@ export class TerminalController {
     // against the terminal content, past the gutter, and survives
     // re-parenting above.
     this.host.appendChild(this.popup);
+    // The command rules overlay the content rather than the gutter, so they
+    // line up with the terminal's own rows. See `syncDividers`.
+    this.dividersLayer = document.createElement("div");
+    this.dividersLayer.className = "term-dividers";
+    this.host.appendChild(this.dividersLayer);
 
     // WebGL comes with being shown (setVisible); it needs the host, so a
     // terminal that was shown before it was attached loads it here.
@@ -1073,9 +1109,17 @@ export class TerminalController {
   }
 
   /** Copies the selection to the clipboard; false when there is none. */
+  /**
+   * Copies the selection, if there is one, and says so when the clipboard
+   * refuses: a rejected write is the one failure of this that would otherwise
+   * be completely silent — the user sees a selection, expects it to be
+   * pasteable, and finds out elsewhere.
+   */
   copySelection(): boolean {
     if (!this.term.hasSelection()) return false;
-    void navigator.clipboard.writeText(this.term.getSelection());
+    navigator.clipboard.writeText(this.term.getSelection()).catch((error) => {
+      this.callbacks.onStatus(`Copy failed: ${String(error)}`, true);
+    });
     return true;
   }
 
@@ -1430,13 +1474,19 @@ export class TerminalController {
 
     this.commandMarker?.dispose();
     this.commandMarker = this.term.registerMarker(0);
+    if (this.dividers) {
+      const start = this.term.registerMarker(0);
+      if (start) this.commandStarts.push(start);
+    }
     this.commandPrompt = prompt;
     // Appending a space lets a compact bare prompt such as `$` satisfy the
     // same look-ahead rule as `$ command` in semantic coloring.
     this.commandPromptRecognized = isShellPrompt(`${prompt} `);
     this.commandOutputAdvanced = false;
     this.commandRunning = true;
-    this.aiSession = isAiSessionCommand(sent ?? this.submittedCommand(prompt));
+    this.aiTool = aiToolForCommand(sent ?? this.submittedCommand(prompt));
+    this.aiSession = this.aiTool !== null;
+    this.callbacks.onAiTool?.(this.aiTool);
     // An agentic CLI runs until the user quits it, so reporting its whole
     // session as one running command would say nothing. The tab stays quiet
     // until the assistant itself is working.
@@ -1533,6 +1583,9 @@ export class TerminalController {
     this.commandOutputAdvanced = false;
     this.commandRunning = false;
     this.endAiSession();
+    // The tool exited with the command, so the tab's mark comes off with it.
+    this.aiTool = null;
+    if (!this.disposed) this.callbacks.onAiTool?.(null);
     const waiters = this.commandWaiters;
     this.commandWaiters = [];
     for (const waiter of waiters) waiter();
@@ -2243,7 +2296,80 @@ export class TerminalController {
     this.gutterPainted = null;
   }
 
+  /**
+   * Places a rule above every command's prompt that is on screen. Reuses the
+   * gutter's pass — same viewport, same idle bail-out, no second listener —
+   * and draws nothing in the alternate buffer, where a full-screen program
+   * owns the screen and a rule would land across its drawing (Warp skips its
+   * own block dividers there too).
+   */
+  private syncDividers() {
+    if (!this.host || !this.dividers) return;
+    if (this.cellHeight <= 0) this.measureCell();
+    if (this.cellHeight <= 0) return;
+
+    const buf = this.term.buffer.active;
+    const alternate = buf.type === "alternate";
+    const viewportY = buf.viewportY;
+    const rows = this.term.rows;
+    // Trimmed lines take their markers with them; drop the dead ones so the
+    // list stays sorted and short.
+    while (this.commandStarts.length > 0 && this.commandStarts[0].isDisposed) {
+      this.commandStarts.shift();
+    }
+    const painted = this.dividersPainted;
+    if (
+      painted &&
+      painted.viewportY === viewportY &&
+      painted.rows === rows &&
+      painted.alternate === alternate &&
+      painted.starts === this.commandStarts.length
+    ) {
+      return;
+    }
+    this.dividersPainted = {
+      viewportY,
+      rows,
+      alternate,
+      starts: this.commandStarts.length,
+    };
+
+    let used = 0;
+    if (!alternate) {
+      const last = viewportY + rows;
+      for (const marker of this.commandStarts) {
+        if (marker.isDisposed) continue;
+        // Sorted, so the first start past the viewport ends the scan.
+        if (marker.line < viewportY) continue;
+        if (marker.line >= last) break;
+        let line = this.dividerLines[used];
+        if (!line) {
+          line = document.createElement("div");
+          line.className = "term-divider";
+          this.dividersLayer?.appendChild(line);
+          this.dividerLines[used] = line;
+        }
+        line.style.display = "";
+        // A transform keeps this off the layout path, like the gutter rows.
+        // Snapped to the device pixel grid: a 1px line left on a half pixel is
+        // antialiased into two fainter ones, which over a terminal's own
+        // background is the same as not drawing it.
+        line.style.transform = `translateY(${snapToPixel(
+          (marker.line - viewportY) * this.cellHeight,
+        )}px)`;
+        used += 1;
+      }
+    }
+    for (let index = used; index < this.dividerLines.length; index += 1) {
+      this.dividerLines[index].style.display = "none";
+    }
+  }
+
   private syncGutter() {
+    // Same tick and same viewport as the rules, so they cost no extra
+    // listener; placed before the gutter's own off-check so turning the gutter
+    // off does not take the rules with it.
+    this.syncDividers();
     // Output that scrolled without a line feed (a full-screen program's erase)
     // may have trimmed the buffer since the last pass.
     this.followTrimmedLines();
@@ -2329,4 +2455,15 @@ function formatTime(epochMs: number | undefined): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   const milliseconds = String(d.getMilliseconds()).padStart(3, "0");
   return `[${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${milliseconds}]`;
+}
+
+/**
+ * A length snapped to the device pixel grid, for the 1px rule above a
+ * command's prompt: a hairline landing between two pixels is antialiased
+ * across both, which over a terminal's own background reads as no line at
+ * all. A retina screen's grid is finer than a CSS pixel, hence the ratio.
+ */
+function snapToPixel(value: number): number {
+  const ratio = window.devicePixelRatio || 1;
+  return Math.round(value * ratio) / ratio;
 }

@@ -152,18 +152,15 @@ impl SessionProfile {
     }
 }
 
-/// A user-defined folder in the Session panel. Groups belong to one session
-/// kind and may nest under another group of the same kind.
+/// A user-defined folder in the Session panel. Groups are one level deep and
+/// hold any session kind, so one folder can gather the SSH and SFTP sessions
+/// of the same host; nothing ties a group to a kind or to another group.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionGroup {
     #[serde(default)]
     pub id: String,
     pub name: String,
-    pub kind: SessionKind,
-    /// Enclosing group, or `None` for a group directly under the kind heading.
-    #[serde(default)]
-    pub parent_id: Option<String>,
 }
 
 /// A live session, as the frontend sees it.
