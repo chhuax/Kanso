@@ -9,6 +9,9 @@
 /src-tauri/gen/schemas/
 *.tsbuildinfo
 
+# 图标方案的比稿产物：随时可由 scripts/icon/build.mjs 重出，不入库
+/docs/icon-lab/
+
 # Logs
 logs/
 *.log
