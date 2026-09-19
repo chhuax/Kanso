@@ -82,6 +82,7 @@ A right click in the terminal opens a context menu — Copy, Paste, Select All, 
 | macOS | Windows / Linux | Action |
 | --- | --- | --- |
 | `⌘N` | `Alt+N` | Open the new-session dialog |
+| `⌘T` | `Ctrl+Shift+T` | Open a local shell in a new tab |
 | `⌘W` | `Ctrl+Shift+W` | Close the current session (asks for confirmation while it is still connected) |
 | `⌘F` / `⌘G` | `Ctrl+Shift+F` / `Ctrl+Shift+G` | Search the terminal buffer / find next |
 | `⌘K` | `Alt+K` | Clear the screen |

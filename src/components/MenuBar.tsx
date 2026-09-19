@@ -14,6 +14,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 
 import appIcon from "../../src-tauri/icons/32x32.png";
 import {
+  openLocalShell,
   revealCwdInFiler,
   splitSession,
   toggleSessionConnection,
@@ -341,6 +342,11 @@ export function MenuBar(props: Props) {
           label: "New Session…",
           shortcut: accel("newSession"),
           action: props.onNewSession,
+        },
+        {
+          label: "New Local Shell",
+          shortcut: accel("newLocalShell"),
+          action: () => void openLocalShell(),
         },
         "separator",
         {

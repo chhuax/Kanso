@@ -318,6 +318,10 @@ export default function App() {
           event.preventDefault();
           newSession();
           return;
+        case "newLocalShell":
+          event.preventDefault();
+          void openLocalShell();
+          return;
         case "closeSession":
           event.preventDefault();
           if (activeId) requestCloseTab(activeId);
@@ -432,6 +436,15 @@ export default function App() {
     }
   }, [filerTarget]);
 
+  // "Manage Sessions…" from the rail's menu: the Session panel is where a
+  // saved session is edited, so turn it on if it is off — what revealing a
+  // directory in the Filer does for its own panel — and bring it forward.
+  const manageSessions = useCallback(() => {
+    if (!useStore.getState().panels.sessions) togglePanel("sessions");
+    setRightTab("sessions");
+    setRightCollapsed(false);
+  }, [togglePanel]);
+
   return (
     <div
       className="app"
@@ -457,7 +470,7 @@ export default function App() {
           className="sidebar sidebar-left"
           style={{ width: railWidth, flex: `0 0 ${railWidth}px` }}
         >
-          <TabRail />
+          <TabRail onNewSession={newSession} onManageSessions={manageSessions} />
         </div>
         <Splitter
           orientation="vertical"

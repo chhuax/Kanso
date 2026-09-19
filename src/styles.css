@@ -1030,6 +1030,14 @@ textarea:focus {
   min-width: 200px;
 }
 
+/* A menu whose list can outgrow the window — the rail's saved sessions — is
+   capped and scrolled rather than run off the bottom edge, where its last
+   entries could not be reached at all. */
+.context-menu.menu-scroll {
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+}
+
 /* Hanging off a button at the right edge: it grows out of that corner. */
 .context-menu.is-right {
   transform-origin: top right;
@@ -1085,6 +1093,44 @@ textarea:focus {
 }
 
 /* --- the tab rail --------------------------------------------------------- */
+
+/* The rail's column: the bar at the top, the rows below it, and the menus the
+   two of them open. */
+.tab-rail-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Warp's control bar, which is where its new-tab button sits; here it holds
+   only that button, at the same trailing edge and the same 4px / 8px padding,
+   a 24px button with a 4px radius. It does not scroll, so the way to a new
+   session stays where it is while the rows below it move. */
+.tab-rail-bar {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 8px 0;
+}
+
+.tab-rail-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-dim);
+}
+
+.tab-rail-add:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
 
 /* One row per open tab, down the window's left edge. A row keeps the
    horizontal layout a tab had — icon, number, name — so the label stays

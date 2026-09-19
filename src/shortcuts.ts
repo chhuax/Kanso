@@ -33,6 +33,7 @@ export interface KeyChord {
 /** Every action a user can put on a key. */
 export type ShortcutCommand =
   | "newSession"
+  | "newLocalShell"
   | "closeSession"
   | "find"
   | "findNext"
@@ -56,6 +57,7 @@ export type ShortcutBindings = Record<ShortcutCommand, KeyChord | null>;
 
 export type AppShortcut =
   | { kind: "newSession" }
+  | { kind: "newLocalShell" }
   | { kind: "closeSession" }
   | { kind: "find" }
   | { kind: "findNext" }
@@ -82,6 +84,12 @@ export const SHORTCUT_COMMANDS: {
     label: "New Session",
     hint: "Open the new-session dialog",
     action: { kind: "newSession" },
+  },
+  {
+    id: "newLocalShell",
+    label: "New Local Shell",
+    hint: "Open a local terminal in a new tab",
+    action: { kind: "newLocalShell" },
   },
   {
     id: "closeSession",
@@ -206,6 +214,8 @@ const chord = (
  */
 const MAC_DEFAULTS: ShortcutBindings = {
   newSession: chord("KeyN", { meta: true }),
+  // ⌘T is "new tab" everywhere on the Mac, Warp included.
+  newLocalShell: chord("KeyT", { meta: true }),
   closeSession: chord("KeyW", { meta: true }),
   find: chord("KeyF", { meta: true }),
   findNext: chord("KeyG", { meta: true }),
@@ -239,6 +249,8 @@ const MAC_DEFAULTS: ShortcutBindings = {
  */
 const OTHER_DEFAULTS: ShortcutBindings = {
   newSession: chord("KeyN", { alt: true }),
+  // Ctrl+Shift+T opens a terminal tab in GNOME Terminal and Windows Terminal.
+  newLocalShell: chord("KeyT", { ctrl: true, shift: true }),
   closeSession: chord("KeyW", { ctrl: true, shift: true }),
   find: chord("KeyF", { ctrl: true, shift: true }),
   findNext: chord("KeyG", { ctrl: true, shift: true }),

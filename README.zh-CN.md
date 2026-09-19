@@ -74,6 +74,7 @@ XMODEM 没有可供检测的握手，需要从 **Session → File Transfer** 菜
 | macOS | Windows / Linux | 动作 |
 | --- | --- | --- |
 | `⌘N` | `Alt+N` | 新建会话对话框 |
+| `⌘T` | `Ctrl+Shift+T` | 新建标签页并打开本地 shell |
 | `⌘W` | `Ctrl+Shift+W` | 关闭当前会话（会话仍在连接中时需二次确认） |
 | `⌘F` / `⌘G` | `Ctrl+Shift+F` / `Ctrl+Shift+G` | 缓冲区内查找 / 下一个匹配 |
 | `⌘K` | `Alt+K` | 清屏 |

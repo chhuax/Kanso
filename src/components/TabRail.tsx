@@ -8,9 +8,14 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 
-import { openLocalShell, splitSession } from "../actions";
+import { openLocalShell, openSession, splitSession } from "../actions";
+import { byName, effectiveGroupId, sortedGroups } from "../sessionGroups";
 import { tabTitle, useStore, type DropTarget, type Tab } from "../store";
-import { colorForSession, type SessionKind } from "../types";
+import {
+  colorForSession,
+  type SessionKind,
+  type SessionProfile,
+} from "../types";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
 import { Icon, type IconName } from "./icons";
 import { useAccelerator } from "./TerminalPane";
@@ -29,6 +34,13 @@ const KIND_ICONS: Record<SessionKind, IconName> = {
   ssh: "server",
   sftp: "folder",
 };
+
+interface Props {
+  /** Opens the New Session dialog: the rail's own way to a host by hand. */
+  onNewSession: () => void;
+  /** Brings the Session panel forward, where a saved session is edited. */
+  onManageSessions: () => void;
+}
 
 /**
  * What a row's activity treatment is reporting, or null while there is
@@ -108,7 +120,7 @@ const dropTargetAt = (
   ownPaneId: string,
 ): DropTarget | null => {
   for (const element of document.elementsFromPoint(x, y)) {
-    const rail = element.closest<HTMLElement>(".tab-rail");
+    const rail = element.closest<HTMLElement>(".tab-rail-panel");
     if (rail) return null;
     const stack = element.closest<HTMLElement>(".pane-stack");
     if (stack) {
@@ -143,9 +155,11 @@ const dropTargetAt = (
  * label stays readable; the pane a row belongs to is only called out when
  * there is more than one.
  */
-export function TabRail() {
+export function TabRail({ onNewSession, onManageSessions }: Props) {
   const allTabs = useStore((s) => s.tabs);
   const panes = useStore((s) => s.panes);
+  const profiles = useStore((s) => s.profiles);
+  const groups = useStore((s) => s.groups);
   const activeId = useStore((s) => s.activeId);
   const activePaneId = useStore((s) => s.activePaneId);
   const draggingTabId = useStore((s) => s.draggingTabId);
@@ -159,6 +173,8 @@ export function TabRail() {
   const closeKey = useAccelerator("closeSession");
   const splitRightKey = useAccelerator("splitRight");
   const splitDownKey = useAccelerator("splitDown");
+  const newShellKey = useAccelerator("newLocalShell");
+  const newSessionKey = useAccelerator("newSession");
   const railRef = useRef<HTMLDivElement>(null);
 
   // One block per pane, in reading order; a pane with no tabs has no rows.
@@ -181,13 +197,90 @@ export function TabRail() {
     id: string;
   } | null>(null);
   const closeRowMenu = useCallback(() => setRowMenu(null), []);
+
+  // The rail's own menu, opened from the `+` or from a right-click on the
+  // chrome behind the rows. It holds no tab: just where it floats.
+  const [railMenu, setRailMenu] = useState<{ x: number; y: number } | null>(
+    null,
+  );
+  const closeRailMenu = useCallback(() => setRailMenu(null), []);
+
   const onContextMenu = (event: ReactMouseEvent<HTMLDivElement>) => {
     const id = (event.target as Element).closest<HTMLElement>(".tab-row")
       ?.dataset.tabId;
-    if (!id) return;
     event.preventDefault();
-    setRowMenu({ x: event.clientX, y: event.clientY, id });
+    // A row closes and splits; everything behind the rows — the blank space, a
+    // pane's header, the bar above them — asks for a new session, the way
+    // Warp's panel does from its own chrome.
+    if (id) setRowMenu({ x: event.clientX, y: event.clientY, id });
+    else setRailMenu({ x: event.clientX, y: event.clientY });
   };
+
+  const profileEntry = (profile: SessionProfile): MenuItem => ({
+    label: profile.name,
+    icon: KIND_ICONS[profile.kind] ?? "terminal",
+    action: () => void openSession(profile),
+  });
+
+  /**
+   * What the rail offers for a new session, Warp's "tab configs" menu: a plain
+   * local terminal first, then every saved session, then the doors into making
+   * or editing one. The saved part is built from the same store the Session
+   * panel lists — groups A→Z as headings, then whatever is in none — so a
+   * session added, renamed or moved there is here with nothing to keep in
+   * step.
+   */
+  const sessionMenu = (): MenuItem[] => {
+    const byGroup = new Map<string | null, SessionProfile[]>();
+    for (const profile of profiles) {
+      // The built-in Local Shell is the first entry, not a saved session.
+      if (!profile.id) continue;
+      const groupId = effectiveGroupId(groups, profile);
+      byGroup.set(groupId, [...(byGroup.get(groupId) ?? []), profile]);
+    }
+    for (const members of byGroup.values()) members.sort(byName);
+
+    const saved: MenuItem[] = [];
+    let headed = 0;
+    for (const group of sortedGroups(groups)) {
+      const members = byGroup.get(group.id) ?? [];
+      // An empty group is left out: this is a launcher, and the panel is where
+      // a group with nothing in it still deserves a row.
+      if (members.length === 0) continue;
+      saved.push({ heading: group.name });
+      headed += 1;
+      for (const profile of members) saved.push(profileEntry(profile));
+    }
+    const loose = byGroup.get(null) ?? [];
+    if (loose.length > 0) {
+      // With no groups above it the list needs no label of its own.
+      if (headed > 0) saved.push({ heading: "Ungrouped" });
+      for (const profile of loose) saved.push(profileEntry(profile));
+    }
+
+    return [
+      {
+        label: "New Local Shell",
+        icon: "terminal",
+        shortcut: newShellKey,
+        action: () => void openLocalShell(activePaneId),
+      },
+      ...(saved.length > 0 ? (["separator", ...saved] as MenuItem[]) : []),
+      "separator",
+      {
+        label: "New Session…",
+        icon: "add",
+        shortcut: newSessionKey,
+        action: onNewSession,
+      },
+      {
+        label: "Manage Sessions…",
+        icon: "list-selection",
+        action: onManageSessions,
+      },
+    ];
+  };
+
   const rowMenuItems = (id: string): MenuItem[] => {
     const tab = allTabs.find((item) => item.info.id === id);
     const ids = allTabs
@@ -343,111 +436,144 @@ export function TabRail() {
   };
 
   return (
+    // The `+` sits in a bar above the rows and stays put while they scroll —
+    // Warp's control bar, which is where its new-tab button lives. The bar
+    // carries the rail's own gestures too, so a right-click or a double-click
+    // anywhere on the chrome means the same thing.
     <div
-      className={`tab-rail${dragging ? " is-reordering" : ""}`}
-      ref={railRef}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={endDrag}
-      onPointerCancel={endDrag}
+      className="tab-rail-panel"
       onContextMenu={onContextMenu}
       onDoubleClick={onDoubleClick}
     >
-      {blocks.map((block, blockIndex) => (
-        <div className="tab-rail-block" key={block.pane.id}>
-          {blocks.length > 1 && (
-            <button
-              type="button"
-              className={`tab-rail-pane${
-                block.pane.id === activePaneId ? " is-active" : ""
-              }`}
-              onMouseDown={(event) => {
-                event.stopPropagation();
-                setActivePane(block.pane.id);
-              }}
-              title={`Pane ${blockIndex + 1}`}
-            >
-              Pane {blockIndex + 1}
-            </button>
-          )}
-          {block.tabs.map((tab) => {
-            const active = tab.info.id === activeId;
-            const sessionColor =
-              tab.info.color ??
-              colorForSession(tab.info.profileId ?? tab.info.name);
-            return (
-              <div
-                key={tab.info.id}
-                className={[
-                  "tab-row",
-                  active ? "is-active" : "",
-                  `is-${tab.state}`,
-                  `is-command-${tab.commandActivity}`,
-                  tab.info.id === draggingTabId ? "is-dragging" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                style={
-                  {
-                    "--session-color": sessionColor,
-                    ...(tab.aiTool ? { "--agent-color": tab.aiTool.color } : {}),
-                  } as CSSProperties
-                }
-                data-tab-id={tab.info.id}
-                data-pane-id={tab.paneId}
-                onMouseDown={() => setActive(tab.info.id)}
-                title={`${tab.info.protocol} · ${tab.info.address} · ${
-                  tab.commandActivity === "running"
-                    ? activityLabel(tab)
-                    : tab.commandActivity === "complete"
-                      ? `${activityLabel(tab)} — select to view`
-                      : (tab.message ?? tab.state)
-                }`}
-              >
-                <span
-                  className={`tab-row-icon${tab.aiTool ? " is-agent" : ""}`}
-                >
-                  <Icon
-                    name={
-                      tab.aiTool
-                        ? "sparkle"
-                        : (KIND_ICONS[tab.info.kind] ?? "terminal")
-                    }
-                  />
-                </span>
-                <div className="tab-row-text">
-                  <div className="tab-row-title">
-                    <span className="tab-index">{tab.number}.</span>
-                    <span className="tab-dot" aria-hidden="true" />
-                    <span className="tab-label">{tabTitle(tab)}</span>
-                  </div>
-                  {tab.cwd && <div className="tab-row-path">{tab.cwd}</div>}
-                </div>
-                <button
-                  className="tab-close"
-                  onMouseDown={(event) => {
-                    event.stopPropagation();
-                    requestCloseTabs([tab.info.id]);
-                  }}
-                  title="Close session"
-                  aria-label="Close session"
-                >
-                  <Icon name="close" />
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      ))}
+      <div className="tab-rail-bar">
+        <button
+          type="button"
+          className="tab-rail-add"
+          onClick={(event) => {
+            const box = event.currentTarget.getBoundingClientRect();
+            setRailMenu({ x: box.left, y: box.bottom + 4 });
+          }}
+          title="New session"
+          aria-label="New session"
+        >
+          <Icon name="add" />
+        </button>
+      </div>
 
-      {rowMenu && (
-        <ContextMenu
-          x={rowMenu.x}
-          y={rowMenu.y}
-          items={rowMenuItems(rowMenu.id)}
-          onClose={closeRowMenu}
-        />
-      )}
+      <div
+        className={`tab-rail${dragging ? " is-reordering" : ""}`}
+        ref={railRef}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+      >
+        {blocks.map((block, blockIndex) => (
+          <div className="tab-rail-block" key={block.pane.id}>
+            {blocks.length > 1 && (
+              <button
+                type="button"
+                className={`tab-rail-pane${
+                  block.pane.id === activePaneId ? " is-active" : ""
+                }`}
+                onMouseDown={(event) => {
+                  event.stopPropagation();
+                  setActivePane(block.pane.id);
+                }}
+                title={`Pane ${blockIndex + 1}`}
+              >
+                Pane {blockIndex + 1}
+              </button>
+            )}
+            {block.tabs.map((tab) => {
+              const active = tab.info.id === activeId;
+              const sessionColor =
+                tab.info.color ??
+                colorForSession(tab.info.profileId ?? tab.info.name);
+              return (
+                <div
+                  key={tab.info.id}
+                  className={[
+                    "tab-row",
+                    active ? "is-active" : "",
+                    `is-${tab.state}`,
+                    `is-command-${tab.commandActivity}`,
+                    tab.info.id === draggingTabId ? "is-dragging" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  style={
+                    {
+                      "--session-color": sessionColor,
+                      ...(tab.aiTool ? { "--agent-color": tab.aiTool.color } : {}),
+                    } as CSSProperties
+                  }
+                  data-tab-id={tab.info.id}
+                  data-pane-id={tab.paneId}
+                  onMouseDown={() => setActive(tab.info.id)}
+                  title={`${tab.info.protocol} · ${tab.info.address} · ${
+                    tab.commandActivity === "running"
+                      ? activityLabel(tab)
+                      : tab.commandActivity === "complete"
+                        ? `${activityLabel(tab)} — select to view`
+                        : (tab.message ?? tab.state)
+                  }`}
+                >
+                  <span
+                    className={`tab-row-icon${tab.aiTool ? " is-agent" : ""}`}
+                  >
+                    <Icon
+                      name={
+                        tab.aiTool
+                          ? "sparkle"
+                          : (KIND_ICONS[tab.info.kind] ?? "terminal")
+                      }
+                    />
+                  </span>
+                  <div className="tab-row-text">
+                    <div className="tab-row-title">
+                      <span className="tab-index">{tab.number}.</span>
+                      <span className="tab-dot" aria-hidden="true" />
+                      <span className="tab-label">{tabTitle(tab)}</span>
+                    </div>
+                    {tab.cwd && <div className="tab-row-path">{tab.cwd}</div>}
+                  </div>
+                  <button
+                    className="tab-close"
+                    onMouseDown={(event) => {
+                      event.stopPropagation();
+                      requestCloseTabs([tab.info.id]);
+                    }}
+                    title="Close session"
+                    aria-label="Close session"
+                  >
+                    <Icon name="close" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+
+        {rowMenu && (
+          <ContextMenu
+            x={rowMenu.x}
+            y={rowMenu.y}
+            items={rowMenuItems(rowMenu.id)}
+            onClose={closeRowMenu}
+          />
+        )}
+
+        {railMenu && (
+          <ContextMenu
+            x={railMenu.x}
+            y={railMenu.y}
+            items={sessionMenu()}
+            onClose={closeRailMenu}
+            className="menu-scroll"
+          />
+        )}
+      </div>
     </div>
   );
 }
