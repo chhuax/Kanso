@@ -104,6 +104,7 @@ function TerminalHost({
   const cursorBlink = useStore((s) => s.cursorBlink);
   const suggestionsEnabled = useStore((s) => s.suggestionsEnabled);
   const rightClickAction = useStore((s) => s.rightClickAction);
+  const copyOnSelect = useStore((s) => s.copyOnSelect);
   const [menu, setMenu] = useState<TerminalMenu | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
   const id = tab.info.id;
@@ -144,6 +145,16 @@ function TerminalHost({
       y: event.clientY,
       canCopy: controller.hasSelection(),
     });
+  };
+
+  // A selection is finished when the button comes up, so that is when it is
+  // copied: `onSelectionChange` fires all through a drag, and a clipboard
+  // write per step would be one per pixel. A program that owns the mouse has
+  // no xterm selection, so this is quiet in vim and the like either way.
+  const onMouseUp = (event: ReactMouseEvent<HTMLDivElement>) => {
+    onMiddleButton(event);
+    if (event.button !== 0 || !copyOnSelect) return;
+    getController(id)?.copySelection();
   };
 
   // Middle click: xterm positions its textarea under the pointer so a
@@ -285,7 +296,7 @@ function TerminalHost({
         ref={ref}
         className="term-pane"
         onContextMenu={onContextMenu}
-        onMouseUp={onMiddleButton}
+        onMouseUp={onMouseUp}
         onAuxClick={onMiddleButton}
       />
       {menu && (
