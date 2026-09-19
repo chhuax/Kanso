@@ -254,6 +254,14 @@ const USER_PROMPT =
  */
 const BARE_PROMPT = /^([A-Za-z~/][\w.~/-]*\s?)?(>>>|[$#%>❯➜])(?=\s)/;
 /**
+ * `user cwd sign` — the username and the directory with no `@host` between
+ * them, which is what a prompt written as `%n %1~ %#` prints (`alice ~ %`).
+ * The second word has to look like a directory, so a line of output that
+ * merely ends in `%` is not taken for a prompt.
+ */
+const USER_DIR_PROMPT =
+  /^([A-Za-z0-9._-]+)\s+([~/][^\s$#>%❯]*|\.{1,2})\s*([$#>%❯])(?=\s|$)/;
+/**
  * cmd.exe and PowerShell prompts: `C:\Users\x>dir`, `PS C:\Users\x> ls`,
  * `PS /home/x> ls`, `PS> ls`. Group 1 is the `PS` tag, group 2 or 3 the path.
  */
@@ -271,6 +279,8 @@ export function shellPromptEnd(text: string): number {
   if (windowsPrompt) return windowsPrompt[0].length;
   const userPrompt = USER_PROMPT.exec(text);
   if (userPrompt) return userPrompt[0].length;
+  const userDirPrompt = USER_DIR_PROMPT.exec(text);
+  if (userDirPrompt) return userDirPrompt[0].length;
   const barePrompt = BARE_PROMPT.exec(text);
   return barePrompt && (barePrompt[1] || barePrompt[2] !== "#")
     ? barePrompt[0].length
