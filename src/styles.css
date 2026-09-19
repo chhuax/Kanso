@@ -1183,6 +1183,11 @@ textarea:focus {
   align-items: center;
   gap: 6px;
   min-width: 0;
+  /* Pinned so a row with a path lands on Warp's 48px: 16 (this line) + 2
+     (spacing) + 14 (the metadata row) + 8 + 8 (the row's padding). A row
+     without one keeps the 24px icon as its tallest part, so 40px. */
+  height: 16px;
+  line-height: 16px;
 }
 
 .tab-row-path {
