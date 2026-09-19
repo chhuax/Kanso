@@ -1228,7 +1228,6 @@ textarea:focus {
 .tab-row-title {
   display: flex;
   align-items: center;
-  gap: 6px;
   min-width: 0;
   /* Pinned so a two-line row lands on Warp's 48px: 16 (this line) + 2
      (spacing) + 14 (the metadata row) + 8 + 8 (the row's padding). A one-line
@@ -1306,12 +1305,6 @@ textarea:focus {
   );
   box-shadow: inset 2px 0 0 var(--session-color, var(--accent));
   animation: tab-command-ready 760ms cubic-bezier(0.2, 0, 0, 1);
-}
-
-.tab-row.is-command-complete:not(.is-active) .tab-dot {
-  border-radius: 50%;
-  box-shadow: 0 0 0 3px
-    color-mix(in srgb, var(--session-color, var(--accent)) 22%, transparent);
 }
 
 @keyframes tab-activity-pulse {
@@ -1408,23 +1401,6 @@ textarea:focus {
 
 .tab-row.is-error .tab-label {
   color: var(--red);
-}
-
-.tab-index {
-  color: var(--fg-faint);
-  font-variant-numeric: tabular-nums;
-}
-
-.tab-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
-  flex: 0 0 8px;
-  background: var(--session-color, var(--accent));
-}
-
-.tab-row.is-closed .tab-dot {
-  opacity: 0.45;
 }
 
 .tab-label {

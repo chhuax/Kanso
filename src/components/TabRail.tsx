@@ -566,8 +566,6 @@ export function TabRail({ onNewSession, onManageSessions }: Props) {
                   </span>
                   <div className="tab-row-text">
                     <div className="tab-row-title">
-                      <span className="tab-index">{tab.number}.</span>
-                      <span className="tab-dot" aria-hidden="true" />
                       <span className="tab-label">{rowTitle(tab)}</span>
                     </div>
                     {meta && <div className="tab-row-meta">{meta}</div>}
