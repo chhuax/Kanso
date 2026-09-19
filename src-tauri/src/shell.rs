@@ -60,12 +60,25 @@ zenterm_branch() {
 
 zenterm_precmd() {
   setopt localoptions extendedglob
-  local path branch shown
-  path=${(%):-%~}
-  # A long path keeps its end: that is the half that says where you are.
-  local -a parts
-  parts=(${(s:/:)path})
-  (( ${#parts} > 4 )) && path=".../${(j:/:)parts[-3,-1]}"
+  # Not `path`: that is zsh's array twin of `PATH`, so a scalar assigned to it
+  # lands in an array and `${#path}` counts elements rather than characters.
+  local where branch shown
+  where=${(%):-%~}
+  # A path too long for the line keeps its end — that is the half that says
+  # where you are — whole components at a time, with `...` where the rest of
+  # it went. A short path is left exactly as it is.
+  local budget=36
+  if (( ${#where} > budget )); then
+    local -a parts
+    parts=(${(s:/:)where})
+    local tail=${parts[-1]} i candidate
+    for (( i = ${#parts} - 1; i >= 1; i-- )); do
+      candidate="${parts[i]}/$tail"
+      (( ${#candidate} + 4 > budget )) && break
+      tail=$candidate
+    done
+    where=".../$tail"
+  fi
   branch=$(zenterm_branch $PWD)
 
   # The directory escapes (`%~`, `%/`, `%d`, `%2~`) move into the chip. A
@@ -99,7 +112,7 @@ zenterm_precmd() {
 
   ZENTERM_CHIPS=""
   [[ $directory_is_shown == no ]] &&
-    ZENTERM_CHIPS="${chip} ${text}${folder} ${path} ${off}"
+    ZENTERM_CHIPS="${chip} ${text}${folder} ${where} ${off}"
   if [[ -n $branch ]]; then
     [[ -n $ZENTERM_CHIPS ]] && ZENTERM_CHIPS+=" "
     ZENTERM_CHIPS+="${chip} ${green}${fork} ${branch} ${off}"
@@ -330,6 +343,17 @@ mod tests {
             run(&worktree, "zenterm_branch $PWD").as_deref(),
             Some("from-a-worktree")
         );
+
+        // A short path is not shortened at all: the `...` is there to stand
+        // for something that was actually dropped.
+        let short = run(
+            Path::new("/tmp"),
+            "PROMPT='$ '; ZENTERM_USER_PROMPT=$PROMPT; zenterm_precmd; print -r -- \"$PROMPT\"",
+        )
+        .expect("zsh");
+        // macOS resolves `/tmp` to `/private/tmp`, so match the end of it.
+        assert!(short.contains("/tmp "), "the path was touched: {short}");
+        assert!(!short.contains("..."), "a short path was shortened: {short}");
 
         // Somewhere with no repository, a bare prompt still gets the path and
         // nothing else.
