@@ -12,6 +12,9 @@ import {
 } from "./terminalRegistry";
 import { isFileSession, type SessionInfo, type SessionProfile } from "./types";
 
+/** How long a session's asked-for directory answers the popup; see below. */
+const CWD_ASK_TTL_MS = 2000;
+
 /** Line written into a terminal when its session ends, however it ended. */
 export const SESSION_CLOSED_NOTICE = "\r\n\x1b[33m[session closed]\x1b[0m\r\n";
 
@@ -157,13 +160,12 @@ export async function ensureController(
       },
       // Completions know what the line is asking for: a path lists this
       // session's own filesystem, a tool's subcommands and flags come from
-      // its table, and the shell's history answers the rest. The directory is
-      // the one the shell last reported, so `cd` in the pane moves it.
+      // its table, and the shell's history answers the rest.
       suggest: sessionCompletions(
         {
           id,
           local,
-          cwd: () => getController(id)?.reportedCwd?.path ?? null,
+          cwd: () => whereTheShellIs(id),
         },
         historyHost(id),
       ),
@@ -442,6 +444,35 @@ function localPathFromUrlPath(path: string): string {
   const drive = /^\/([A-Za-z]:)(\/.*)?$/.exec(path);
   if (!drive) return path;
   return `${drive[1]}${(drive[2] ?? "/").replace(/\//g, "\\")}`;
+}
+
+/**
+ * Where a session is, for the completion popup to list a directory against.
+ * The shell's own report is free and already exact, so it answers whenever it
+ * is there; a session that has not printed one yet is asked the way the
+ * "reveal working directory" command asks — the server for an SSH host, the
+ * OS for a local shell — and the answer is kept, because a popup asks on
+ * every keystroke of a path and a round trip per character is not a popup.
+ */
+const askedCwd = new Map<string, { at: number; path: Promise<string | null> }>();
+
+function whereTheShellIs(id: string): string | null | Promise<string | null> {
+  const reported = getController(id)?.reportedCwd;
+  if (reported) {
+    askedCwd.delete(id);
+    return reported.path;
+  }
+  const held = askedCwd.get(id);
+  if (held && Date.now() - held.at < CWD_ASK_TTL_MS) return held.path;
+  const tab = useStore.getState().tabs.find((item) => item.info.id === id);
+  if (!tab) return null;
+  const path = shellCwd(tab).catch(() => null);
+  askedCwd.set(id, { at: Date.now(), path });
+  // A session that has gone away leaves nothing to answer with.
+  void path.then((answer) => {
+    if (answer === null) askedCwd.delete(id);
+  });
+  return path;
 }
 
 /**

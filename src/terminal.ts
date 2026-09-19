@@ -715,13 +715,6 @@ export class TerminalController {
             return false;
           }
         }
-      } else if (key === "tab" && this.popupPending) {
-        // The rows for what has been typed are still being read — a path in
-        // an SSH session is a round trip. Handing Tab to the shell now would
-        // race the popup against the shell's own completion; the next press,
-        // once the list is up, completes from it.
-        event.preventDefault();
-        return false;
       }
     }
 

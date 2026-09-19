@@ -218,3 +218,39 @@ describe("what Tab does", () => {
     expect(tabAction(0, -1, false)).toBe("shell");
   });
 });
+
+describe("where the shell is", () => {
+  it("waits for a directory that has to be asked for", async () => {
+    const asked: string[] = [];
+    const backend: CompletionBackend = {
+      local: false,
+      // A session that has not printed an OSC report yet: the answer arrives
+      // from the server, so the popup has to await it.
+      cwd: () => Promise.resolve("/srv/app"),
+      list: (path) => {
+        asked.push(path);
+        return Promise.resolve([entry("logs", true)]);
+      },
+    };
+    const rows = await completionsFor("cd log", 6, backend, "host");
+    expect(asked).toEqual(["/srv/app"]);
+    expect(rows.map((row) => row.label)).toEqual(["logs/"]);
+    expect(rows[0].line).toBe("cd logs/");
+  });
+
+  it("asks for nothing when no directory is known", async () => {
+    const asked: string[] = [];
+    const backend: CompletionBackend = {
+      local: true,
+      cwd: () => null,
+      list: (path) => {
+        asked.push(path);
+        return Promise.resolve([]);
+      },
+    };
+    // With no directory there is nothing to list, and a relative word would
+    // otherwise be resolved against the process's own.
+    await completionsFor("cd sr", 5, backend, "host");
+    expect(asked).toEqual(["."]);
+  });
+});

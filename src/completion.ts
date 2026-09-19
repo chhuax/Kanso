@@ -46,8 +46,13 @@ export interface Completion {
 export interface CompletionBackend {
   /** True for a local shell; false for an SSH session, whose paths are the server's. */
   local: boolean;
-  /** Where the session is, as the shell reports it (OSC 7). null until known. */
-  cwd: () => string | null;
+  /**
+   * Where the session is, or a promise for it. The shell's own report (OSC 7)
+   * answers at once; a session that has not reported one is asked instead,
+   * which for an SSH host is a round trip — and asking is only worth it for
+   * the commands that take a path.
+   */
+  cwd: () => string | null | Promise<string | null>;
   /** Directory entries of `path`, or [] when it cannot be read. */
   list: (path: string) => Promise<FileEntry[]>;
 }
@@ -353,7 +358,7 @@ async function listFor(
   backend: CompletionBackend,
   token: string,
 ): Promise<{ prefix: string; entries: FileEntry[] }> {
-  const cwd = backend.cwd() ?? "";
+  const cwd = (await backend.cwd()) ?? "";
   const slash = token.lastIndexOf("/");
   const typedDir = slash === -1 ? "" : token.slice(0, slash + 1);
   const prefix = slash === -1 ? token : token.slice(slash + 1);

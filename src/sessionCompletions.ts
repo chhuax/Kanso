@@ -38,8 +38,8 @@ export interface CompletionEnvironment {
   id: string;
   /** True for a local shell; an SSH session's paths are the server's. */
   local: boolean;
-  /** Where the session is right now, as the shell last reported it. */
-  cwd: () => string | null;
+  /** Where the session is: the shell's report, or a promise for an asked one. */
+  cwd: () => string | null | Promise<string | null>;
 }
 
 /**
