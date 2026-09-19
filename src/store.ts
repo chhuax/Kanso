@@ -74,6 +74,12 @@ export interface Tab {
    * `aiTools.ts`. Set for the whole life of the tool, not just its turns.
    */
   aiTool?: AiTool | null;
+  /**
+   * A local shell's working directory, for the rail's second line. Remote
+   * sessions never set it: their path would cost a round trip to read and
+   * the row shows the connection instead.
+   */
+  cwd?: string | null;
   message?: string;
   cols: number;
   rows: number;
@@ -556,6 +562,8 @@ interface AppStore {
   markCommandStarted: (id: string, kind?: ActivityKind) => void;
   /** Marks the tab as running an agentic CLI, or clears the mark. */
   setAiTool: (id: string, tool: AiTool | null) => void;
+  /** Records a local shell's working directory for the rail. */
+  setCwd: (id: string, cwd: string | null) => void;
   /** Leaves an unread completion on a background tab until it is selected. */
   markCommandCompleted: (id: string, kind?: ActivityKind) => void;
   /** Clears activity when a submitted write failed before reaching the shell. */
@@ -1054,6 +1062,13 @@ export const useStore = create<AppStore>((set, get) => ({
 
   setAiTool(id, tool) {
     set({ tabs: patchTab(get().tabs, id, { aiTool: tool }) });
+  },
+
+  setCwd(id, cwd) {
+    // Reported after every command; nothing to do while it has not moved.
+    const tab = get().tabs.find((item) => item.info.id === id);
+    if (!tab || tab.cwd === cwd) return;
+    set({ tabs: patchTab(get().tabs, id, { cwd }) });
   },
 
   markCommandStarted(id, kind = "command") {

@@ -76,10 +76,21 @@ function historyHost(id: string): string {
  * session needs them until one is opened, so they arrive with the first
  * terminal instead of with the window.
  */
+/** Reads a local shell's working directory into its tab; see `Tab.cwd`. */
+function refreshLocalCwd(id: string) {
+  void api
+    .sessionCwd(id)
+    .then((cwd) => useStore.getState().setCwd(id, cwd))
+    .catch(() => undefined);
+}
+
 export async function ensureController(
   id: string,
-  /** Local sessions draw a rule above each prompt; see TerminalController. */
-  dividers = false,
+  /**
+   * True for a local shell: it draws a rule above each prompt (see
+   * TerminalController) and is the only kind whose path the rail shows.
+   */
+  local = false,
 ): Promise<TerminalController> {
   const existing = getController(id);
   if (existing) return existing;
@@ -97,8 +108,12 @@ export async function ensureController(
       onCommandState: (state, kind) => {
         const store = useStore.getState();
         if (state === "running") store.markCommandStarted(id, kind);
-        else if (state === "complete") store.markCommandCompleted(id, kind);
-        else store.clearCommandActivity(id);
+        else if (state === "complete") {
+          store.markCommandCompleted(id, kind);
+          // A shell only moves while a command runs, and asking the OS where a
+          // local one is costs no round trip.
+          if (local) refreshLocalCwd(id);
+        } else store.clearCommandActivity(id);
       },
       suggest: (input) => commandHistory.suggest(input, historyHost(id)),
       onAiTool: (tool) => useStore.getState().setAiTool(id, tool),
@@ -121,7 +136,7 @@ export async function ensureController(
       useStore.getState().bufferFontFamily,
       useStore.getState().symbolFontFamilies,
     ),
-    dividers,
+    local,
   );
   controller.setSuggestions(useStore.getState().suggestionsEnabled);
   controller.setRightClickAction(useStore.getState().rightClickAction);
@@ -298,6 +313,7 @@ async function connectSession(
     const { info } = outcome;
     connectedStore.updateTabInfo(id, info);
     connectedStore.applyState(id, "connected");
+    if (info.kind === "local") refreshLocalCwd(id);
     connectedStore.setStatus(
       `Connected to ${tabTitle({ info, ordinal: tab.ordinal })}`,
     );

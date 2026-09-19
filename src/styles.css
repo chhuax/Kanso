@@ -1167,19 +1167,30 @@ textarea:focus {
   );
 }
 
-.tab-agent {
-  flex: none;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: color-mix(
-    in srgb,
-    var(--agent-color, var(--accent)) 16%,
-    transparent
-  );
-  color: var(--agent-color, var(--accent));
+/* A row is two lines when it has a path to show: the title on the first, the
+   local shell's working directory on the second. */
+.tab-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+.tab-row-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tab-row-path {
+  overflow: hidden;
+  color: var(--fg-faint);
   font-size: 10px;
   font-style: normal;
-  letter-spacing: 0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tab-row {

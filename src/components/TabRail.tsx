@@ -415,12 +415,14 @@ export function TabRail() {
                     }
                   />
                 </span>
-                <span className="tab-index">{tab.number}.</span>
-                <span className="tab-dot" aria-hidden="true" />
-                <span className="tab-label">{tabTitle(tab)}</span>
-                {tab.aiTool && (
-                  <span className="tab-agent">{tab.aiTool.label}</span>
-                )}
+                <div className="tab-row-text">
+                  <div className="tab-row-title">
+                    <span className="tab-index">{tab.number}.</span>
+                    <span className="tab-dot" aria-hidden="true" />
+                    <span className="tab-label">{tabTitle(tab)}</span>
+                  </div>
+                  {tab.cwd && <div className="tab-row-path">{tab.cwd}</div>}
+                </div>
                 <button
                   className="tab-close"
                   onMouseDown={(event) => {
