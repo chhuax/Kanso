@@ -103,16 +103,11 @@ zenterm_precmd() {
   local text=$'%{\e[38;5;252m%}'
   local green=$'%{\e[38;5;114m%}'
   local off=$'%{\e[0m%}'
-  # The outline folder (`fa-folder-o`), not the solid one, which at the
-  # prompt's own brightness is a bright blob. Written as the characters
-  # themselves: as `$'\uf114'` a shell whose locale cannot encode them fails
-  # with "character not in range" instead of drawing the line.
-  local folder=""
   local fork=""
 
   ZENTERM_CHIPS=""
   [[ $directory_is_shown == no ]] &&
-    ZENTERM_CHIPS="${chip} ${text}${folder} ${where} ${off}"
+    ZENTERM_CHIPS="${chip} ${text}${where} ${off}"
   if [[ -n $branch ]]; then
     [[ -n $ZENTERM_CHIPS ]] && ZENTERM_CHIPS+=" "
     ZENTERM_CHIPS+="${chip} ${green}${fork} ${branch} ${off}"
@@ -330,7 +325,12 @@ mod tests {
         assert!(bare.contains(".../"), "no directory chip: {bare}");
         assert!(bare.contains("feature/x"), "no branch in: {bare}");
         assert!(bare.contains("%{"), "colour codes are not zero-width: {bare}");
-        assert!(bare.contains("\u{f114}"), "no directory mark in: {bare}");
+        // The branch keeps its mark; the path has none in front of it.
+        assert!(bare.contains("\u{f126}"), "no branch mark in: {bare}");
+        assert!(
+            !bare.contains("\u{f114}"),
+            "the path grew a mark again: {bare}"
+        );
 
         // A worktree's `.git` is a file naming the real git directory.
         let elsewhere = root.join("real-git");
@@ -363,7 +363,7 @@ mod tests {
             "PROMPT='$ '; ZENTERM_USER_PROMPT=$PROMPT; zenterm_precmd; print -r -- \"$PROMPT\"",
         )
         .expect("zsh");
-        assert!(prompt.contains("\u{f114}"), "unexpected prompt: {prompt}");
+        assert!(prompt.contains("/tmp") || prompt.contains(".../"), "unexpected prompt: {prompt}");
         assert!(
             !prompt.contains("\u{f126}"),
             "a branch appeared from nowhere: {prompt}"
