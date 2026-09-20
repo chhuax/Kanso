@@ -238,6 +238,12 @@ interface Menu {
 
 interface Props {
   onNewSession: () => void;
+  /**
+   * The right panel, for the button at the end of the bar. Undefined where
+   * there is nothing to show in it: with no panel available the button would
+   * have no state to report and nothing to open.
+   */
+  rightPanel?: { open: boolean; onToggle: () => void };
   onFind: () => void;
   onFindNext: () => void;
   onFontSettings: () => void;
@@ -690,9 +696,29 @@ export function MenuBar(props: Props) {
           </span>
         </div>
       )}
-      {/* The bar's right end: nothing but the window controls off macOS, now
-          that the split buttons that used to sit here are gone. */}
+      {/* The bar's right end. The panel toggle sits here, where VS Code keeps
+          its layout controls: one button that says whether the right panel is
+          showing and puts it away or brings it back. */}
       <div className="menubar-right" data-tauri-drag-region>
+        {props.rightPanel && (
+          <div className="layout-actions">
+            <button
+              className="panel-action"
+              onClick={props.rightPanel.onToggle}
+              title={props.rightPanel.open ? "Hide Panel" : "Show Panel"}
+              aria-label={props.rightPanel.open ? "Hide Panel" : "Show Panel"}
+              aria-pressed={props.rightPanel.open}
+            >
+              <Icon
+                name={
+                  props.rightPanel.open
+                    ? "layout-sidebar-right-off"
+                    : "layout-sidebar-right"
+                }
+              />
+            </button>
+          </div>
+        )}
         {!IS_MAC && <WindowControls maximized={maximized} />}
       </div>
     </div>

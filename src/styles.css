@@ -829,6 +829,22 @@ textarea:focus {
   text-transform: none;
 }
 
+/* The layout controls at the right end of the menu bar. The button inside is
+   a `.panel-action` like the panel headers' own. */
+.layout-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0 4px;
+}
+
+.layout-actions .panel-action:disabled {
+  color: var(--fg-faint);
+  opacity: 0.5;
+  background: none;
+  cursor: default;
+}
+
 .panel-action {
   display: inline-flex;
   align-items: center;
