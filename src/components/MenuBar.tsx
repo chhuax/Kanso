@@ -690,8 +690,8 @@ export function MenuBar(props: Props) {
           </span>
         </div>
       )}
-      {/* Layout buttons at the right end of the bar, where VS Code keeps
-          its own; on Windows / Linux the window controls follow them. */}
+      {/* The bar's right end: nothing but the window controls off macOS, now
+          that the split buttons that used to sit here are gone. */}
       <div className="menubar-right" data-tauri-drag-region>
         {!IS_MAC && <WindowControls maximized={maximized} />}
       </div>
