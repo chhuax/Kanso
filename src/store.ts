@@ -126,6 +126,12 @@ export interface HostKeyPrompt {
 }
 
 export type PanelName = "filer" | "sessions" | "sender";
+/**
+ * The panels the View menu can switch on. The session list is not one of them:
+ * it is always the right sidebar's first tab, and a sidebar that could be
+ * emptied had no way back to itself.
+ */
+export type OptionalPanel = Exclude<PanelName, "sessions">;
 
 export const PANEL_FONT_SIZE = { min: 9, max: 18, default: 12 } as const;
 export const BUFFER_FONT_SIZE = { min: 8, max: 32, default: 14 } as const;
@@ -134,11 +140,11 @@ export const TERMINAL_SCROLLBACK = {
   max: 1_000_000,
   default: 20_000,
 } as const;
-// A fresh install shows only the session list; the Filer and Sender stay
-// hidden until the user opens them from the View menu.
-const DEFAULT_PANELS: Record<PanelName, boolean> = {
+// The session list is always in the right sidebar, so the flags cover only
+// what may join it: the Filer and the Sender stay hidden until the user opens
+// them from the View menu.
+const DEFAULT_PANELS: Record<OptionalPanel, boolean> = {
   filer: false,
-  sessions: true,
   sender: false,
 };
 
@@ -216,14 +222,12 @@ const loadRightClickAction = (): RightClickAction => {
 /** Fills fields missing from `value` with `base`; null if it is no object. */
 const parsePanels = (
   value: unknown,
-  base: Record<PanelName, boolean>,
-): Record<PanelName, boolean> | null => {
+  base: Record<OptionalPanel, boolean>,
+): Record<OptionalPanel, boolean> | null => {
   if (!value || typeof value !== "object") return null;
-  const parsed = value as Partial<Record<PanelName, unknown>>;
+  const parsed = value as Partial<Record<OptionalPanel, unknown>>;
   return {
     filer: typeof parsed.filer === "boolean" ? parsed.filer : base.filer,
-    sessions:
-      typeof parsed.sessions === "boolean" ? parsed.sessions : base.sessions,
     sender: typeof parsed.sender === "boolean" ? parsed.sender : base.sender,
   };
 };
@@ -237,7 +241,7 @@ export const loadTheme = (): ThemeMode => {
   }
 };
 
-const loadPanels = (): Record<PanelName, boolean> => {
+const loadPanels = (): Record<OptionalPanel, boolean> => {
   try {
     const stored = localStorage.getItem(PANELS_KEY);
     if (stored) {
@@ -250,7 +254,7 @@ const loadPanels = (): Record<PanelName, boolean> => {
   return { ...DEFAULT_PANELS };
 };
 
-const savePanels = (panels: Record<PanelName, boolean>) => {
+const savePanels = (panels: Record<OptionalPanel, boolean>) => {
   try {
     localStorage.setItem(PANELS_KEY, JSON.stringify(panels));
   } catch {
@@ -415,7 +419,7 @@ const saveShortcuts = (bindings: ShortcutBindings) => {
  * backend instead.
  */
 export interface AppSettings {
-  panels: Record<PanelName, boolean>;
+  panels: Record<OptionalPanel, boolean>;
   gutterMode: GutterMode;
   theme: ThemeMode;
   panelFontSize: number;
@@ -478,7 +482,7 @@ interface AppStore {
   copyOnSelect: boolean;
   /** The chord each app command answers; see `shortcuts.ts`. */
   shortcuts: ShortcutBindings;
-  panels: Record<PanelName, boolean>;
+  panels: Record<OptionalPanel, boolean>;
   status: string;
   error: string | null;
   errorSessionId: string | null;
@@ -597,7 +601,7 @@ interface AppStore {
   clearCommandActivity: (id: string) => void;
   setSize: (id: string, cols: number, rows: number) => void;
 
-  togglePanel: (panel: PanelName) => void;
+  togglePanel: (panel: OptionalPanel) => void;
   setGutterMode: (mode: GutterMode) => void;
   setTheme: (theme: ThemeMode) => void;
   setPanelFontSize: (size: number) => void;

@@ -663,24 +663,6 @@ textarea:focus {
 /* What the right sidebar leaves behind once it is tucked away: a clickable
    strip holding the only control that brings it back. Like the sidebars it
    draws no divider of its own — this one is the edge, so it does. */
-.sidebar-rail {
-  flex: 0 0 24px;
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  padding: 8px 0 0;
-  border: 0;
-  border-left: 1px solid var(--border);
-  background: var(--bg-panel);
-  color: var(--fg-faint);
-  cursor: pointer;
-}
-
-.sidebar-rail:hover {
-  color: var(--fg);
-  background: color-mix(in srgb, var(--fg) 8%, transparent);
-}
-
 /* The sidebars and the dock draw no edge of their own: the splitter between
    them and the centre is the 1px divider (see the splitters section). */
 .bottom-dock {

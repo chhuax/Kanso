@@ -527,12 +527,6 @@ export function MenuBar(props: Props) {
       title: "View",
       entries: [
         {
-          label: "Session",
-          shortcut: accel("panelSessions"),
-          checked: panels.sessions,
-          action: () => togglePanel("sessions"),
-        },
-        {
           label: "Filer",
           shortcut: accel("panelFiler"),
           checked: panels.filer,

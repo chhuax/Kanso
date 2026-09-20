@@ -1,5 +1,5 @@
 import { IS_MAC, IS_WINDOWS } from "./platform";
-import type { PanelName } from "./store";
+import type { OptionalPanel } from "./store";
 
 /**
  * The keyboard-event fields the matchers read. Satisfied by both DOM and
@@ -48,7 +48,6 @@ export type ShortcutCommand =
   | "copy"
   | "paste"
   | "selectAll"
-  | "panelSessions"
   | "panelFiler"
   | "panelSender";
 
@@ -70,7 +69,7 @@ export type AppShortcut =
   | { kind: "copy" }
   | { kind: "paste" }
   | { kind: "selectAll" }
-  | { kind: "togglePanel"; panel: PanelName };
+  | { kind: "togglePanel"; panel: OptionalPanel };
 
 /** What each command does, and the order the settings dialog lists them in. */
 export const SHORTCUT_COMMANDS: {
@@ -176,12 +175,6 @@ export const SHORTCUT_COMMANDS: {
     action: { kind: "revealCwd" },
   },
   {
-    id: "panelSessions",
-    label: "Toggle Session Panel",
-    hint: "Show or hide the left panel",
-    action: { kind: "togglePanel", panel: "sessions" },
-  },
-  {
     id: "panelFiler",
     label: "Toggle Filer Panel",
     hint: "Show or hide the right panel",
@@ -231,7 +224,6 @@ const MAC_DEFAULTS: ShortcutBindings = {
   copy: chord("KeyC", { meta: true }),
   paste: chord("KeyV", { meta: true }),
   selectAll: chord("KeyA", { meta: true }),
-  panelSessions: chord("ArrowLeft", { meta: true, alt: true }),
   panelFiler: chord("ArrowRight", { meta: true, alt: true }),
   panelSender: chord("ArrowDown", { meta: true, alt: true }),
 };
@@ -273,7 +265,6 @@ const OTHER_DEFAULTS: ShortcutBindings = {
   copy: chord("KeyC", { ctrl: true, shift: true }),
   paste: chord("KeyV", { ctrl: true, shift: true }),
   selectAll: chord("KeyA", { ctrl: true, shift: true }),
-  panelSessions: chord("ArrowLeft", { ctrl: true, alt: true }),
   panelFiler: chord("ArrowRight", { ctrl: true, alt: true }),
   panelSender: chord("ArrowDown", { ctrl: true, alt: true }),
 };
