@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push to the same branch makes the run in flight pointless: cancel it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      # One platform failing should not hide what the other five say.
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            name: Linux x64
+          - os: ubuntu-24.04-arm
+            name: Linux arm64
+          - os: windows-latest
+            name: Windows x64
+          - os: windows-11-arm
+            name: Windows arm64
+          - os: macos-latest
+            name: macOS arm64
+          - os: macos-15-intel
+            name: macOS x64
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Tauri links against the system WebKit and GTK stacks. The *-sys crates
+      # resolve them through pkg-config at build time, so the development
+      # headers have to be present before cargo runs, not just at bundle time.
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            patchelf \
+            wget
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Typecheck the frontend
+        run: npm run typecheck
+
+      - name: Test the frontend
+        run: npm test
+
+      # The bundle pulls per-platform native packages (esbuild, rollup), so
+      # building it on each runner checks that they resolve there too.
+      - name: Build the frontend
+        run: npm run build
+
+      # The three SSH tests that need a live host are #[ignore]d, so this is
+      # offline and deterministic.
+      - name: Test the Rust side
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
