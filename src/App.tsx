@@ -410,7 +410,6 @@ export default function App() {
     active: activeRightTab,
     available: availableRightTabs,
     onSelect: setRightTab,
-    onCollapse: () => setRightCollapsed(true),
   };
 
   // The View menu and "reveal the shell's directory in the Filer" switch a
