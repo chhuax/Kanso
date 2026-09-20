@@ -8,7 +8,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 
-import { openLocalShell, openSession, splitSession } from "../actions";
+import { openLocalShell, openSession } from "../actions";
 import { byName, effectiveGroupId, sortedGroups } from "../sessionGroups";
 import { tabTitle, useStore, type DropTarget, type Tab } from "../store";
 import {
@@ -190,8 +190,6 @@ export function TabRail({ onNewSession, onManageSessions }: Props) {
   const splitPane = useStore((s) => s.splitPane);
   const setTabDrag = useStore((s) => s.setTabDrag);
   const closeKey = useAccelerator("closeSession");
-  const splitRightKey = useAccelerator("splitRight");
-  const splitDownKey = useAccelerator("splitDown");
   const newShellKey = useAccelerator("newLocalShell");
   const newSessionKey = useAccelerator("newSession");
   const railRef = useRef<HTMLDivElement>(null);
@@ -334,19 +332,6 @@ export function TabRail({ onNewSession, onManageSessions }: Props) {
         action: () => requestCloseTabs(ids.slice(index + 1)),
       },
       { label: "Close All", action: () => requestCloseTabs(ids) },
-      "separator",
-      {
-        label: "Split Right",
-        icon: "split-horizontal",
-        shortcut: splitRightKey,
-        action: () => void splitSession(id, "right"),
-      },
-      {
-        label: "Split Down",
-        icon: "split-vertical",
-        shortcut: splitDownKey,
-        action: () => void splitSession(id, "down"),
-      },
     ];
   };
 

@@ -320,20 +320,6 @@ textarea:focus {
   min-width: min-content;
 }
 
-.layout-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  margin: 0 4px;
-}
-
-.layout-actions .panel-action:disabled {
-  color: var(--fg-faint);
-  opacity: 0.5;
-  background: none;
-  cursor: default;
-}
-
 .window-controls {
   display: flex;
   justify-content: flex-end;

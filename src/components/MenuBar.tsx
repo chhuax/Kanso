@@ -693,26 +693,6 @@ export function MenuBar(props: Props) {
       {/* Layout buttons at the right end of the bar, where VS Code keeps
           its own; on Windows / Linux the window controls follow them. */}
       <div className="menubar-right" data-tauri-drag-region>
-        <div className="layout-actions">
-          <button
-            className="panel-action"
-            disabled={!activeId}
-            onClick={withActive((id) => void splitSession(id, "right"))}
-            title={`Split Right${accel("splitRight") ? ` (${accel("splitRight")})` : ""}`}
-            aria-label="Split Right"
-          >
-            <Icon name="split-horizontal" />
-          </button>
-          <button
-            className="panel-action"
-            disabled={!activeId}
-            onClick={withActive((id) => void splitSession(id, "down"))}
-            title={`Split Down${accel("splitDown") ? ` (${accel("splitDown")})` : ""}`}
-            aria-label="Split Down"
-          >
-            <Icon name="split-vertical" />
-          </button>
-        </div>
         {!IS_MAC && <WindowControls maximized={maximized} />}
       </div>
     </div>
