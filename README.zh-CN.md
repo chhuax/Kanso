@@ -55,6 +55,7 @@ Kanso 只做两件事：在这台机器上开一个 shell，在另一台机器�
 | --- | --- |
 | Windows x64 | NSIS 安装程序（`.exe`）与便携版 `.zip` |
 | macOS Apple Silicon | `.dmg` |
+| macOS Intel | `.dmg` |
 | Linux x64 / ARM64 | `.AppImage` 与 `.deb` |
 
 下载见 [Releases 页面](https://github.com/chhuax/Kanso/releases/latest)。

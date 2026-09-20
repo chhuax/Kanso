@@ -80,6 +80,7 @@ in.
 | --- | --- |
 | Windows x64 | NSIS installer (`.exe`) and a portable `.zip` |
 | macOS Apple Silicon | `.dmg` |
+| macOS Intel | `.dmg` |
 | Linux x64 / ARM64 | `.AppImage` and `.deb` |
 
 Downloads are on the [Releases page](https://github.com/chhuax/Kanso/releases/latest).
