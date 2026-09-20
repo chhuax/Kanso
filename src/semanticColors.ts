@@ -318,14 +318,17 @@ export function shellPromptEnd(text: string): number {
 /** The end of a chip-style prompt, or -1 when the line is not one. */
 function chipPromptEnd(text: string): number {
   const head = text.slice(0, CHIP_PROMPT_LIMIT);
-  const match = CHIP_PROMPT.exec(head);
+  // The line begins with the space the chips are padded with, so the pattern
+  // is anchored at the first non-space rather than at the column.
+  const lead = head.length - head.trimStart().length;
+  const match = CHIP_PROMPT.exec(head.slice(lead));
   if (!match || match.index !== 0) return -1;
   // Everything before the sign has to read as prompt parts: a path, a
   // username, a branch, a host. Prose that happens to end in `%` does not.
-  const prefix = head.slice(0, head.indexOf(match[2], match[0].length - match[2].length));
+  const body = head.slice(lead);
+  const prefix = body.slice(0, match[0].length - match[2].length);
   if (!/[/~@.]/.test(prefix)) return -1;
-  const signAt = match[0].length - match[2].length;
-  return signAt + match[2].length;
+  return lead + match[0].length;
 }
 
 /** True when the line contains a prompt alone, with no submitted command. */

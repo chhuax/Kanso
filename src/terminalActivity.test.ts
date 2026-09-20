@@ -53,6 +53,12 @@ describe("shell prompt recognition", () => {
     "/data/workspace/ZenTerm  main % ",
     "/data/workspace  main % ",
     "~/src  feature/x $ ",
+    // The shim's chips are padded, so the line begins with a space and the
+    // sign sits behind it: without allowing that lead, these matched nothing.
+    " /data/workspace  % ",
+    " /data/workspace  main  % ",
+    " /data/workspace  \uf126 main  % ",
+    " ~   main % ",
   ])("recognises %s", (prompt) => {
     expect(shellPromptEnd(prompt)).toBeGreaterThan(0);
     expect(isShellPrompt(prompt)).toBe(true);
