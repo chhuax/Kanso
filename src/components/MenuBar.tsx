@@ -238,6 +238,8 @@ interface Menu {
 
 interface Props {
   onNewSession: () => void;
+  /** The right panel, for the button at the end of the bar. */
+  rightPanel: { open: boolean; onToggle: () => void };
   onFind: () => void;
   onFindNext: () => void;
   onFontSettings: () => void;
@@ -525,12 +527,6 @@ export function MenuBar(props: Props) {
       title: "View",
       entries: [
         {
-          label: "Session",
-          shortcut: accel("panelSessions"),
-          checked: panels.sessions,
-          action: () => togglePanel("sessions"),
-        },
-        {
           label: "Filer",
           shortcut: accel("panelFiler"),
           checked: panels.filer,
@@ -690,27 +686,29 @@ export function MenuBar(props: Props) {
           </span>
         </div>
       )}
-      {/* Layout buttons at the right end of the bar, where VS Code keeps
-          its own; on Windows / Linux the window controls follow them. */}
+      {/* The bar's right end. The panel toggle sits here, where VS Code keeps
+          its layout controls: one button whose icon is the panel's state —
+          filled while it is showing, dashed while it is away — and whose
+          label says what pressing it will do. */}
       <div className="menubar-right" data-tauri-drag-region>
         <div className="layout-actions">
           <button
             className="panel-action"
-            disabled={!activeId}
-            onClick={withActive((id) => void splitSession(id, "right"))}
-            title={`Split Right${accel("splitRight") ? ` (${accel("splitRight")})` : ""}`}
-            aria-label="Split Right"
+            onClick={props.rightPanel.onToggle}
+            title={props.rightPanel.open ? "Hide Panel" : "Show Panel"}
+            aria-label={props.rightPanel.open ? "Hide Panel" : "Show Panel"}
+            aria-pressed={props.rightPanel.open}
           >
-            <Icon name="split-horizontal" />
-          </button>
-          <button
-            className="panel-action"
-            disabled={!activeId}
-            onClick={withActive((id) => void splitSession(id, "down"))}
-            title={`Split Down${accel("splitDown") ? ` (${accel("splitDown")})` : ""}`}
-            aria-label="Split Down"
-          >
-            <Icon name="split-vertical" />
+            <Icon
+              name={
+                // The filled frame is the panel being there, the dashed one
+                // is it being away: the icon reads as the state, and the
+                // button's own label says what the press will do.
+                props.rightPanel.open
+                  ? "layout-sidebar-right"
+                  : "layout-sidebar-right-off"
+              }
+            />
           </button>
         </div>
         {!IS_MAC && <WindowControls maximized={maximized} />}

@@ -65,29 +65,36 @@ type SemanticPalette = Record<
 //   slate   debug class, HTTP versions, diff headers, timezone
 //   gray    comments, muted permission bits, disabled states
 export const SEMANTIC_PALETTES: Record<ThemeMode, SemanticPalette> = {
-  // Monokai-derived, as WindTerm's dige-black scheme is, tuned so every entry
-  // clears 4.5:1 on the #1f1f1f terminal background. That matters because the
-  // renderer's minimum-contrast pass would otherwise shift these hues.
+  // Warp's default dark theme, spread over the roles it has colours for: its
+  // 16 ANSI entries are bright and low-saturation, so a role takes the entry
+  // whose meaning it shares and its neighbours split the rest. Every entry
+  // clears 4.5:1 on the #050505 terminal background — most clear far more,
+  // which is the point of the set — so the renderer's minimum-contrast pass
+  // has nothing to move.
   dark: {
-    rose: "#ff6188",
-    red: "#ff5c57",
-    coral: "#ff7f50",
-    orange: "#fd971f",
-    amber: "#ffb454",
-    yellow: "#e6db74",
-    gold: "#ffd866",
-    lime: "#a6e22e",
-    green: "#3fd463",
-    mint: "#5fd7c0",
-    cyan: "#66d9ef",
-    sky: "#7fb4ff",
-    blue: "#6796e6",
-    violet: "#ab9df2",
-    purple: "#ae81ff",
-    orchid: "#da70d6",
-    pink: "#f78fb3",
-    slate: "#8a9bb0",
-    gray: "#8c8c8c",
+    // This palette is the app's own: it colours plain output that carries no
+    // colour of its own, so it has to keep distinguishable hues. It is
+    // deliberately not Warp's sixteen, whose near-white entries would make
+    // "path", "number" and "warning" the same colour.
+    rose: "#ff6b6b",
+    red: "#ff6b6b",
+    coral: "#ff8a8a",
+    orange: "#ff8a8a",
+    amber: "#e8d44d",
+    yellow: "#ffd166",
+    gold: "#e8d44d",
+    lime: "#5fd75f",
+    green: "#5fd75f",
+    mint: "#4fd6d6",
+    cyan: "#4fd6d6",
+    sky: "#6aa9ff",
+    blue: "#6aa9ff",
+    violet: "#8fc0ff",
+    purple: "#e07bff",
+    orchid: "#e07bff",
+    pink: "#eb9dff",
+    slate: "#8f8f8f",
+    gray: "#8f8f8f",
   },
   // The same hues pulled down to 4.5:1 on white. WindTerm's own light scheme
   // uses web-color names (Plum, DarkOrange, DodgerBlue) that fall well short
@@ -117,7 +124,7 @@ export const SEMANTIC_PALETTES: Record<ThemeMode, SemanticPalette> = {
 
 /** Terminal backgrounds the bands are blended against (see XTERM_THEMES). */
 const TERMINAL_BACKGROUNDS: Record<ThemeMode, string> = {
-  dark: "#1f1f1f",
+  dark: "#050505",
   light: "#ffffff",
 };
 
@@ -269,6 +276,21 @@ const WINDOWS_PROMPT =
   /^(?:(PS)\s?([A-Za-z]:\\[^<>|]*?|[/~][^<>|]*?)?|([A-Za-z]:\\[^<>|]*?))>/;
 
 /**
+ * The sign that ends a prompt whose front is chips rather than words: the
+ * directory and branch ZenTerm's own shim prints (`... main % cd /src`). The
+ * shapes above all expect the sign within a word or two of the line's start,
+ * and a chip puts it twenty columns in, so the line went unrecognized and its
+ * command line was coloured as output.
+ *
+ * The sign has to stand alone — whitespace or the end of the line on either
+ * side — and sit within the first `CHIP_PROMPT_LIMIT` columns, and its prefix
+ * has to look like a path, a username or a branch rather than prose. A line of
+ * output such as `100% done` fails all three.
+ */
+const CHIP_PROMPT = /^(\S[^\s]*\s+){1,6}?([%$#])(?=\s|$)/;
+const CHIP_PROMPT_LIMIT = 72;
+
+/**
  * End column of a shell prompt at the start of `text`, or -1 when the line
  * does not look like a prompt. Terminal activity tracking shares the exact
  * prompt vocabulary used by semantic coloring so command completion and the
@@ -279,12 +301,34 @@ export function shellPromptEnd(text: string): number {
   if (windowsPrompt) return windowsPrompt[0].length;
   const userPrompt = USER_PROMPT.exec(text);
   if (userPrompt) return userPrompt[0].length;
+  // Before the word-shaped patterns: `... main % ls` matches `user cwd sign`
+  // with `main` read as a username, which would leave the command line to be
+  // coloured as output.
+  const chip = chipPromptEnd(text);
+  if (chip >= 0) return chip;
   const userDirPrompt = USER_DIR_PROMPT.exec(text);
   if (userDirPrompt) return userDirPrompt[0].length;
   const barePrompt = BARE_PROMPT.exec(text);
-  return barePrompt && (barePrompt[1] || barePrompt[2] !== "#")
-    ? barePrompt[0].length
-    : -1;
+  if (barePrompt && (barePrompt[1] || barePrompt[2] !== "#")) {
+    return barePrompt[0].length;
+  }
+  return chipPromptEnd(text);
+}
+
+/** The end of a chip-style prompt, or -1 when the line is not one. */
+function chipPromptEnd(text: string): number {
+  const head = text.slice(0, CHIP_PROMPT_LIMIT);
+  // The line begins with the space the chips are padded with, so the pattern
+  // is anchored at the first non-space rather than at the column.
+  const lead = head.length - head.trimStart().length;
+  const match = CHIP_PROMPT.exec(head.slice(lead));
+  if (!match || match.index !== 0) return -1;
+  // Everything before the sign has to read as prompt parts: a path, a
+  // username, a branch, a host. Prose that happens to end in `%` does not.
+  const body = head.slice(lead);
+  const prefix = body.slice(0, match[0].length - match[2].length);
+  if (!/[/~@.]/.test(prefix)) return -1;
+  return lead + match[0].length;
 }
 
 /** True when the line contains a prompt alone, with no submitted command. */
@@ -464,10 +508,19 @@ export function semanticLine(text: string): SemanticLine {
   // it may be half-typed (a line left behind by tab completion or Ctrl-C),
   // and the shell's own highlighting owns it anyway.
   let commandFrom = -1;
-  const windowsPrompt = wholeLine ? null : WINDOWS_PROMPT.exec(text);
+  const chipEnd = wholeLine ? -1 : chipPromptEnd(text);
+  const windowsPrompt =
+    wholeLine || chipEnd >= 0 ? null : WINDOWS_PROMPT.exec(text);
   const userPrompt =
-    wholeLine || windowsPrompt ? null : USER_PROMPT.exec(text);
-  if (windowsPrompt) {
+    wholeLine || chipEnd >= 0 || windowsPrompt ? null : USER_PROMPT.exec(text);
+  if (chipEnd >= 0) {
+    // The chips are prompt chrome; the sign keeps its own colour, and the
+    // command after it is claimed so no token inside it is coloured.
+    const sign = text.slice(0, chipEnd).match(/[%$#]$/)?.[0] ?? "";
+    add(0, chipEnd - sign.length, C.gray);
+    add(chipEnd - sign.length, chipEnd, C.rose);
+    commandFrom = chipEnd;
+  } else if (windowsPrompt) {
     addParts(windowsPrompt, [
       [windowsPrompt[1] ?? "", C.mint],
       [windowsPrompt[2] ?? windowsPrompt[3] ?? "", C.yellow],

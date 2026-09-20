@@ -1,7 +1,7 @@
 import * as api from "./api";
 import { fontStack } from "./fonts";
 import { commandHistory } from "./history";
-import { suggestCommands } from "./suggestions";
+import { sessionCompletions } from "./sessionCompletions";
 import { IS_WINDOWS } from "./platform";
 import { tabTitle, useStore, type HostKeyPrompt, type Tab } from "./store";
 import type { TerminalController } from "./terminal";
@@ -11,6 +11,9 @@ import {
   setController,
 } from "./terminalRegistry";
 import { isFileSession, type SessionInfo, type SessionProfile } from "./types";
+
+/** How long a session's asked-for directory answers the popup; see below. */
+const CWD_ASK_TTL_MS = 2000;
 
 /** Line written into a terminal when its session ends, however it ended. */
 export const SESSION_CLOSED_NOTICE = "\r\n\x1b[33m[session closed]\x1b[0m\r\n";
@@ -155,7 +158,17 @@ export async function ensureController(
           if (local) refreshLocalWhere(id);
         } else store.clearCommandActivity(id);
       },
-      suggest: (input) => suggestCommands(input, historyHost(id)),
+      // Completions know what the line is asking for: a path lists this
+      // session's own filesystem, a tool's subcommands and flags come from
+      // its table, and the shell's history answers the rest.
+      suggest: sessionCompletions(
+        {
+          id,
+          local,
+          cwd: () => whereTheShellIs(id),
+        },
+        historyHost(id),
+      ),
       onAiTool: (tool) => useStore.getState().setAiTool(id, tool),
       onResize: (cols, rows) => {
         useStore.getState().setSize(id, cols, rows);
@@ -431,6 +444,35 @@ function localPathFromUrlPath(path: string): string {
   const drive = /^\/([A-Za-z]:)(\/.*)?$/.exec(path);
   if (!drive) return path;
   return `${drive[1]}${(drive[2] ?? "/").replace(/\//g, "\\")}`;
+}
+
+/**
+ * Where a session is, for the completion popup to list a directory against.
+ * The shell's own report is free and already exact, so it answers whenever it
+ * is there; a session that has not printed one yet is asked the way the
+ * "reveal working directory" command asks — the server for an SSH host, the
+ * OS for a local shell — and the answer is kept, because a popup asks on
+ * every keystroke of a path and a round trip per character is not a popup.
+ */
+const askedCwd = new Map<string, { at: number; path: Promise<string | null> }>();
+
+function whereTheShellIs(id: string): string | null | Promise<string | null> {
+  const reported = getController(id)?.reportedCwd;
+  if (reported) {
+    askedCwd.delete(id);
+    return reported.path;
+  }
+  const held = askedCwd.get(id);
+  if (held && Date.now() - held.at < CWD_ASK_TTL_MS) return held.path;
+  const tab = useStore.getState().tabs.find((item) => item.info.id === id);
+  if (!tab) return null;
+  const path = shellCwd(tab).catch(() => null);
+  askedCwd.set(id, { at: Date.now(), path });
+  // A session that has gone away leaves nothing to answer with.
+  void path.then((answer) => {
+    if (answer === null) askedCwd.delete(id);
+  });
+  return path;
 }
 
 /**

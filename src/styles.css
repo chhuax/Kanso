@@ -7,53 +7,64 @@
 :root {
   color-scheme: dark;
 
-  --bg-app: #181818;
-  --bg-panel: #181818;
-  --bg-panel-alt: #1f1f1f;
-  --bg-terminal: #1f1f1f;
-  --bg-field: #313131;
-  --bg-active: #04395e;
-  --bg-hover: #2a2d2e;
-  --border: #2b2b2b;
-  --border-strong: #3c3c3c;
-  --fg: #cccccc;
-  --fg-dim: #9d9d9d;
-  --fg-faint: #6e7681;
-  --accent: #0078d4;
-  --accent-soft: #04395e;
+  --bg-app: #050505;
+  --bg-panel: #050505;
+  --bg-panel-alt: #111111;
+  --bg-terminal: #050505;
+  /* A field is a box you type in, not a grey tile. Warp derives it as the page
+     background with 10% white over it (#1a1a1a) and that reads as a slab once
+     the page itself is #050505, so the field keeps only enough lift to be
+     visible on a black page and leans on its border to say where it starts. */
+  --bg-field: #0d0d0d;
+  --bg-active: #123a47;
+  --bg-hover: #161616;
+  --border: #1f1f1f;
+  --border-strong: #333333;
+  --fg: #ffffff;
+  --fg-dim: #9b9b9b;
+  /* The weakest text still has to be readable: this was #6e7681, which is
+     3.9:1 on the chrome and 2.8:1 on a field — a placeholder you have to
+     squint at. It sits between --fg-dim and nothing on purpose, so it stays
+     dimmer than the labels and brighter than it was. */
+  --fg-faint: #818181;
+  --accent: #19aad8;
+  --accent-soft: #0b2b33;
   --accent-contrast: #ffffff;
-  --panel-session: #6ea8fe;
-  --panel-sender: #ff9f66;
-  --panel-filer: #59d6b2;
-  --green: #89d185;
-  --yellow: #cca700;
-  --red: #f85149;
+  --panel-session: #a5d5fe;
+  --panel-sender: #ff8272;
+  --panel-filer: #b4fa72;
+  --green: #b4fa72;
+  --yellow: #fefdc2;
+  --red: #ff8272;
 
-  --scrollbar-thumb: #424242;
-  --scrollbar-thumb-hover: #4f4f4f;
-  --term-scrollbar-thumb-hover: #7a7a7a;
+  --scrollbar-thumb: #303030;
+  --scrollbar-thumb-hover: #454545;
+  --term-scrollbar-thumb-hover: #6b6b6b;
   --row-separator: rgba(255, 255, 255, 0.07);
   --swatch-ring: rgba(255, 255, 255, 0.1);
 
   /* Menus float above the chrome: a step lighter than the panels, with a
      border that still reads against the editor surface. Segmented controls
      sit a knob on a sunken track. */
-  --bg-menu: #202020;
-  --bg-menu-glass: rgba(32, 32, 32, 0.86);
-  --border-menu: #3f3f3f;
+  --bg-menu: #141414;
+  --bg-menu-glass: rgba(20, 20, 20, 0.88);
+  --border-menu: #333333;
   --menu-highlight: rgba(255, 255, 255, 0.06);
   --menu-separator: rgba(255, 255, 255, 0.09);
   --menu-mark: rgba(255, 255, 255, 0.32);
-  --bg-track: #2d2d2d;
-  --bg-knob: #4b4b4b;
+  --bg-track: #1a1a1a;
+  --bg-knob: #3a3a3a;
   --shadow-knob: 0 1px 2px rgba(0, 0, 0, 0.4);
 
-  --dir-label: #9cdcfe;
-  --symlink-label: #c586c0;
+  --dir-label: #a5d5fe;
+  --symlink-label: #ff8ffd;
 
-  --gutter-border: #2b2b2b;
-  --gutter-time-fg: #5a5d63;
-  --gutter-line-fg: #6e7681;
+  --gutter-border: #1f1f1f;
+  /* Timestamps and line numbers are the smallest text in the window and were
+     the faintest; the time at #5a5d63 sat at 2.5:1. Both come up to the same
+     step as --fg-faint. */
+  --gutter-time-fg: #9b9b9b;
+  --gutter-line-fg: #9b9b9b;
 
   --notice-info-bg: rgba(24, 33, 44, 0.95);
   --notice-info-fg: #85b6ff;
@@ -100,7 +111,7 @@
   --border-strong: #cecece;
   --fg: #3b3b3b;
   --fg-dim: #616161;
-  --fg-faint: #868686;
+  --fg-faint: #6f6f6f;
   --accent: #005fb8;
   --accent-soft: #bed6ed;
   --accent-contrast: #ffffff;
@@ -131,8 +142,8 @@
   --symlink-label: #652d90;
 
   --gutter-border: #e5e5e5;
-  --gutter-time-fg: #a3a8ae;
-  --gutter-line-fg: #6e7681;
+  --gutter-time-fg: #6f6f6f;
+  --gutter-line-fg: #6f6f6f;
 
   --notice-info-bg: rgba(238, 246, 255, 0.96);
   --notice-info-fg: #005fb8;
@@ -318,20 +329,6 @@ textarea:focus {
   align-self: stretch;
   flex: 2 1 20%;
   min-width: min-content;
-}
-
-.layout-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  margin: 0 4px;
-}
-
-.layout-actions .panel-action:disabled {
-  color: var(--fg-faint);
-  opacity: 0.5;
-  background: none;
-  cursor: default;
 }
 
 .window-controls {
@@ -677,24 +674,6 @@ textarea:focus {
 /* What the right sidebar leaves behind once it is tucked away: a clickable
    strip holding the only control that brings it back. Like the sidebars it
    draws no divider of its own — this one is the edge, so it does. */
-.sidebar-rail {
-  flex: 0 0 24px;
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  padding: 8px 0 0;
-  border: 0;
-  border-left: 1px solid var(--border);
-  background: var(--bg-panel);
-  color: var(--fg-faint);
-  cursor: pointer;
-}
-
-.sidebar-rail:hover {
-  color: var(--fg);
-  background: color-mix(in srgb, var(--fg) 8%, transparent);
-}
-
 /* The sidebars and the dock draw no edge of their own: the splitter between
    them and the centre is the 1px divider (see the splitters section). */
 .bottom-dock {
@@ -841,6 +820,28 @@ textarea:focus {
   font-weight: 500;
   letter-spacing: 0.02em;
   text-transform: none;
+}
+
+/* The layout controls at the right end of the menu bar. The button inside is
+   a `.panel-action` like the panel headers' own. */
+.layout-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0 4px;
+}
+
+.layout-actions .panel-action:disabled {
+  color: var(--fg-faint);
+  opacity: 0.5;
+  background: none;
+  cursor: default;
+}
+
+/* The panel is showing: the icon is the state, so it says so in the same way
+   the panel tabs do — brighter than a control that is merely available. */
+.layout-actions .panel-action[aria-pressed="true"] {
+  color: var(--fg);
 }
 
 .panel-action {
@@ -1268,7 +1269,6 @@ textarea:focus {
   padding: 8px;
   border-radius: 4px;
   color: var(--fg-dim);
-  font-style: italic;
   white-space: nowrap;
   overflow: hidden;
   /* WebKit still shows an I-beam over unselectable text under cursor: auto. */
@@ -1357,38 +1357,7 @@ textarea:focus {
   border: 1px solid var(--border);
 }
 
-/* Dragged tab: lifted above its neighbours while it follows the pointer; the
-   strip drops hover feedback so the reflowing tabs stay calm. */
-.tab-rail.is-reordering {
-  cursor: grabbing;
-}
 
-.tab-rail.is-reordering .tab-row:hover {
-  background: transparent;
-}
-
-.tab-rail.is-reordering .tab-row.is-active:hover {
-  background: var(--bg-terminal);
-}
-
-.tab-row.is-dragging,
-.tab-rail.is-reordering .tab-row.is-dragging:hover {
-  position: relative;
-  z-index: 2;
-  background: var(--bg-hover);
-  box-shadow:
-    inset 2px 0 0 var(--session-color, var(--accent)),
-    var(--shadow-pop);
-}
-
-.tab-row.is-dragging.is-active,
-.tab-rail.is-reordering .tab-row.is-dragging.is-active:hover {
-  background: var(--bg-terminal);
-}
-
-.tab-rail.is-reordering .tab-row .tab-close {
-  visibility: hidden;
-}
 
 .tab-row.is-active {
   background: var(--bg-terminal);
@@ -1584,57 +1553,7 @@ textarea:focus {
   margin-top: -1px;
 }
 
-/* Where a dragged tab would land: the whole pane, or the half it would split off. */
-.pane-drop {
-  position: absolute;
-  inset: 0;
-  z-index: 4;
-  pointer-events: none;
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-  box-shadow: inset 0 0 0 1px var(--accent);
-  transition:
-    left 90ms ease,
-    right 90ms ease,
-    top 90ms ease,
-    bottom 90ms ease;
-}
 
-.pane-drop.is-left {
-  right: 50%;
-}
-
-.pane-drop.is-right {
-  left: 50%;
-}
-
-.pane-drop.is-up {
-  bottom: 50%;
-}
-
-.pane-drop.is-down {
-  top: 50%;
-}
-
-/* Follows the pointer while a tab is dragged beyond its own strip. */
-.tab-drag-ghost {
-  position: fixed;
-  top: 0;
-  left: 0;
-  z-index: 1000;
-  pointer-events: none;
-  max-width: 220px;
-  padding: 4px 10px;
-  border: 1px solid var(--border-strong);
-  border-radius: 4px;
-  background: var(--bg-panel);
-  box-shadow: var(--shadow-pop);
-  color: var(--fg);
-  font-size: var(--panel-font-size);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  opacity: 0.92;
-}
 
 /* --- File-transfer workspace ---------------------------------------------- */
 
@@ -2054,9 +1973,33 @@ textarea:focus {
   font-variant-numeric: tabular-nums;
 }
 
+/* The row the cursor is on: the one line the eye is looking for, so it gets a
+   tint that reads from across the window and both its columns come up with it.
+   The text is the window's own foreground rather than the accent or white —
+   white on the accent's own tint washes out in the light theme, where the tint
+   is pale and the contrast has to come from the text being dark. The `color`
+   is set on the two columns by name: each of them sets its own further down,
+   which outranks a colour on the row. */
 .gutter-row.is-cursor {
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--fg);
+}
+
+.gutter-row.is-cursor .gutter-time,
+.gutter-row.is-cursor .gutter-line {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+:root[data-theme="light"] .gutter-row.is-cursor {
+  /* The light accent is a mid blue; full strength is the only place it reads
+     as a mark rather than as a smudge on a white terminal. */
+  background: var(--accent);
+}
+
+:root[data-theme="light"] .gutter-row.is-cursor .gutter-time,
+:root[data-theme="light"] .gutter-row.is-cursor .gutter-line {
+  color: var(--accent-contrast);
 }
 
 .gutter-time {
@@ -2159,7 +2102,9 @@ textarea:focus {
 }
 
 .term-suggest-item {
-  display: block;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
   overflow: hidden;
   padding: 3px 10px;
   border-radius: 4px;
@@ -2192,6 +2137,22 @@ textarea:focus {
 .term-suggest-match {
   color: var(--accent);
   font-weight: 600;
+}
+
+/* What a row completes to, held in one column so the names line up down the
+   list, and the note beside it — "directory", a flag's meaning — which is the
+   part that says why the row is the right one. */
+.term-suggest-label {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.term-suggest-hint {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: var(--fg-faint);
+  font-size: 0.9em;
 }
 
 /* --accent is muddy on its own tint in the dark palette; lighten it there.

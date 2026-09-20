@@ -48,7 +48,7 @@
 
 **命令补全**
 
-开启 **Edit → Command Suggestions** 后，ZenTerm 会记住在终端里执行过的命令，输入时弹窗列出历史匹配。`↓` 进入列表，`Enter` / `Tab` 采纳，`Esc` 关闭；弹窗尚未选中任何一项时，其余按键仍照常发给 Shell，**Edit → Clear Command History…** 可清空历史。
+开启 **Edit → Command Suggestions** 后，ZenTerm 会记住在终端里执行过的命令，输入时补全：既有历史匹配和内置的常用命令，也有**当前这一行真正要的参数**。`cd`、`cat`、`vim` 这类命令后面的词会从会话自己的文件系统里补全——本地会话读本地，SSH 会话走 SFTP 读服务器——所以 `cd src/te` 直接补成 `cd src/terminal.ts`；`kubectl` 和 `git` 会补子命令、资源（`po` 和 `pods` 都给）和常用 flag，每个 flag 右侧带一句说明；`kubectl -n ` 会列出 kubeconfig 里的 namespace，`--context ` 列出 context。**只替换光标下的那个词**，命令、flag 和你已经打了一半的目录都原样保留。`Tab` 先选中第一项，再按就在列表里走；`↓` 进入列表；走过末尾时 `Tab` / `Enter` 采纳；`Esc` 关闭。弹窗未选中任何一项时，其余按键仍照常发给 Shell；而补全还在取（SSH 下列目录是一次往返）时按 `Tab` 会被扣住，不会和 Shell 自己的补全打架。**Edit → Clear Command History…** 可清空历史。
 
 **标签活动**
 

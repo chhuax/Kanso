@@ -53,16 +53,27 @@ zenterm_branch() {
     dir=${dir:h}
   done
   line=$(<"$head") || return 0
-  line=${line%%$'\n'}
-  [[ $line == 'ref: refs/heads/'* ]] || return 0
-  print -r -- "${line#ref: refs/heads/}"
+  line=${line##[[:space:]]##}
+  line=${line%%[[:space:]]##}
+  # Read the way the app's own tab line reads it (see `git.rs`): a reference
+  # names its branch, a detached head is named by the commit it is parked on,
+  # and anything else has no name to give. The two must agree — they are the
+  # same fact on the same screen.
+  if [[ $line == 'ref:'* ]]; then
+    local reference=${line#ref:}
+    reference=${reference##[[:space:]]##}
+    reference=${reference%%[[:space:]]##}
+    [[ -n $reference ]] && print -r -- "${reference#refs/heads/}"
+    return 0
+  fi
+  [[ ${line[1,7]} == [0-9a-fA-F](#c7) ]] && print -r -- "${line[1,7]}"
 }
 
 zenterm_precmd() {
   setopt localoptions extendedglob
   # Not `path`: that is zsh's array twin of `PATH`, so a scalar assigned to it
   # lands in an array and `${#path}` counts elements rather than characters.
-  local where branch shown
+  local where branch
   where=${(%):-%~}
   # A path too long for the line keeps its end — that is the half that says
   # where you are — whole components at a time, with `...` where the rest of
@@ -81,20 +92,36 @@ zenterm_precmd() {
   fi
   branch=$(zenterm_branch $PWD)
 
-  # The directory escapes (`%~`, `%/`, `%d`, `%2~`) move into the chip. A
-  # prompt that spells its directory another way — `$PWD`, say — is left alone
-  # and simply goes without the chip, rather than being said twice.
+  # The chip says where the shell is, so the prompt must not say it too: every
+  # directory escape comes out of the template and the chip takes its place.
+  # That includes the numbered forms — `%1~` prints the last component and
+  # `%2d` a tail of the path — and they are the reason the template has to be
+  # read rather than left alone: a chip saying `.../work/src/parser` beside a
+  # bare `parser` is one directory spelled two ways. A prompt that spells the
+  # path out itself (`$PWD`) cannot be edited safely, so it keeps its own and
+  # the chip stays off the line rather than being the same fact a second time.
   ZENTERM_BASE=$ZENTERM_USER_PROMPT
-  # `~` is zsh's pattern-exclusion operator, so each of these is quoted to be
-  # taken as the characters it is; the space the escape sat in goes with it,
-  # and the run of spaces that can leave is closed up again.
-  ZENTERM_BASE=${ZENTERM_BASE//"%~"/}
-  ZENTERM_BASE=${ZENTERM_BASE//"%\/"/}
-  ZENTERM_BASE=${ZENTERM_BASE//"%d"/}
+  local directory_is_shown=no
+  [[ $ZENTERM_BASE == *PWD* || $ZENTERM_BASE == *pwd* ]] &&
+    directory_is_shown=yes
+
+  # `~` is zsh's pattern-exclusion operator, so it is spelled inside a bracket
+  # expression, where it is a literal character. The pattern lives in a
+  # variable because the `/` it also matches would otherwise close it, and
+  # `${~…}` is what makes the value a pattern again. `[0-9]#` is what lets one
+  # pattern cover `%~`, `%/` and `%d` alongside their numbered forms; the space
+  # the escape sat in goes with it, and the run of spaces that can leave is
+  # closed up again below.
+  local escape='%[0-9]#[/d~]'
+  ZENTERM_BASE=${ZENTERM_BASE//${~escape}/}
   # The user's name goes too: in a shell started here it is always the same
-  # name, and the chip says the part that changes.
+  # name, and the chip says the part that changes. The host it was joined to
+  # goes with it — `%n@%m` would otherwise leave a bare `@` on the line, and
+  # which machine the shell is on is what the window is for.
   ZENTERM_BASE=${ZENTERM_BASE//'%n'/}
   ZENTERM_BASE=${ZENTERM_BASE//'%N'/}
+  [[ $ZENTERM_BASE == *'@%m'* ]] && ZENTERM_BASE=${ZENTERM_BASE//'@%m'/}
+  [[ $ZENTERM_BASE == *'@%M'* ]] && ZENTERM_BASE=${ZENTERM_BASE//'@%M'/}
   while [[ $ZENTERM_BASE == *'  '* ]]; do
     ZENTERM_BASE=${ZENTERM_BASE//'  '/' '}
   done
@@ -103,10 +130,6 @@ zenterm_precmd() {
   while [[ $ZENTERM_BASE == ' '* ]]; do
     ZENTERM_BASE=${ZENTERM_BASE# }
   done
-  shown=${(%):-${ZENTERM_BASE}}
-  local directory_is_shown=no
-  [[ $shown == *${(%):-%~}* || $ZENTERM_BASE == *PWD* || $ZENTERM_BASE == *pwd* ]] &&
-    directory_is_shown=yes
 
   local chip=$'%{\e[48;5;236m%}'
   local text=$'%{\e[38;5;252m%}'
@@ -289,8 +312,10 @@ mod tests {
             Some("feature/x")
         );
 
-        // The directory and the user's name move into the chip, which is the
-        // part that changes; the prompt keeps its sign.
+        // The chip is what says the directory, so a prompt that prints one is
+        // edited to stop: the escape comes out of the template and the chip
+        // takes its place. Leaving both would put the directory on the line
+        // twice, and dropping both would leave it nowhere.
         // The marker after the prompt keeps a trailing space from being
         // trimmed away with the newline by the helper above.
         let with_dir = run(
@@ -298,11 +323,14 @@ mod tests {
             "PROMPT='%n %~ %# '; ZENTERM_USER_PROMPT=$PROMPT; zenterm_precmd; print -rn -- \"$PROMPT\"; print -r -- '|'",
         )
         .expect("zsh");
-        assert!(with_dir.contains(".../"), "no directory chip: {with_dir}");
+        assert!(
+            with_dir.contains(".../"),
+            "the directory is on neither the chip nor the prompt: {with_dir}"
+        );
         assert!(with_dir.contains("feature/x"), "no branch in: {with_dir}");
         assert!(
             !with_dir.contains("%~"),
-            "the prompt kept a directory of its own: {with_dir}"
+            "the prompt kept a directory the chip alone should say: {with_dir}"
         );
         assert!(
             !with_dir.contains("%n"),
@@ -330,6 +358,45 @@ mod tests {
             "the directory is on the line twice: {literal}"
         );
         assert!(literal.contains("feature/x"), "no branch in: {literal}");
+
+        // A numbered escape prints the last component (`%1~`) or a tail of the
+        // path (`%2~`), not the path itself. That is precisely why it comes out
+        // of the template too: a chip reading `.../work/src/parser` next to a
+        // bare `parser` is the same directory spelled two ways, and the prompt
+        // would look like it had grown a folder.
+        let tail = run(
+            &deep,
+            "PROMPT='%n@%m %1~ %# '; ZENTERM_USER_PROMPT=$PROMPT; zenterm_precmd; print -r -- \"$PROMPT\"",
+        )
+        .expect("zsh");
+        assert!(
+            tail.contains(".../"),
+            "the directory is on neither the chip nor the prompt: {tail}"
+        );
+        assert!(tail.contains("feature/x"), "no branch in: {tail}");
+        assert!(
+            !tail.contains("%1~"),
+            "the prompt kept a directory the chip alone should say: {tail}"
+        );
+        assert!(
+            !tail.contains("@%m") && !tail.contains("@%M"),
+            "the host stayed behind with no user: {tail}"
+        );
+        assert!(tail.contains("%#"), "the sign is gone: {tail}");
+
+        let numbered = run(
+            &deep,
+            "PROMPT='%n %2~ %# '; ZENTERM_USER_PROMPT=$PROMPT; zenterm_precmd; print -r -- \"$PROMPT\"",
+        )
+        .expect("zsh");
+        assert!(
+            numbered.contains(".../"),
+            "the directory is on neither the chip nor the prompt: {numbered}"
+        );
+        assert!(
+            !numbered.contains("%2~"),
+            "the prompt kept a directory the chip alone should say: {numbered}"
+        );
 
         // A prompt with no user in front gets the chips in front of it, with
         // the colour codes marked as taking no room.
@@ -384,6 +451,52 @@ mod tests {
             !prompt.contains("\u{f126}"),
             "a branch appeared from nowhere: {prompt}"
         );
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    /// The chip and the app's own tab line read `HEAD` for the same fact, so
+    /// they must not disagree: a detached head is named by its commit there,
+    /// and it is named by its commit here too.
+    #[test]
+    fn a_detached_head_is_named_by_its_commit() {
+        use std::process::Command;
+
+        let root = std::env::temp_dir().join(format!("zenterm-detached-{}", uuid::Uuid::new_v4()));
+        let shim = ensure_zsh_shim_in(&root).expect("write the shim");
+        let repo = root.join("work");
+        fs::create_dir_all(repo.join(".git")).expect("create the repository");
+
+        let branch_of = |head: &str| -> Option<String> {
+            fs::write(repo.join(".git").join("HEAD"), head).expect("write HEAD");
+            let output = Command::new("zsh")
+                .arg("-c")
+                .arg(format!(
+                    "source {}/zenterm.zsh\nzenterm_branch \"$PWD\"",
+                    shim.display()
+                ))
+                .current_dir(&repo)
+                .output()
+                .ok()?;
+            Some(String::from_utf8_lossy(&output.stdout).trim_end().to_string())
+        };
+
+        let Some(commit) = branch_of("a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0\n") else {
+            eprintln!("no zsh on this machine; the hook itself is untested here");
+            fs::remove_dir_all(root).ok();
+            return;
+        };
+        assert_eq!(commit, "a1b2c3d", "a detached head was not named");
+
+        // The whitespace `git.rs` trims comes off here too, and a branch is
+        // still a branch.
+        assert_eq!(branch_of("  ref: refs/heads/feature/parser  \n").as_deref(), Some("feature/parser"));
+        assert_eq!(branch_of("ref: refs/heads/main\n").as_deref(), Some("main"));
+
+        // A short or non-hex HEAD names no commit, so the chip stays away
+        // rather than saying something it cannot stand behind.
+        assert_eq!(branch_of("a1b2c3\n").as_deref(), Some(""));
+        assert_eq!(branch_of("not a commit\n").as_deref(), Some(""));
 
         fs::remove_dir_all(root).ok();
     }

@@ -56,7 +56,6 @@ export function Workspace({ onNewSession }: Props) {
   const tabs = useStore((s) => s.tabs);
   const activeId = useStore((s) => s.activeId);
   const activePaneId = useStore((s) => s.activePaneId);
-  const dropTarget = useStore((s) => s.dropTarget);
   const resizeLayout = useStore((s) => s.resizeLayout);
   const ref = useRef<HTMLDivElement>(null);
   const rects = useMemo(() => layoutRects(layout), [layout]);
@@ -82,10 +81,6 @@ export function Workspace({ onNewSession }: Props) {
       {panes.map((pane) => {
         const rect = rects.panes.get(pane.id);
         if (!rect) return null;
-        const zone =
-          dropTarget?.paneId === pane.id && dropTarget.zone !== "strip"
-            ? dropTarget.zone
-            : null;
         return (
           <div
             key={pane.id}
@@ -106,9 +101,6 @@ export function Workspace({ onNewSession }: Props) {
                     New Session
                   </button>
                 </div>
-              )}
-              {zone && (
-                <div className={`pane-drop is-${zone}`} aria-hidden="true" />
               )}
             </div>
           </div>

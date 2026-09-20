@@ -29,6 +29,8 @@ import folderOpened from "@vscode/codicons/src/icons/folder-opened.svg?raw";
 import goToFile from "@vscode/codicons/src/icons/go-to-file.svg?raw";
 import googleGemini from "@vscode/codicons/src/icons/google-gemini.svg?raw";
 import home from "@vscode/codicons/src/icons/home.svg?raw";
+import layoutSidebarRight from "@vscode/codicons/src/icons/layout-sidebar-right.svg?raw";
+import layoutSidebarRightOff from "@vscode/codicons/src/icons/layout-sidebar-right-off.svg?raw";
 import linkExternal from "@vscode/codicons/src/icons/link-external.svg?raw";
 import listSelection from "@vscode/codicons/src/icons/list-selection.svg?raw";
 import move from "@vscode/codicons/src/icons/move.svg?raw";
@@ -104,6 +106,8 @@ const SVGS = {
   send,
   server,
   sparkle,
+  "layout-sidebar-right": layoutSidebarRight,
+  "layout-sidebar-right-off": layoutSidebarRightOff,
   "split-horizontal": splitHorizontal,
   "split-vertical": splitVertical,
   tag,

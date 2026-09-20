@@ -11,8 +11,6 @@ export interface PanelTabsProps {
   /** Panels the View menu currently offers; a hidden one gets no tab. */
   available: readonly PanelName[];
   onSelect: (panel: PanelName) => void;
-  /** Tucks the sidebar away; the rail at the window edge brings it back. */
-  onCollapse?: () => void;
 }
 
 interface Tab {
@@ -32,12 +30,12 @@ const TABS: Tab[] = [
  * panel is mounted, so the one that carries a badge (`local` / `ssh` / `sftp`
  * on the Filer) hands it down; the tab keeps its place either way, and the
  * trailing spacer keeps the panel's own actions at the far end of the row.
+ * The menu bar's panel toggle is the only control that puts the sidebar away.
  */
 export function PanelTabs({
   active,
   available,
   onSelect,
-  onCollapse,
   filerBadge,
 }: PanelTabsProps & { filerBadge?: string }) {
   const shown = TABS.filter((tab) => available.includes(tab.id));
@@ -63,17 +61,6 @@ export function PanelTabs({
           </button>
         );
       })}
-      {onCollapse && (
-        <button
-          type="button"
-          className="panel-action panel-collapse"
-          onClick={onCollapse}
-          title="Collapse panel"
-          aria-label="Collapse panel"
-        >
-          <Icon name="chevron-right" />
-        </button>
-      )}
       <span className="panel-tabs-spacer" />
     </>
   );

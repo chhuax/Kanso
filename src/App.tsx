@@ -36,7 +36,6 @@ import { Splitter } from "./components/Splitter";
 import { StatusBar } from "./components/StatusBar";
 import { TabRail } from "./components/TabRail";
 import { UpdateDialog } from "./components/UpdateDialog";
-import { Icon } from "./components/icons";
 import { Workspace } from "./components/Workspace";
 import { FilerPanel } from "./components/panels/FilerPanel";
 import { SenderPanel } from "./components/panels/SenderPanel";
@@ -135,9 +134,12 @@ export default function App() {
   // Which panel the right sidebar shows; the View menu's two flags decide
   // which ones it offers (see `availableRightTabs`).
   const [rightTab, setRightTab] = useState<PanelName>("sessions");
-  // Tucked away by the header's chevron, leaving only the rail that brings it
-  // back. The panel flags are untouched, so the same tabs return.
-  const [rightCollapsed, setRightCollapsed] = useState(true);
+  // Open to begin with: the session list is the window's second half, and a
+  // window that opens with an empty space beside the terminal makes the user
+  // find the control before they can use the app. Tucking it away is one press
+  // — the menu bar's panel toggle, the only control for it — and is not
+  // remembered, so a fresh window always shows what it has.
+  const [rightCollapsed, setRightCollapsed] = useState(false);
 
   // --- backend events -------------------------------------------------------
 
@@ -396,7 +398,9 @@ export default function App() {
   // with its own View-menu flag; a file session brings its own dual-pane
   // manager, so the Filer tab is not offered alongside it.
   const availableRightTabs: PanelName[] = [
-    ...(panels.sessions ? (["sessions"] as PanelName[]) : []),
+    // Always there: it is the window's other half, and a sidebar that can be
+    // emptied by the View menu is one the panel toggle can no longer open.
+    "sessions",
     ...(panels.filer && !fileMode ? (["filer"] as PanelName[]) : []),
   ];
   const activeRightTab = availableRightTabs.includes(rightTab)
@@ -406,7 +410,6 @@ export default function App() {
     active: activeRightTab,
     available: availableRightTabs,
     onSelect: setRightTab,
-    onCollapse: () => setRightCollapsed(true),
   };
 
   // The View menu and "reveal the shell's directory in the Filer" switch a
@@ -418,16 +421,12 @@ export default function App() {
     if (panels.filer && !previous.filer) {
       setRightTab("filer");
       setRightCollapsed(false);
-    } else if (panels.sessions && !previous.sessions) {
-      setRightTab("sessions");
-      setRightCollapsed(false);
     }
     previousPanels.current = panels;
   }, [panels]);
 
   // "Reveal the shell's directory in the Filer" bumps `filerTarget` whether or
-  // not the Filer is already switched on, so it has to move the tab itself —
-  // the flag transition above only covers turning the panel on.
+  // not the Filer is already switched on, so it has to move the tab itself.
   const filerTarget = useStore((s) => s.filerTarget);
   useEffect(() => {
     if (filerTarget) {
@@ -437,13 +436,12 @@ export default function App() {
   }, [filerTarget]);
 
   // "Manage Sessions…" from the rail's menu: the Session panel is where a
-  // saved session is edited, so turn it on if it is off — what revealing a
-  // directory in the Filer does for its own panel — and bring it forward.
+  // saved session is edited, so bring it forward and make sure the sidebar is
+  // showing — the panel is always there, so there is no flag to turn on.
   const manageSessions = useCallback(() => {
-    if (!useStore.getState().panels.sessions) togglePanel("sessions");
     setRightTab("sessions");
     setRightCollapsed(false);
-  }, [togglePanel]);
+  }, []);
 
   return (
     <div
@@ -457,6 +455,10 @@ export default function App() {
     >
       <MenuBar
         onNewSession={newSession}
+        rightPanel={{
+          open: !rightCollapsed,
+          onToggle: () => setRightCollapsed(!rightCollapsed),
+        }}
         onFind={openSearch}
         onFindNext={findNext}
         onFontSettings={() => setFontSettingsOpen(true)}
@@ -491,20 +493,9 @@ export default function App() {
           )}
         </div>
 
-        {availableRightTabs.length > 0 &&
-          (rightCollapsed ? (
-            <button
-              type="button"
-              className="sidebar-rail"
-              onClick={() => setRightCollapsed(false)}
-              title="Expand panel"
-              aria-label="Expand panel"
-            >
-              <Icon name="chevron-left" />
-            </button>
-          ) : (
-            <>
-              <Splitter
+        {!rightCollapsed && (
+          <>
+            <Splitter
                 orientation="vertical"
                 onResize={(delta) =>
                   setRightWidth((width) => clamp(width - delta, 150, 520))
@@ -524,8 +515,8 @@ export default function App() {
                   />
                 )}
               </div>
-            </>
-          ))}
+          </>
+        )}
       </div>
 
       {panels.sender && (

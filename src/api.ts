@@ -343,6 +343,13 @@ export const gitBranch = (path: string) =>
 export const localHostname = () => invoke<string>("local_hostname");
 
 /**
+ * The contexts and namespaces the machine's kubeconfig knows, for completing
+ * `kubectl -n ` and `--context `. Read from the file, never from a cluster.
+ */
+export const kubeNames = () =>
+  invoke<{ contexts: string[]; namespaces: string[] }>("kube_names");
+
+/**
  * Path of the Windows drive list the local browser reaches by going up from a
  * drive root. Mirrors `fs_local::THIS_PC`; nothing can be created or deleted
  * there.
