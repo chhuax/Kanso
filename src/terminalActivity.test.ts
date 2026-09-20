@@ -48,6 +48,11 @@ describe("shell prompt recognition", () => {
     "huaxin ~ % ",
     "huaxin /data/workspace % ",
     "alice ~/src $ ",
+    // The shim's chips: directory and branch in filled blocks, so the sign
+    // lands far from the line's start and no word-shaped pattern fits it.
+    "/data/workspace/ZenTerm  main % ",
+    "/data/workspace  main % ",
+    "~/src  feature/x $ ",
   ])("recognises %s", (prompt) => {
     expect(shellPromptEnd(prompt)).toBeGreaterThan(0);
     expect(isShellPrompt(prompt)).toBe(true);
@@ -60,6 +65,9 @@ describe("shell prompt recognition", () => {
     // Two words and a `%` are a prompt only when the second reads as a path.
     "Time: 100 %",
     "foo bar %",
+    // A sign alone is not enough: the front has to read as prompt parts.
+    "100% done",
+    "50 % of it",
   ])("does not mistake %s for a prompt", (output) => {
     expect(isShellPrompt(output)).toBe(false);
   });

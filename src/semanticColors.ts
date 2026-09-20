@@ -275,6 +275,21 @@ const WINDOWS_PROMPT =
   /^(?:(PS)\s?([A-Za-z]:\\[^<>|]*?|[/~][^<>|]*?)?|([A-Za-z]:\\[^<>|]*?))>/;
 
 /**
+ * The sign that ends a prompt whose front is chips rather than words: the
+ * directory and branch ZenTerm's own shim prints (`... main % cd /src`). The
+ * shapes above all expect the sign within a word or two of the line's start,
+ * and a chip puts it twenty columns in, so the line went unrecognized and its
+ * command line was coloured as output.
+ *
+ * The sign has to stand alone — whitespace or the end of the line on either
+ * side — and sit within the first `CHIP_PROMPT_LIMIT` columns, and its prefix
+ * has to look like a path, a username or a branch rather than prose. A line of
+ * output such as `100% done` fails all three.
+ */
+const CHIP_PROMPT = /^(\S[^\s]*\s+){1,6}?([%$#])(?=\s|$)/;
+const CHIP_PROMPT_LIMIT = 72;
+
+/**
  * End column of a shell prompt at the start of `text`, or -1 when the line
  * does not look like a prompt. Terminal activity tracking shares the exact
  * prompt vocabulary used by semantic coloring so command completion and the
@@ -285,12 +300,31 @@ export function shellPromptEnd(text: string): number {
   if (windowsPrompt) return windowsPrompt[0].length;
   const userPrompt = USER_PROMPT.exec(text);
   if (userPrompt) return userPrompt[0].length;
+  // Before the word-shaped patterns: `... main % ls` matches `user cwd sign`
+  // with `main` read as a username, which would leave the command line to be
+  // coloured as output.
+  const chip = chipPromptEnd(text);
+  if (chip >= 0) return chip;
   const userDirPrompt = USER_DIR_PROMPT.exec(text);
   if (userDirPrompt) return userDirPrompt[0].length;
   const barePrompt = BARE_PROMPT.exec(text);
-  return barePrompt && (barePrompt[1] || barePrompt[2] !== "#")
-    ? barePrompt[0].length
-    : -1;
+  if (barePrompt && (barePrompt[1] || barePrompt[2] !== "#")) {
+    return barePrompt[0].length;
+  }
+  return chipPromptEnd(text);
+}
+
+/** The end of a chip-style prompt, or -1 when the line is not one. */
+function chipPromptEnd(text: string): number {
+  const head = text.slice(0, CHIP_PROMPT_LIMIT);
+  const match = CHIP_PROMPT.exec(head);
+  if (!match || match.index !== 0) return -1;
+  // Everything before the sign has to read as prompt parts: a path, a
+  // username, a branch, a host. Prose that happens to end in `%` does not.
+  const prefix = head.slice(0, head.indexOf(match[2], match[0].length - match[2].length));
+  if (!/[/~@.]/.test(prefix)) return -1;
+  const signAt = match[0].length - match[2].length;
+  return signAt + match[2].length;
 }
 
 /** True when the line contains a prompt alone, with no submitted command. */
@@ -470,10 +504,19 @@ export function semanticLine(text: string): SemanticLine {
   // it may be half-typed (a line left behind by tab completion or Ctrl-C),
   // and the shell's own highlighting owns it anyway.
   let commandFrom = -1;
-  const windowsPrompt = wholeLine ? null : WINDOWS_PROMPT.exec(text);
+  const chipEnd = wholeLine ? -1 : chipPromptEnd(text);
+  const windowsPrompt =
+    wholeLine || chipEnd >= 0 ? null : WINDOWS_PROMPT.exec(text);
   const userPrompt =
-    wholeLine || windowsPrompt ? null : USER_PROMPT.exec(text);
-  if (windowsPrompt) {
+    wholeLine || chipEnd >= 0 || windowsPrompt ? null : USER_PROMPT.exec(text);
+  if (chipEnd >= 0) {
+    // The chips are prompt chrome; the sign keeps its own colour, and the
+    // command after it is claimed so no token inside it is coloured.
+    const sign = text.slice(0, chipEnd).match(/[%$#]$/)?.[0] ?? "";
+    add(0, chipEnd - sign.length, C.gray);
+    add(chipEnd - sign.length, chipEnd, C.rose);
+    commandFrom = chipEnd;
+  } else if (windowsPrompt) {
     addParts(windowsPrompt, [
       [windowsPrompt[1] ?? "", C.mint],
       [windowsPrompt[2] ?? windowsPrompt[3] ?? "", C.yellow],
