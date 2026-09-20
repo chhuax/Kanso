@@ -7,60 +7,60 @@
 :root {
   color-scheme: dark;
 
-  --bg-app: #181818;
-  --bg-panel: #181818;
-  --bg-panel-alt: #1f1f1f;
-  --bg-terminal: #1f1f1f;
-  --bg-field: #313131;
-  --bg-active: #04395e;
-  --bg-hover: #2a2d2e;
-  --border: #2b2b2b;
-  --border-strong: #3c3c3c;
-  --fg: #ebebeb;
-  --fg-dim: #b4b4b4;
+  --bg-app: #050505;
+  --bg-panel: #050505;
+  --bg-panel-alt: #111111;
+  --bg-terminal: #050505;
+  --bg-field: #1a1a1a;
+  --bg-active: #123a47;
+  --bg-hover: #161616;
+  --border: #1f1f1f;
+  --border-strong: #333333;
+  --fg: #ffffff;
+  --fg-dim: #9b9b9b;
   /* The weakest text still has to be readable: this was #6e7681, which is
      3.9:1 on the chrome and 2.8:1 on a field — a placeholder you have to
      squint at. It sits between --fg-dim and nothing on purpose, so it stays
      dimmer than the labels and brighter than it was. */
-  --fg-faint: #8b949e;
-  --accent: #0078d4;
-  --accent-soft: #04395e;
+  --fg-faint: #818181;
+  --accent: #19aad8;
+  --accent-soft: #0b2b33;
   --accent-contrast: #ffffff;
-  --panel-session: #6ea8fe;
-  --panel-sender: #ff9f66;
-  --panel-filer: #59d6b2;
-  --green: #89d185;
-  --yellow: #cca700;
-  --red: #f85149;
+  --panel-session: #a5d5fe;
+  --panel-sender: #ff8272;
+  --panel-filer: #b4fa72;
+  --green: #b4fa72;
+  --yellow: #fefdc2;
+  --red: #ff8272;
 
-  --scrollbar-thumb: #424242;
-  --scrollbar-thumb-hover: #4f4f4f;
-  --term-scrollbar-thumb-hover: #7a7a7a;
+  --scrollbar-thumb: #303030;
+  --scrollbar-thumb-hover: #454545;
+  --term-scrollbar-thumb-hover: #6b6b6b;
   --row-separator: rgba(255, 255, 255, 0.07);
   --swatch-ring: rgba(255, 255, 255, 0.1);
 
   /* Menus float above the chrome: a step lighter than the panels, with a
      border that still reads against the editor surface. Segmented controls
      sit a knob on a sunken track. */
-  --bg-menu: #202020;
-  --bg-menu-glass: rgba(32, 32, 32, 0.86);
-  --border-menu: #3f3f3f;
+  --bg-menu: #141414;
+  --bg-menu-glass: rgba(20, 20, 20, 0.88);
+  --border-menu: #333333;
   --menu-highlight: rgba(255, 255, 255, 0.06);
   --menu-separator: rgba(255, 255, 255, 0.09);
   --menu-mark: rgba(255, 255, 255, 0.32);
-  --bg-track: #2d2d2d;
-  --bg-knob: #4b4b4b;
+  --bg-track: #1a1a1a;
+  --bg-knob: #3a3a3a;
   --shadow-knob: 0 1px 2px rgba(0, 0, 0, 0.4);
 
-  --dir-label: #9cdcfe;
-  --symlink-label: #c586c0;
+  --dir-label: #a5d5fe;
+  --symlink-label: #ff8ffd;
 
-  --gutter-border: #2b2b2b;
+  --gutter-border: #1f1f1f;
   /* Timestamps and line numbers are the smallest text in the window and were
      the faintest; the time at #5a5d63 sat at 2.5:1. Both come up to the same
      step as --fg-faint. */
-  --gutter-time-fg: #a6b0ba;
-  --gutter-line-fg: #a6b0ba;
+  --gutter-time-fg: #9b9b9b;
+  --gutter-line-fg: #9b9b9b;
 
   --notice-info-bg: rgba(24, 33, 44, 0.95);
   --notice-info-fg: #85b6ff;

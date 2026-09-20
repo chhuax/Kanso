@@ -65,29 +65,32 @@ type SemanticPalette = Record<
 //   slate   debug class, HTTP versions, diff headers, timezone
 //   gray    comments, muted permission bits, disabled states
 export const SEMANTIC_PALETTES: Record<ThemeMode, SemanticPalette> = {
-  // Monokai-derived, as WindTerm's dige-black scheme is, tuned so every entry
-  // clears 4.5:1 on the #1f1f1f terminal background. That matters because the
-  // renderer's minimum-contrast pass would otherwise shift these hues.
+  // Warp's default dark theme, spread over the roles it has colours for: its
+  // 16 ANSI entries are bright and low-saturation, so a role takes the entry
+  // whose meaning it shares and its neighbours split the rest. Every entry
+  // clears 4.5:1 on the #050505 terminal background — most clear far more,
+  // which is the point of the set — so the renderer's minimum-contrast pass
+  // has nothing to move.
   dark: {
-    rose: "#ff6188",
-    red: "#ff5c57",
-    coral: "#ff7f50",
-    orange: "#fd971f",
-    amber: "#ffb454",
-    yellow: "#e6db74",
-    gold: "#ffd866",
-    lime: "#a6e22e",
-    green: "#3fd463",
-    mint: "#5fd7c0",
-    cyan: "#66d9ef",
-    sky: "#7fb4ff",
-    blue: "#6796e6",
-    violet: "#ab9df2",
-    purple: "#ae81ff",
-    orchid: "#da70d6",
-    pink: "#f78fb3",
-    slate: "#8a9bb0",
-    gray: "#8c8c8c",
+    rose: "#ff8272",
+    red: "#ff8272",
+    coral: "#ffb1fe",
+    orange: "#ffb1fe",
+    amber: "#fefdc2",
+    yellow: "#fefdc2",
+    gold: "#f1f1f1",
+    lime: "#b4fa72",
+    green: "#b4fa72",
+    mint: "#d6fcb9",
+    cyan: "#d0d1fe",
+    sky: "#a5d5fe",
+    blue: "#a5d5fe",
+    violet: "#e5e6fe",
+    purple: "#ff8ffd",
+    orchid: "#ff8ffd",
+    pink: "#ffb1fe",
+    slate: "#8e8e8e",
+    gray: "#8e8e8e",
   },
   // The same hues pulled down to 4.5:1 on white. WindTerm's own light scheme
   // uses web-color names (Plum, DarkOrange, DodgerBlue) that fall well short
@@ -117,7 +120,7 @@ export const SEMANTIC_PALETTES: Record<ThemeMode, SemanticPalette> = {
 
 /** Terminal backgrounds the bands are blended against (see XTERM_THEMES). */
 const TERMINAL_BACKGROUNDS: Record<ThemeMode, string> = {
-  dark: "#1f1f1f",
+  dark: "#050505",
   light: "#ffffff",
 };
 
