@@ -191,7 +191,12 @@ const ALT_ARROW_SEQUENCES: Record<string, string | undefined> = IS_MAC
 const XTERM_THEMES: Record<ThemeMode, ITheme> = {
   dark: {
     background: "#1f1f1f",
-    foreground: "#cccccc",
+    // The text output is drawn in: #cccccc read at 10:1, well short of the
+    // near-white a terminal is usually read against (Warp's default is 16:1).
+    // This is VS Code Dark Modern's editor foreground, and the semantic
+    // palette beside it was tuned to clear 4.5:1 on #1f1f1f already, so
+    // nothing there has to move.
+    foreground: "#e6e6e6",
     cursor: "#aeafad",
     cursorAccent: "#1f1f1f",
     selectionBackground: "#264f78",
@@ -203,15 +208,20 @@ const XTERM_THEMES: Record<ThemeMode, ITheme> = {
     blue: "#2472c8",
     magenta: "#bc3fbc",
     cyan: "#11a8cd",
-    white: "#e5e5e5",
-    brightBlack: "#666666",
+    // The default text is #e6e6e6, so the two "white" entries sit just above
+    // it: a program that asks for white still gets something brighter than
+    // plain output.
+    white: "#f0f0f0",
+    // Dim text — comments, disabled rows, a `ls` time column — at #666666 on
+    // #1f1f1f it read at 2.9:1, which is not dim, it is gone.
+    brightBlack: "#9a9a9a",
     brightRed: "#f14c4c",
     brightGreen: "#23d18b",
     brightYellow: "#f5f543",
     brightBlue: "#3b8eea",
     brightMagenta: "#d670d6",
     brightCyan: "#29b8db",
-    brightWhite: "#e5e5e5",
+    brightWhite: "#f5f5f5",
   },
   light: {
     background: "#ffffff",

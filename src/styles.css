@@ -16,7 +16,7 @@
   --bg-hover: #2a2d2e;
   --border: #2b2b2b;
   --border-strong: #3c3c3c;
-  --fg: #cccccc;
+  --fg: #ebebeb;
   --fg-dim: #b4b4b4;
   /* The weakest text still has to be readable: this was #6e7681, which is
      3.9:1 on the chrome and 2.8:1 on a field — a placeholder you have to
@@ -59,8 +59,8 @@
   /* Timestamps and line numbers are the smallest text in the window and were
      the faintest; the time at #5a5d63 sat at 2.5:1. Both come up to the same
      step as --fg-faint. */
-  --gutter-time-fg: #8b949e;
-  --gutter-line-fg: #8b949e;
+  --gutter-time-fg: #a6b0ba;
+  --gutter-line-fg: #a6b0ba;
 
   --notice-info-bg: rgba(24, 33, 44, 0.95);
   --notice-info-fg: #85b6ff;
