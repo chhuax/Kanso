@@ -135,9 +135,12 @@ export default function App() {
   // Which panel the right sidebar shows; the View menu's two flags decide
   // which ones it offers (see `availableRightTabs`).
   const [rightTab, setRightTab] = useState<PanelName>("sessions");
-  // Tucked away by the header's chevron, leaving only the rail that brings it
-  // back. The panel flags are untouched, so the same tabs return.
-  const [rightCollapsed, setRightCollapsed] = useState(true);
+  // Open to begin with: the session list is the window's second half, and a
+  // window that opens with an empty space beside the terminal makes the user
+  // find the control before they can use the app. Tucking it away is one press
+  // (the header's chevron, or the menu bar's panel toggle) and is not
+  // remembered, so a fresh window always shows what it has.
+  const [rightCollapsed, setRightCollapsed] = useState(false);
 
   // --- backend events -------------------------------------------------------
 
