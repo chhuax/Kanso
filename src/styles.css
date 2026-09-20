@@ -11,7 +11,11 @@
   --bg-panel: #050505;
   --bg-panel-alt: #111111;
   --bg-terminal: #050505;
-  --bg-field: #1a1a1a;
+  /* A field is a box you type in, not a grey tile. Warp derives it as the page
+     background with 10% white over it (#1a1a1a) and that reads as a slab once
+     the page itself is #050505, so the field keeps only enough lift to be
+     visible on a black page and leans on its border to say where it starts. */
+  --bg-field: #0d0d0d;
   --bg-active: #123a47;
   --bg-hover: #161616;
   --border: #1f1f1f;
