@@ -162,7 +162,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          mapfile -t assets < <(find dist -type f | sort)
+          assets=()
+          while IFS= read -r file; do assets+=("$file"); done < <(find dist -type f | sort)
           printf '%s\n' "${assets[@]}"
 
           if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
