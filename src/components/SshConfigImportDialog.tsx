@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import * as api from "../api";
-import { groupPath } from "../sessionGroups";
+import type { SessionGroup } from "../types";
 import { useStore } from "../store";
 import type { SshConfigEntry, SshConfigPreview } from "../types";
 import { endDialogAttention, requestDialogAttention } from "./dialogAttention";
@@ -52,14 +52,12 @@ export function SshConfigImportDialog({ preview, onClose }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const sshGroups = useMemo(
+  // Groups hold any session kind, so every one of them can receive the
+  // imported hosts.
+  const groupTargets = useMemo(
     () =>
-      groups
-        .filter((group) => group.kind === "ssh")
-        .map((group) => ({
-          id: group.id,
-          label: groupPath(groups, group.id).join(" / "),
-        }))
+      [...groups]
+        .map((group: SessionGroup) => ({ id: group.id, label: group.name }))
         .sort((a, b) => a.label.localeCompare(b.label)),
     [groups],
   );
@@ -217,8 +215,8 @@ export function SshConfigImportDialog({ preview, onClose }: Props) {
                 value={groupId}
                 onChange={(event) => setGroupId(event.target.value)}
               >
-                <option value="">SSH Sessions (no group)</option>
-                {sshGroups.map((group) => (
+                <option value="">Top level (no group)</option>
+                {groupTargets.map((group) => (
                   <option key={group.id} value={group.id}>
                     {group.label}
                   </option>
@@ -230,8 +228,7 @@ export function SshConfigImportDialog({ preview, onClose }: Props) {
           <span className="confirm-dialog-hint">
             Hosts already saved start unchecked; checking one updates that
             session’s host, port and user from the file. A single jump host
-            comes along; a multi-hop ProxyJump is not imported. Passwords are
-            never in the file, so imported sessions ask for theirs.
+            comes along; a multi-hop ProxyJump is not imported.
           </span>
           {error && <div className="dialog-error">{error}</div>}
         </div>

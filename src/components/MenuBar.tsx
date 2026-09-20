@@ -14,6 +14,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 
 import appIcon from "../../src-tauri/icons/32x32.png";
 import {
+  openLocalShell,
   revealCwdInFiler,
   splitSession,
   toggleSessionConnection,
@@ -39,7 +40,7 @@ import { MenuCheck, menuRole, type MenuMark } from "./ContextMenu";
 import { Icon } from "./icons";
 import { submenuKey, useSubmenuHover } from "./submenuHover";
 
-const TUTORIAL_URL = "https://miskin-lee.github.io/EdgeTerm/tutorial.html";
+const TUTORIAL_URL = "https://github.com/chhuax/Kanso/blob/main/docs/tutorial.html";
 
 // The menubar is also the title bar: it is the window drag region and shares
 // its row with the window controls, laid out like VS Code's custom title bar.
@@ -52,7 +53,7 @@ const TUTORIAL_URL = "https://miskin-lee.github.io/EdgeTerm/tutorial.html";
 //   on the right. Double-clicking the app icon closes the window (the
 //   system-menu convention VS Code keeps on both platforms).
 //
-// The window title (`<session> - EdgeTerm`, VS Code's `<file> - <app>`
+// The window title (`<session> - Kanso`, VS Code's `<file> - <app>`
 // shape) is also pushed to the OS so the taskbar / overview shows the same.
 
 /** Track a boolean window property, re-reading it whenever the window resizes. */
@@ -92,15 +93,25 @@ function useWindowFlag(
 const readFullscreen = (win: TauriWindow) => win.isFullscreen();
 const readMaximized = (win: TauriWindow) => win.isMaximized();
 
-// Windows / Linux: a press on the drag region does not hand the window to
-// the OS straight away. `startDragging` gives the press to the OS move loop
-// (`WM_NCLBUTTONDOWN` / `begin_move_drag`), which takes the mouse away from
-// the webview until the button is released: the page never sees that mouseup,
-// and on Windows the loop is entered through an IPC round trip, so a
-// double-click's second press races it and is eaten by it whenever it lands
-// first — the double-click then never reaches the page. Starting the drag
-// only once the pointer has moved past a small threshold (as GTK header bars
-// do) keeps plain clicks and double-clicks entirely inside the webview; the
+// A press on the drag region does not hand the window to the OS straight
+// away. `startDragging` gives the press to the OS move loop
+// (`WM_NCLBUTTONDOWN` / `begin_move_drag` on Windows it is a modal loop;
+// `performWindowDragWithEvent:` on macOS), which takes the mouse away from the
+// webview until the button is released: the page never sees that mouseup, and
+// the command is an `async` one, so `start_dragging` reaches the OS through an
+// IPC round trip that only lands after the press itself has been dispatched.
+//
+// That round trip is what the drag cannot survive. On Windows the modal loop
+// then eats a double-click's second press whenever it lands first, so the
+// double-click never reaches the page. On macOS tao hands whatever
+// `NSApp.currentEvent` happens to be to `performWindowDragWithEvent:` without
+// checking it — the guard that would rebuild a live mouse-down
+// (`event_type == 0x15`) matches no `NSEventType`, since `LeftMouseDown` is 1
+// and 21 is unassigned — so a drag started once the press is already over is
+// not anchored to a held button and the window follows the cursor until the
+// next click. Starting the drag only once the pointer has moved past a small
+// threshold (as GTK header bars do) keeps plain clicks and double-clicks
+// entirely inside the webview and hands the OS a press that is still down; the
 // window only misses the first few pixels of travel, which is not visible.
 const DRAG_THRESHOLD_PX = 4;
 
@@ -227,6 +238,8 @@ interface Menu {
 
 interface Props {
   onNewSession: () => void;
+  /** The right panel, for the button at the end of the bar. */
+  rightPanel: { open: boolean; onToggle: () => void };
   onFind: () => void;
   onFindNext: () => void;
   onFontSettings: () => void;
@@ -248,8 +261,8 @@ export function MenuBar(props: Props) {
   const activeTab = useActiveTab();
   const activeState = activeTab?.state;
   const windowTitle = activeTab
-    ? `${tabTitle(activeTab)}${IS_MAC ? " \u2014 " : " - "}EdgeTerm`
-    : "EdgeTerm";
+    ? `${tabTitle(activeTab)}${IS_MAC ? " \u2014 " : " - "}Kanso`
+    : "Kanso";
   useEffect(() => {
     getCurrentWindow()
       .setTitle(windowTitle)
@@ -264,6 +277,8 @@ export function MenuBar(props: Props) {
   const suggestionsEnabled = useStore((s) => s.suggestionsEnabled);
   const setSuggestionsEnabled = useStore((s) => s.setSuggestionsEnabled);
   const rightClickAction = useStore((s) => s.rightClickAction);
+  const copyOnSelect = useStore((s) => s.copyOnSelect);
+  const setCopyOnSelect = useStore((s) => s.setCopyOnSelect);
   const setRightClickAction = useStore((s) => s.setRightClickAction);
   const resetSettings = useStore((s) => s.resetSettings);
   // The accelerators as the user has bound them (see shortcuts.ts); only
@@ -293,7 +308,7 @@ export function MenuBar(props: Props) {
     if (activeId) fn(activeId);
   };
 
-  // File transfers run over a terminal's byte stream; (S)FTP tabs have none.
+  // File transfers run over a terminal's byte stream; SFTP tabs have none.
   const withTerminal = (fn: (terminal: TerminalController) => void) =>
     withActive((id) => {
       const terminal = getController(id);
@@ -331,6 +346,11 @@ export function MenuBar(props: Props) {
           label: "New Session…",
           shortcut: accel("newSession"),
           action: props.onNewSession,
+        },
+        {
+          label: "New Local Shell",
+          shortcut: accel("newLocalShell"),
+          action: () => void openLocalShell(),
         },
         "separator",
         {
@@ -432,6 +452,11 @@ export function MenuBar(props: Props) {
           shortcut: accel("selectAll"),
           action: withActive((id) => getController(id)?.selectAll()),
         },
+        {
+          label: "Copy on Select",
+          checked: copyOnSelect,
+          action: () => setCopyOnSelect(!copyOnSelect),
+        },
         // Mouse copy / paste is a Windows / Linux choice; macOS terminals
         // always open the menu, so the submenu is left out there.
         ...(IS_MAC
@@ -501,12 +526,6 @@ export function MenuBar(props: Props) {
     {
       title: "View",
       entries: [
-        {
-          label: "Session",
-          shortcut: accel("panelSessions"),
-          checked: panels.sessions,
-          action: () => togglePanel("sessions"),
-        },
         {
           label: "Filer",
           shortcut: accel("panelFiler"),
@@ -584,7 +603,7 @@ export function MenuBar(props: Props) {
           },
         },
         "separator",
-        { label: "About EdgeTerm", action: props.onAbout },
+        { label: "About Kanso", action: props.onAbout },
       ],
     },
   ];
@@ -595,16 +614,16 @@ export function MenuBar(props: Props) {
   // (everything carrying the attribute, not the menu titles) and stopped
   // before it reaches the script's document listener, which would otherwise
   // toggle through the animation-less tao path on Windows. A single press is
-  // handled per platform: on macOS it falls through to the script, which
-  // starts the native drag from the mousedown itself; on Windows / Linux it
-  // is stopped as well and the drag starts from `startDragOnMove` once the
-  // pointer actually moves (see the note above it).
+  // stopped as well, on every platform: the drag starts from `startDragOnMove`
+  // once the pointer actually moves, never from the mousedown itself (see the
+  // note above it).
   const onDragRegionMouseDown = (event: ReactMouseEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     if (!(event.target instanceof HTMLElement)) return;
     if (!event.target.hasAttribute("data-tauri-drag-region")) return;
-    // The document-level dismiss listener never sees this press (stopped
-    // here, or by the script's `stopImmediatePropagation` on macOS).
+    // The document-level dismiss listener never sees this press (stopped here,
+    // or by the script's `stopImmediatePropagation` on the platforms where the
+    // script still runs).
     setOpen(null);
     dragWatch.current?.();
     dragWatch.current = null;
@@ -620,7 +639,6 @@ export function MenuBar(props: Props) {
       void windowControl("toggle-maximize").catch(() => {});
       return;
     }
-    if (IS_MAC) return;
     // No text selection, and keyboard focus stays in the terminal.
     event.preventDefault();
     event.stopPropagation();
@@ -668,27 +686,29 @@ export function MenuBar(props: Props) {
           </span>
         </div>
       )}
-      {/* Layout buttons at the right end of the bar, where VS Code keeps
-          its own; on Windows / Linux the window controls follow them. */}
+      {/* The bar's right end. The panel toggle sits here, where VS Code keeps
+          its layout controls: one button whose icon is the panel's state —
+          filled while it is showing, dashed while it is away — and whose
+          label says what pressing it will do. */}
       <div className="menubar-right" data-tauri-drag-region>
         <div className="layout-actions">
           <button
             className="panel-action"
-            disabled={!activeId}
-            onClick={withActive((id) => void splitSession(id, "right"))}
-            title={`Split Right${accel("splitRight") ? ` (${accel("splitRight")})` : ""}`}
-            aria-label="Split Right"
+            onClick={props.rightPanel.onToggle}
+            title={props.rightPanel.open ? "Hide Panel" : "Show Panel"}
+            aria-label={props.rightPanel.open ? "Hide Panel" : "Show Panel"}
+            aria-pressed={props.rightPanel.open}
           >
-            <Icon name="split-horizontal" />
-          </button>
-          <button
-            className="panel-action"
-            disabled={!activeId}
-            onClick={withActive((id) => void splitSession(id, "down"))}
-            title={`Split Down${accel("splitDown") ? ` (${accel("splitDown")})` : ""}`}
-            aria-label="Split Down"
-          >
-            <Icon name="split-vertical" />
+            <Icon
+              name={
+                // The filled frame is the panel being there, the dashed one
+                // is it being away: the icon reads as the state, and the
+                // button's own label says what the press will do.
+                props.rightPanel.open
+                  ? "layout-sidebar-right"
+                  : "layout-sidebar-right-off"
+              }
+            />
           </button>
         </div>
         {!IS_MAC && <WindowControls maximized={maximized} />}

@@ -34,7 +34,7 @@ export function UpdateDialog({
 
   let title = "Software Update";
   if (state.phase === "available") title = "Update Available";
-  if (state.phase === "up-to-date") title = "EdgeTerm Is Up to Date";
+  if (state.phase === "up-to-date") title = "Kanso Is Up to Date";
   if (state.phase === "error") title = "Update Failed";
 
   return (
@@ -79,7 +79,7 @@ export function UpdateDialog({
                   ? "This is a portable copy, so the update is not installed " +
                     "in place. The download page opens in your browser; " +
                     "replace this copy with the new portable archive."
-                  : "EdgeTerm will download the signed update, install it, " +
+                  : "Kanso will download the signed update, install it, " +
                     "and restart. Active terminal connections will be closed."}
               </span>
             </>
@@ -87,7 +87,7 @@ export function UpdateDialog({
 
           {state.phase === "downloading" && (
             <>
-              <strong>Downloading EdgeTerm {state.version}…</strong>
+              <strong>Downloading Kanso {state.version}…</strong>
               <progress
                 className="update-progress"
                 value={progress}
@@ -104,7 +104,7 @@ export function UpdateDialog({
             <>
               <div className="update-spinner" aria-hidden="true" />
               <span>
-                Installing EdgeTerm {state.version} and restarting…
+                Installing Kanso {state.version} and restarting…
               </span>
             </>
           )}

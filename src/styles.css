@@ -7,53 +7,64 @@
 :root {
   color-scheme: dark;
 
-  --bg-app: #181818;
-  --bg-panel: #181818;
-  --bg-panel-alt: #1f1f1f;
-  --bg-terminal: #1f1f1f;
-  --bg-field: #313131;
-  --bg-active: #04395e;
-  --bg-hover: #2a2d2e;
-  --border: #2b2b2b;
-  --border-strong: #3c3c3c;
-  --fg: #cccccc;
-  --fg-dim: #9d9d9d;
-  --fg-faint: #6e7681;
-  --accent: #0078d4;
-  --accent-soft: #04395e;
+  --bg-app: #050505;
+  --bg-panel: #050505;
+  --bg-panel-alt: #111111;
+  --bg-terminal: #050505;
+  /* A field is a box you type in, not a grey tile. Warp derives it as the page
+     background with 10% white over it (#1a1a1a) and that reads as a slab once
+     the page itself is #050505, so the field keeps only enough lift to be
+     visible on a black page and leans on its border to say where it starts. */
+  --bg-field: #0d0d0d;
+  --bg-active: #123a47;
+  --bg-hover: #161616;
+  --border: #1f1f1f;
+  --border-strong: #333333;
+  --fg: #ffffff;
+  --fg-dim: #9b9b9b;
+  /* The weakest text still has to be readable: this was #6e7681, which is
+     3.9:1 on the chrome and 2.8:1 on a field — a placeholder you have to
+     squint at. It sits between --fg-dim and nothing on purpose, so it stays
+     dimmer than the labels and brighter than it was. */
+  --fg-faint: #818181;
+  --accent: #19aad8;
+  --accent-soft: #0b2b33;
   --accent-contrast: #ffffff;
-  --panel-session: #6ea8fe;
-  --panel-sender: #ff9f66;
-  --panel-filer: #59d6b2;
-  --green: #89d185;
-  --yellow: #cca700;
-  --red: #f85149;
+  --panel-session: #a5d5fe;
+  --panel-sender: #ff8272;
+  --panel-filer: #b4fa72;
+  --green: #b4fa72;
+  --yellow: #fefdc2;
+  --red: #ff8272;
 
-  --scrollbar-thumb: #424242;
-  --scrollbar-thumb-hover: #4f4f4f;
-  --term-scrollbar-thumb-hover: #7a7a7a;
+  --scrollbar-thumb: #303030;
+  --scrollbar-thumb-hover: #454545;
+  --term-scrollbar-thumb-hover: #6b6b6b;
   --row-separator: rgba(255, 255, 255, 0.07);
   --swatch-ring: rgba(255, 255, 255, 0.1);
 
   /* Menus float above the chrome: a step lighter than the panels, with a
      border that still reads against the editor surface. Segmented controls
      sit a knob on a sunken track. */
-  --bg-menu: #202020;
-  --bg-menu-glass: rgba(32, 32, 32, 0.86);
-  --border-menu: #3f3f3f;
+  --bg-menu: #141414;
+  --bg-menu-glass: rgba(20, 20, 20, 0.88);
+  --border-menu: #333333;
   --menu-highlight: rgba(255, 255, 255, 0.06);
   --menu-separator: rgba(255, 255, 255, 0.09);
   --menu-mark: rgba(255, 255, 255, 0.32);
-  --bg-track: #2d2d2d;
-  --bg-knob: #4b4b4b;
+  --bg-track: #1a1a1a;
+  --bg-knob: #3a3a3a;
   --shadow-knob: 0 1px 2px rgba(0, 0, 0, 0.4);
 
-  --dir-label: #9cdcfe;
-  --symlink-label: #c586c0;
+  --dir-label: #a5d5fe;
+  --symlink-label: #ff8ffd;
 
-  --gutter-border: #2b2b2b;
-  --gutter-time-fg: #5a5d63;
-  --gutter-line-fg: #6e7681;
+  --gutter-border: #1f1f1f;
+  /* Timestamps and line numbers are the smallest text in the window and were
+     the faintest; the time at #5a5d63 sat at 2.5:1. Both come up to the same
+     step as --fg-faint. */
+  --gutter-time-fg: #9b9b9b;
+  --gutter-line-fg: #9b9b9b;
 
   --notice-info-bg: rgba(24, 33, 44, 0.95);
   --notice-info-fg: #85b6ff;
@@ -100,7 +111,7 @@
   --border-strong: #cecece;
   --fg: #3b3b3b;
   --fg-dim: #616161;
-  --fg-faint: #868686;
+  --fg-faint: #6f6f6f;
   --accent: #005fb8;
   --accent-soft: #bed6ed;
   --accent-contrast: #ffffff;
@@ -131,8 +142,8 @@
   --symlink-label: #652d90;
 
   --gutter-border: #e5e5e5;
-  --gutter-time-fg: #a3a8ae;
-  --gutter-line-fg: #6e7681;
+  --gutter-time-fg: #6f6f6f;
+  --gutter-line-fg: #6f6f6f;
 
   --notice-info-bg: rgba(238, 246, 255, 0.96);
   --notice-info-fg: #005fb8;
@@ -318,20 +329,6 @@ textarea:focus {
   align-self: stretch;
   flex: 2 1 20%;
   min-width: min-content;
-}
-
-.layout-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  margin: 0 4px;
-}
-
-.layout-actions .panel-action:disabled {
-  color: var(--fg-faint);
-  opacity: 0.5;
-  background: none;
-  cursor: default;
 }
 
 .window-controls {
@@ -674,6 +671,9 @@ textarea:focus {
   font-size: var(--panel-font-size);
 }
 
+/* What the right sidebar leaves behind once it is tucked away: a clickable
+   strip holding the only control that brings it back. Like the sidebars it
+   draws no divider of its own — this one is the edge, so it does. */
 /* The sidebars and the dock draw no edge of their own: the splitter between
    them and the centre is the 1px divider (see the splitters section). */
 .bottom-dock {
@@ -760,6 +760,56 @@ textarea:focus {
   color: currentColor;
 }
 
+/* Session / Filer switcher of the right sidebar, drawn where a single panel
+   title used to sit. The chosen tab wears that panel's colour; the other one
+   stays a quiet button until it is picked. */
+.panel-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 auto;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg-faint);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.panel-tab:hover {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg-dim);
+}
+
+.panel-tab.is-active {
+  cursor: default;
+}
+
+.panel-tab.is-active.is-session {
+  color: var(--panel-session);
+  background: color-mix(in srgb, var(--panel-session) 12%, transparent);
+}
+
+.panel-tab.is-active.is-filer {
+  color: var(--panel-filer);
+  background: color-mix(in srgb, var(--panel-filer) 12%, transparent);
+}
+
+.panel-tab > .icon {
+  color: currentColor;
+}
+
+/* Pushes whatever the docked panel draws after the tabs to the far end. */
+.panel-tabs-spacer {
+  flex: 1;
+}
+
 /* Secondary word beside a title ("local", "ssh"): a lowercase pill. */
 .panel-badge {
   padding: 1px 6px;
@@ -770,6 +820,28 @@ textarea:focus {
   font-weight: 500;
   letter-spacing: 0.02em;
   text-transform: none;
+}
+
+/* The layout controls at the right end of the menu bar. The button inside is
+   a `.panel-action` like the panel headers' own. */
+.layout-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0 4px;
+}
+
+.layout-actions .panel-action:disabled {
+  color: var(--fg-faint);
+  opacity: 0.5;
+  background: none;
+  cursor: default;
+}
+
+/* The panel is showing: the icon is the state, so it says so in the same way
+   the panel tabs do — brighter than a control that is merely available. */
+.layout-actions .panel-action[aria-pressed="true"] {
+  color: var(--fg);
 }
 
 .panel-action {
@@ -959,6 +1031,14 @@ textarea:focus {
   min-width: 200px;
 }
 
+/* A menu whose list can outgrow the window — the rail's saved sessions — is
+   capped and scrolled rather than run off the bottom edge, where its last
+   entries could not be reached at all. */
+.context-menu.menu-scroll {
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+}
+
 /* Hanging off a button at the right edge: it grows out of that corner. */
 .context-menu.is-right {
   transform-origin: top right;
@@ -1013,195 +1093,216 @@ textarea:focus {
   color: var(--fg-faint);
 }
 
-/* --- tabs ----------------------------------------------------------------- */
+/* --- the tab rail --------------------------------------------------------- */
 
-.tabstrip {
-  flex: 0 0 var(--tabstrip-height);
-  height: var(--tabstrip-height);
+/* The rail's column: the bar at the top, the rows below it, and the menus the
+   two of them open. */
+.tab-rail-panel {
   display: flex;
-  align-items: stretch;
-  background: var(--bg-app);
-  border-bottom: 1px solid var(--border);
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-  /* Keep scrollIntoView'd tabs clear of the edge fades and the sticky list button. */
-  scroll-padding: 0 44px 0 28px;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
-.tabstrip::-webkit-scrollbar {
-  display: none;
+/* Warp's control bar, which is where its new-tab button sits; here it holds
+   only that button, at the same trailing edge and the same 4px / 8px padding,
+   a 24px button with a 4px radius. It does not scroll, so the way to a new
+   session stays where it is while the rows below it move. */
+.tab-rail-bar {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 8px 0;
 }
 
-/* Edge fades hint that more tabs are hidden past either side. Both are hung
-   off zero-width sticky anchors so they stay put while the tabs scroll under
-   them; the right one lives on the already-sticky actions block. */
-.tabstrip-fade-left {
-  position: sticky;
-  left: 0;
-  flex: 0 0 0;
-  width: 0;
-  z-index: 1;
+.tab-rail-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-dim);
 }
 
-.tabstrip-fade-left::after,
-.tabstrip-actions::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 28px;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.15s ease;
-}
-
-.tabstrip-fade-left::after {
-  left: 0;
-  background: linear-gradient(to right, var(--bg-app) 25%, transparent);
-}
-
-.tabstrip-actions::before {
-  right: 100%;
-  background: linear-gradient(to left, var(--bg-app) 25%, transparent);
-}
-
-.tabstrip.can-scroll-left .tabstrip-fade-left::after,
-.tabstrip.can-scroll-right .tabstrip-actions::before {
-  opacity: 1;
-}
-
-.tabstrip-actions .panel-action.is-open {
-  color: var(--fg);
+.tab-rail-add:hover {
   background: var(--bg-hover);
+  color: var(--fg);
 }
 
-/* The "all sessions" dropdown: one row per tab, scrolls once it gets tall. */
-.tab-list-menu {
-  max-width: 320px;
-  max-height: 60vh;
+/* One row per open tab, down the window's left edge. A row keeps the
+   horizontal layout a tab had — icon, number, name — so the label stays
+   readable; only the strip that held the tabs is gone. */
+.tab-rail {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  /* Warp's own numbers: 8px body padding, 4px between rows. */
+  padding: 8px;
 }
 
-.tab-list-menu .menu-entry-label {
+/* A pane's rows, when the window is split: the header names it and the rule
+   above it keeps the groups apart. */
+.tab-rail-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tab-rail-block + .tab-rail-block {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.tab-rail-pane {
+  display: block;
+  width: 100%;
+  padding: 4px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-faint);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: left;
+}
+
+.tab-rail-pane.is-active {
+  color: var(--fg-dim);
+}
+
+.tab-rail-pane:hover {
+  color: var(--fg);
+}
+
+.tab-row-icon {
+  /* Warp's mark: a 24px disk with its glyph at two thirds of it. */
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: var(--fg-faint);
+}
+
+.tab-row-icon > .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.tab-row.is-active .tab-row-icon {
+  color: var(--session-color, var(--accent));
+}
+
+/* An agentic CLI owns the row's mark: the tool's own glyph, on a disk of its
+   own colour, so a Claude session wears Claude's mark. */
+.tab-row-icon.is-agent {
+  color: var(--agent-color, var(--accent));
+  background: color-mix(
+    in srgb,
+    var(--agent-color, var(--accent)) 20%,
+    transparent
+  );
+}
+
+/* The mark keeps the tool's colour on the active row as well: it is that
+   tool's logo, and the session's colour is not what it is saying. This has to
+   out-specify `.tab-row.is-active .tab-row-icon` above. */
+.tab-row.is-active .tab-row-icon.is-agent {
+  color: var(--agent-color, var(--accent));
+}
+
+/* A row is two lines when it has a second fact to show — a local shell's
+   directory on the first, the branch it is on under it. A row with one line
+   is the common case: every session that is not in a repository. */
+.tab-row-text {
+  display: flex;
+  flex-direction: column;
+  /* Warp's `Flex::column().with_spacing(2.)` between title and metadata. */
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.tab-row-title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  /* Pinned so a two-line row lands on Warp's 48px: 16 (this line) + 2
+     (spacing) + 14 (the metadata row) + 8 + 8 (the row's padding). A one-line
+     row keeps the 24px icon as its tallest part, so 40px. */
+  height: 16px;
+  line-height: 16px;
+}
+
+.tab-row-meta {
+  /* Warp's METADATA_ROW_HEIGHT: a fixed 14px, so the row keeps its height
+     whatever the line holds. */
+  height: 14px;
+  line-height: 14px;
   overflow: hidden;
+  color: var(--fg-faint);
+  font-size: 10px;
+  font-style: normal;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.tab {
+.tab-row {
   position: relative;
   isolation: isolate;
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 0 10px;
-  max-width: 220px;
-  border-right: 1px solid var(--border);
+  /* Warp's ICON_WITH_STATUS_GAP, and its one-line row: 24px icon + 16px of
+     padding. A row with a path is 48px, the icon-taller of the two lines. */
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px;
+  border-radius: 4px;
   color: var(--fg-dim);
-  font-style: italic;
   white-space: nowrap;
   overflow: hidden;
   /* WebKit still shows an I-beam over unselectable text under cursor: auto. */
   cursor: default;
 }
 
-.tab > :not(.tab-command-activity) {
-  position: relative;
-  z-index: 1;
-}
-
-/* A background command is represented by a tiny particle field contained in
-   its tab. It is deliberately DOM/CSS-only: terminal output stays outside
-   React's hot path and no extra canvas or WebGL context is allocated. */
-.tab-command-activity {
-  position: absolute;
-  z-index: 0;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.tab-command-activity::before {
+/* Background activity is a badge on the row's mark: a dot in the session's
+   colour that pulses while a command runs and settles once it is done. The
+   particle field the horizontal strip used has nowhere to read in a list row —
+   at this height it drew a bright bar across it. */
+.tab-row-icon::after {
   content: "";
   position: absolute;
-  top: 0;
   right: 0;
-  left: 0;
-  height: 2px;
-  opacity: 0;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    var(--session-color, var(--accent)) 24%,
-    color-mix(in srgb, var(--session-color, var(--accent)) 45%, white) 50%,
-    var(--session-color, var(--accent)) 76%,
-    transparent
-  );
-  transform: translateX(-45%);
-}
-
-.tab-command-particle {
-  --particle-duration: 1.42s;
-  position: absolute;
-  top: -4px;
-  left: 18%;
-  width: 3px;
-  height: 4px;
-  border-radius: 999px;
-  opacity: 0;
+  bottom: 1px;
+  display: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
   background: var(--session-color, var(--accent));
-  box-shadow: 0 0 5px var(--session-color, var(--accent));
 }
 
-.tab-command-particle:nth-child(2) {
-  left: 32%;
-  width: 4px;
-  --particle-duration: 1.55s;
-  animation-delay: -0.92s;
+.tab-row.is-command-running .tab-row-icon::after {
+  display: block;
+  animation: tab-activity-pulse 1.1s ease-in-out infinite;
 }
 
-.tab-command-particle:nth-child(3) {
-  left: 46%;
-  --particle-duration: 1.18s;
-  animation-delay: -0.34s;
-}
-
-.tab-command-particle:nth-child(4) {
-  left: 61%;
-  height: 3px;
-  --particle-duration: 1.72s;
-  animation-delay: -1.14s;
-}
-
-.tab-command-particle:nth-child(5) {
-  left: 75%;
-  width: 4px;
-  --particle-duration: 1.38s;
-  animation-delay: -0.58s;
-}
-
-.tab-command-particle:nth-child(6) {
-  left: 87%;
-  --particle-duration: 1.9s;
-  animation-delay: -1.42s;
-}
-
-.tab.is-command-running:not(.is-active) .tab-command-activity::before {
-  opacity: 0.9;
-  animation: tab-command-stream 1.7s ease-in-out infinite alternate;
-}
-
-.tab.is-command-running:not(.is-active) .tab-command-particle {
-  animation-name: tab-command-particle-fall;
-  animation-duration: var(--particle-duration);
-  animation-timing-function: linear;
-  animation-iteration-count: infinite;
+.tab-row.is-command-complete .tab-row-icon::after {
+  display: block;
 }
 
 /* Finished background work borrows the active tab's bright top edge and
    terminal surface, with a light session-colour tint. It stays until visited. */
-.tab.is-command-complete:not(.is-active) {
+.tab-row.is-command-complete:not(.is-active) {
   color: var(--fg);
   font-style: normal;
   background: color-mix(
@@ -1209,79 +1310,19 @@ textarea:focus {
     var(--session-color, var(--accent)) 12%,
     var(--bg-terminal)
   );
-  box-shadow: inset 0 2px 0 var(--session-color, var(--accent));
+  box-shadow: inset 2px 0 0 var(--session-color, var(--accent));
   animation: tab-command-ready 760ms cubic-bezier(0.2, 0, 0, 1);
 }
 
-.tab.is-command-complete:not(.is-active) .tab-command-activity::after {
-  content: "";
-  position: absolute;
-  inset: -16px;
-  background: radial-gradient(
-    ellipse at 50% 0,
-    color-mix(in srgb, var(--session-color, var(--accent)) 42%, transparent),
-    transparent 68%
-  );
-  animation: tab-command-finish-wash 820ms ease-out both;
-}
-
-.tab.is-command-complete:not(.is-active) .tab-command-particle {
-  animation: tab-command-particle-finish 680ms ease-out both;
-}
-
-.tab.is-command-complete:not(.is-active) .tab-command-particle:nth-child(2),
-.tab.is-command-complete:not(.is-active) .tab-command-particle:nth-child(5) {
-  animation-delay: 70ms;
-}
-
-.tab.is-command-complete:not(.is-active) .tab-command-particle:nth-child(3),
-.tab.is-command-complete:not(.is-active) .tab-command-particle:nth-child(6) {
-  animation-delay: 140ms;
-}
-
-.tab.is-command-complete:not(.is-active) .tab-dot {
-  border-radius: 50%;
-  box-shadow: 0 0 0 3px
-    color-mix(in srgb, var(--session-color, var(--accent)) 22%, transparent);
-}
-
-@keyframes tab-command-stream {
-  from {
-    transform: translateX(-45%);
-  }
-  to {
-    transform: translateX(45%);
-  }
-}
-
-@keyframes tab-command-particle-fall {
-  0% {
-    opacity: 0;
-    transform: translate3d(-1px, -3px, 0) scale(0.7);
-  }
-  14% {
-    opacity: 0.95;
-  }
-  74% {
-    opacity: 0.58;
-  }
+@keyframes tab-activity-pulse {
+  0%,
   100% {
-    opacity: 0;
-    transform: translate3d(2px, 32px, 0) scale(0.35);
-  }
-}
-
-@keyframes tab-command-particle-finish {
-  0% {
-    opacity: 0;
-    transform: translate3d(0, -3px, 0) scale(0.7);
-  }
-  24% {
     opacity: 1;
+    transform: scale(1);
   }
-  100% {
-    opacity: 0;
-    transform: translate3d(1px, 24px, 0) scale(1.35);
+  50% {
+    opacity: 0.4;
+    transform: scale(0.72);
   }
 }
 
@@ -1295,109 +1336,52 @@ textarea:focus {
   }
 }
 
-@keyframes tab-command-finish-wash {
-  from {
-    opacity: 1;
-    transform: scaleX(0.45);
-  }
-  to {
-    opacity: 0;
-    transform: scaleX(1);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .tab.is-command-running:not(.is-active) {
-    box-shadow: inset 0 2px 0 var(--session-color, var(--accent));
+  .tab-row.is-command-running:not(.is-active) {
+    box-shadow: inset 2px 0 0 var(--session-color, var(--accent));
   }
 
-  .tab-command-activity,
-  .tab.is-command-complete:not(.is-active) {
+  /* The badge still says "running"; it just stops breathing. */
+  .tab-row.is-command-running .tab-row-icon::after,
+  .tab-row.is-command-complete:not(.is-active) {
     animation: none;
   }
-
-  .tab-command-particle,
-  .tab-command-activity::before,
-  .tab-command-activity::after {
-    display: none;
-  }
 }
 
-.tab:hover {
+.tab-row:hover {
   background: var(--bg-hover);
 }
 
-/* Dragged tab: lifted above its neighbours while it follows the pointer; the
-   strip drops hover feedback so the reflowing tabs stay calm. */
-.tabstrip.is-reordering {
-  cursor: grabbing;
+/* A border marks the selected row, the way Warp draws it. */
+.tab-row.is-active {
+  border: 1px solid var(--border);
 }
 
-.tabstrip.is-reordering .tab:hover {
-  background: transparent;
-}
 
-.tabstrip.is-reordering .tab.is-active:hover {
-  background: var(--bg-terminal);
-}
 
-.tab.is-dragging,
-.tabstrip.is-reordering .tab.is-dragging:hover {
-  position: relative;
-  z-index: 2;
-  background: var(--bg-hover);
-  box-shadow:
-    inset 0 2px 0 var(--session-color, var(--accent)),
-    var(--shadow-pop);
-}
-
-.tab.is-dragging.is-active,
-.tabstrip.is-reordering .tab.is-dragging.is-active:hover {
-  background: var(--bg-terminal);
-}
-
-.tabstrip.is-reordering .tab .tab-close {
-  visibility: hidden;
-}
-
-.tab.is-active {
+.tab-row.is-active {
   background: var(--bg-terminal);
   color: var(--fg);
   font-style: normal;
-  box-shadow: inset 0 2px 0 var(--session-color, var(--accent));
+  box-shadow: inset 2px 0 0 var(--session-color, var(--accent));
 }
 
-.tab.is-closed .tab-label {
+.tab-row.is-closed .tab-label {
   text-decoration: line-through;
   opacity: 0.6;
 }
 
-.tab.is-connecting .tab-label {
+.tab-row.is-connecting .tab-label {
   color: var(--yellow);
 }
 
-.tab.is-error .tab-label {
+.tab-row.is-error .tab-label {
   color: var(--red);
 }
 
-.tab-index {
-  color: var(--fg-faint);
-  font-variant-numeric: tabular-nums;
-}
-
-.tab-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
-  flex: 0 0 8px;
-  background: var(--session-color, var(--accent));
-}
-
-.tab.is-closed .tab-dot {
-  opacity: 0.45;
-}
-
 .tab-label {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -1414,8 +1398,8 @@ textarea:focus {
   visibility: hidden;
 }
 
-.tab:hover .tab-close,
-.tab.is-active .tab-close {
+.tab-row:hover .tab-close,
+.tab-row.is-active .tab-close {
   visibility: visible;
 }
 
@@ -1424,15 +1408,37 @@ textarea:focus {
   color: var(--red);
 }
 
-.tabstrip-actions {
-  display: flex;
+/* The quiet word that a selection reached the clipboard. Fixed where the
+   release happened, and gone on its own; it never takes a click. */
+.term-copied {
+  position: fixed;
+  z-index: 60;
+  display: inline-flex;
   align-items: center;
-  gap: 2px;
-  margin-left: auto;
-  padding: 0 8px;
-  position: sticky;
-  right: 0;
-  background: var(--bg-app);
+  gap: 4px;
+  padding: 2px 7px;
+  border: 1px solid var(--border-menu);
+  border-radius: 5px;
+  background: var(--bg-menu);
+  color: var(--fg-dim);
+  font-size: 11px;
+  pointer-events: none;
+  animation: term-copied-fade 1200ms ease-out forwards;
+}
+
+@keyframes term-copied-fade {
+  0% {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  12%,
+  70% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+  }
 }
 
 /* --- terminal search ------------------------------------------------------ */
@@ -1476,11 +1482,9 @@ textarea:focus {
 /*
  * The terminal area (see Workspace): panes and sessions are placed in
  * fractions of it, sessions over the pane holding them, splitters over the
- * boundaries. --tabstrip-height is what the geometry takes off the top of a
- * pane for its strip.
+ * boundaries. Nothing is taken off a pane: the tabs live in the rail.
  */
 .workspace {
-  --tabstrip-height: 30px;
   position: relative;
   flex: 1;
   min-height: 0;
@@ -1502,7 +1506,7 @@ textarea:focus {
 }
 
 /* An unfocused pane still shows which tab it has, but quieter. */
-.pane:not(.is-focused) .tab.is-active {
+.pane:not(.is-focused) .tab-row.is-active {
   color: var(--fg-dim);
   box-shadow: inset 0 2px 0
     color-mix(in srgb, var(--session-color, var(--accent)) 40%, transparent);
@@ -1549,80 +1553,11 @@ textarea:focus {
   margin-top: -1px;
 }
 
-/* Where a dragged tab would land: the whole pane, or the half it would split off. */
-.pane-drop {
-  position: absolute;
-  inset: 0;
-  z-index: 4;
-  pointer-events: none;
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-  box-shadow: inset 0 0 0 1px var(--accent);
-  transition:
-    left 90ms ease,
-    right 90ms ease,
-    top 90ms ease,
-    bottom 90ms ease;
-}
 
-.pane-drop.is-left {
-  right: 50%;
-}
 
-.pane-drop.is-right {
-  left: 50%;
-}
+/* --- File-transfer workspace ---------------------------------------------- */
 
-.pane-drop.is-up {
-  bottom: 50%;
-}
-
-.pane-drop.is-down {
-  top: 50%;
-}
-
-/* The slot a tab dragged from another strip would take. */
-.tab-drop-marker {
-  position: relative;
-  flex: 0 0 0;
-  width: 0;
-  z-index: 2;
-}
-
-.tab-drop-marker::after {
-  content: "";
-  position: absolute;
-  top: 5px;
-  bottom: 5px;
-  left: -1px;
-  width: 2px;
-  border-radius: 1px;
-  background: var(--accent);
-}
-
-/* Follows the pointer while a tab is dragged beyond its own strip. */
-.tab-drag-ghost {
-  position: fixed;
-  top: 0;
-  left: 0;
-  z-index: 1000;
-  pointer-events: none;
-  max-width: 220px;
-  padding: 4px 10px;
-  border: 1px solid var(--border-strong);
-  border-radius: 4px;
-  background: var(--bg-panel);
-  box-shadow: var(--shadow-pop);
-  color: var(--fg);
-  font-size: var(--panel-font-size);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  opacity: 0.92;
-}
-
-/* --- FTP workspace -------------------------------------------------------- */
-
-.ftp-workspace {
+.filepane-workspace {
   position: absolute;
   inset: 0;
   display: flex;
@@ -1632,13 +1567,13 @@ textarea:focus {
   background: var(--bg-terminal);
 }
 
-.ftp-workspace.is-hidden {
+.filepane-workspace.is-hidden {
   visibility: hidden;
   pointer-events: none;
   z-index: -1;
 }
 
-.ftp-session-state {
+.filepane-session-state {
   display: grid;
   flex: 1;
   place-content: center;
@@ -1647,16 +1582,16 @@ textarea:focus {
   color: var(--fg-dim);
 }
 
-.ftp-session-state strong {
+.filepane-session-state strong {
   color: var(--fg);
   font-size: 14px;
 }
 
-.ftp-session-state.is-error strong {
+.filepane-session-state.is-error strong {
   color: var(--red);
 }
 
-.ftp-dual-pane {
+.filepane-dual-pane {
   display: grid;
   flex: 1;
   min-height: 0;
@@ -1664,7 +1599,7 @@ textarea:focus {
   background: var(--bg-app);
 }
 
-.ftp-file-browser {
+.filepane-file-browser {
   display: flex;
   min-width: 0;
   min-height: 0;
@@ -1673,7 +1608,7 @@ textarea:focus {
   background: var(--bg-panel);
 }
 
-.ftp-browser-header {
+.filepane-browser-header {
   display: flex;
   flex: 0 0 48px;
   align-items: center;
@@ -1684,38 +1619,38 @@ textarea:focus {
   border-bottom: 1px solid var(--border);
 }
 
-.ftp-browser-header > div:first-child {
+.filepane-browser-header > div:first-child {
   display: flex;
   min-width: 0;
   flex-direction: column;
   gap: 1px;
 }
 
-.ftp-browser-header strong,
-.ftp-browser-header span {
+.filepane-browser-header strong,
+.filepane-browser-header span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.ftp-browser-header strong {
+.filepane-browser-header strong {
   color: var(--fg);
   font-size: 13px;
 }
 
-.ftp-browser-header > div:first-child > span {
+.filepane-browser-header > div:first-child > span {
   color: var(--fg-faint);
   font-size: 10px;
 }
 
-.ftp-browser-actions {
+.filepane-browser-actions {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
   gap: 2px;
 }
 
-.ftp-tool-button {
+.filepane-tool-button {
   display: inline-flex;
   width: 25px;
   height: 25px;
@@ -1726,22 +1661,22 @@ textarea:focus {
   color: var(--fg-dim);
 }
 
-.ftp-tool-button:hover:not(:disabled) {
+.filepane-tool-button:hover:not(:disabled) {
   background: var(--bg-hover);
   color: var(--fg);
 }
 
-.ftp-tool-button.is-danger:hover:not(:disabled) {
+.filepane-tool-button.is-danger:hover:not(:disabled) {
   background: color-mix(in srgb, var(--red) 12%, transparent);
   color: var(--red);
 }
 
-.ftp-tool-button:disabled {
+.filepane-tool-button:disabled {
   cursor: default;
   opacity: 0.35;
 }
 
-.ftp-browser-path {
+.filepane-browser-path {
   display: flex;
   flex: 0 0 35px;
   align-items: center;
@@ -1749,7 +1684,7 @@ textarea:focus {
   border-bottom: 1px solid var(--border);
 }
 
-.ftp-browser-path input {
+.filepane-browser-path input {
   width: 100%;
   min-width: 0;
   background: var(--bg-field);
@@ -1757,13 +1692,13 @@ textarea:focus {
   font-size: 11px;
 }
 
-.ftp-browser-columns,
-.ftp-file-row {
+.filepane-browser-columns,
+.filepane-file-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 76px 130px;
 }
 
-.ftp-browser-columns {
+.filepane-browser-columns {
   flex: 0 0 24px;
   align-items: center;
   padding: 0 9px;
@@ -1772,18 +1707,18 @@ textarea:focus {
   font-size: 10px;
 }
 
-.ftp-browser-columns span:nth-child(n + 2),
-.ftp-file-row > span:nth-child(n + 2) {
+.filepane-browser-columns span:nth-child(n + 2),
+.filepane-file-row > span:nth-child(n + 2) {
   text-align: right;
 }
 
-.ftp-browser-list {
+.filepane-browser-list {
   flex: 1;
   min-height: 0;
   overflow: auto;
 }
 
-.ftp-file-row {
+.filepane-file-row {
   min-height: 29px;
   align-items: center;
   padding: 3px 9px;
@@ -1793,22 +1728,22 @@ textarea:focus {
   cursor: default;
 }
 
-.ftp-file-row:hover {
+.filepane-file-row:hover {
   background: var(--bg-hover);
 }
 
-.ftp-file-row.is-selected {
+.filepane-file-row.is-selected {
   background: var(--bg-active);
   color: var(--fg);
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
-.ftp-file-row.is-directory .ftp-file-name {
+.filepane-file-row.is-directory .filepane-file-name {
   color: var(--dir-label);
   font-weight: 600;
 }
 
-.ftp-file-name {
+.filepane-file-name {
   display: flex;
   min-width: 0;
   align-items: center;
@@ -1816,13 +1751,13 @@ textarea:focus {
   overflow: hidden;
 }
 
-.ftp-file-name > span:last-child {
+.filepane-file-name > span:last-child {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.ftp-file-icon {
+.filepane-file-icon {
   display: inline-flex;
   flex: 0 0 16px;
   align-items: center;
@@ -1831,7 +1766,7 @@ textarea:focus {
   height: 16px;
 }
 
-.ftp-file-icon img {
+.filepane-file-icon img {
   display: block;
   width: 16px;
   height: 16px;
@@ -1839,18 +1774,18 @@ textarea:focus {
   user-select: none;
 }
 
-.ftp-browser-message {
+.filepane-browser-message {
   padding: 18px 12px;
   color: var(--fg-faint);
   text-align: center;
   white-space: pre-wrap;
 }
 
-.ftp-browser-message.is-error {
+.filepane-browser-message.is-error {
   color: var(--red);
 }
 
-.ftp-browser-footer {
+.filepane-browser-footer {
   display: flex;
   flex: 0 0 25px;
   align-items: center;
@@ -1862,14 +1797,14 @@ textarea:focus {
   font-size: 10px;
 }
 
-.ftp-browser-footer span:last-child {
+.filepane-browser-footer span:last-child {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.ftp-transfer-rail {
+.filepane-transfer-rail {
   display: flex;
   min-width: 0;
   align-items: center;
@@ -1882,7 +1817,7 @@ textarea:focus {
   background: var(--bg-app);
 }
 
-.ftp-transfer-button {
+.filepane-transfer-button {
   display: flex;
   width: 84px;
   min-height: 32px;
@@ -1897,18 +1832,18 @@ textarea:focus {
   font-size: 11px;
 }
 
-.ftp-transfer-button:hover:not(:disabled) {
+.filepane-transfer-button:hover:not(:disabled) {
   border-color: var(--accent);
   background: var(--accent-soft);
 }
 
-.ftp-transfer-button:disabled {
+.filepane-transfer-button:disabled {
   color: var(--fg-faint);
   cursor: default;
   opacity: 0.45;
 }
 
-.ftp-transfer-status {
+.filepane-transfer-status {
   display: flex;
   flex: 0 0 28px;
   align-items: center;
@@ -1919,14 +1854,14 @@ textarea:focus {
   font-size: 10px;
 }
 
-.ftp-transfer-status.has-transfer {
+.filepane-transfer-status.has-transfer {
   display: block;
   flex-basis: auto;
   min-height: 49px;
   padding: 6px 10px;
 }
 
-.ftp-transfer-summary {
+.filepane-transfer-summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1934,19 +1869,19 @@ textarea:focus {
   color: var(--fg-dim);
 }
 
-.ftp-transfer-summary span:first-child {
+.filepane-transfer-summary span:first-child {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.ftp-transfer-summary span:last-child {
+.filepane-transfer-summary span:last-child {
   flex: 0 0 auto;
   font-family: var(--font-mono);
 }
 
-.ftp-transfer-progress {
+.filepane-transfer-progress {
   height: 5px;
   margin-top: 6px;
   overflow: hidden;
@@ -1954,7 +1889,7 @@ textarea:focus {
   background: var(--border-strong);
 }
 
-.ftp-transfer-progress > span {
+.filepane-transfer-progress > span {
   display: block;
   height: 100%;
   border-radius: inherit;
@@ -1962,12 +1897,12 @@ textarea:focus {
   transition: width 80ms linear;
 }
 
-.ftp-transfer-progress > span.is-indeterminate {
+.filepane-transfer-progress > span.is-indeterminate {
   width: 35%;
-  animation: ftp-transfer-indeterminate 1.2s ease-in-out infinite alternate;
+  animation: filepane-transfer-indeterminate 1.2s ease-in-out infinite alternate;
 }
 
-.ftp-transfer-error {
+.filepane-transfer-error {
   margin-top: 4px;
   overflow: hidden;
   color: var(--red);
@@ -1975,7 +1910,7 @@ textarea:focus {
   white-space: nowrap;
 }
 
-@keyframes ftp-transfer-indeterminate {
+@keyframes filepane-transfer-indeterminate {
   from {
     transform: translateX(-100%);
   }
@@ -1985,27 +1920,27 @@ textarea:focus {
 }
 
 @media (max-width: 800px) {
-  .ftp-dual-pane {
+  .filepane-dual-pane {
     grid-template-columns: minmax(220px, 1fr) 74px minmax(220px, 1fr);
   }
 
-  .ftp-transfer-rail {
+  .filepane-transfer-rail {
     padding: 6px;
   }
 
-  .ftp-transfer-button {
+  .filepane-transfer-button {
     width: 62px;
     flex-direction: column;
     gap: 1px;
   }
 
-  .ftp-browser-columns,
-  .ftp-file-row {
+  .filepane-browser-columns,
+  .filepane-file-row {
     grid-template-columns: minmax(0, 1fr) 64px;
   }
 
-  .ftp-browser-columns span:last-child,
-  .ftp-file-row > span:last-child {
+  .filepane-browser-columns span:last-child,
+  .filepane-file-row > span:last-child {
     display: none;
   }
 }
@@ -2038,9 +1973,33 @@ textarea:focus {
   font-variant-numeric: tabular-nums;
 }
 
+/* The row the cursor is on: the one line the eye is looking for, so it gets a
+   tint that reads from across the window and both its columns come up with it.
+   The text is the window's own foreground rather than the accent or white —
+   white on the accent's own tint washes out in the light theme, where the tint
+   is pale and the contrast has to come from the text being dark. The `color`
+   is set on the two columns by name: each of them sets its own further down,
+   which outranks a colour on the row. */
 .gutter-row.is-cursor {
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--fg);
+}
+
+.gutter-row.is-cursor .gutter-time,
+.gutter-row.is-cursor .gutter-line {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+:root[data-theme="light"] .gutter-row.is-cursor {
+  /* The light accent is a mid blue; full strength is the only place it reads
+     as a mark rather than as a smudge on a white terminal. */
+  background: var(--accent);
+}
+
+:root[data-theme="light"] .gutter-row.is-cursor .gutter-time,
+:root[data-theme="light"] .gutter-row.is-cursor .gutter-line {
+  color: var(--accent-contrast);
 }
 
 .gutter-time {
@@ -2062,10 +2021,33 @@ textarea:focus {
 }
 
 .term-host {
-  position: relative; /* anchors the completion popup */
+  position: relative; /* anchors the completion popup and the command rules */
   flex: 1;
   min-width: 0;
   padding-left: 6px;
+}
+
+/* The rule above each command's prompt, over the terminal content and placed
+   from the gutter's own render pass (see syncDividers). Local sessions only,
+   and never in the alternate buffer. */
+.term-dividers {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.term-divider {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  /* Not `--border`: on the terminal's own background that is a 5% step and
+     reads as nothing at all. This is the palette's hairline for a rule that
+     has to be seen. */
+  background: var(--border-strong);
+  pointer-events: none;
 }
 
 /* IDE-style completion popup: history commands matching the typed input,
@@ -2120,7 +2102,9 @@ textarea:focus {
 }
 
 .term-suggest-item {
-  display: block;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
   overflow: hidden;
   padding: 3px 10px;
   border-radius: 4px;
@@ -2153,6 +2137,22 @@ textarea:focus {
 .term-suggest-match {
   color: var(--accent);
   font-weight: 600;
+}
+
+/* What a row completes to, held in one column so the names line up down the
+   list, and the note beside it — "directory", a flag's meaning — which is the
+   part that says why the row is the right one. */
+.term-suggest-label {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.term-suggest-hint {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: var(--fg-faint);
+  font-size: 0.9em;
 }
 
 /* --accent is muddy on its own tint in the dark palette; lighten it there.
@@ -2262,23 +2262,6 @@ textarea:focus {
   font-weight: 500;
   color: var(--fg-dim);
   letter-spacing: 0.5px;
-}
-
-.term-empty-hint {
-  margin: 0;
-  line-height: 1.7;
-  text-align: center;
-}
-
-.term-empty kbd {
-  display: inline-block;
-  padding: 1px 5px;
-  border: 1px solid var(--border-strong);
-  border-bottom-width: 2px;
-  border-radius: 3px;
-  background: var(--bg-panel-alt);
-  font-family: var(--font-mono);
-  font-size: 11px;
 }
 
 /* --- sender --------------------------------------------------------------- */
@@ -2767,26 +2750,6 @@ textarea:focus {
   color: var(--red);
 }
 
-/* The active session is being recorded to a file; the button opens the
-   folder. The dot is the Codicon, tinted the recording red. */
-.status-recording {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 0 4px;
-  border-radius: 4px;
-  color: var(--fg);
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-}
-.status-recording .icon {
-  color: var(--red);
-}
-.status-recording:hover {
-  background: var(--bg-hover);
-}
-
 /* The active SSH session only connected on algorithms kept for old devices;
    the tooltip names them. */
 .status-legacy {
@@ -3121,14 +3084,6 @@ textarea:focus {
   line-height: 1.3;
 }
 
-.session-dialog-subtitle {
-  overflow: hidden;
-  color: var(--fg-faint);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .session-dialog-body {
   min-height: 0;
@@ -3160,15 +3115,6 @@ textarea:focus {
   color: var(--fg-dim);
 }
 
-.session-section-heading small {
-  overflow: hidden;
-  margin-left: auto;
-  color: var(--fg-faint);
-  font-size: 10px;
-  font-weight: 400;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .session-form-grid {
   display: grid;
@@ -3241,47 +3187,6 @@ textarea:focus {
   color-scheme: inherit;
 }
 
-.session-field-hint {
-  overflow: hidden;
-  color: var(--fg-faint);
-  font-size: 10px;
-  line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* A hint too long for one line: a tinted block that wraps, with the icon
-   saying whether it explains something or warns about it. */
-.session-note {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 8px 10px;
-  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-  color: var(--fg-dim);
-  font-size: 11px;
-  line-height: 1.45;
-}
-
-.session-note .icon {
-  margin-top: 1px;
-  color: var(--accent);
-}
-
-.session-note.is-warning {
-  border-color: color-mix(in srgb, var(--yellow) 32%, transparent);
-  background: color-mix(in srgb, var(--yellow) 12%, transparent);
-}
-
-.session-note.is-warning .icon {
-  color: var(--yellow);
-}
-
-.session-note.is-wide {
-  grid-column: 1 / -1;
-}
 
 .session-color-picker {
   display: grid;
@@ -3320,20 +3225,22 @@ textarea:focus {
   outline-offset: 3px;
 }
 
-.serial-port-row {
+/* 一个占满宽度的输入控件加一个方形图标按钮，例如录制文件夹那一行的
+   输入框 + 浏览按钮。 */
+.input-with-button {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
 }
 
-.serial-refresh {
+.input-with-button > .btn {
   min-width: 32px;
   width: 32px;
   padding: 0;
   color: var(--fg-dim);
 }
 
-.serial-refresh:hover {
+.input-with-button > .btn:hover {
   color: var(--fg);
 }
 
@@ -3936,14 +3843,6 @@ textarea:focus {
   white-space: nowrap;
 }
 
-.protocol-option-hint {
-  max-width: 100%;
-  overflow: hidden;
-  color: var(--fg-faint);
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 /* The SFTP / FTP sub-choice stays a segmented control: two names on one
    track, the chosen one lit in the same accent tint as the cards above. */
@@ -3999,8 +3898,7 @@ textarea:focus {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .session-field.is-wide,
-  .session-note.is-wide {
+  .session-field.is-wide {
     grid-column: auto;
   }
 

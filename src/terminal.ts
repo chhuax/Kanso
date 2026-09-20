@@ -13,11 +13,11 @@ import {
   type ITheme,
 } from "@xterm/xterm";
 
-import { isAiSessionCommand } from "./aiTools";
+import { aiToolForCommand, type AiTool } from "./aiTools";
 import { readClipboardText } from "./api";
 import { createOutputDecoder } from "./encodings";
 import { MONO_FONT_FAMILY } from "./fonts";
-import type { CommandSuggestion } from "./history";
+import { tabAction, type Completion } from "./completion";
 import { patchImeInput } from "./imePatch";
 import { IS_MAC, IS_WINDOWS } from "./platform";
 import { matchAppShortcut } from "./shortcuts";
@@ -61,12 +61,14 @@ type GutterView = {
  * takes the oldest one away; with one context per tab, opening enough tabs
  * stranded the earliest ones on the DOM renderer for good, where a
  * selection drag crawls (issue #14). A hidden tab has no use for the fast
- * renderer and every context pins a window-sized GPU surface, so the least
- * recently shown terminals give theirs up and load it again when shown.
- * Six covers the tabs someone actually cycles through, keeps GPU memory to
- * a few hundred megabytes and stays well clear of the limit.
+ * renderer and every context pins a window-sized GPU surface — about 8 MB
+ * on a Retina display, and it is the surface rather than the glyphs that
+ * costs — so the least recently shown terminals give theirs up and load it
+ * again when shown. Two covers the tab on screen and the one switched away
+ * from, which is what a person cycles between: the GPU surfaces held come
+ * down from six windows' worth to two.
  */
-const WEBGL_MAX_TERMINALS = 6;
+const WEBGL_MAX_TERMINALS = 2;
 /**
  * A lost context (WKWebView reclaims them under memory pressure or after a
  * long stay in the background) is recreated after a pause, a few times per
@@ -188,28 +190,43 @@ const ALT_ARROW_SEQUENCES: Record<string, string | undefined> = IS_MAC
  */
 const XTERM_THEMES: Record<ThemeMode, ITheme> = {
   dark: {
-    background: "#1f1f1f",
-    foreground: "#cccccc",
-    cursor: "#aeafad",
-    cursorAccent: "#1f1f1f",
-    selectionBackground: "#264f78",
-    selectionInactiveBackground: "#22374c",
-    black: "#000000",
-    red: "#cd3131",
-    green: "#0dbc79",
-    yellow: "#e5e510",
-    blue: "#2472c8",
-    magenta: "#bc3fbc",
-    cyan: "#11a8cd",
-    white: "#e5e5e5",
-    brightBlack: "#666666",
-    brightRed: "#f14c4c",
-    brightGreen: "#23d18b",
-    brightYellow: "#f5f543",
-    brightBlue: "#3b8eea",
-    brightMagenta: "#d670d6",
-    brightCyan: "#29b8db",
-    brightWhite: "#e5e5e5",
+    // Warp's default dark theme, value for value (see its `dark_theme()` and
+    // `DARK_MODE_*_COLORS`): a near-black page, white text, and an ANSI set
+    // that is bright and low-saturation rather than the mid-tone editor
+    // palette. Its UI text steps come from the same white, by opacity.
+    background: "#050505",
+    // The text output is drawn in: #cccccc read at 10:1, well short of the
+    // near-white a terminal is usually read against (Warp's default is 16:1).
+    // This is VS Code Dark Modern's editor foreground, and the semantic
+    // palette beside it was tuned to clear 4.5:1 on #1f1f1f already, so
+    // nothing there has to move.
+    foreground: "#ffffff",
+    cursor: "#19aad8",
+    cursorAccent: "#050505",
+    selectionBackground: "#19aad8",
+    selectionInactiveBackground: "#123a47",
+    // Warp's own sixteen, exactly (DARK_MODE_*_COLORS). They are bright and
+    // low-saturation — nine sit above 0.6 luminance and the yellow and the
+    // bright greens are near white — which costs nothing in practice: the
+    // programs that look washed out under a pale palette draw with true colour
+    // or with the fixed 256-colour cube, neither of which reads these entries.
+    // Only a program asking for "bright yellow" specifically gets #fefdc2.
+    black: "#616161",
+    red: "#ff8272",
+    green: "#b4fa72",
+    yellow: "#fefdc2",
+    blue: "#a5d5fe",
+    magenta: "#ff8ffd",
+    cyan: "#d0d1fe",
+    white: "#f1f1f1",
+    brightBlack: "#8e8e8e",
+    brightRed: "#ffc4bd",
+    brightGreen: "#d6fcb9",
+    brightYellow: "#fefdd5",
+    brightBlue: "#c1e3fe",
+    brightMagenta: "#ffb1fe",
+    brightCyan: "#e5e6fe",
+    brightWhite: "#ffffff",
   },
   light: {
     background: "#ffffff",
@@ -273,8 +290,15 @@ interface Callbacks {
     state: "idle" | "running" | "complete",
     kind: "command" | "ai",
   ) => void;
-  /** Ranked history completions for the current input; [] when none. */
-  suggest: (input: string) => CommandSuggestion[];
+  /** Ranked completions for the current input; [] when none. */
+  suggest: (input: string) => Completion[] | Promise<Completion[]>;
+  /**
+   * The agentic CLI now holding the terminal, or null once it has exited. It
+   * stays set for the whole session — an idle agent is still the agent, and
+   * that is most of the time. Optional: the tests that drive a terminal
+   * directly have no tabs to mark.
+   */
+  onAiTool?: (tool: AiTool | null) => void;
 }
 
 /**
@@ -360,15 +384,33 @@ export class TerminalController {
   private commandRunning = false;
   /** Callers waiting for the running command to return; see `waitForCommand`. */
   private commandWaiters: (() => void)[] = [];
+  /**
+   * One marker per command start, oldest first, for the rule drawn above each
+   * prompt (see `dividers`). xterm disposes the marker as its line leaves the
+   * scrollback, which is also what prunes this list.
+   */
+  private commandStarts: IMarker[] = [];
+  /** The rule layer inside the terminal's own box, and its pool of 1px lines. */
+  private dividersLayer: HTMLElement | null = null;
+  private dividerLines: HTMLElement[] = [];
+  /** What the rules were last placed for; see `syncDividers`. */
+  private dividersPainted: {
+    viewportY: number;
+    rows: number;
+    alternate: boolean;
+    starts: number;
+  } | null = null;
   /** Set while an agentic CLI (see `aiTools.ts`) owns the terminal. */
   private aiSession = false;
+  /** Which one, for the tab's mark; null outside such a session. */
+  private aiTool: AiTool | null = null;
   /** Open from the user's input until the assistant goes quiet again. */
   private aiTurn = false;
   private aiOutputAt = 0;
   private aiQuietTimer: number | null = null;
   private readonly popup: HTMLElement;
   /** Rows currently displayed; [] while the popup is hidden. */
-  private candidates: CommandSuggestion[] = [];
+  private candidates: Completion[] = [];
   /** Selected row, or -1 while the popup is passive (keys pass through). */
   private popupIndex = -1;
   /** The input the current candidates were computed for. */
@@ -376,6 +418,15 @@ export class TerminalController {
   /** Input the user dismissed the popup for (Esc / accept); "" = none. */
   private dismissedInput = "";
   private popupSyncScheduled = false;
+  /**
+   * Completions come from the filesystem for a path — an IPC round trip for a
+   * remote one — so a keystroke can arrive while the previous answer is still
+   * in flight. Only the newest request may paint, and until it has, Tab is
+   * held back rather than handed to the shell, whose own completion would
+   * fight the popup's.
+   */
+  private popupRequest = 0;
+  private popupPending = false;
   /** A viewport pass is queued for the end of the current task; see onScroll. */
   private viewportSyncQueued = false;
   /**
@@ -424,6 +475,12 @@ export class TerminalController {
     scrollback: number,
     theme: ThemeMode = "dark",
     fontFamily: string = MONO_FONT_FAMILY,
+    /**
+     * Draw a rule above each command's prompt. Local sessions only: a remote
+     * shell prints its own prompts without our integration, and Warp leaves
+     * those sessions unblocked for the same reason.
+     */
+    private readonly dividers = false,
   ) {
     this.scrollback = scrollback;
     this.themeMode = theme;
@@ -619,43 +676,59 @@ export class TerminalController {
     const key = event.key.toLowerCase();
 
     // IDE-style completion popup. While it is *passive* every key still
-    // reaches the shell (so ↑ history, Tab completion and a remote shell's
-    // own → autosuggest keep working); only ↓ (step into the list) and Esc
-    // (dismiss) are taken. Once a row is selected the list owns ↑/↓ and
-    // Enter/Tab accept — the user opted in by stepping into it.
+    // reaches the shell (so ↑ history and a remote shell's own → autosuggest
+    // keep working); only ↓ steps into the list, Esc dismisses, and Tab takes
+    // the first row or accepts the selected one. With no popup and no answer
+    // on the way, Tab is left to the shell's own completion.
     if (
-      this.candidates.length > 0 &&
       !event.isComposing &&
       !event.ctrlKey &&
       !event.altKey &&
-      !event.metaKey &&
-      !event.shiftKey
+      !event.metaKey
     ) {
-      if (key === "escape") {
-        event.preventDefault();
-        this.dismissedInput = this.popupInput;
-        this.hidePopup();
-        return false;
-      }
-      if (key === "arrowdown") {
-        event.preventDefault();
-        this.setPopupIndex(
-          this.popupIndex >= this.candidates.length - 1
-            ? this.candidates.length - 1
-            : this.popupIndex + 1,
-        );
-        return false;
-      }
-      if (this.popupIndex >= 0) {
-        if (key === "arrowup") {
+      if (this.candidates.length > 0) {
+        if (key === "escape" && !event.shiftKey) {
           event.preventDefault();
-          this.setPopupIndex(this.popupIndex - 1);
+          this.dismissedInput = this.popupInput;
+          this.hidePopup();
           return false;
         }
-        if (key === "enter" || key === "tab") {
+        if (key === "arrowdown" && !event.shiftKey) {
           event.preventDefault();
-          this.acceptSuggestion(this.popupIndex);
+          this.setPopupIndex(
+            this.popupIndex >= this.candidates.length - 1
+              ? this.candidates.length - 1
+              : this.popupIndex + 1,
+          );
           return false;
+        }
+        if (key === "tab") {
+          const action = tabAction(
+            this.candidates.length,
+            this.popupIndex,
+            this.popupPending,
+            event.shiftKey,
+          );
+          if (action === "shell") return true;
+          event.preventDefault();
+          if (action === "accept") this.acceptSuggestion(this.popupIndex);
+          else if (action === "first") this.setPopupIndex(0);
+          else if (action === "last") this.setPopupIndex(this.candidates.length - 1);
+          else if (action === "next") this.setPopupIndex(this.popupIndex + 1);
+          else if (action === "previous") this.setPopupIndex(this.popupIndex - 1);
+          return action === "hold";
+        }
+        if (this.popupIndex >= 0) {
+          if (key === "arrowup" && !event.shiftKey) {
+            event.preventDefault();
+            this.setPopupIndex(this.popupIndex - 1);
+            return false;
+          }
+          if (key === "enter" && !event.shiftKey) {
+            event.preventDefault();
+            this.acceptSuggestion(this.popupIndex);
+            return false;
+          }
         }
       }
     }
@@ -764,6 +837,11 @@ export class TerminalController {
     // against the terminal content, past the gutter, and survives
     // re-parenting above.
     this.host.appendChild(this.popup);
+    // The command rules overlay the content rather than the gutter, so they
+    // line up with the terminal's own rows. See `syncDividers`.
+    this.dividersLayer = document.createElement("div");
+    this.dividersLayer.className = "term-dividers";
+    this.host.appendChild(this.dividersLayer);
 
     // WebGL comes with being shown (setVisible); it needs the host, so a
     // terminal that was shown before it was attached loads it here.
@@ -1073,9 +1151,17 @@ export class TerminalController {
   }
 
   /** Copies the selection to the clipboard; false when there is none. */
+  /**
+   * Copies the selection, if there is one, and says so when the clipboard
+   * refuses: a rejected write is the one failure of this that would otherwise
+   * be completely silent — the user sees a selection, expects it to be
+   * pasteable, and finds out elsewhere.
+   */
   copySelection(): boolean {
     if (!this.term.hasSelection()) return false;
-    void navigator.clipboard.writeText(this.term.getSelection());
+    navigator.clipboard.writeText(this.term.getSelection()).catch((error) => {
+      this.callbacks.onStatus(`Copy failed: ${String(error)}`, true);
+    });
     return true;
   }
 
@@ -1430,13 +1516,19 @@ export class TerminalController {
 
     this.commandMarker?.dispose();
     this.commandMarker = this.term.registerMarker(0);
+    if (this.dividers) {
+      const start = this.term.registerMarker(0);
+      if (start) this.commandStarts.push(start);
+    }
     this.commandPrompt = prompt;
     // Appending a space lets a compact bare prompt such as `$` satisfy the
     // same look-ahead rule as `$ command` in semantic coloring.
     this.commandPromptRecognized = isShellPrompt(`${prompt} `);
     this.commandOutputAdvanced = false;
     this.commandRunning = true;
-    this.aiSession = isAiSessionCommand(sent ?? this.submittedCommand(prompt));
+    this.aiTool = aiToolForCommand(sent ?? this.submittedCommand(prompt));
+    this.aiSession = this.aiTool !== null;
+    this.callbacks.onAiTool?.(this.aiTool);
     // An agentic CLI runs until the user quits it, so reporting its whole
     // session as one running command would say nothing. The tab stays quiet
     // until the assistant itself is working.
@@ -1533,6 +1625,9 @@ export class TerminalController {
     this.commandOutputAdvanced = false;
     this.commandRunning = false;
     this.endAiSession();
+    // The tool exited with the command, so the tab's mark comes off with it.
+    this.aiTool = null;
+    if (!this.disposed) this.callbacks.onAiTool?.(null);
     const waiters = this.commandWaiters;
     this.commandWaiters = [];
     for (const waiter of waiters) waiter();
@@ -1744,10 +1839,14 @@ export class TerminalController {
   }
 
   /**
-   * Shows history matches for the typed input as a floating completion list
-   * anchored to the cursor, IDE-style. The input is read up to the cursor
-   * only, so a remote shell's own inline autosuggestion (fish,
-   * zsh-autosuggestions) after the cursor never feeds back into ours.
+   * Shows completions for the typed input as a floating list anchored to the
+   * input, IDE-style. The input is read up to the cursor only, so a remote
+   * shell's own inline autosuggestion (fish, zsh-autosuggestions) after the
+   * cursor never feeds back into ours.
+   *
+   * The answer may be asynchronous — a path row lists a directory, which for
+   * an SSH session is a round trip — so each request carries its number and
+   * only the newest one is allowed to paint.
    */
   private syncPopup() {
     const anchor = this.inputAnchor;
@@ -1766,13 +1865,7 @@ export class TerminalController {
       row: cursorRow,
       col: buf.cursorX,
     });
-    if (!input || input === this.dismissedInput) {
-      this.hidePopup();
-      return;
-    }
-
-    const candidates = this.callbacks.suggest(input);
-    if (candidates.length === 0) {
+    if (input === null || input === this.dismissedInput) {
       this.hidePopup();
       return;
     }
@@ -1794,6 +1887,41 @@ export class TerminalController {
       return;
     }
 
+    const request = (this.popupRequest += 1);
+    this.popupPending = true;
+    const settled = this.callbacks.suggest(input);
+    if (Array.isArray(settled)) {
+      this.paintPopup(input, settled, viewRow, screen, anchor);
+      return;
+    }
+    void settled
+      .then((candidates) => {
+        if (this.disposed || request !== this.popupRequest) return;
+        this.paintPopup(input, candidates, viewRow, screen, anchor);
+      })
+      .catch(() => {
+        if (!this.disposed && request === this.popupRequest) {
+          this.popupPending = false;
+          this.hidePopup();
+        }
+      });
+  }
+
+  /** Places the rows an answer produced, and lays the popup out under them. */
+  private paintPopup(
+    input: string,
+    candidates: Completion[],
+    viewRow: number,
+    screen: HTMLElement,
+    anchor: InputAnchor,
+  ) {
+    this.popupPending = false;
+    if (this.disposed || !this.host) return;
+    if (candidates.length === 0) {
+      this.hidePopup();
+      return;
+    }
+
     const inputChanged = input !== this.popupInput;
     this.popupInput = input;
     this.candidates = candidates;
@@ -1810,6 +1938,7 @@ export class TerminalController {
     const screenRect = screen.getBoundingClientRect();
     const hostRect = this.host.getBoundingClientRect();
     const cellWidth = screenRect.width / this.term.cols;
+    const cursorRow = this.term.buffer.active.baseY + this.term.buffer.active.cursorY;
     const anchorCol = cursorRow === anchor.marker.line ? anchor.col : 0;
     const screenLeft = screenRect.left - hostRect.left;
     const screenTop = screenRect.top - hostRect.top;
@@ -1840,16 +1969,27 @@ export class TerminalController {
       }`;
       row.setAttribute("role", "option");
 
-      const { command, matchStart } = candidate;
-      const matchEnd = matchStart + this.popupInput.length;
+      // The typed text is highlighted where it sits in the label, which is not
+      // always its start: a path row reads as the file name, a subcommand row
+      // as the command.
+      const matchEnd = candidate.matchStart + candidate.matchLength;
+      const label = document.createElement("span");
+      label.className = "term-suggest-label";
       const pre = document.createElement("span");
-      pre.textContent = command.slice(0, matchStart);
+      pre.textContent = candidate.label.slice(0, candidate.matchStart);
       const match = document.createElement("span");
       match.className = "term-suggest-match";
-      match.textContent = command.slice(matchStart, matchEnd);
+      match.textContent = candidate.label.slice(candidate.matchStart, matchEnd);
       const post = document.createElement("span");
-      post.textContent = command.slice(matchEnd);
-      row.append(pre, match, post);
+      post.textContent = candidate.label.slice(matchEnd);
+      label.append(pre, match, post);
+      row.appendChild(label);
+      if (candidate.hint) {
+        const hint = document.createElement("span");
+        hint.className = "term-suggest-hint";
+        hint.textContent = candidate.hint;
+        row.appendChild(hint);
+      }
 
       row.addEventListener("mousedown", (event) => {
         // preventDefault keeps focus in the terminal.
@@ -1871,17 +2011,28 @@ export class TerminalController {
     }
   }
 
+  /**
+   * Puts a row on the shell's line. Only the range the row said it replaces
+   * changes: a path completes inside the command the user already typed, and
+   * a command row replaces the whole line. Keystrokes are sent as if typed,
+   * one backspace per code point, so the shell edits its own line and its own
+   * history and undo see the change.
+   */
   private acceptSuggestion(index: number) {
     const candidate = this.candidates[index] ?? this.candidates[0];
     if (!candidate) return;
     const input = this.popupInput;
-    // A prefix match completes in place. Any other match erases the typed
-    // input first — one backspace per code point, so the shell edits its own
-    // line — then sends the full command.
-    const data = candidate.command.startsWith(input)
-      ? candidate.command.slice(input.length)
-      : "\x7f".repeat([...input].length) + candidate.command;
-    this.dismissedInput = candidate.command;
+    const typed = [...input.slice(candidate.replaceStart, candidate.replaceEnd)].length;
+    const insert = candidate.line.slice(candidate.replaceStart);
+    let data: string;
+    if (candidate.line.startsWith(input)) {
+      data = candidate.line.slice(input.length);
+    } else if (candidate.line.startsWith(input.slice(0, candidate.replaceStart))) {
+      data = "\x7f".repeat(typed) + insert;
+    } else {
+      data = "\x7f".repeat([...input].length) + candidate.line;
+    }
+    this.dismissedInput = candidate.line;
     this.hidePopup();
     if (data && !this.locked && !this.isTransferActive()) {
       this.callbacks.onData(data);
@@ -2066,7 +2217,15 @@ export class TerminalController {
           byLine.delete(r);
         }
       }
-      if (last < cursorFirst || first > cursorIndex) {
+      // Everything except the logical line the caret is still on. The
+      // stronger test this replaces waited for the caret to leave *and* the
+      // line to scroll away from it — so a command kept the plain colour it
+      // had while being typed until the next output pushed it up, and then
+      // changed colour under the eye. A line the caret has left is finished:
+      // the shell has echoed it and is running it, so it can be coloured at
+      // once. The line under the caret is left alone because its text is still
+      // changing with every keystroke.
+      if (first !== cursorFirst || last !== cursorIndex) {
         this.colorLogicalLine(first, last, byLine);
       }
     }
@@ -2243,7 +2402,80 @@ export class TerminalController {
     this.gutterPainted = null;
   }
 
+  /**
+   * Places a rule above every command's prompt that is on screen. Reuses the
+   * gutter's pass — same viewport, same idle bail-out, no second listener —
+   * and draws nothing in the alternate buffer, where a full-screen program
+   * owns the screen and a rule would land across its drawing (Warp skips its
+   * own block dividers there too).
+   */
+  private syncDividers() {
+    if (!this.host || !this.dividers) return;
+    if (this.cellHeight <= 0) this.measureCell();
+    if (this.cellHeight <= 0) return;
+
+    const buf = this.term.buffer.active;
+    const alternate = buf.type === "alternate";
+    const viewportY = buf.viewportY;
+    const rows = this.term.rows;
+    // Trimmed lines take their markers with them; drop the dead ones so the
+    // list stays sorted and short.
+    while (this.commandStarts.length > 0 && this.commandStarts[0].isDisposed) {
+      this.commandStarts.shift();
+    }
+    const painted = this.dividersPainted;
+    if (
+      painted &&
+      painted.viewportY === viewportY &&
+      painted.rows === rows &&
+      painted.alternate === alternate &&
+      painted.starts === this.commandStarts.length
+    ) {
+      return;
+    }
+    this.dividersPainted = {
+      viewportY,
+      rows,
+      alternate,
+      starts: this.commandStarts.length,
+    };
+
+    let used = 0;
+    if (!alternate) {
+      const last = viewportY + rows;
+      for (const marker of this.commandStarts) {
+        if (marker.isDisposed) continue;
+        // Sorted, so the first start past the viewport ends the scan.
+        if (marker.line < viewportY) continue;
+        if (marker.line >= last) break;
+        let line = this.dividerLines[used];
+        if (!line) {
+          line = document.createElement("div");
+          line.className = "term-divider";
+          this.dividersLayer?.appendChild(line);
+          this.dividerLines[used] = line;
+        }
+        line.style.display = "";
+        // A transform keeps this off the layout path, like the gutter rows.
+        // Snapped to the device pixel grid: a 1px line left on a half pixel is
+        // antialiased into two fainter ones, which over a terminal's own
+        // background is the same as not drawing it.
+        line.style.transform = `translateY(${snapToPixel(
+          (marker.line - viewportY) * this.cellHeight,
+        )}px)`;
+        used += 1;
+      }
+    }
+    for (let index = used; index < this.dividerLines.length; index += 1) {
+      this.dividerLines[index].style.display = "none";
+    }
+  }
+
   private syncGutter() {
+    // Same tick and same viewport as the rules, so they cost no extra
+    // listener; placed before the gutter's own off-check so turning the gutter
+    // off does not take the rules with it.
+    this.syncDividers();
     // Output that scrolled without a line feed (a full-screen program's erase)
     // may have trimmed the buffer since the last pass.
     this.followTrimmedLines();
@@ -2329,4 +2561,15 @@ function formatTime(epochMs: number | undefined): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   const milliseconds = String(d.getMilliseconds()).padStart(3, "0");
   return `[${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${milliseconds}]`;
+}
+
+/**
+ * A length snapped to the device pixel grid, for the 1px rule above a
+ * command's prompt: a hairline landing between two pixels is antialiased
+ * across both, which over a terminal's own background reads as no line at
+ * all. A retina screen's grid is finer than a CSS pixel, hence the ratio.
+ */
+function snapToPixel(value: number): number {
+  const ratio = window.devicePixelRatio || 1;
+  return Math.round(value * ratio) / ratio;
 }

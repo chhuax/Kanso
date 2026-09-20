@@ -11,9 +11,9 @@ import type { LineEnding } from "./types";
 // script landing as typeahead that a password prompt or a pager would eat.
 
 /**
- * Pause between lines the terminal cannot track — no line ending, an
- * agentic CLI holding the terminal, a serial device without a shell — the
- * way a paste is paced for such a device.
+ * Pause between lines the terminal cannot track — no line ending, or an
+ * agentic CLI holding the terminal — the way a paste is paced for a far
+ * end that reports no prompt.
  */
 export const LINE_GAP_MS = 100;
 /**

@@ -47,8 +47,6 @@ from_display!(
     russh::Error,
     russh::keys::Error,
     russh_sftp::client::error::Error,
-    suppaftp::FtpError,
-    serialport::Error,
 );
 
 impl From<String> for AppError {

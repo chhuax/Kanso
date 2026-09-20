@@ -19,6 +19,7 @@ import { ContextMenu, type MenuItem } from "../ContextMenu";
 import { DeleteEntryDialog } from "../DeleteEntryDialog";
 import { FileIcon } from "../FileIcon";
 import { Icon } from "../icons";
+import { PanelTabs, type PanelTabsProps } from "../PanelTabs";
 import type { FileEntry, ThemeMode } from "../../types";
 
 interface TransferState {
@@ -103,7 +104,7 @@ interface DropVerdict {
 const dropPoint = (position: PhysicalPosition): { x: number; y: number } =>
   IS_WINDOWS ? position.toLogical(window.devicePixelRatio) : position;
 
-export function FilerPanel() {
+export function FilerPanel({ tabs }: { tabs?: PanelTabsProps }) {
   const tab = useActiveTab();
   const theme = useStore((s) => s.theme);
   const remote = Boolean(
@@ -119,7 +120,7 @@ export function FilerPanel() {
   /** The last `filerTarget.token` this panel navigated to. */
   const consumedTarget = useRef(0);
   // Shell and SSH sessions have a working directory to reveal (⌘J); file
-  // sessions bring their own pane and serial lines have no shell.
+  // sessions bring their own pane instead.
   const canReveal = Boolean(
     tab &&
       (tab.info.kind === "local" || tab.info.kind === "ssh") &&
@@ -175,7 +176,7 @@ export function FilerPanel() {
 
   /**
    * Shows `kind` starting in the footer. A cancellable transfer (the SFTP
-   * and FTP copies) gets the id to pass along; the footer's Cancel button
+   * and SFTP copies) gets the id to pass along; the footer's Cancel button
    * and a released drag reach it through `cancelTransfer`.
    */
   const beginTransfer = (
@@ -1116,13 +1117,20 @@ export function FilerPanel() {
       style={{ flex: 1 }}
     >
       <div className="panel-header">
-        <div className="panel-title is-filer">
-          <Icon name="folder" />
-          Filer
-          <span className="panel-badge">
-            {remote ? tab?.info.protocol : "local"}
-          </span>
-        </div>
+        {tabs ? (
+          <PanelTabs
+            {...tabs}
+            filerBadge={remote ? tab?.info.protocol : "local"}
+          />
+        ) : (
+          <div className="panel-title is-filer">
+            <Icon name="folder" />
+            Filer
+            <span className="panel-badge">
+              {remote ? tab?.info.protocol : "local"}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Upload and download stay visible on local sessions, just disabled. */}
@@ -1466,7 +1474,7 @@ function FilerEntryIcon({
 
 
 /** Applications the user has opened files with, most recent first. */
-const OPEN_WITH_KEY = "edgeterm.filerOpenWith";
+const OPEN_WITH_KEY = "kanso.filerOpenWith";
 const OPEN_WITH_LIMIT = 6;
 
 function loadOpenWithApps(): string[] {

@@ -9,7 +9,6 @@ import type {
   HostKeyChange,
   OpenSessionOutcome,
   SavedCommand,
-  SerialPortDesc,
   SessionGroup,
   SessionInfo,
   SessionProfile,
@@ -157,10 +156,6 @@ export const answerAuthPrompt = (id: string, responses: string[] | null) =>
 export const closeSession = (id: string) => invoke<void>("close_session", { id });
 
 export const listSessions = () => invoke<SessionInfo[]>("list_sessions");
-
-/** Where a profile's recordings go when it names no folder of its own. */
-export const defaultRecordingDir = () =>
-  invoke<string>("default_recording_dir");
 
 /** One installed font family, as `list_system_fonts` reports it. */
 export interface FontFamily {
@@ -338,7 +333,21 @@ export const localHome = () => invoke<string>("local_home");
 export const sessionCwd = (id: string) =>
   invoke<string>("session_cwd", { id });
 
+/**
+ * The branch the repository holding `path` is on, for the line under a local
+ * shell's directory in the rail; null when the directory is in no repository.
+ */
+export const gitBranch = (path: string) =>
+  invoke<string | null>("git_branch", { path });
+
 export const localHostname = () => invoke<string>("local_hostname");
+
+/**
+ * The contexts and namespaces the machine's kubeconfig knows, for completing
+ * `kubectl -n ` and `--context `. Read from the file, never from a cluster.
+ */
+export const kubeNames = () =>
+  invoke<{ contexts: string[]; namespaces: string[] }>("kube_names");
 
 /**
  * Path of the Windows drive list the local browser reaches by going up from a
@@ -520,11 +529,6 @@ export const onRemoteEditState = (
 ): Promise<UnlistenFn> =>
   listen<RemoteEditEvent>("remote-edit:state", (e) => handler(e.payload));
 
-// --- serial -----------------------------------------------------------------
-
-export const listSerialPorts = () =>
-  invoke<SerialPortDesc[]>("list_serial_ports");
-
 // --- events -----------------------------------------------------------------
 
 export const onSessionOutput = (
@@ -536,18 +540,6 @@ export const onSessionState = (
   handler: (event: StateEvent) => void,
 ): Promise<UnlistenFn> =>
   listen<StateEvent>("session:state", (e) => handler(e.payload));
-
-/** A session recording that can no longer be written; see session/recording.rs. */
-export interface RecordingError {
-  id: string;
-  path: string;
-  message: string;
-}
-
-export const onRecordingError = (
-  handler: (event: RecordingError) => void,
-): Promise<UnlistenFn> =>
-  listen<RecordingError>("session:recording-error", (e) => handler(e.payload));
 
 /** A server asking for a verification code (or another factor) mid-connect. */
 export const onAuthPrompt = (

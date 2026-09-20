@@ -5,7 +5,21 @@ import { check, type Update } from "@tauri-apps/plugin-updater";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { portableMode } from "./api";
 
-const RELEASES_URL = "https://github.com/miskin-lee/EdgeTerm/releases/latest";
+/**
+ * 自动更新在本分支中关闭。
+ *
+ * Kanso 是 EdgeTerm 的 fork，而更新源（tauri.conf.json 的 `endpoints`）指向的
+ * 是上游作者的发布地址。一旦放任它检查，用户点下「更新」就会把这个 fork 原地覆盖
+ * 成上游的 EdgeTerm——版本号相近时尤其容易发生。在本分支有了自己的发布渠道并把
+ * `endpoints` 指过去之前，这里必须保持 false。
+ *
+ * 改成 true 之前要同时确认三件事：`endpoints` 指向本项目、`pubkey` 换成本项目的
+ * 更新签名公钥、发布流程会生成匹配的 latest.json。
+ */
+const UPDATES_ENABLED = false;
+
+/** 关闭自动更新后，「检查更新」改为引导用户去发布页自取。 */
+const RELEASES_URL = "https://github.com/chhuax/Kanso/releases/latest";
 
 export type UpdaterState =
   | { phase: "idle" }
@@ -46,6 +60,18 @@ export function useUpdater() {
   }, []);
 
   const checkForUpdates = useCallback((showResult = true): Promise<void> => {
+    // 关闭时不去碰 check()：它会连上游的更新源。手动点「检查更新」要如实说明，
+    // 不能装作「已是最新」——那会让用户以为检查真的发生过。
+    if (!UPDATES_ENABLED) {
+      if (showResult) {
+        setState({
+          phase: "error",
+          message: "本版本已关闭自动更新，请到发布页手动获取新版本。",
+        });
+      }
+      return Promise.resolve();
+    }
+
     if (showResult) {
       showCheckResultRef.current = true;
       setState({ phase: "checking" });

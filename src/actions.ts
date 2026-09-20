@@ -1,6 +1,7 @@
 import * as api from "./api";
 import { fontStack } from "./fonts";
 import { commandHistory } from "./history";
+import { sessionCompletions } from "./sessionCompletions";
 import { IS_WINDOWS } from "./platform";
 import { tabTitle, useStore, type HostKeyPrompt, type Tab } from "./store";
 import type { TerminalController } from "./terminal";
@@ -10,6 +11,9 @@ import {
   setController,
 } from "./terminalRegistry";
 import { isFileSession, type SessionInfo, type SessionProfile } from "./types";
+
+/** How long a session's asked-for directory answers the popup; see below. */
+const CWD_ASK_TTL_MS = 2000;
 
 /** Line written into a terminal when its session ends, however it ended. */
 export const SESSION_CLOSED_NOTICE = "\r\n\x1b[33m[session closed]\x1b[0m\r\n";
@@ -24,7 +28,7 @@ function pendingSessionInfo(
   profile: SessionProfile,
 ): SessionInfo {
   const name =
-    profile.name || profile.host || profile.portName || "session";
+    profile.name || profile.host || "session";
 
   let protocol: string;
   let address: string;
@@ -34,12 +38,6 @@ function pendingSessionInfo(
   } else if (profile.kind === "sftp") {
     protocol = "sftp";
     address = `${profile.host || "localhost"}:${profile.port ?? 22}`;
-  } else if (profile.kind === "ftp") {
-    protocol = "ftp";
-    address = `${profile.host || "localhost"}:${profile.port ?? 21}`;
-  } else if (profile.kind === "serial") {
-    protocol = "serial";
-    address = `${profile.portName || "-"}@${profile.baudRate ?? 115_200}`;
   } else {
     protocol = "shell";
     address = profile.shell || "default shell";
@@ -55,7 +53,6 @@ function pendingSessionInfo(
     color: profile.color ?? null,
     supportsRemoteFiles: profile.kind === "ssh" || isFileSession(profile.kind),
     // Known once the backend has opened the file.
-    recording: null,
     // Known once the backend has connected.
     legacyAlgorithms: [],
   };
@@ -83,7 +80,61 @@ function historyHost(id: string): string {
  * session needs them until one is opened, so they arrive with the first
  * terminal instead of with the window.
  */
-export async function ensureController(id: string): Promise<TerminalController> {
+let localHome: Promise<string> | null = null;
+
+/** The OS home directory, read once; used to write paths the way people do. */
+function homeDir(): Promise<string> {
+  localHome ??= api.localHome().catch(() => "");
+  return localHome;
+}
+
+/**
+ * Warp's `user_friendly_path`: a path inside the home directory is written
+ * with `~`, and nothing else is shortened — the row clips what is left with a
+ * trailing ellipsis, which is exactly what Warp does too.
+ */
+function userFriendlyPath(path: string, home: string): string {
+  if (!home) return path;
+  if (path === home) return "~";
+  if (!path.startsWith(home)) return path;
+  const rest = path.slice(home.length);
+  // Only a real child of it: `/home/me2` is not under `/home/me`.
+  return /^[/\\]/.test(rest) ? `~${rest}` : path;
+}
+
+/**
+ * Reads where a local shell is into its tab: the directory for the row's first
+ * line and the branch it is on for the second (see `Tab.cwd` / `Tab.branch`).
+ * The Filer's "Reveal Working Directory" asks the same question through
+ * `shellCwd`, so a shell the OS cannot be asked about still has its own OSC 7
+ * report used here. A read that comes back with nothing says so: the row would
+ * otherwise stay as it was with no way to tell why.
+ */
+function refreshLocalWhere(id: string) {
+  const tab = useStore.getState().tabs.find((item) => item.info.id === id);
+  if (!tab || tab.info.kind !== "local") return;
+  void Promise.all([shellCwd(tab), homeDir()])
+    .then(async ([cwd, home]) => {
+      if (!cwd) throw new Error("the shell reported no directory");
+      const store = useStore.getState();
+      store.setCwd(id, userFriendlyPath(cwd, home));
+      // The branch is read from the directory itself, and a checkout is a
+      // command like any other, so it arrives with the directory that moved.
+      store.setBranch(id, await api.gitBranch(cwd).catch(() => null));
+    })
+    .catch((error) =>
+      useStore.getState().setStatus(`Working directory: ${String(error)}`),
+    );
+}
+
+export async function ensureController(
+  id: string,
+  /**
+   * True for a local shell: it draws a rule above each prompt (see
+   * TerminalController) and is the only kind whose path the rail shows.
+   */
+  local = false,
+): Promise<TerminalController> {
   const existing = getController(id);
   if (existing) return existing;
 
@@ -100,10 +151,25 @@ export async function ensureController(id: string): Promise<TerminalController> 
       onCommandState: (state, kind) => {
         const store = useStore.getState();
         if (state === "running") store.markCommandStarted(id, kind);
-        else if (state === "complete") store.markCommandCompleted(id, kind);
-        else store.clearCommandActivity(id);
+        else if (state === "complete") {
+          store.markCommandCompleted(id, kind);
+          // A shell only moves while a command runs, and asking the OS where a
+          // local one is costs no round trip.
+          if (local) refreshLocalWhere(id);
+        } else store.clearCommandActivity(id);
       },
-      suggest: (input) => commandHistory.suggest(input, historyHost(id)),
+      // Completions know what the line is asking for: a path lists this
+      // session's own filesystem, a tool's subcommands and flags come from
+      // its table, and the shell's history answers the rest.
+      suggest: sessionCompletions(
+        {
+          id,
+          local,
+          cwd: () => whereTheShellIs(id),
+        },
+        historyHost(id),
+      ),
+      onAiTool: (tool) => useStore.getState().setAiTool(id, tool),
       onResize: (cols, rows) => {
         useStore.getState().setSize(id, cols, rows);
         void api.resizeSession(id, cols, rows).catch(() => undefined);
@@ -123,6 +189,7 @@ export async function ensureController(id: string): Promise<TerminalController> 
       useStore.getState().bufferFontFamily,
       useStore.getState().symbolFontFamilies,
     ),
+    local,
   );
   controller.setSuggestions(useStore.getState().suggestionsEnabled);
   controller.setRightClickAction(useStore.getState().rightClickAction);
@@ -142,8 +209,31 @@ export async function openSession(
   useStore
     .getState()
     .addTab(pendingSessionInfo(id, profile), profile, "connecting");
-  if (!isFileSession(profile.kind)) await ensureController(id);
+  if (!isFileSession(profile.kind)) {
+    await ensureController(id, profile.kind === "local");
+  }
   return connectSession(id, profile);
+}
+
+/** The ad-hoc profile behind every "just give me a terminal" entry point. */
+export const LOCAL_SHELL_PROFILE: SessionProfile = {
+  id: "",
+  name: "Local Shell",
+  kind: "local",
+  color: "#3fb950",
+};
+
+/**
+ * Opens a local shell. Double-clicking the blank part of a tab strip and the
+ * Session panel's Local Shell row both mean this.
+ *
+ * `paneId` names the pane to open in: `addTab` uses the *active* pane, so a
+ * double-click on another pane's strip would otherwise open the tab in
+ * whichever pane happened to be active before the press.
+ */
+export async function openLocalShell(paneId?: string): Promise<string | null> {
+  if (paneId) useStore.getState().setActivePane(paneId);
+  return openSession(LOCAL_SHELL_PROFILE);
 }
 
 /**
@@ -238,7 +328,7 @@ async function connectSession(
   const pending = store.tabs.find((item) => item.info.id === id);
   const label = pending
     ? tabTitle(pending)
-    : profile.name || profile.host || profile.portName || "session";
+    : profile.name || profile.host || "session";
 
   store.setStatus(`Connecting to ${label}…`);
   store.setError(null);
@@ -276,6 +366,7 @@ async function connectSession(
     const { info } = outcome;
     connectedStore.updateTabInfo(id, info);
     connectedStore.applyState(id, "connected");
+    if (info.kind === "local") refreshLocalWhere(id);
     connectedStore.setStatus(
       `Connected to ${tabTitle({ info, ordinal: tab.ordinal })}`,
     );
@@ -353,6 +444,35 @@ function localPathFromUrlPath(path: string): string {
   const drive = /^\/([A-Za-z]:)(\/.*)?$/.exec(path);
   if (!drive) return path;
   return `${drive[1]}${(drive[2] ?? "/").replace(/\//g, "\\")}`;
+}
+
+/**
+ * Where a session is, for the completion popup to list a directory against.
+ * The shell's own report is free and already exact, so it answers whenever it
+ * is there; a session that has not printed one yet is asked the way the
+ * "reveal working directory" command asks — the server for an SSH host, the
+ * OS for a local shell — and the answer is kept, because a popup asks on
+ * every keystroke of a path and a round trip per character is not a popup.
+ */
+const askedCwd = new Map<string, { at: number; path: Promise<string | null> }>();
+
+function whereTheShellIs(id: string): string | null | Promise<string | null> {
+  const reported = getController(id)?.reportedCwd;
+  if (reported) {
+    askedCwd.delete(id);
+    return reported.path;
+  }
+  const held = askedCwd.get(id);
+  if (held && Date.now() - held.at < CWD_ASK_TTL_MS) return held.path;
+  const tab = useStore.getState().tabs.find((item) => item.info.id === id);
+  if (!tab) return null;
+  const path = shellCwd(tab).catch(() => null);
+  askedCwd.set(id, { at: Date.now(), path });
+  // A session that has gone away leaves nothing to answer with.
+  void path.then((answer) => {
+    if (answer === null) askedCwd.delete(id);
+  });
+  return path;
 }
 
 /**

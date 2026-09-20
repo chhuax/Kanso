@@ -2,10 +2,8 @@ import { useMemo, useRef, type CSSProperties } from "react";
 
 import appIcon from "../../src-tauri/icons/128x128@2x.png";
 import { layoutRects, type Rect, type SplitterRect } from "../layout";
-import { chordLabel } from "../shortcuts";
 import { useStore } from "../store";
 import { Splitter } from "./Splitter";
-import { TabStrip } from "./TabStrip";
 import { SessionPane } from "./TerminalPane";
 
 interface Props {
@@ -17,20 +15,12 @@ const MIN_PANE_PX = 120;
 
 const percent = (fraction: number): string => `${fraction * 100}%`;
 
-/** A pane's box: its strip on top, its sessions below. */
+/** A pane's box. The tabs live in the rail, so this covers the sessions too. */
 const paneStyle = (rect: Rect): CSSProperties => ({
   left: percent(rect.x),
   top: percent(rect.y),
   width: percent(rect.w),
   height: percent(rect.h),
-});
-
-/** A session's box: the pane's, minus the strip. */
-const slotStyle = (rect: Rect): CSSProperties => ({
-  left: percent(rect.x),
-  top: `calc(${percent(rect.y)} + var(--tabstrip-height))`,
-  width: percent(rect.w),
-  height: `calc(${percent(rect.h)} - var(--tabstrip-height))`,
 });
 
 /** The line a splitter sits on; its thickness comes from the stylesheet. */
@@ -48,8 +38,9 @@ const splitterStyle = (splitter: SplitterRect): CSSProperties =>
       };
 
 /**
- * The terminal area: the panes the layout tree divides it into, each with
- * its tab strip, and every open session placed over the pane that holds it.
+ * The terminal area: the panes the layout tree divides it into, and every
+ * open session placed over the pane that holds it. The tabs are listed in the
+ * rail down the window's left edge (see `TabRail`), so a pane is all session.
  *
  * Sessions are not rendered inside their pane's element. They are one flat
  * list keyed by session, positioned over the pane's rectangle, so moving a
@@ -65,9 +56,7 @@ export function Workspace({ onNewSession }: Props) {
   const tabs = useStore((s) => s.tabs);
   const activeId = useStore((s) => s.activeId);
   const activePaneId = useStore((s) => s.activePaneId);
-  const dropTarget = useStore((s) => s.dropTarget);
   const resizeLayout = useStore((s) => s.resizeLayout);
-  const newSessionKey = useStore((s) => chordLabel(s.shortcuts.newSession));
   const ref = useRef<HTMLDivElement>(null);
   const rects = useMemo(() => layoutRects(layout), [layout]);
 
@@ -92,17 +81,12 @@ export function Workspace({ onNewSession }: Props) {
       {panes.map((pane) => {
         const rect = rects.panes.get(pane.id);
         if (!rect) return null;
-        const zone =
-          dropTarget?.paneId === pane.id && dropTarget.zone !== "strip"
-            ? dropTarget.zone
-            : null;
         return (
           <div
             key={pane.id}
             className={`pane${pane.id === activePaneId ? " is-focused" : ""}`}
             style={paneStyle(rect)}
           >
-            <TabStrip paneId={pane.id} />
             <div className="pane-stack" data-pane-id={pane.id}>
               {tabs.length === 0 && (
                 <div className="term-empty">
@@ -112,24 +96,11 @@ export function Workspace({ onNewSession }: Props) {
                     alt=""
                     draggable={false}
                   />
-                  <h1>EdgeTerm</h1>
-                  <p className="term-empty-hint">
-                    {newSessionKey ? (
-                      <>
-                        Press <kbd>{newSessionKey}</kbd> for a new session, or
-                        pick one from the Session panel.
-                      </>
-                    ) : (
-                      "Open a new session, or pick one from the Session panel."
-                    )}
-                  </p>
+                  <h1>Kanso</h1>
                   <button className="btn is-primary" onClick={onNewSession}>
                     New Session
                   </button>
                 </div>
-              )}
-              {zone && (
-                <div className={`pane-drop is-${zone}`} aria-hidden="true" />
               )}
             </div>
           </div>
@@ -146,7 +117,7 @@ export function Workspace({ onNewSession }: Props) {
             tab={tab}
             visible={pane.activeTabId === tab.info.id}
             focused={activeId === tab.info.id}
-            style={slotStyle(rect)}
+            style={paneStyle(rect)}
           />
         );
       })}

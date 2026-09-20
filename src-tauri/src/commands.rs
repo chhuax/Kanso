@@ -9,14 +9,15 @@ use crate::error::{err, AppError, Result};
 use crate::file_promise::{self, PromisedDragEvent};
 use crate::fonts::{self, FontFamily};
 use crate::fs_local;
+use crate::git;
+use crate::kube::KubeNames;
 use crate::model::{
     AppData, CommandHistoryEntry, DataSummary, DirListing, LocalCopySummary, OpenSessionOutcome,
-    SavedCommand, SerialPortDesc, SessionGroup, SessionInfo, SessionKind, SessionProfile, Theme,
+    SavedCommand, SessionGroup, SessionInfo, SessionKind, SessionProfile, Theme,
     ZmodemFileInfo, APP_DATA_EXTENSION,
 };
 use crate::remote_edit::RemoteEdits;
 use crate::session::auth::{AuthPrompter, AuthPrompts};
-use crate::session::recording::{self, Recorder};
 use crate::session::ssh::{ConnectOutcome, SftpConnectOutcome};
 use crate::session::transfer::Transfers;
 use crate::session::{
@@ -117,7 +118,7 @@ pub fn clear_command_history(state: State<'_, AppState>) -> Result<()> {
 /// Writes saved sessions, their groups, Sender tags and the frontend's
 /// settings to `path` as pretty JSON. Passwords and passphrases are never
 /// included, so the file needs no special permissions. The path must carry
-/// the `.edgeterm` extension (the UI appends it), so every data file is
+/// the `.kanso` extension (the UI appends it), so every data file is
 /// recognisable by name.
 #[tauri::command]
 pub fn export_app_data(
@@ -139,17 +140,23 @@ pub fn export_app_data(
     })
 }
 
-/// Parses an EdgeTerm data file so the UI can show what an import would
-/// bring in before anything is merged: the name must end in `.edgeterm`, the
-/// contents must be JSON with the EdgeTerm marker and a known layout
+/// Parses a Kanso data file so the UI can show what an import would
+/// bring in before anything is merged: the name must end in `.kanso`, the
+/// contents must be JSON with the Kanso marker and a known layout
 /// version. Credentials in the file are dropped here so they never reach
 /// the webview.
 #[tauri::command]
 pub fn read_app_data(path: String) -> Result<AppData> {
     require_data_file_path(&path)?;
     let raw = std::fs::read_to_string(&path)?;
-    let mut data: AppData = serde_json::from_str(&raw)
-        .map_err(|error| AppError::new(format!("not an EdgeTerm data file: {error}")))?;
+    // An export written before FTP and serial were removed still names those
+    // kinds; they are dropped here so the rest of the file imports (see
+    // `store::strip_retired_kinds`).
+    let mut value: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|error| AppError::new(format!("not a Kanso data file: {error}")))?;
+    store::strip_retired_kinds(&mut value);
+    let mut data: AppData = serde_json::from_value(value)
+        .map_err(|error| AppError::new(format!("not a Kanso data file: {error}")))?;
     store::validate_app_data(&data)?;
     data.profiles = data
         .profiles
@@ -164,7 +171,7 @@ fn require_data_file_path(path: &str) -> Result<()> {
         Ok(())
     } else {
         Err(AppError::new(format!(
-            "not an EdgeTerm data file: expected a .{APP_DATA_EXTENSION} file"
+            "not a Kanso data file: expected a .{APP_DATA_EXTENSION} file"
         )))
     }
 }
@@ -239,45 +246,10 @@ pub async fn open_session(
     };
     let (tx, rx) = mpsc::unbounded_channel();
     let mut info = session::make_info(&id, &profile);
-    // The recording a terminal profile asked for. Opened right before the
-    // session starts producing output — after an SSH handshake, so a
-    // refused key or a wrong password leaves no empty file behind.
-    let start_recording = |info: &mut SessionInfo| -> Result<Option<Recorder>> {
-        if !profile.record {
-            return Ok(None);
-        }
-        let recorder = Recorder::start(
-            &id,
-            &profile,
-            recording::report_to_ui(app.clone(), id.clone()),
-        )?;
-        info.recording = Some(recorder.path().display().to_string());
-        Ok(Some(recorder))
-    };
 
-    let owner_thread = match profile.kind {
-        SessionKind::Ftp => {
-            let connect_profile = profile.clone();
-            let conn = tokio::task::spawn_blocking(move || session::ftp::connect(&connect_profile))
-                .await
-                .map_err(|e| AppError::new(format!("ftp connection task failed: {e}")))??;
-            session::ftp::spawn(app.clone(), id.clone(), conn, rx)?;
-            None
-        }
+    match profile.kind {
         SessionKind::Local => {
-            let recorder = start_recording(&mut info)?;
-            session::local::spawn(app.clone(), id.clone(), &profile, rx, recorder)?;
-            None
-        }
-        SessionKind::Serial => {
-            let recorder = start_recording(&mut info)?;
-            Some(session::serial::spawn(
-                app.clone(),
-                id.clone(),
-                &profile,
-                rx,
-                recorder,
-            )?)
+            session::local::spawn(app.clone(), id.clone(), &profile, rx)?;
         }
         SessionKind::Ssh => {
             let prompter = AuthPrompter::ui(&app, &state.auth_prompts, &id);
@@ -286,9 +258,7 @@ pub async fn open_session(
             {
                 ConnectOutcome::Ready(conn) => {
                     info.legacy_algorithms = conn.legacy_algorithms().to_vec();
-                    let recorder = start_recording(&mut info)?;
-                    session::ssh::spawn(app.clone(), id.clone(), conn, rx, recorder);
-                    None
+                    session::ssh::spawn(app.clone(), id.clone(), conn, rx);
                 }
                 // Nothing was opened; the user decides whether to trust the new
                 // key and the frontend retries with the same session id.
@@ -309,7 +279,6 @@ pub async fn open_session(
                 SftpConnectOutcome::Ready(conn) => {
                     info.legacy_algorithms = conn.legacy_algorithms().to_vec();
                     session::ssh::spawn_sftp(app.clone(), id.clone(), conn, rx);
-                    None
                 }
                 // Same host-key decision as a shell session on the same transport.
                 SftpConnectOutcome::HostKeyChanged(change) => {
@@ -317,13 +286,12 @@ pub async fn open_session(
                 }
             }
         }
-    };
+    }
 
     state.sessions.insert(SessionHandle {
         info: info.clone(),
         tx,
         encoding: session::encoding::terminal_encoding(&profile),
-        owner_thread,
     });
     Ok(OpenSessionOutcome::Connected { info })
 }
@@ -352,11 +320,6 @@ pub fn answer_auth_prompt(
 pub fn close_session(state: State<'_, AppState>, id: String) -> Result<()> {
     if let Some(handle) = state.sessions.remove(&id) {
         let _ = handle.tx.send(SessionCommand::Close);
-        if let Some(owner_thread) = handle.owner_thread {
-            owner_thread.join().map_err(|_| {
-                AppError::new(format!("serial session {id} panicked while closing"))
-            })?;
-        }
     }
     Ok(())
 }
@@ -364,13 +327,6 @@ pub fn close_session(state: State<'_, AppState>, id: String) -> Result<()> {
 #[tauri::command]
 pub fn list_sessions(state: State<'_, AppState>) -> Vec<SessionInfo> {
     state.sessions.list()
-}
-
-/// Where a profile's recordings go when it names no folder of its own; the
-/// session dialog shows it as the folder field's placeholder.
-#[tauri::command]
-pub fn default_recording_dir() -> String {
-    recording::default_dir().display().to_string()
 }
 
 /// The font families installed on this machine; see `fonts`. Reading the
@@ -689,9 +645,28 @@ pub async fn session_cwd(state: State<'_, AppState>, id: String) -> Result<Strin
 
 /// This machine's host name, so the frontend can tell a local shell's OSC 7
 /// directory report from one a remote shell sent through a hand-typed ssh.
+/// The branch the repository holding `path` is on, for the line under a local
+/// shell's directory in the rail; None when the directory is in no repository.
+#[tauri::command]
+pub fn git_branch(path: String) -> Option<String> {
+    git::branch_for(Path::new(&path))
+}
+
 #[tauri::command]
 pub fn local_hostname() -> String {
     session::cwd::local_hostname()
+}
+
+/// The contexts and namespaces the machine's kubeconfig knows, which is what
+/// `kubectl -n ` and `--context ` are about to name. Read from the file rather
+/// than from a cluster; see `kube`.
+#[tauri::command]
+pub async fn kube_names() -> Result<KubeNames> {
+    // One small file, read off the main thread the way every other filesystem
+    // question in this app is.
+    Ok(tokio::task::spawn_blocking(crate::kube::names)
+        .await
+        .unwrap_or_default())
 }
 
 #[tauri::command]
@@ -931,7 +906,7 @@ pub fn start_file_drag(
                 &handle,
                 drag::DragItem::Files(files),
                 // The application icon stands in for the file: the platforms
-                // want a preview image and EdgeTerm ships no other bitmap the
+                // want a preview image and Kanso ships no other bitmap the
                 // size of a cursor.
                 drag::Image::Raw(DRAG_PREVIEW_ICON.to_vec()),
                 finished,
@@ -990,13 +965,6 @@ pub fn local_rename(from: String, to: String) -> Result<()> {
 #[tauri::command]
 pub fn local_remove(path: String, is_dir: bool) -> Result<()> {
     fs_local::remove(&path, is_dir)
-}
-
-// --- serial -----------------------------------------------------------------
-
-#[tauri::command]
-pub fn list_serial_ports() -> Result<Vec<SerialPortDesc>> {
-    session::serial::list_ports()
 }
 
 // --- helpers ----------------------------------------------------------------

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "EdgeTerm",
+  "productName": "Kanso",
   "version": "../package.json",
-  "identifier": "com.edgeterm.desktop",
+  "identifier": "com.kanso.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "EdgeTerm",
+        "title": "Kanso",
         "create": false,
         "width": 1440,
         "height": 900,
@@ -32,9 +32,13 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "createUpdaterArtifacts": true,
+    "createUpdaterArtifacts": false,
     "category": "DeveloperTool",
-    "shortDescription": "Lightweight terminal, SSH, FTP and serial client built with Rust (installer under 5 MB)",
+    "shortDescription": "Lightweight terminal, SSH and SFTP client built with Rust (installer under 5 MB)",
+    "resources": {
+      "../LICENSE": "LICENSE",
+      "../NOTICE": "NOTICE"
+    },
     "macOS": {
       "signingIdentity": "-"
     },
@@ -45,16 +49,5 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
-  },
-  "plugins": {
-    "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQzQkI2OTcxQzI3QjE1MkYKUldRdkZYdkNjV203MDV1TGsyMXplU2tyb2VZUzl0bEpMOFlWeWZzVCtsQ2tFeGkrNkpkZ29VRDUK",
-      "endpoints": [
-        "https://github.com/miskin-lee/EdgeTerm/releases/latest/download/latest.json"
-      ],
-      "windows": {
-        "installMode": "passive"
-      }
-    }
   }
 }

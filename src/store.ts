@@ -1,5 +1,6 @@
 import { create } from "zustand";
 
+import type { AiTool } from "./aiTools";
 import * as api from "./api";
 import { commandHistory } from "./history";
 import {
@@ -68,6 +69,22 @@ export interface Tab {
    * session and is only worth reporting while the assistant works.
    */
   activityKind: ActivityKind;
+  /**
+   * The agentic CLI running in this tab, or null/absent for none; see
+   * `aiTools.ts`. Set for the whole life of the tool, not just its turns.
+   */
+  aiTool?: AiTool | null;
+  /**
+   * A local shell's working directory, for the rail's first line. Remote
+   * sessions never set it: their path would cost a round trip to read and
+   * the row shows the connection instead.
+   */
+  cwd?: string | null;
+  /**
+   * The branch that directory is on, for the line under it — nothing when the
+   * directory is in no repository, so the row keeps one line.
+   */
+  branch?: string | null;
   message?: string;
   cols: number;
   rows: number;
@@ -84,11 +101,6 @@ export interface Pane {
   /** The tab the pane shows; null only while the workspace has no tab. */
   activeTabId: string | null;
 }
-
-/** Where a tab being dragged would land if it were released now. */
-export type DropTarget =
-  | { paneId: string; zone: "strip"; index: number }
-  | { paneId: string; zone: "center" | Side };
 
 /**
  * What makes two tabs "the same session" for `Tab.ordinal`: the profile when
@@ -109,6 +121,12 @@ export interface HostKeyPrompt {
 }
 
 export type PanelName = "filer" | "sessions" | "sender";
+/**
+ * The panels the View menu can switch on. The session list is not one of them:
+ * it is always the right sidebar's first tab, and a sidebar that could be
+ * emptied had no way back to itself.
+ */
+export type OptionalPanel = Exclude<PanelName, "sessions">;
 
 export const PANEL_FONT_SIZE = { min: 9, max: 18, default: 12 } as const;
 export const BUFFER_FONT_SIZE = { min: 8, max: 32, default: 14 } as const;
@@ -117,27 +135,27 @@ export const TERMINAL_SCROLLBACK = {
   max: 1_000_000,
   default: 20_000,
 } as const;
-// A fresh install shows only the session list; the Filer and Sender stay
-// hidden until the user opens them from the View menu.
-const DEFAULT_PANELS: Record<PanelName, boolean> = {
+// The session list is always in the right sidebar, so the flags cover only
+// what may join it: the Filer and the Sender stay hidden until the user opens
+// them from the View menu.
+const DEFAULT_PANELS: Record<OptionalPanel, boolean> = {
   filer: false,
-  sessions: true,
   sender: false,
 };
 
-const PANEL_FONT_SIZE_KEY = "edgeterm.panelFontSize";
-const BUFFER_FONT_SIZE_KEY = "edgeterm.bufferFontSize";
-const PANEL_FONT_FAMILY_KEY = "edgeterm.panelFontFamily";
-const BUFFER_FONT_FAMILY_KEY = "edgeterm.bufferFontFamily";
-const TERMINAL_SCROLLBACK_KEY = "edgeterm.terminalScrollback";
-const GUTTER_MODE_KEY = "edgeterm.gutterMode";
-const PANELS_KEY = "edgeterm.panels";
-const THEME_KEY = "edgeterm.theme";
-const SUGGESTIONS_KEY = "edgeterm.suggestions";
-const RIGHT_CLICK_KEY = "edgeterm.rightClick";
-const SHORTCUTS_KEY = "edgeterm.shortcuts";
-const CURSOR_STYLE_KEY = "edgeterm.cursorStyle";
-const CURSOR_BLINK_KEY = "edgeterm.cursorBlink";
+const PANEL_FONT_SIZE_KEY = "kanso.panelFontSize";
+const BUFFER_FONT_SIZE_KEY = "kanso.bufferFontSize";
+const PANEL_FONT_FAMILY_KEY = "kanso.panelFontFamily";
+const BUFFER_FONT_FAMILY_KEY = "kanso.bufferFontFamily";
+const TERMINAL_SCROLLBACK_KEY = "kanso.terminalScrollback";
+const GUTTER_MODE_KEY = "kanso.gutterMode";
+const PANELS_KEY = "kanso.panels";
+const THEME_KEY = "kanso.theme";
+const SUGGESTIONS_KEY = "kanso.suggestions";
+const RIGHT_CLICK_KEY = "kanso.rightClick";
+const SHORTCUTS_KEY = "kanso.shortcuts";
+const CURSOR_STYLE_KEY = "kanso.cursorStyle";
+const CURSOR_BLINK_KEY = "kanso.cursorBlink";
 
 // Opt-in: command capture and the completion popup stay off until the user
 // enables them in the Edit menu.
@@ -168,6 +186,22 @@ const parseRightClickAction = (value: unknown): RightClickAction | null =>
  * have no such convention, so the value is pinned there: a stored or
  * imported `copyPaste` never applies and the menu doesn't offer it.
  */
+const COPY_ON_SELECT_KEY = "kanso.copyOnSelect";
+
+/**
+ * Whether a finished selection goes straight to the clipboard. On by default:
+ * selecting text in a terminal is nearly always the first half of pasting it
+ * somewhere. It is a setting because a selection made only to *read* — a log
+ * line, a diff — should not quietly overwrite what is on the clipboard.
+ */
+const loadCopyOnSelect = (): boolean => {
+  try {
+    return localStorage.getItem(COPY_ON_SELECT_KEY) !== "false";
+  } catch {
+    return true;
+  }
+};
+
 const loadRightClickAction = (): RightClickAction => {
   if (IS_MAC) return "menu";
   try {
@@ -183,14 +217,12 @@ const loadRightClickAction = (): RightClickAction => {
 /** Fills fields missing from `value` with `base`; null if it is no object. */
 const parsePanels = (
   value: unknown,
-  base: Record<PanelName, boolean>,
-): Record<PanelName, boolean> | null => {
+  base: Record<OptionalPanel, boolean>,
+): Record<OptionalPanel, boolean> | null => {
   if (!value || typeof value !== "object") return null;
-  const parsed = value as Partial<Record<PanelName, unknown>>;
+  const parsed = value as Partial<Record<OptionalPanel, unknown>>;
   return {
     filer: typeof parsed.filer === "boolean" ? parsed.filer : base.filer,
-    sessions:
-      typeof parsed.sessions === "boolean" ? parsed.sessions : base.sessions,
     sender: typeof parsed.sender === "boolean" ? parsed.sender : base.sender,
   };
 };
@@ -204,7 +236,7 @@ export const loadTheme = (): ThemeMode => {
   }
 };
 
-const loadPanels = (): Record<PanelName, boolean> => {
+const loadPanels = (): Record<OptionalPanel, boolean> => {
   try {
     const stored = localStorage.getItem(PANELS_KEY);
     if (stored) {
@@ -217,7 +249,7 @@ const loadPanels = (): Record<PanelName, boolean> => {
   return { ...DEFAULT_PANELS };
 };
 
-const savePanels = (panels: Record<PanelName, boolean>) => {
+const savePanels = (panels: Record<OptionalPanel, boolean>) => {
   try {
     localStorage.setItem(PANELS_KEY, JSON.stringify(panels));
   } catch {
@@ -382,7 +414,7 @@ const saveShortcuts = (bindings: ShortcutBindings) => {
  * backend instead.
  */
 export interface AppSettings {
-  panels: Record<PanelName, boolean>;
+  panels: Record<OptionalPanel, boolean>;
   gutterMode: GutterMode;
   theme: ThemeMode;
   panelFontSize: number;
@@ -397,6 +429,8 @@ export interface AppSettings {
   suggestionsEnabled: boolean;
   /** Windows / Linux only; macOS always opens the menu. */
   rightClickAction: RightClickAction;
+  /** Whether finishing a selection copies it; see `loadCopyOnSelect`. */
+  copyOnSelect: boolean;
   /** Only the key bindings that differ from the platform defaults. */
   shortcuts: Partial<ShortcutBindings>;
 }
@@ -416,9 +450,6 @@ interface AppStore {
   panes: Pane[];
   layout: LayoutNode;
   activePaneId: string;
-  /** A tab being dragged between strips, and where it would land. */
-  draggingTabId: string | null;
-  dropTarget: DropTarget | null;
   gutterMode: GutterMode;
   theme: ThemeMode;
   panelFontSize: number;
@@ -439,9 +470,11 @@ interface AppStore {
   suggestionsEnabled: boolean;
   /** What a right click in the terminal does; see `RightClickAction`. */
   rightClickAction: RightClickAction;
+  /** Whether finishing a selection copies it; see `loadCopyOnSelect`. */
+  copyOnSelect: boolean;
   /** The chord each app command answers; see `shortcuts.ts`. */
   shortcuts: ShortcutBindings;
-  panels: Record<PanelName, boolean>;
+  panels: Record<OptionalPanel, boolean>;
   status: string;
   error: string | null;
   errorSessionId: string | null;
@@ -517,16 +550,6 @@ interface AppStore {
   /** Steps through the panes in reading order. */
   activateAdjacentPane: (direction: -1 | 1) => void;
   /**
-   * Moves a tab to `index` counted over the other tabs of its pane, i.e. its
-   * final position in the strip. Out-of-range indexes clamp to the ends.
-   */
-  moveTab: (id: string, index: number) => void;
-  /**
-   * Moves a tab into another pane, at `index` in that strip, and focuses it
-   * there. The pane it leaves folds away when that was its last tab.
-   */
-  moveTabToPane: (id: string, paneId: string, index: number) => void;
-  /**
    * Opens a new pane beside `paneId`, on the given side, and makes it the
    * active one; with `tabId` that tab moves into it, otherwise the pane is
    * empty until the caller opens a session in it. Returns the pane the
@@ -542,19 +565,22 @@ interface AppStore {
     delta: number,
     minSize: number,
   ) => void;
-  /** Publishes a tab drag so every strip and pane can draw its part of it. */
-  setTabDrag: (draggingTabId: string | null, dropTarget?: DropTarget | null) => void;
-
   applyState: (id: string, state: SessionState, message?: string) => void;
   /** Records a command, or an agentic CLI's turn, starting in a terminal. */
   markCommandStarted: (id: string, kind?: ActivityKind) => void;
+  /** Marks the tab as running an agentic CLI, or clears the mark. */
+  setAiTool: (id: string, tool: AiTool | null) => void;
+  /** Records a local shell's working directory for the rail. */
+  setCwd: (id: string, cwd: string | null) => void;
+  /** Records the branch that directory is on, for the line under it. */
+  setBranch: (id: string, branch: string | null) => void;
   /** Leaves an unread completion on a background tab until it is selected. */
   markCommandCompleted: (id: string, kind?: ActivityKind) => void;
   /** Clears activity when a submitted write failed before reaching the shell. */
   clearCommandActivity: (id: string) => void;
   setSize: (id: string, cols: number, rows: number) => void;
 
-  togglePanel: (panel: PanelName) => void;
+  togglePanel: (panel: OptionalPanel) => void;
   setGutterMode: (mode: GutterMode) => void;
   setTheme: (theme: ThemeMode) => void;
   setPanelFontSize: (size: number) => void;
@@ -567,6 +593,7 @@ interface AppStore {
   setCursorBlink: (blink: boolean) => void;
   setSuggestionsEnabled: (enabled: boolean) => void;
   setRightClickAction: (action: RightClickAction) => void;
+  setCopyOnSelect: (on: boolean) => void;
   setShortcuts: (bindings: ShortcutBindings) => void;
   resetSettings: () => void;
   /** The preferences a data export carries; see `applySettings`. */
@@ -695,14 +722,6 @@ const settlePane = (state: PaneState, paneId: string): PaneState => {
   };
 };
 
-const sameDropTarget = (a: DropTarget | null, b: DropTarget | null): boolean =>
-  a === b ||
-  (a !== null &&
-    b !== null &&
-    a.paneId === b.paneId &&
-    a.zone === b.zone &&
-    (a.zone !== "strip" || b.zone !== "strip" || a.index === b.index));
-
 export const useStore = create<AppStore>((set, get) => ({
   profiles: [],
   groups: [],
@@ -720,6 +739,7 @@ export const useStore = create<AppStore>((set, get) => ({
   cursorBlink: loadCursorBlink(),
   suggestionsEnabled: loadSuggestionsEnabled(),
   rightClickAction: loadRightClickAction(),
+  copyOnSelect: loadCopyOnSelect(),
   shortcuts: initialShortcuts,
   panels: loadPanels(),
   status: "Ready",
@@ -735,8 +755,6 @@ export const useStore = create<AppStore>((set, get) => ({
   panes: [{ id: ROOT_PANE_ID, activeTabId: null }],
   layout: leaf(ROOT_PANE_ID),
   activePaneId: ROOT_PANE_ID,
-  draggingTabId: null,
-  dropTarget: null,
 
   async loadProfiles() {
     const [profiles, groups] = await Promise.all([
@@ -934,40 +952,6 @@ export const useStore = create<AppStore>((set, get) => ({
     if (next) get().setActivePane(next);
   },
 
-  moveTab(id, index) {
-    const tabs = get().tabs;
-    const tab = tabs.find((item) => item.info.id === id);
-    if (!tab) return;
-    const strip = tabs.filter((item) => item.paneId === tab.paneId);
-    const from = strip.indexOf(tab);
-    const to = Math.max(0, Math.min(index, strip.length - 1));
-    if (to === from) return;
-    set({ tabs: placeTab(tabs, id, tab.paneId, index) });
-  },
-
-  moveTabToPane(id, paneId, index) {
-    const current = get();
-    const tab = current.tabs.find((item) => item.info.id === id);
-    if (!tab || !current.panes.some((pane) => pane.id === paneId)) return;
-    if (tab.paneId === paneId) {
-      get().moveTab(id, index);
-      return;
-    }
-    // The tab is shown and focused where it lands; then the pane it left
-    // picks a new tab to show, or folds away.
-    const settled = settlePane(
-      {
-        tabs: placeTab(current.tabs, id, paneId, index),
-        activeId: id,
-        panes: patchPane(current.panes, paneId, { activeTabId: id }),
-        layout: current.layout,
-        activePaneId: paneId,
-      },
-      tab.paneId,
-    );
-    set({ ...settled, tabs: acknowledgeTab(settled.tabs, id) });
-  },
-
   splitPane(paneId, side, tabId) {
     const current = get();
     if (!current.panes.some((pane) => pane.id === paneId)) {
@@ -1016,17 +1000,6 @@ export const useStore = create<AppStore>((set, get) => ({
     if (resized !== layout) set({ layout: resized });
   },
 
-  setTabDrag(draggingTabId, dropTarget = null) {
-    const current = get();
-    if (
-      current.draggingTabId === draggingTabId &&
-      sameDropTarget(current.dropTarget, dropTarget)
-    ) {
-      return;
-    }
-    set({ draggingTabId, dropTarget });
-  },
-
   applyState(id, state, message) {
     set({
       tabs: patchTab(get().tabs, id, {
@@ -1042,6 +1015,24 @@ export const useStore = create<AppStore>((set, get) => ({
     // An ended session has nothing to type into; lock its terminal until a
     // reconnect brings it back.
     getController(id)?.setLocked(state === "closed" || state === "error");
+  },
+
+  setAiTool(id, tool) {
+    set({ tabs: patchTab(get().tabs, id, { aiTool: tool }) });
+  },
+
+  setCwd(id, cwd) {
+    // Reported after every command; nothing to do while it has not moved.
+    const tab = get().tabs.find((item) => item.info.id === id);
+    if (!tab || tab.cwd === cwd) return;
+    set({ tabs: patchTab(get().tabs, id, { cwd }) });
+  },
+
+  setBranch(id, branch) {
+    // A `git checkout` shows up here as the branch moving, and nothing else.
+    const tab = get().tabs.find((item) => item.info.id === id);
+    if (!tab || tab.branch === branch) return;
+    set({ tabs: patchTab(get().tabs, id, { branch }) });
   },
 
   markCommandStarted(id, kind = "command") {
@@ -1164,6 +1155,15 @@ export const useStore = create<AppStore>((set, get) => ({
     }
   },
 
+  setCopyOnSelect(on) {
+    set({ copyOnSelect: on });
+    try {
+      localStorage.setItem(COPY_ON_SELECT_KEY, String(on));
+    } catch {
+      // The setting still applies for this run when storage is unavailable.
+    }
+  },
+
   setRightClickAction(action) {
     // Nothing to choose on macOS; see loadRightClickAction.
     if (IS_MAC) return;
@@ -1199,6 +1199,7 @@ export const useStore = create<AppStore>((set, get) => ({
       cursorBlink: true,
       suggestionsEnabled: false,
       rightClickAction: "menu",
+      copyOnSelect: true,
     });
     try {
       localStorage.removeItem(PANELS_KEY);
@@ -1213,6 +1214,7 @@ export const useStore = create<AppStore>((set, get) => ({
       localStorage.removeItem(CURSOR_BLINK_KEY);
       localStorage.removeItem(SUGGESTIONS_KEY);
       localStorage.removeItem(RIGHT_CLICK_KEY);
+      localStorage.removeItem(COPY_ON_SELECT_KEY);
       localStorage.removeItem(SHORTCUTS_KEY);
     } catch {
       // The defaults still apply for this run when storage is unavailable.
@@ -1234,6 +1236,7 @@ export const useStore = create<AppStore>((set, get) => ({
       cursorBlink: state.cursorBlink,
       suggestionsEnabled: state.suggestionsEnabled,
       rightClickAction: state.rightClickAction,
+      copyOnSelect: state.copyOnSelect,
       shortcuts: shortcutOverrides(state.shortcuts),
     };
   },
@@ -1278,6 +1281,9 @@ export const useStore = create<AppStore>((set, get) => ({
     }
     const rightClickAction = parseRightClickAction(values.rightClickAction);
     if (rightClickAction) state.setRightClickAction(rightClickAction);
+    if (typeof values.copyOnSelect === "boolean") {
+      state.setCopyOnSelect(values.copyOnSelect);
+    }
     const shortcuts = parseShortcuts(values.shortcuts, state.shortcuts);
     if (shortcuts) state.setShortcuts(shortcuts);
   },

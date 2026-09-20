@@ -1,5 +1,5 @@
 import { IS_MAC, IS_WINDOWS } from "./platform";
-import type { PanelName } from "./store";
+import type { OptionalPanel } from "./store";
 
 /**
  * The keyboard-event fields the matchers read. Satisfied by both DOM and
@@ -33,6 +33,7 @@ export interface KeyChord {
 /** Every action a user can put on a key. */
 export type ShortcutCommand =
   | "newSession"
+  | "newLocalShell"
   | "closeSession"
   | "find"
   | "findNext"
@@ -47,7 +48,6 @@ export type ShortcutCommand =
   | "copy"
   | "paste"
   | "selectAll"
-  | "panelSessions"
   | "panelFiler"
   | "panelSender";
 
@@ -56,6 +56,7 @@ export type ShortcutBindings = Record<ShortcutCommand, KeyChord | null>;
 
 export type AppShortcut =
   | { kind: "newSession" }
+  | { kind: "newLocalShell" }
   | { kind: "closeSession" }
   | { kind: "find" }
   | { kind: "findNext" }
@@ -68,7 +69,7 @@ export type AppShortcut =
   | { kind: "copy" }
   | { kind: "paste" }
   | { kind: "selectAll" }
-  | { kind: "togglePanel"; panel: PanelName };
+  | { kind: "togglePanel"; panel: OptionalPanel };
 
 /** What each command does, and the order the settings dialog lists them in. */
 export const SHORTCUT_COMMANDS: {
@@ -82,6 +83,12 @@ export const SHORTCUT_COMMANDS: {
     label: "New Session",
     hint: "Open the new-session dialog",
     action: { kind: "newSession" },
+  },
+  {
+    id: "newLocalShell",
+    label: "New Local Shell",
+    hint: "Open a local terminal in a new tab",
+    action: { kind: "newLocalShell" },
   },
   {
     id: "closeSession",
@@ -168,12 +175,6 @@ export const SHORTCUT_COMMANDS: {
     action: { kind: "revealCwd" },
   },
   {
-    id: "panelSessions",
-    label: "Toggle Session Panel",
-    hint: "Show or hide the left panel",
-    action: { kind: "togglePanel", panel: "sessions" },
-  },
-  {
     id: "panelFiler",
     label: "Toggle Filer Panel",
     hint: "Show or hide the right panel",
@@ -206,6 +207,8 @@ const chord = (
  */
 const MAC_DEFAULTS: ShortcutBindings = {
   newSession: chord("KeyN", { meta: true }),
+  // ⌘T is "new tab" everywhere on the Mac, Warp included.
+  newLocalShell: chord("KeyT", { meta: true }),
   closeSession: chord("KeyW", { meta: true }),
   find: chord("KeyF", { meta: true }),
   findNext: chord("KeyG", { meta: true }),
@@ -221,7 +224,6 @@ const MAC_DEFAULTS: ShortcutBindings = {
   copy: chord("KeyC", { meta: true }),
   paste: chord("KeyV", { meta: true }),
   selectAll: chord("KeyA", { meta: true }),
-  panelSessions: chord("ArrowLeft", { meta: true, alt: true }),
   panelFiler: chord("ArrowRight", { meta: true, alt: true }),
   panelSender: chord("ArrowDown", { meta: true, alt: true }),
 };
@@ -239,6 +241,8 @@ const MAC_DEFAULTS: ShortcutBindings = {
  */
 const OTHER_DEFAULTS: ShortcutBindings = {
   newSession: chord("KeyN", { alt: true }),
+  // Ctrl+Shift+T opens a terminal tab in GNOME Terminal and Windows Terminal.
+  newLocalShell: chord("KeyT", { ctrl: true, shift: true }),
   closeSession: chord("KeyW", { ctrl: true, shift: true }),
   find: chord("KeyF", { ctrl: true, shift: true }),
   findNext: chord("KeyG", { ctrl: true, shift: true }),
@@ -261,7 +265,6 @@ const OTHER_DEFAULTS: ShortcutBindings = {
   copy: chord("KeyC", { ctrl: true, shift: true }),
   paste: chord("KeyV", { ctrl: true, shift: true }),
   selectAll: chord("KeyA", { ctrl: true, shift: true }),
-  panelSessions: chord("ArrowLeft", { ctrl: true, alt: true }),
   panelFiler: chord("ArrowRight", { ctrl: true, alt: true }),
   panelSender: chord("ArrowDown", { ctrl: true, alt: true }),
 };
@@ -422,8 +425,8 @@ export function chordLabel(binding: KeyChord | null | undefined): string {
 const RESERVED_CHORDS: { chord: KeyChord; owner: string }[] = IS_MAC
   ? [
       { chord: chord("KeyX", { meta: true }), owner: "Cut" },
-      { chord: chord("KeyQ", { meta: true }), owner: "Quit EdgeTerm" },
-      { chord: chord("KeyH", { meta: true }), owner: "Hide EdgeTerm" },
+      { chord: chord("KeyQ", { meta: true }), owner: "Quit Kanso" },
+      { chord: chord("KeyH", { meta: true }), owner: "Hide Kanso" },
       { chord: chord("KeyM", { meta: true }), owner: "Minimize" },
     ]
   : [];

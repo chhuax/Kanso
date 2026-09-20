@@ -61,7 +61,7 @@ struct Watched {
 
 /// Every local copy lives in its own folder under here.
 fn edit_root() -> PathBuf {
-    std::env::temp_dir().join("EdgeTerm").join("edit")
+    std::env::temp_dir().join("Kanso").join("edit")
 }
 
 /// Removes the copies a previous run left behind (it quit or crashed while
@@ -77,7 +77,7 @@ pub fn clean_leftovers() {
             continue;
         }
         if let Err(error) = std::fs::remove_dir_all(&dir) {
-            eprintln!("EdgeTerm: could not remove {}: {error}", dir.display());
+            eprintln!("Kanso: could not remove {}: {error}", dir.display());
         }
     }
 }
@@ -111,7 +111,7 @@ fn discard(app: &AppHandle, key: &(String, String), watched: Watched) {
             },
         );
     } else if let Err(error) = std::fs::remove_dir_all(dir) {
-        eprintln!("EdgeTerm: could not remove {}: {error}", dir.display());
+        eprintln!("Kanso: could not remove {}: {error}", dir.display());
     }
 }
 

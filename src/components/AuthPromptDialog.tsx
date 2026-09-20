@@ -124,10 +124,6 @@ export function AuthPromptDialog({ prompt, onDone }: Props) {
               />
             </label>
           ))}
-          <span className="confirm-dialog-hint">
-            Answers are sent to the server for this login only; EdgeTerm never
-            stores them.
-          </span>
           {error && <div className="dialog-error">{error}</div>}
         </div>
         <div className="dialog-footer confirm-dialog-footer">

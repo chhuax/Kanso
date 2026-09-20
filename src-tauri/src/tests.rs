@@ -20,7 +20,7 @@ use crate::store::{
 };
 
 fn temp_dir(tag: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("edgeterm-test-{tag}-{}", uuid::Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("kanso-test-{tag}-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).expect("create temp dir");
     dir
 }
@@ -166,8 +166,6 @@ pub(crate) fn profile(kind: SessionKind) -> SessionProfile {
         group_id: None,
         encoding: None,
         locale: None,
-        record: false,
-        record_dir: None,
         shell: None,
         cwd: None,
         host: None,
@@ -178,21 +176,13 @@ pub(crate) fn profile(kind: SessionKind) -> SessionProfile {
         private_key_path: None,
         passphrase: None,
         jump_profile_id: None,
-        port_name: None,
-        baud_rate: None,
-        data_bits: None,
-        stop_bits: None,
-        parity: None,
-        flow_control: None,
     }
 }
 
-fn group(name: &str, kind: SessionKind, parent_id: Option<&str>) -> SessionGroup {
+fn group(name: &str) -> SessionGroup {
     SessionGroup {
         id: String::new(),
         name: name.into(),
-        kind,
-        parent_id: parent_id.map(str::to_string),
     }
 }
 
@@ -253,13 +243,6 @@ fn profile_renders_its_address_per_protocol() {
     ssh.port = None;
     assert_eq!(ssh.address(), "serverx:22");
 
-    let mut ftp = profile(SessionKind::Ftp);
-    ftp.host = Some("files.example.com".into());
-    assert_eq!(ftp.protocol(), "ftp");
-    assert_eq!(ftp.address(), "files.example.com:21");
-    ftp.port = Some(2121);
-    assert_eq!(ftp.address(), "files.example.com:2121");
-
     let mut sftp = profile(SessionKind::Sftp);
     sftp.host = Some("files.example.com".into());
     assert_eq!(sftp.protocol(), "sftp");
@@ -267,12 +250,6 @@ fn profile_renders_its_address_per_protocol() {
     assert_eq!(sftp.address(), "files.example.com:22");
     sftp.port = Some(2222);
     assert_eq!(sftp.address(), "files.example.com:2222");
-
-    let mut serial = profile(SessionKind::Serial);
-    serial.port_name = Some("/dev/tty.usbserial".into());
-    serial.baud_rate = Some(921_600);
-    assert_eq!(serial.protocol(), "serial");
-    assert_eq!(serial.address(), "/dev/tty.usbserial@921600");
 
     let mut local = profile(SessionKind::Local);
     local.shell = Some("/bin/zsh".into());
@@ -425,12 +402,13 @@ fn store_resolves_jump_host_chains_and_refuses_loops() {
     let mut stale = profile(SessionKind::Ssh);
     stale.jump_profile_id = Some("no-such-profile".into());
     assert!(store.save(stale).expect("save").jump_profile_id.is_none());
-    let mut plain_ftp = profile(SessionKind::Ftp);
-    plain_ftp.name = "ftp".into();
-    let plain_ftp = store.save(plain_ftp).expect("save ftp");
-    let mut via_ftp = profile(SessionKind::Ssh);
-    via_ftp.jump_profile_id = Some(plain_ftp.id.clone());
-    assert!(store.save(via_ftp).expect("save").jump_profile_id.is_none());
+    // A profile that rides no SSH transport cannot be a jump host.
+    let mut plain_shell = profile(SessionKind::Local);
+    plain_shell.name = "shell".into();
+    let plain_shell = store.save(plain_shell).expect("save shell");
+    let mut via_shell = profile(SessionKind::Ssh);
+    via_shell.jump_profile_id = Some(plain_shell.id.clone());
+    assert!(store.save(via_shell).expect("save").jump_profile_id.is_none());
     let mut local = profile(SessionKind::Local);
     local.jump_profile_id = Some(bastion.id.clone());
     assert!(store.save(local).expect("save").jump_profile_id.is_none());
@@ -511,39 +489,85 @@ fn sender_commands_saved_with_a_format_still_load() {
 }
 
 #[test]
-fn recording_settings_round_trip_and_default_to_off() {
-    let dir = temp_dir("recording");
-    let path = dir.join("sessions.json");
-    let store = Store::load_from(path.clone());
+fn entries_of_removed_kinds_do_not_empty_the_library() {
+    // FTP and serial are gone from `SessionKind`, and serde rejects the
+    // unknown variant, which fails the whole array the entry sits in. Since
+    // `read_json` falls back to nothing, one retired profile used to take
+    // every saved session and Sender command down with it.
+    let dir = temp_dir("retired-kinds");
+    std::fs::write(
+        dir.join("sessions.json"),
+        r#"[{"name":"edge","kind":"ssh","host":"example.com"},
+            {"name":"router","kind":"serial","portName":"/dev/ttyUSB0"},
+            {"name":"files","kind":"sftp","host":"files.example.com"},
+            {"name":"dead","kind":"ftp","host":"ftp.example.com"}]"#,
+    )
+    .expect("write legacy sessions");
+    std::fs::write(
+        dir.join("session_groups.json"),
+        r#"[{"id":"g1","name":"devices","kind":"serial"},
+            {"id":"g2","name":"prod","kind":"ssh"}]"#,
+    )
+    .expect("write legacy groups");
+    std::fs::write(
+        dir.join("sender_commands.json"),
+        r#"[{"name":"reboot","text":"reboot","ending":"lf","scope":{"type":"kind","kind":"serial"}},
+            {"name":"ls","text":"ls","ending":"lf","scope":{"type":"global"}}]"#,
+    )
+    .expect("write legacy sender commands");
 
-    let mut recorded = profile(SessionKind::Ssh);
-    recorded.record = true;
-    recorded.record_dir = Some("/tmp/rec".into());
-    let recorded = store.save(recorded).expect("save");
-    let back = Store::load_from(path.clone())
-        .get(&recorded.id)
-        .expect("get")
-        .expect("saved profile");
-    assert!(back.record);
-    assert_eq!(back.record_dir.as_deref(), Some("/tmp/rec"));
-
-    // An untouched profile writes neither field, so a file an older build
-    // reads back is exactly what it wrote; missing fields mean "off".
-    let mut plain = profile(SessionKind::Local);
-    plain.name = "plain".into();
-    let plain = store.save(plain).expect("save plain");
-    let json = std::fs::read_to_string(&path).expect("read sessions.json");
-    assert_eq!(json.matches("\"record\"").count(), 1, "{json}");
-    assert_eq!(json.matches("\"recordDir\"").count(), 1, "{json}");
-    let plain = Store::load_from(path)
-        .get(&plain.id)
-        .expect("get")
-        .expect("plain profile");
-    assert!(!plain.record);
-    assert!(plain.record_dir.is_none());
+    let data = Store::load_from(dir.join("sessions.json")).snapshot();
+    let names: Vec<&str> = data.profiles.iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(names, vec!["edge", "files"]);
+    // A group names no kind any more, so both survive and the stale `kind` on
+    // the first is ignored rather than costing the user a folder.
+    assert_eq!(data.groups.len(), 2);
+    assert!(data.groups.iter().any(|g| g.name == "devices"));
+    assert!(data.groups.iter().any(|g| g.name == "prod"));
+    assert_eq!(data.sender_commands.len(), 1);
+    assert_eq!(data.sender_commands[0].name, "ls");
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn an_export_naming_a_removed_kind_still_imports_the_rest() {
+    // The store's own files are filtered at load, but an export file is the
+    // documented way to carry sessions between installs and goes through
+    // `read_app_data` instead. One retired profile used to fail the whole
+    // file — and say "not a Kanso data file" while doing it.
+    let dir = temp_dir("retired-kinds-import");
+    let file = dir.join("backup.kanso");
+    std::fs::write(
+        &file,
+        format!(
+            r#"{{"app":"{APP_DATA_APP}","format":{APP_DATA_FORMAT},
+                "profiles":[{{"id":"p1","name":"edge","kind":"ssh","host":"example.com"}},
+                            {{"id":"p2","name":"dead","kind":"ftp","host":"ftp.example.com"}}],
+                "groups":[{{"id":"g1","name":"devices","kind":"serial"}},
+                          {{"id":"g2","name":"prod","kind":"ssh"}}],
+                "senderCommands":[{{"id":"c1","name":"ls","text":"ls","ending":"lf",
+                                    "scope":{{"type":"kind","kind":"serial"}}}},
+                                  {{"id":"c2","name":"df","text":"df -h","ending":"lf",
+                                    "scope":{{"type":"global"}}}}]}}"#
+        ),
+    )
+    .expect("write legacy export");
+
+    let data = read_app_data(file.display().to_string()).expect("legacy export imports");
+    assert_eq!(data.profiles.len(), 1, "only the ssh profile survives");
+    assert_eq!(data.profiles[0].name, "edge");
+    // Groups hold any kind, so a retired `kind` on one is ignored and the
+    // folder is kept.
+    assert_eq!(data.groups.len(), 2);
+    assert!(data.groups.iter().any(|g| g.name == "devices"));
+    assert!(data.groups.iter().any(|g| g.name == "prod"));
+    assert_eq!(data.sender_commands.len(), 1);
+    assert_eq!(data.sender_commands[0].name, "df");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 
 fn command(name: &str, text: &str) -> SavedCommand {
     SavedCommand {
@@ -575,15 +599,15 @@ fn sender_command_scopes_fall_back_and_follow_their_targets() {
     assert_eq!(legacy.scope, CommandScope::Global);
 
     let parent = store
-        .save_group(group("Prod", SessionKind::Ssh, None))
+        .save_group(group("Prod"))
         .expect("parent");
     let child = store
-        .save_group(group("EU", SessionKind::Ssh, Some(&parent.id)))
+        .save_group(group("EU"))
         .expect("child");
     let mut ssh = profile(SessionKind::Ssh);
     ssh.group_id = Some(child.id.clone());
     let ssh = store.save(ssh).expect("ssh");
-    let serial = store.save(profile(SessionKind::Serial)).expect("serial");
+    let local = store.save(profile(SessionKind::Local)).expect("local");
 
     // Dangling references fall back to global at save time.
     let dangling = store
@@ -597,14 +621,14 @@ fn sender_command_scopes_fall_back_and_follow_their_targets() {
     let on_ssh = store
         .save_sender_command(scoped("ssh", CommandScope::Profile { id: ssh.id.clone() }))
         .expect("save ssh");
-    let on_serial = store
+    let on_local = store
         .save_sender_command(scoped(
-            "serial",
+            "local",
             CommandScope::Profile {
-                id: serial.id.clone(),
+                id: local.id.clone(),
             },
         ))
-        .expect("save serial");
+        .expect("save local");
     let on_child = store
         .save_sender_command(scoped(
             "child",
@@ -633,12 +657,12 @@ fn sender_command_scopes_fall_back_and_follow_their_targets() {
     // A deleted profile takes its own commands with it; the rest stay put.
     let count_before = store.list_sender_commands().len();
     store.delete(&ssh.id).expect("delete ssh");
-    store.delete(&serial.id).expect("delete serial");
+    store.delete(&local.id).expect("delete local");
     let commands = store.list_sender_commands();
     assert_eq!(commands.len(), count_before - 2);
     assert!(commands
         .iter()
-        .all(|c| c.id != on_ssh.id && c.id != on_serial.id));
+        .all(|c| c.id != on_ssh.id && c.id != on_local.id));
     assert_eq!(
         scope_of(&store, &on_child.id),
         CommandScope::Group {
@@ -721,7 +745,7 @@ fn store_snapshot_never_carries_credentials() {
     key.passphrase = Some("secret".into());
     store.save(key).expect("save key");
     let group = store
-        .save_group(group("Prod", SessionKind::Ssh, None))
+        .save_group(group("Prod"))
         .expect("save group");
     store
         .save_sender_command(command("List", "ls"))
@@ -767,7 +791,7 @@ fn store_import_merges_by_id_and_drops_secrets_and_bad_links() {
     local.password = Some("keep-me".into());
     let local = store.save(local).expect("save local");
     let existing_group = store
-        .save_group(group("Existing", SessionKind::Ssh, None))
+        .save_group(group("Existing"))
         .expect("save group");
     let existing_command = store
         .save_sender_command(command("Old", "ls"))
@@ -777,9 +801,9 @@ fn store_import_merges_by_id_and_drops_secrets_and_bad_links() {
     replaced.name = "after".into();
     replaced.password = Some("from-file".into());
     replaced.group_id = Some(existing_group.id.clone());
-    let mut orphan = profile(SessionKind::Serial);
-    orphan.id = "serial-1".into();
-    // A serial profile cannot live in an SSH group.
+    let mut orphan = profile(SessionKind::Local);
+    orphan.id = "local-1".into();
+    // A group is a plain folder, so nothing stops a local profile joining it.
     orphan.group_id = Some(existing_group.id.clone());
     let mut stray = profile(SessionKind::Ssh);
     stray.id = "ssh-2".into();
@@ -800,34 +824,24 @@ fn store_import_merges_by_id_and_drops_secrets_and_bad_links() {
             SessionGroup {
                 id: "a".into(),
                 name: "  A  ".into(),
-                kind: SessionKind::Ssh,
-                parent_id: Some("b".into()),
             },
             SessionGroup {
                 id: "b".into(),
                 name: "B".into(),
-                kind: SessionKind::Ssh,
-                parent_id: Some("a".into()),
             },
             SessionGroup {
                 id: "c".into(),
                 name: "C".into(),
-                kind: SessionKind::Serial,
-                parent_id: Some("a".into()),
             },
             SessionGroup {
                 id: "d".into(),
                 name: "D".into(),
-                kind: SessionKind::Ssh,
-                parent_id: Some("missing".into()),
             },
-            group("   ", SessionKind::Ssh, None),
-            // Same id as an existing group of another kind: refused.
+            group("   "),
+            // Same id as an existing group: it replaces it.
             SessionGroup {
                 id: existing_group.id.clone(),
                 name: "Existing".into(),
-                kind: SessionKind::Ftp,
-                parent_id: None,
             },
         ],
         sender_commands: vec![renamed_command.clone(), command("New", "pwd")],
@@ -835,7 +849,7 @@ fn store_import_merges_by_id_and_drops_secrets_and_bad_links() {
 
     let summary = store.import_data(data).expect("import");
     assert_eq!(summary.profiles, 4);
-    assert_eq!(summary.groups, 4);
+    assert_eq!(summary.groups, 5);
     assert_eq!(summary.sender_commands, 2);
     assert_eq!(summary.skipped_sender_commands, 0);
 
@@ -858,10 +872,11 @@ fn store_import_merges_by_id_and_drops_secrets_and_bad_links() {
     assert_eq!(
         profiles
             .iter()
-            .find(|p| p.id == "serial-1")
+            .find(|p| p.id == "local-1")
             .unwrap()
-            .group_id,
-        None
+            .group_id
+            .as_deref(),
+        Some(existing_group.id.as_str())
     );
     assert_eq!(
         profiles.iter().find(|p| p.id == "ssh-2").unwrap().group_id,
@@ -870,20 +885,13 @@ fn store_import_merges_by_id_and_drops_secrets_and_bad_links() {
     assert!(profiles.iter().all(|p| !p.id.is_empty()));
 
     let groups = store.list_groups();
-    // The blank-named group and the kind-changing one were refused.
+    // Only the blank-named group was refused. Groups are one level deep, so
+    // the parent links the older file carried are ignored rather than fixed
+    // up.
     assert_eq!(groups.len(), 5);
     let find = |id: &str| groups.iter().find(|g| g.id == id).expect(id);
-    assert_eq!(find(&existing_group.id).kind, SessionKind::Ssh);
+    assert_eq!(find(&existing_group.id).name, "Existing");
     assert_eq!(find("a").name, "A");
-    // The a ↔ b cycle is broken at one end, "c" cannot hang under another
-    // kind, and "d" pointed nowhere.
-    let linked: Vec<_> = ["a", "b"]
-        .iter()
-        .filter(|id| find(id).parent_id.is_some())
-        .collect();
-    assert_eq!(linked.len(), 1);
-    assert_eq!(find("c").parent_id, None);
-    assert_eq!(find("d").parent_id, None);
 
     let commands = store.list_sender_commands();
     assert_eq!(commands.len(), 2);
@@ -916,12 +924,12 @@ fn store_import_refuses_foreign_or_newer_files() {
 
 #[test]
 fn data_files_are_recognised_by_extension_and_contents() {
-    assert_eq!(APP_DATA_EXTENSION, "edgeterm");
-    assert!(is_data_file_path(Path::new("backup.edgeterm")));
-    assert!(is_data_file_path(Path::new("/tmp/A.EDGETERM")));
+    assert_eq!(APP_DATA_EXTENSION, "kanso");
+    assert!(is_data_file_path(Path::new("backup.kanso")));
+    assert!(is_data_file_path(Path::new("/tmp/A.KANSO")));
     assert!(!is_data_file_path(Path::new("backup.json")));
-    assert!(!is_data_file_path(Path::new("edgeterm")));
-    assert!(!is_data_file_path(Path::new("backup.edgeterm.json")));
+    assert!(!is_data_file_path(Path::new("kanso")));
+    assert!(!is_data_file_path(Path::new("backup.kanso.json")));
 
     let dir = temp_dir("data-file");
     let store = Store::load_from(dir.join("sessions.json"));
@@ -935,20 +943,20 @@ fn data_files_are_recognised_by_extension_and_contents() {
     let json = dir.join("backup.json");
     std::fs::write(&json, &valid).expect("write json");
     let error = read_app_data(json.display().to_string()).expect_err("json refused");
-    assert!(error.to_string().contains(".edgeterm"), "{error}");
+    assert!(error.to_string().contains(".kanso"), "{error}");
 
     // Right name, wrong contents.
-    let garbage = dir.join("garbage.edgeterm");
+    let garbage = dir.join("garbage.kanso");
     std::fs::write(&garbage, "not json").expect("write garbage");
     assert!(read_app_data(garbage.display().to_string()).is_err());
-    let foreign = dir.join("foreign.edgeterm");
+    let foreign = dir.join("foreign.kanso");
     std::fs::write(&foreign, r#"{"app":"Other","format":1}"#).expect("write foreign");
     assert!(read_app_data(foreign.display().to_string()).is_err());
-    let missing = dir.join("missing.edgeterm");
+    let missing = dir.join("missing.kanso");
     assert!(read_app_data(missing.display().to_string()).is_err());
 
     // Right name and contents; a password smuggled into the file is dropped.
-    let good = dir.join("backup.edgeterm");
+    let good = dir.join("backup.kanso");
     let smuggled = valid.replace("\"password\":null", "\"password\":\"x\"");
     assert_ne!(smuggled, valid, "the snapshot serialises an empty password");
     std::fs::write(&good, smuggled).expect("write");
@@ -1063,35 +1071,6 @@ fn store_persists_secrets_separately_for_restart_reconnects() {
         .delete(&saved_password.id)
         .expect("delete password");
     reloaded.delete(&saved_key.id).expect("delete passphrase");
-
-    std::fs::remove_dir_all(&dir).ok();
-}
-
-#[test]
-fn store_persists_ftp_password_separately() {
-    let dir = temp_dir("ftp-secrets");
-    let path = dir.join("sessions.json");
-    let store = Store::load_from(path.clone());
-
-    let mut ftp = profile(SessionKind::Ftp);
-    ftp.name = "file-server".into();
-    ftp.host = Some("ftp.example.com".into());
-    ftp.username = Some("uploader".into());
-    ftp.password = Some("ftp-secret".into());
-    let saved = store.save(ftp).expect("save ftp profile");
-
-    let raw = std::fs::read_to_string(&path).expect("read profiles");
-    assert!(!raw.contains("ftp-secret"));
-    assert!(saved.password.is_none());
-
-    let reloaded = Store::load_from(path);
-    assert_eq!(
-        reloaded
-            .get(&saved.id)
-            .expect("read ftp password")
-            .and_then(|profile| profile.password),
-        Some("ftp-secret".into())
-    );
 
     std::fs::remove_dir_all(&dir).ok();
 }
@@ -1279,34 +1258,29 @@ fn store_round_trips_session_groups_and_profile_membership() {
     let store = Store::load_from(path.clone());
 
     let prod = store
-        .save_group(group("  prod  ", SessionKind::Ssh, None))
+        .save_group(group("  prod  "))
         .expect("save group");
     assert!(!prod.id.is_empty());
     // Names are trimmed before they are stored.
     assert_eq!(prod.name, "prod");
-    let eu = store
-        .save_group(group("eu", SessionKind::Ssh, Some(&prod.id)))
-        .expect("save nested group");
+    let eu = store.save_group(group("eu")).expect("save second group");
 
     let mut member = profile(SessionKind::Ssh);
     member.group_id = Some(eu.id.clone());
     let member = store.save(member).expect("save profile");
     assert_eq!(member.group_id.as_deref(), Some(eu.id.as_str()));
 
-    // A profile of another kind cannot sit in an SSH group; it falls back to
-    // its own kind root rather than being rejected or stranded.
-    let mut stray = profile(SessionKind::Serial);
-    stray.group_id = Some(eu.id.clone());
-    let stray = store.save(stray).expect("save stray profile");
-    assert_eq!(stray.group_id, None);
+    // Nothing ties a group to a kind, so a local profile joins the same one.
+    let mut local_member = profile(SessionKind::Local);
+    local_member.group_id = Some(eu.id.clone());
+    let local_member = store.save(local_member).expect("save second member");
+    assert_eq!(local_member.group_id.as_deref(), Some(eu.id.as_str()));
 
     // Everything survives a reload from disk.
     let reloaded = Store::load_from(path);
     let groups = reloaded.list_groups();
     assert_eq!(groups.len(), 2);
-    assert!(groups
-        .iter()
-        .any(|g| g.id == eu.id && g.parent_id.as_deref() == Some(&*prod.id)));
+    assert!(groups.iter().any(|g| g.id == eu.id));
     let saved = reloaded
         .list()
         .into_iter()
@@ -1323,87 +1297,54 @@ fn store_round_trips_session_groups_and_profile_membership() {
 }
 
 #[test]
-fn ftp_and_sftp_share_one_group_namespace() {
-    let dir = temp_dir("ftp-sftp-groups");
+fn groups_hold_any_session_kind() {
+    let dir = temp_dir("groups-any-kind");
     let path = dir.join("sessions.json");
     let store = Store::load_from(path.clone());
 
-    // A group in the shared "(S)FTP" section is stored under the canonical FTP
-    // kind; it holds servers of either protocol.
     let servers = store
-        .save_group(group("servers", SessionKind::Ftp, None))
-        .expect("save (s)ftp group");
+        .save_group(group("servers"))
+        .expect("save group");
 
-    let mut ftp = profile(SessionKind::Ftp);
-    ftp.group_id = Some(servers.id.clone());
-    let ftp = store.save(ftp).expect("save ftp member");
-    assert_eq!(ftp.group_id.as_deref(), Some(servers.id.as_str()));
-
-    // An SFTP profile joins the same FTP-category group instead of being
-    // stranded — this is the shared-namespace behaviour.
     let mut sftp = profile(SessionKind::Sftp);
     sftp.group_id = Some(servers.id.clone());
     let sftp = store.save(sftp).expect("save sftp member");
     assert_eq!(sftp.group_id.as_deref(), Some(servers.id.as_str()));
 
-    // A session of an unrelated category still cannot sit in that group.
+    // A group is a plain folder, so the same one takes an SSH session too.
     let mut ssh = profile(SessionKind::Ssh);
     ssh.group_id = Some(servers.id.clone());
-    let ssh = store.save(ssh).expect("save ssh profile");
-    assert_eq!(ssh.group_id, None);
+    let ssh = store.save(ssh).expect("save ssh member");
+    assert_eq!(ssh.group_id.as_deref(), Some(servers.id.as_str()));
 
     // Membership survives a reload from disk.
     let reloaded = Store::load_from(path);
-    let saved_sftp = reloaded
-        .list()
-        .into_iter()
-        .find(|p| p.id == sftp.id)
-        .expect("sftp member persisted");
-    assert_eq!(saved_sftp.group_id.as_deref(), Some(servers.id.as_str()));
+    let saved = reloaded.list();
+    let member = |id: &str| saved.iter().find(|p| p.id == id).expect("member persisted");
+    assert_eq!(
+        member(&sftp.id).group_id.as_deref(),
+        Some(servers.id.as_str())
+    );
+    assert_eq!(member(&ssh.id).group_id.as_deref(), Some(servers.id.as_str()));
 
     std::fs::remove_dir_all(dir).ok();
 }
 
 #[test]
-fn store_rejects_invalid_group_shapes() {
+fn a_group_only_has_to_be_named() {
     let dir = temp_dir("groups-invalid");
     let store = Store::load_from(dir.join("sessions.json"));
 
-    assert!(store
-        .save_group(group("   ", SessionKind::Ssh, None))
-        .is_err());
-    assert!(store
-        .save_group(group("orphan", SessionKind::Ssh, Some("missing")))
-        .is_err());
+    assert!(store.save_group(group("   ")).is_err());
 
-    let ssh = store
-        .save_group(group("ssh", SessionKind::Ssh, None))
-        .expect("save ssh group");
-    // Groups nest only within one session kind.
-    assert!(store
-        .save_group(group("ftp", SessionKind::Ftp, Some(&ssh.id)))
-        .is_err());
-
-    let child = store
-        .save_group(group("child", SessionKind::Ssh, Some(&ssh.id)))
-        .expect("save child");
-    // No cycles: neither self-parenting nor moving under a descendant.
-    let mut looped = ssh.clone();
-    looped.parent_id = Some(ssh.id.clone());
-    assert!(store.save_group(looped).is_err());
-    let mut looped = ssh.clone();
-    looped.parent_id = Some(child.id.clone());
-    assert!(store.save_group(looped).is_err());
-    // A group keeps its kind for life.
-    let mut switched = ssh.clone();
-    switched.kind = SessionKind::Ftp;
-    assert!(store.save_group(switched).is_err());
+    let first = store.save_group(group("first")).expect("save group");
+    store.save_group(group("second")).expect("save second group");
 
     // Renaming in place is fine and keeps the id.
-    let mut renamed = child.clone();
+    let mut renamed = first.clone();
     renamed.name = "renamed".into();
     let renamed = store.save_group(renamed).expect("rename");
-    assert_eq!(renamed.id, child.id);
+    assert_eq!(renamed.id, first.id);
     assert_eq!(store.list_groups().len(), 2);
 
     std::fs::remove_dir_all(dir).ok();
@@ -1415,74 +1356,58 @@ fn deleting_a_group_removes_everything_in_it() {
     let path = dir.join("sessions.json");
     let store = Store::load_from(path.clone());
 
-    let root = store
-        .save_group(group("root", SessionKind::Ssh, None))
-        .expect("root");
-    let mid = store
-        .save_group(group("mid", SessionKind::Ssh, Some(&root.id)))
-        .expect("mid");
-    let leaf = store
-        .save_group(group("leaf", SessionKind::Ssh, Some(&mid.id)))
-        .expect("leaf");
-    let sibling = store
-        .save_group(group("sibling", SessionKind::Ssh, Some(&root.id)))
-        .expect("sibling");
+    let doomed = store.save_group(group("doomed")).expect("doomed");
+    let kept = store.save_group(group("kept")).expect("kept");
 
-    let mut in_mid = profile(SessionKind::Ssh);
-    in_mid.group_id = Some(mid.id.clone());
-    in_mid.auth = Some(AuthKind::Password);
-    in_mid.password = Some("hunter2".into());
-    let in_mid = store.save(in_mid).expect("save in_mid");
-    let mut in_leaf = profile(SessionKind::Ssh);
-    in_leaf.group_id = Some(leaf.id.clone());
-    let in_leaf = store.save(in_leaf).expect("save in_leaf");
-    let mut in_sibling = profile(SessionKind::Ssh);
-    in_sibling.group_id = Some(sibling.id.clone());
-    let in_sibling = store.save(in_sibling).expect("save in_sibling");
+    let mut in_doomed = profile(SessionKind::Ssh);
+    in_doomed.group_id = Some(doomed.id.clone());
+    in_doomed.auth = Some(AuthKind::Password);
+    in_doomed.password = Some("hunter2".into());
+    let in_doomed = store.save(in_doomed).expect("save in_doomed");
+    let mut in_kept = profile(SessionKind::Ssh);
+    in_kept.group_id = Some(kept.id.clone());
+    let in_kept = store.save(in_kept).expect("save in_kept");
 
-    let on_leaf = store
+    let on_doomed = store
         .save_sender_command(scoped(
-            "leaf",
+            "doomed",
             CommandScope::Group {
-                id: leaf.id.clone(),
+                id: doomed.id.clone(),
             },
         ))
-        .expect("save on_leaf");
-    let on_in_leaf = store
+        .expect("save on_doomed");
+    let on_in_doomed = store
         .save_sender_command(scoped(
-            "in_leaf",
+            "in_doomed",
             CommandScope::Profile {
-                id: in_leaf.id.clone(),
+                id: in_doomed.id.clone(),
             },
         ))
-        .expect("save on_in_leaf");
-    let on_sibling = store
+        .expect("save on_in_doomed");
+    let on_kept = store
         .save_sender_command(scoped(
-            "sibling",
+            "kept",
             CommandScope::Group {
-                id: sibling.id.clone(),
+                id: kept.id.clone(),
             },
         ))
-        .expect("save on_sibling");
+        .expect("save on_kept");
     let everywhere = store
         .save_sender_command(command("everywhere", "ls"))
         .expect("save everywhere");
 
-    store.delete_group(&mid.id).expect("delete mid");
+    store.delete_group(&doomed.id).expect("delete doomed");
 
     let remaining: Vec<String> = store.list_groups().into_iter().map(|g| g.id).collect();
-    assert!(remaining.contains(&root.id));
-    assert!(remaining.contains(&sibling.id));
-    assert!(!remaining.contains(&mid.id));
-    assert!(!remaining.contains(&leaf.id));
+    assert!(remaining.contains(&kept.id));
+    assert!(!remaining.contains(&doomed.id));
 
-    // The direct member and the nested one are gone, credentials included;
-    // the sibling's member is untouched.
+    // Its member is gone, credentials included; the other group's member is
+    // untouched.
     let profiles: Vec<String> = store.list().into_iter().map(|p| p.id).collect();
-    assert!(!profiles.contains(&in_mid.id));
-    assert!(!profiles.contains(&in_leaf.id));
-    assert!(profiles.contains(&in_sibling.id));
-    assert!(store.get(&in_mid.id).expect("get").is_none());
+    assert!(!profiles.contains(&in_doomed.id));
+    assert!(profiles.contains(&in_kept.id));
+    assert!(store.get(&in_doomed.id).expect("get").is_none());
     assert!(!std::fs::read_to_string(dir.join("credentials.json"))
         .expect("credentials file")
         .contains("hunter2"));
@@ -1492,14 +1417,14 @@ fn deleting_a_group_removes_everything_in_it() {
         .into_iter()
         .map(|c| c.id)
         .collect();
-    assert!(!commands.contains(&on_leaf.id));
-    assert!(!commands.contains(&on_in_leaf.id));
-    assert!(commands.contains(&on_sibling.id));
+    assert!(!commands.contains(&on_doomed.id));
+    assert!(!commands.contains(&on_in_doomed.id));
+    assert!(commands.contains(&on_kept.id));
     assert!(commands.contains(&everywhere.id));
 
-    // Deleting the top-level group empties the tree, and the result is what
-    // a fresh process reads back.
-    store.delete_group(&root.id).expect("delete root");
+    // Deleting the last group empties the file, and the result is what a
+    // fresh process reads back.
+    store.delete_group(&kept.id).expect("delete kept");
     let reloaded = Store::load_from(path);
     assert!(reloaded.list_groups().is_empty());
     assert!(reloaded.list().is_empty());
@@ -1856,7 +1781,7 @@ fn ssh_config_import_links_a_single_jump_host_and_updates_saved_sessions() {
     let store = Store::load_from(dir.join("sessions.json"));
     let context = ssh_context(&dir);
     let group = store
-        .save_group(group("Imported", SessionKind::Ssh, None))
+        .save_group(group("Imported"))
         .expect("save group");
 
     // A session saved by hand that the file also describes, by name.
@@ -2037,4 +1962,47 @@ Host db
         None,
         "db is saved as a plain session; its chain was left off"
     );
+}
+
+/// The rail's second line and the Filer's "Reveal Working Directory" both ask
+/// the OS where a local shell is; see `session::cwd`. A real pty is the only
+/// way to cover it: the foreground process group comes off the master.
+#[test]
+#[ignore = "needs a pty; run with --ignored where the sandbox allows openpty"]
+fn a_local_shells_working_directory_is_read_from_the_os() {
+    use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+
+    let pty = native_pty_system()
+        .openpty(PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .expect("open a pty");
+    let mut child = pty
+        .slave
+        .spawn_command(CommandBuilder::new("sh"))
+        .expect("spawn a shell");
+    drop(pty.slave);
+
+    let fd = pty.master.as_raw_fd().expect("master fd");
+    let pgrp = unsafe { libc::tcgetpgrp(fd) };
+    let shell_pid = child.process_id();
+    println!("tcgetpgrp(master) = {pgrp}, child pid = {shell_pid:?}");
+    if pgrp > 0 {
+        println!("  process_cwd({pgrp}) = {:?}", crate::session::cwd::process_cwd(pgrp as u32));
+    }
+    if let Some(pid) = shell_pid {
+        println!("  process_cwd({pid}) = {:?}", crate::session::cwd::process_cwd(pid));
+    }
+
+    let result = crate::session::cwd::local_shell_cwd(pty.master.as_ref(), child.as_ref());
+    println!("local_shell_cwd -> {result:?}");
+    let cwd = result.expect("read the shell's directory");
+    assert!(!cwd.is_empty(), "an empty answer is not a directory");
+    assert!(Path::new(&cwd).is_absolute(), "not absolute: {cwd}");
+
+    let _ = child.kill();
+    let _ = child.wait();
 }

@@ -64,9 +64,11 @@ describe("default bindings", () => {
       kind: "tabStep",
       step: -1,
     });
+    // The session panel is always in the sidebar now, so it has no toggle to
+    // bind; ⌘⌥← is free again.
     expect(
       matchAppShortcut(press("ArrowLeft", { metaKey: true, altKey: true })),
-    ).toEqual({ kind: "togglePanel", panel: "sessions" });
+    ).toBeNull();
   });
 
   it("lists copy, paste and select all like any other command", () => {

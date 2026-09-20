@@ -33,11 +33,11 @@ const updatedCargoManifest = cargoManifest.replace(cargoManifestVersionPattern, 
 writeFileSync(cargoManifestPath, updatedCargoManifest);
 
 const cargoLock = readFileSync(cargoLockPath, "utf8");
-const cargoLockVersionPattern = /(\[\[package\]\]\r?\nname = "edgeterm"\r?\nversion = ")[^"]+("\r?\n)/;
+const cargoLockVersionPattern = /(\[\[package\]\]\r?\nname = "kanso"\r?\nversion = ")[^"]+("\r?\n)/;
 if (!cargoLockVersionPattern.test(cargoLock)) {
-  throw new Error("Could not update the EdgeTerm version in src-tauri/Cargo.lock");
+  throw new Error("Could not update the Kanso version in src-tauri/Cargo.lock");
 }
 const updatedCargoLock = cargoLock.replace(cargoLockVersionPattern, `$1${version}$2`);
 writeFileSync(cargoLockPath, updatedCargoLock);
 
-console.log(`EdgeTerm version set to ${version}`);
+console.log(`Kanso version set to ${version}`);

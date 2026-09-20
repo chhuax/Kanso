@@ -18,11 +18,12 @@ import type { TerminalController } from "../terminal";
 import { getController } from "../terminalRegistry";
 import { isFileSession } from "../types";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
+import { Icon } from "./icons";
 
 // The dual-pane file workspace only exists for FTP and SFTP tabs, so it loads
 // with the first one instead of with the window.
-const FtpPane = lazy(() =>
-  import("./FtpPane").then((module) => ({ default: module.FtpPane })),
+const FilePane = lazy(() =>
+  import("./FilePane").then((module) => ({ default: module.FilePane })),
 );
 
 interface Props {
@@ -60,7 +61,7 @@ export function SessionPane({ tab, visible, focused, style }: Props) {
     >
       {isFileSession(tab.info.kind) ? (
         <Suspense fallback={null}>
-          <FtpPane tab={tab} active={visible} />
+          <FilePane tab={tab} active={visible} />
         </Suspense>
       ) : (
         <TerminalHost tab={tab} visible={visible} focused={focused} />
@@ -104,8 +105,17 @@ function TerminalHost({
   const cursorBlink = useStore((s) => s.cursorBlink);
   const suggestionsEnabled = useStore((s) => s.suggestionsEnabled);
   const rightClickAction = useStore((s) => s.rightClickAction);
+  const copyOnSelect = useStore((s) => s.copyOnSelect);
   const [menu, setMenu] = useState<TerminalMenu | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
+  /**
+   * Where the last copy landed, for the word that says it happened. A copy
+   * leaves no other trace, and a selection that quietly does not reach the
+   * clipboard is the sort of thing found out much later.
+   */
+  const [copied, setCopied] = useState<{ x: number; y: number } | null>(null);
+  /** Set by a press in this pane, read by the release below. */
+  const selecting = useRef(false);
   const id = tab.info.id;
   // xterm loads on demand, so the terminal can arrive a tick after the pane
   // first renders (see ensureController). Effects that looked it up in the
@@ -144,6 +154,43 @@ function TerminalHost({
       y: event.clientY,
       canCopy: controller.hasSelection(),
     });
+  };
+
+  // A selection is copied when the button comes up, and the release is caught
+  // on the document rather than here: a drag that ends outside the pane — a
+  // line dragged past the window edge, or the mouse let go over the rail —
+  // never reaches this element, and the copy would simply not happen.
+  // `onSelectionChange` would fire all through the drag, one clipboard write
+  // per pixel, so the release is the moment to use.
+  useEffect(() => {
+    const onRelease = (event: MouseEvent) => {
+      if (!selecting.current) return;
+      selecting.current = false;
+      if (event.button !== 0 || !copyOnSelect) return;
+      const controller = getController(id);
+      if (!controller?.hasSelection()) return;
+      if (!controller.copySelection()) return;
+      setCopied({ x: event.clientX, y: event.clientY });
+    };
+    document.addEventListener("mouseup", onRelease);
+    return () => document.removeEventListener("mouseup", onRelease);
+  }, [id, copyOnSelect]);
+
+  // The word above is quiet and brief; it goes on its own.
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(null), 1200);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+
+  const onMouseDown = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (event.button === 0) selecting.current = true;
+  };
+
+  // A program that owns the mouse has no xterm selection, so the copy above
+  // is quiet in vim and the like either way.
+  const onMouseUp = (event: ReactMouseEvent<HTMLDivElement>) => {
+    onMiddleButton(event);
   };
 
   // Middle click: xterm positions its textarea under the pointer so a
@@ -213,7 +260,7 @@ function TerminalHost({
     // The terminal already exists by the time a session is open; this only
     // waits when the xterm module is still on its way (see ensureController).
     let live = true;
-    void ensureController(id).then((controller) => {
+    void ensureController(id, tab.info.kind === "local").then((controller) => {
       if (!live) return;
       controller.attach(element);
       setTerminal(controller);
@@ -285,9 +332,20 @@ function TerminalHost({
         ref={ref}
         className="term-pane"
         onContextMenu={onContextMenu}
-        onMouseUp={onMiddleButton}
+        onMouseDown={onMouseDown}
+        onMouseUp={onMouseUp}
         onAuxClick={onMiddleButton}
       />
+      {copied && (
+        <span
+          className="term-copied"
+          style={{ left: copied.x + 12, top: copied.y + 14 }}
+          aria-hidden="true"
+        >
+          <Icon name="copy" />
+          Copied
+        </span>
+      )}
       {menu && (
         <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={closeMenu} />
       )}

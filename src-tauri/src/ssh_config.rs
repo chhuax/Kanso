@@ -580,8 +580,6 @@ fn new_profile(entry: &SshConfigEntry, group_id: Option<String>) -> SessionProfi
         group_id,
         encoding: None,
         locale: None,
-        record: false,
-        record_dir: None,
         shell: None,
         cwd: None,
         host: Some(entry.host.clone()),
@@ -592,12 +590,6 @@ fn new_profile(entry: &SshConfigEntry, group_id: Option<String>) -> SessionProfi
         private_key_path: entry.private_key_path.clone(),
         passphrase: None,
         jump_profile_id: None,
-        port_name: None,
-        baud_rate: None,
-        data_bits: None,
-        stop_bits: None,
-        parity: None,
-        flow_control: None,
     }
 }
 
@@ -621,7 +613,7 @@ fn update_profile(profile: &mut SessionProfile, entry: &SshConfigEntry, named_ke
 /// `group_id`. Only a single-hop `ProxyJump` is imported as a jump host: the
 /// hop comes along (a named alias, or a `user@host:port` literal given its
 /// own profile) and the session is linked to it. A `ProxyJump` with more
-/// than one hop is dropped with a warning — EdgeTerm's per-session jump host
+/// than one hop is dropped with a warning — Kanso's per-session jump host
 /// cannot hold a chain, and one host's chain must not reshape the jump hosts
 /// other sessions share (see `jumps_ignored`).
 pub fn import(

@@ -26,7 +26,6 @@ const makeTab = (id: string, paneId = ROOT, state: SessionState = "connected"): 
     address: "default shell",
     color: "#4ea1f3",
     supportsRemoteFiles: false,
-    recording: null,
     legacyAlgorithms: [],
   },
   profile: profile(id),
@@ -128,32 +127,7 @@ describe("panes", () => {
     expect(state.panes).toHaveLength(1);
   });
 
-  it("moves a tab between panes and folds the emptied one", () => {
-    open("a");
-    open("b");
-    open("c");
-    const right = useStore.getState().splitPane(ROOT, "right", "c");
-    useStore.getState().moveTabToPane("a", right, 0);
-    expect(stripOf(right)).toEqual(["a", "c"]);
-    expect(stripOf(ROOT)).toEqual(["b"]);
-    expect(useStore.getState().activeId).toBe("a");
-    useStore.getState().moveTabToPane("b", right, 99);
-    const state = useStore.getState();
-    expect(stripOf(right)).toEqual(["a", "c", "b"]);
-    expect(state.panes.map((pane) => pane.id)).toEqual([right]);
-    expect(state.activePaneId).toBe(right);
-  });
 
-  it("reorders within a strip without disturbing other strips", () => {
-    open("a");
-    open("b");
-    open("c");
-    open("d");
-    const right = useStore.getState().splitPane(ROOT, "right", "d");
-    useStore.getState().moveTab("a", 2);
-    expect(stripOf(ROOT)).toEqual(["b", "c", "a"]);
-    expect(stripOf(right)).toEqual(["d"]);
-  });
 
   it("steps tabs within the active pane and panes in reading order", () => {
     open("a");

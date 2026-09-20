@@ -5,9 +5,7 @@ use serde::{Deserialize, Serialize};
 pub enum SessionKind {
     Local,
     Ssh,
-    Ftp,
     Sftp,
-    Serial,
 }
 
 /// The colour theme of the user interface. It is a front-end setting kept in
@@ -58,7 +56,7 @@ pub struct SessionProfile {
     #[serde(default)]
     pub group_id: Option<String>,
 
-    // --- terminal text (local / ssh / serial) ---
+    // --- terminal text (local / ssh) ---
     /// Character encoding of the terminal byte stream, as a WHATWG label
     /// (`gbk`, `big5`, `shift_jis`, …); absent or unknown means UTF-8.
     /// Output is decoded in the frontend right before it reaches xterm —
@@ -72,15 +70,6 @@ pub struct SessionProfile {
     /// `AcceptEnv LANG`). Absent means automatic; see `session::locale`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub locale: Option<String>,
-    /// Whether every session opened from this profile writes the terminal
-    /// output it receives to a file, one file per connection. Off unless the
-    /// dialog's checkbox was ticked; see `session::recording`.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub record: bool,
-    /// Folder the recordings are written to; absent means
-    /// `session::recording::default_dir`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub record_dir: Option<String>,
 
     // --- local ---
     #[serde(default)]
@@ -88,7 +77,7 @@ pub struct SessionProfile {
     #[serde(default)]
     pub cwd: Option<String>,
 
-    // --- ssh / ftp ---
+    // --- ssh / sftp ---
     #[serde(default)]
     pub host: Option<String>,
     #[serde(default)]
@@ -111,22 +100,6 @@ pub struct SessionProfile {
     /// `Store::jump_chain`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub jump_profile_id: Option<String>,
-
-    // --- serial ---
-    #[serde(default)]
-    pub port_name: Option<String>,
-    #[serde(default)]
-    pub baud_rate: Option<u32>,
-    #[serde(default)]
-    pub data_bits: Option<u8>,
-    #[serde(default)]
-    pub stop_bits: Option<u8>,
-    /// `none` | `odd` | `even`
-    #[serde(default)]
-    pub parity: Option<String>,
-    /// `none` | `software` | `hardware`
-    #[serde(default)]
-    pub flow_control: Option<String>,
 }
 
 /// Longest jump-host chain a session may be tunnelled through. Deeper chains
@@ -162,20 +135,10 @@ impl SessionProfile {
                 self.host.as_deref().unwrap_or("localhost"),
                 self.port.unwrap_or(22)
             ),
-            SessionKind::Ftp => format!(
-                "{}:{}",
-                self.host.as_deref().unwrap_or("localhost"),
-                self.port.unwrap_or(21)
-            ),
             SessionKind::Sftp => format!(
                 "{}:{}",
                 self.host.as_deref().unwrap_or("localhost"),
                 self.port.unwrap_or(22)
-            ),
-            SessionKind::Serial => format!(
-                "{}@{}",
-                self.port_name.as_deref().unwrap_or("-"),
-                self.baud_rate.unwrap_or(115_200)
             ),
         }
     }
@@ -184,25 +147,20 @@ impl SessionProfile {
         match self.kind {
             SessionKind::Local => "shell",
             SessionKind::Ssh => "ssh",
-            SessionKind::Ftp => "ftp",
             SessionKind::Sftp => "sftp",
-            SessionKind::Serial => "serial",
         }
     }
 }
 
-/// A user-defined folder in the Session panel. Groups belong to one session
-/// kind and may nest under another group of the same kind.
+/// A user-defined folder in the Session panel. Groups are one level deep and
+/// hold any session kind, so one folder can gather the SSH and SFTP sessions
+/// of the same host; nothing ties a group to a kind or to another group.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionGroup {
     #[serde(default)]
     pub id: String,
     pub name: String,
-    pub kind: SessionKind,
-    /// Enclosing group, or `None` for a group directly under the kind heading.
-    #[serde(default)]
-    pub parent_id: Option<String>,
 }
 
 /// A live session, as the frontend sees it.
@@ -218,9 +176,6 @@ pub struct SessionInfo {
     pub color: Option<String>,
     /// Whether the Filer pane can browse this session's remote filesystem.
     pub supports_remote_files: bool,
-    /// Path of the file this session's output is being recorded to, when
-    /// the profile asked for a recording; see `session::recording`.
-    pub recording: Option<String>,
     /// The SSH transports of this session — its jump hosts, first hop first,
     /// then the target — that only connected on algorithms kept for old
     /// servers; empty when none did. See `session::ssh::LEGACY_KEX`.
@@ -359,7 +314,7 @@ pub struct SavedCommand {
 
 /// Marker every exported data file carries, so a stray JSON file is refused
 /// before anything is merged.
-pub const APP_DATA_APP: &str = "EdgeTerm";
+pub const APP_DATA_APP: &str = "Kanso";
 /// Layout version of the export file. Bump it when a change would make an
 /// older build misread a newer file; builds refuse files newer than they know.
 /// 1: initial layout. 2: Sender commands carry a `scope`. 3: Sender
@@ -369,7 +324,7 @@ pub const APP_DATA_FORMAT: u32 = 3;
 /// File extension (without the dot) every data file carries. Export appends
 /// it and import refuses anything else, so a data file is recognisable before
 /// it is opened; the contents are still plain JSON.
-pub const APP_DATA_EXTENSION: &str = "edgeterm";
+pub const APP_DATA_EXTENSION: &str = "kanso";
 
 /// One export / import file: the frontend's settings, saved sessions with
 /// their groups, and Sender tags. Session passwords and key passphrases are
@@ -445,14 +400,6 @@ pub struct ZmodemFileInfo {
     pub size: u64,
     /// Unix seconds.
     pub modified: Option<u64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SerialPortDesc {
-    pub port_name: String,
-    pub port_type: String,
-    pub description: Option<String>,
 }
 
 /// Splits the Shell field into a program and its arguments, so a profile can

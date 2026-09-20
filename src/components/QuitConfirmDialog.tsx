@@ -56,7 +56,7 @@ export function QuitConfirmDialog({ onConfirm, onCancel }: Props) {
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="dialog-header" id="quit-app-title">
-          Quit EdgeTerm
+          Quit Kanso
         </div>
         <div className="dialog-body confirm-dialog-body">
           <span>

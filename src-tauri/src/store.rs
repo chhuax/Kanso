@@ -56,7 +56,7 @@ enum CredentialsFile {
 
 const VAULT_KDF: &str = "hkdf-sha256";
 const VAULT_CIPHER: &str = "chacha20-poly1305";
-const VAULT_INFO: &[u8] = b"EdgeTerm credentials.json v1";
+const VAULT_INFO: &[u8] = b"Kanso credentials.json v1";
 const VAULT_SALT_LEN: usize = 16;
 const VAULT_KEY_LEN: usize = 32;
 const VAULT_NONCE_LEN: usize = 12;
@@ -102,14 +102,14 @@ fn machine_key_material() -> &'static [u8] {
     MATERIAL.get_or_init(|| {
         let machine = machine_id().unwrap_or_else(|| {
             eprintln!(
-                "EdgeTerm: no machine id available; credentials are bound to the user name only"
+                "Kanso: no machine id available; credentials are bound to the user name only"
             );
             String::new()
         });
         let user = std::env::var("USER")
             .or_else(|_| std::env::var("USERNAME"))
             .unwrap_or_default();
-        format!("EdgeTerm\0{machine}\0{user}").into_bytes()
+        format!("Kanso\0{machine}\0{user}").into_bytes()
     })
 }
 
@@ -212,7 +212,8 @@ impl Store {
     }
 
     pub fn load_from(path: PathBuf) -> Self {
-        let mut profiles: Vec<SessionProfile> = read_json(&path).unwrap_or_default();
+        let mut profiles: Vec<SessionProfile> =
+            read_array_without_retired_kinds(&path).unwrap_or_default();
         // Older files may have contained credentials. Move them into the
         // private credential map when loading, then keep the UI copy redacted.
         let mut reseal = false;
@@ -223,7 +224,7 @@ impl Store {
                 // are unrecoverable, so start over rather than refuse to run.
                 // The next save replaces the file.
                 Err(error) => {
-                    eprintln!("EdgeTerm: {error}; saved passwords are unavailable");
+                    eprintln!("Kanso: {error}; saved passwords are unavailable");
                     (HashMap::new(), VaultKey::fresh())
                 }
             },
@@ -238,7 +239,8 @@ impl Store {
         let groups_path = groups_path_for(&path);
         let groups = read_json(&groups_path).unwrap_or_default();
         let sender_commands_path = sender_commands_path_for(&path);
-        let sender_commands = read_json(&sender_commands_path).unwrap_or_default();
+        let sender_commands =
+            read_array_without_retired_kinds(&sender_commands_path).unwrap_or_default();
         let command_history_path = command_history_path_for(&path);
         let command_history = read_json(&command_history_path).unwrap_or_default();
         let mut imported_legacy_credentials = false;
@@ -286,14 +288,10 @@ impl Store {
         let profile = self.profiles.lock().iter().find(|p| p.id == id).cloned();
         Ok(profile.map(|mut profile| {
             if let Some(stored) = self.credentials.lock().get(id) {
-                if profile.kind == SessionKind::Ftp {
-                    profile.password = stored.password.clone();
-                } else {
-                    match profile.auth.unwrap_or_default() {
-                        AuthKind::Password => profile.password = stored.password.clone(),
-                        AuthKind::PublicKey => profile.passphrase = stored.passphrase.clone(),
-                        AuthKind::Agent => {}
-                    }
+                match profile.auth.unwrap_or_default() {
+                    AuthKind::Password => profile.password = stored.password.clone(),
+                    AuthKind::PublicKey => profile.passphrase = stored.passphrase.clone(),
+                    AuthKind::Agent => {}
                 }
             }
             profile
@@ -363,12 +361,14 @@ impl Store {
             }
         }
 
-        // A stale or foreign group id (deleted group, category switched in the
-        // editor) must not strand the profile: fall back to the section root.
+        // A stale group id (deleted group) must not strand the profile: fall
+        // back to the top level.
         if let Some(group_id) = &profile.group_id {
-            let valid = self.groups.lock().iter().any(|group| {
-                &group.id == group_id && same_group_category(group.kind, profile.kind)
-            });
+            let valid = self
+                .groups
+                .lock()
+                .iter()
+                .any(|group| &group.id == group_id);
             if !valid {
                 profile.group_id = None;
             }
@@ -421,36 +421,9 @@ impl Store {
         if group.id.is_empty() {
             group.id = uuid::Uuid::new_v4().to_string();
         }
-        if group.parent_id.as_deref() == Some("") {
-            group.parent_id = None;
-        }
 
         {
             let mut groups = self.groups.lock();
-            if let Some(existing) = groups.iter().find(|g| g.id == group.id) {
-                if !same_group_category(existing.kind, group.kind) {
-                    return Err(AppError::new("a group cannot change its session kind"));
-                }
-            }
-            if let Some(parent_id) = &group.parent_id {
-                if *parent_id == group.id {
-                    return Err(AppError::new("a group cannot contain itself"));
-                }
-                match groups.iter().find(|g| &g.id == parent_id) {
-                    None => return Err(AppError::new("parent group does not exist")),
-                    Some(parent) if !same_group_category(parent.kind, group.kind) => {
-                        return Err(AppError::new(
-                            "a group can only be nested under a group of the same session kind",
-                        ))
-                    }
-                    Some(_) => {}
-                }
-                if subtree_ids(&groups, &group.id).contains(parent_id) {
-                    return Err(AppError::new(
-                        "a group cannot be moved into one of its own subgroups",
-                    ));
-                }
-            }
             match groups.iter_mut().find(|g| g.id == group.id) {
                 Some(existing) => *existing = group.clone(),
                 None => groups.push(group.clone()),
@@ -460,30 +433,24 @@ impl Store {
         Ok(group)
     }
 
-    /// Removes a group with everything in it: the groups nested below it,
-    /// the profiles in any of them (with their credentials) and the Sender
-    /// commands scoped to any of those groups or profiles.
+    /// Removes a group with everything in it: the profiles it holds (with
+    /// their credentials) and the Sender commands scoped to it or to those
+    /// profiles.
     pub fn delete_group(&self, id: &str) -> Result<()> {
-        let removed_groups = {
+        {
             let mut groups = self.groups.lock();
             if !groups.iter().any(|g| g.id == id) {
                 return Ok(());
             }
-            let removed = subtree_ids(&groups, id);
-            groups.retain(|g| !removed.contains(&g.id));
-            removed
-        };
+            groups.retain(|g| g.id != id);
+        }
         self.persist_groups()?;
 
         let removed_profiles: Vec<String> = {
             let mut profiles = self.profiles.lock();
             let removed: Vec<String> = profiles
                 .iter()
-                .filter(|p| {
-                    p.group_id
-                        .as_ref()
-                        .is_some_and(|group_id| removed_groups.contains(group_id))
-                })
+                .filter(|p| p.group_id.as_deref() == Some(id))
                 .map(|p| p.id.clone())
                 .collect();
             profiles.retain(|p| !removed.contains(&p.id));
@@ -502,8 +469,8 @@ impl Store {
             let mut commands = self.sender_commands.lock();
             let before = commands.len();
             commands.retain(|command| match &command.scope {
-                CommandScope::Group { id } => !removed_groups.contains(id),
-                CommandScope::Profile { id } => !removed_profiles.contains(id),
+                CommandScope::Group { id: group_id } => group_id != id,
+                CommandScope::Profile { id: profile_id } => !removed_profiles.contains(profile_id),
                 CommandScope::Global | CommandScope::Kind { .. } => true,
             });
             commands.len() != before
@@ -657,19 +624,12 @@ impl Store {
                 if group.id.is_empty() {
                     group.id = uuid::Uuid::new_v4().to_string();
                 }
-                if group.parent_id.as_deref() == Some("") {
-                    group.parent_id = None;
-                }
                 match groups.iter_mut().find(|g| g.id == group.id) {
-                    // A group cannot change category: its profiles would no
-                    // longer belong under it.
-                    Some(existing) if !same_group_category(existing.kind, group.kind) => continue,
                     Some(existing) => *existing = group,
                     None => groups.push(group),
                 }
                 summary.groups += 1;
             }
-            detach_invalid_parents(&mut groups);
         }
 
         {
@@ -681,9 +641,7 @@ impl Store {
                     profile.id = uuid::Uuid::new_v4().to_string();
                 }
                 if let Some(group_id) = &profile.group_id {
-                    let valid = groups.iter().any(|group| {
-                        &group.id == group_id && same_group_category(group.kind, profile.kind)
-                    });
+                    let valid = groups.iter().any(|group| &group.id == group_id);
                     if !valid {
                         profile.group_id = None;
                     }
@@ -889,24 +847,24 @@ fn write_appearance(path: &Path, appearance: &Appearance) -> Result<()> {
     write_owner_only(path, &serde_json::to_string_pretty(appearance)?)
 }
 
-/// Whether `path` carries the data-file extension (`.edgeterm`, any case).
+/// Whether `path` carries the data-file extension (`.kanso`, any case).
 pub fn is_data_file_path(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| extension.eq_ignore_ascii_case(APP_DATA_EXTENSION))
 }
 
-/// Refuses files that are not EdgeTerm exports or come from a newer layout.
+/// Refuses files that are not Kanso exports or come from a newer layout.
 pub fn validate_app_data(data: &AppData) -> Result<()> {
     if data.app != APP_DATA_APP {
-        return Err(AppError::new("not an EdgeTerm data file"));
+        return Err(AppError::new("not a Kanso data file"));
     }
     if data.format == 0 {
-        return Err(AppError::new("not an EdgeTerm data file: missing format"));
+        return Err(AppError::new("not a Kanso data file: missing format"));
     }
     if data.format > APP_DATA_FORMAT {
         return Err(AppError::new(format!(
-            "this data file was written by a newer EdgeTerm (format {} > {})",
+            "this data file was written by a newer Kanso (format {} > {})",
             data.format, APP_DATA_FORMAT
         )));
     }
@@ -921,58 +879,9 @@ pub fn redact_profile(mut profile: SessionProfile) -> SessionProfile {
     profile
 }
 
-/// The grouping namespace a session kind belongs to. FTP and SFTP are both
-/// remote-file sessions that share one Session-panel section and therefore one
-/// set of folders: a group can hold servers of either protocol. Group
-/// membership and nesting are compared by category rather than exact kind.
-/// Mirrors `groupCategory` in the frontend's `sessionGroups.ts`.
-fn group_category(kind: SessionKind) -> SessionKind {
-    match kind {
-        SessionKind::Sftp => SessionKind::Ftp,
-        other => other,
-    }
-}
-
-fn same_group_category(a: SessionKind, b: SessionKind) -> bool {
-    group_category(a) == group_category(b)
-}
-
-/// Drops parent links that point nowhere, to a group of another category, to
+/// Drops parent links that point nowhere, to a group of another kind, to
 /// the group itself or around a cycle. Detaching one link never invalidates
 /// another, so a single pass is enough.
-fn detach_invalid_parents(groups: &mut [SessionGroup]) {
-    for index in 0..groups.len() {
-        let Some(parent_id) = groups[index].parent_id.clone() else {
-            continue;
-        };
-        let group_id = groups[index].id.clone();
-        let kind = groups[index].kind;
-        let valid_parent = parent_id != group_id
-            && groups
-                .iter()
-                .any(|group| group.id == parent_id && same_group_category(group.kind, kind));
-        if !valid_parent || subtree_ids(groups, &group_id).contains(&parent_id) {
-            groups[index].parent_id = None;
-        }
-    }
-}
-
-/// Ids of `root` and every group nested below it, in no particular order.
-fn subtree_ids(groups: &[SessionGroup], root: &str) -> Vec<String> {
-    let mut ids = vec![root.to_string()];
-    let mut cursor = 0;
-    while cursor < ids.len() {
-        let parent = ids[cursor].clone();
-        for group in groups {
-            if group.parent_id.as_deref() == Some(parent.as_str()) && !ids.contains(&group.id) {
-                ids.push(group.id.clone());
-            }
-        }
-        cursor += 1;
-    }
-    ids
-}
-
 fn unix_millis() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1015,7 +924,7 @@ fn open_credentials(
 ) -> Result<(HashMap<String, StoredSecrets>, VaultKey)> {
     if envelope.kdf != VAULT_KDF || envelope.cipher != VAULT_CIPHER {
         return Err(AppError::new(
-            "credentials.json was written by a newer EdgeTerm (unknown cipher)",
+            "credentials.json was written by a newer Kanso (unknown cipher)",
         ));
     }
     let decode = |field: &str, value: &str| {
@@ -1047,25 +956,10 @@ fn open_credentials(
 }
 
 fn sync_secrets(profile: &SessionProfile, credentials: &mut HashMap<String, StoredSecrets>) {
-    if !matches!(
-        profile.kind,
-        SessionKind::Ssh | SessionKind::Ftp | SessionKind::Sftp
-    ) || (matches!(profile.kind, SessionKind::Ssh | SessionKind::Sftp)
-        && profile.auth == Some(AuthKind::Agent))
+    if !matches!(profile.kind, SessionKind::Ssh | SessionKind::Sftp)
+        || profile.auth == Some(AuthKind::Agent)
     {
         credentials.remove(&profile.id);
-        return;
-    }
-
-    if profile.kind == SessionKind::Ftp {
-        let stored = credentials.entry(profile.id.clone()).or_default();
-        stored.passphrase = None;
-        if let Some(password) = &profile.password {
-            stored.password = (!password.is_empty()).then(|| password.clone());
-        }
-        if stored.password.is_none() {
-            credentials.remove(&profile.id);
-        }
         return;
     }
 
@@ -1095,6 +989,56 @@ fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
     std::fs::read_to_string(path)
         .ok()
         .and_then(|raw| serde_json::from_str(&raw).ok())
+}
+
+/// Session kinds this build no longer supports. A file written by an older
+/// build can still name one, and `SessionKind` rejects an unknown variant —
+/// which fails the whole array the entry appears in. `read_json` turns any
+/// error into "no file", so a single retired entry would silently empty the
+/// saved sessions, groups or Sender commands rather than losing only that
+/// entry. Dropping the retired entries at load keeps the rest; a file that is
+/// malformed for any other reason still falls back to empty as before.
+const RETIRED_KINDS: [&str; 2] = ["ftp", "serial"];
+
+fn names_retired_kind(kind: Option<&serde_json::Value>) -> bool {
+    kind.and_then(serde_json::Value::as_str)
+        .is_some_and(|kind| RETIRED_KINDS.contains(&kind))
+}
+
+/// `read_json` for a file holding a JSON array, minus the entries naming a
+/// retired kind — at `kind` (a profile) or at `scope.kind` (a Sender command
+/// scoped to a kind). Groups carry no kind, so they are read plainly; an old
+/// file's `kind` on a group is ignored rather than dropping the folder.
+fn read_array_without_retired_kinds<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    let mut entries: Vec<serde_json::Value> = serde_json::from_str(&raw).ok()?;
+    retain_supported_kinds(&mut entries);
+    serde_json::from_value(serde_json::Value::Array(entries)).ok()
+}
+
+fn retain_supported_kinds(entries: &mut Vec<serde_json::Value>) {
+    entries.retain(|entry| {
+        !names_retired_kind(entry.get("kind"))
+            && !names_retired_kind(entry.get("scope").and_then(|scope| scope.get("kind")))
+    });
+}
+
+/// The same retired-kind filter for a parsed export file, applied before it is
+/// deserialized into `AppData`.
+///
+/// Import is the documented way to carry saved sessions across, so an export
+/// written before FTP and serial were removed must still bring in the sessions
+/// that remain. Without this one retired profile fails the whole file and the
+/// user is told it is "not a Kanso data file", which is both wrong and
+/// unrecoverable — the export cannot be edited from inside the app.
+pub fn strip_retired_kinds(data: &mut serde_json::Value) {
+    // Groups are left alone: they no longer name a kind, so an old `kind` on
+    // one is ignored by serde instead of costing the user a folder.
+    for field in ["profiles", "senderCommands"] {
+        if let Some(serde_json::Value::Array(entries)) = data.get_mut(field) {
+            retain_supported_kinds(entries);
+        }
+    }
 }
 
 fn credentials_path_for(path: &Path) -> PathBuf {
@@ -1132,14 +1076,20 @@ pub(crate) fn portable_data_dir_in(exe_dir: &Path) -> Option<PathBuf> {
     dir.is_dir().then_some(dir)
 }
 
-fn config_path() -> PathBuf {
+/// The directory this app keeps its own files in: the store, the credentials
+/// beside it, and the shell shim that gives a local prompt its line above
+/// (see `shell`). Portable mode moves the whole thing next to the executable.
+pub(crate) fn data_dir() -> PathBuf {
     match portable_data_dir() {
-        Some(dir) => dir.join("sessions.json"),
+        Some(dir) => dir,
         None => dirs::config_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("EdgeTerm")
-            .join("sessions.json"),
+            .join("Kanso"),
     }
+}
+
+fn config_path() -> PathBuf {
+    data_dir().join("sessions.json")
 }
 
 fn write_owner_only(path: &Path, contents: &str) -> Result<()> {

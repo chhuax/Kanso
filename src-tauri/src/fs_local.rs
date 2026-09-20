@@ -54,7 +54,7 @@ pub fn list(path: &str) -> Result<DirListing> {
 
 /// macOS may return a short-lived EPERM/EACCES while a Files & Folders prompt
 /// is being accepted. Retry only those failures so the newly granted access is
-/// usable without restarting EdgeTerm. Other platforms do a single attempt.
+/// usable without restarting Kanso. Other platforms do a single attempt.
 fn list_with_permission_retry(path: &Path) -> io::Result<Vec<FileEntry>> {
     let mut delays = permission_retry_delays().iter();
 
@@ -524,10 +524,10 @@ fn same_path(a: &Path, b: &Path) -> bool {
 }
 
 /// Root of the copies staged for a drag out of the Filer; one folder per
-/// drag, mirroring `remote_edit`'s layout under the same `EdgeTerm` temp
+/// drag, mirroring `remote_edit`'s layout under the same `Kanso` temp
 /// directory.
 fn drag_root() -> PathBuf {
-    std::env::temp_dir().join("EdgeTerm").join("drag")
+    std::env::temp_dir().join("Kanso").join("drag")
 }
 
 /// Removes what earlier runs staged. A drop target copies the file itself and
@@ -536,7 +536,7 @@ fn drag_root() -> PathBuf {
 pub fn clean_drag_staging() {
     if let Err(error) = std::fs::remove_dir_all(drag_root()) {
         if error.kind() != io::ErrorKind::NotFound {
-            eprintln!("EdgeTerm: could not clear the drag staging folder: {error}");
+            eprintln!("Kanso: could not clear the drag staging folder: {error}");
         }
     }
 }

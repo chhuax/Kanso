@@ -44,17 +44,39 @@ describe("shell prompt recognition", () => {
     "$ ",
     "PS C:\\Users\\alice> ",
     "C:\\work> ",
+    // `%n %1~ %#`: a username and a directory with no host between them.
+    "huaxin ~ % ",
+    "huaxin /data/workspace % ",
+    "alice ~/src $ ",
+    // The shim's chips: directory and branch in filled blocks, so the sign
+    // lands far from the line's start and no word-shaped pattern fits it.
+    "/data/workspace/Kanso  main % ",
+    "/data/workspace  main % ",
+    "~/src  feature/x $ ",
+    // The shim's chips are padded, so the line begins with a space and the
+    // sign sits behind it: without allowing that lead, these matched nothing.
+    " /data/workspace  % ",
+    " /data/workspace  main  % ",
+    " /data/workspace  \uf126 main  % ",
+    " ~   main % ",
   ])("recognises %s", (prompt) => {
     expect(shellPromptEnd(prompt)).toBeGreaterThan(0);
     expect(isShellPrompt(prompt)).toBe(true);
   });
 
-  it.each(["# a comment", "Finished build", "progress > 50%"])(
-    "does not mistake %s for a prompt",
-    (output) => {
-      expect(isShellPrompt(output)).toBe(false);
-    },
-  );
+  it.each([
+    "# a comment",
+    "Finished build",
+    "progress > 50%",
+    // Two words and a `%` are a prompt only when the second reads as a path.
+    "Time: 100 %",
+    "foo bar %",
+    // A sign alone is not enough: the front has to read as prompt parts.
+    "100% done",
+    "50 % of it",
+  ])("does not mistake %s for a prompt", (output) => {
+    expect(isShellPrompt(output)).toBe(false);
+  });
 });
 
 describe("terminal command activity", () => {
@@ -85,6 +107,21 @@ describe("terminal command activity", () => {
     await write(controller, "cd ../new");
     controller.term.input("\r", true);
     await write(controller, "\r\nalice@server:~/new$ ");
+
+    expect(states).toEqual(["running", "complete"]);
+  });
+
+  it("completes a `user dir %` prompt after the directory changed", async () => {
+    const states: string[] = [];
+    const controller = createController(states);
+
+    // The prompt is `%n %1~ %#`: no host, and `cd` rewrites the middle word,
+    // so neither the signature nor the old prompt text can match the new one.
+    await write(controller, "huaxin ~ % ");
+    controller.term.input("cd /data/workspace", true);
+    await write(controller, "cd /data/workspace");
+    controller.term.input("\r", true);
+    await write(controller, "\r\nhuaxin /data/workspace % ");
 
     expect(states).toEqual(["running", "complete"]);
   });

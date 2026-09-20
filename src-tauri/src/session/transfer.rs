@@ -329,7 +329,7 @@ mod tests {
 
     fn temp_dir(tag: &str) -> PathBuf {
         let dir =
-            std::env::temp_dir().join(format!("edgeterm-transfer-{tag}-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("kanso-transfer-{tag}-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create temp dir");
         dir
     }

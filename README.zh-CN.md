@@ -1,109 +1,79 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.png">
-    <img src="docs/logo.png" alt="EdgeTerm" width="480">
-  </picture>
+  <img src="docs/icon.png" alt="Kanso" width="128">
 </p>
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-一个小巧、轻量、高性能的终端 / SSH / SFTP / FTP / 串口客户端，基于 **Rust + Tauri** 构建。
+**一个小巧的终端，只做本地 shell 和 SSH——不挡路。**
 
-<img src="docs/screenshot-dark.png" alt="EdgeTerm 深色主题" width="100%">
+Kanso 只做两件事：在这台机器上开一个 shell，在另一台机器上开一个 shell。软件里的一切都为这两件事服务，其余部分在你工作时让开。
 
-<img src="docs/screenshot-light.png" alt="EdgeTerm 浅色主题" width="100%">
+用 **Rust + Tauri** 构建：单个原生二进制，安装包 4–5 MB，没有 Electron 运行时，不捆绑字体，没有常驻进程，也没有遥测。
 
-## 小巧轻量
+<img src="docs/screenshot-dark.png" alt="Kanso 深色主题" width="100%">
 
-| 安装包（v0.4.1） | 下载体积 |
+<img src="docs/screenshot-light.png" alt="Kanso 浅色主题" width="100%">
+
+## 小，而且一直小
+
+| 安装包 | 下载体积 |
 | --- | --- |
 | Windows x64 安装程序（`.exe`） | **3.9 MB** |
 | macOS Apple Silicon（`.dmg`） | **4.7 MB** |
 | Linux `.deb`（x64 / ARM64） | **5.3 MB** / **5.2 MB** |
 
-## 功能
+界面是 web view，终端、SSH 客户端、PTY 和文件传输都是 Rust。启动 Kanso 是"窗口出现"，不是"运行时启动"。
 
-**会话类型**
+## 本地 shell
 
-| 类型 | 后端实现 | 说明 |
-| --- | --- | --- |
-| 本地 Shell | `portable-pty` | 真正的伪终端，支持窗口尺寸同步；Shell 字段可填带参数的命令行，如 `wsl.exe -d Ubuntu`、`pwsh -NoLogo` |
-| SSH | `russh` + `russh-sftp` | 密码 / 公钥 / ssh-agent 认证，并支持服务端随后追加的 keyboard-interactive 二次验证（一次性验证码、推送确认等），SFTP 复用同一条连接，文件及文件夹流式传输 |
-| SFTP | `russh` + `russh-sftp` | 基于 SSH 的纯文件传输会话，认证与主机密钥策略同 SSH，无终端，直接进入双栏文件管理器 |
-| FTP | `suppaftp` | 密码或匿名认证，被动模式浏览，自动识别 UTF-8 / GBK 文件名，文件及文件夹双向流式传输 |
-| 串口 | `serialport` | 波特率、数据位、停止位、校验、流控可配 |
+真正的伪终端，窗口缩放会同步给进程。Shell 字段接受带参数的命令行，所以 `wsl.exe -d Ubuntu` 或 `pwsh -NoLogo` 就是一个会话。在 macOS 上，不带参数的 shell 以登录 shell 启动，和 Terminal.app 的做法一致，因此 `~/.zprofile` 和 Homebrew 的 `PATH` 会在 `~/.zshrc` 之前就位。
 
-**老旧 SSH 设备**
+每个提示符上方会画一条细线，一条命令的输出和上一条不会糊在一起。
 
-交换机、路由器、防火墙这类长期服役的设备，SSH 服务端往往停留在新版客户端已不再提供的算法上。EdgeTerm 照样能连：除了 NIST ECDH 曲线（`ecdh-sha2-nistp256/384/521`），还提供 SHA-1 密钥交换 `diffie-hellman-group14-sha1`、`diffie-hellman-group-exchange-sha1`、`diffie-hellman-group1-sha1`，`aes128/192/256-cbc` 加密和 `hmac-sha1` 系列 MAC，无需任何设置。它们排在所有现代算法之后，服务器只要支持更好的就会用更好的；双方的算法列表都在服务器主机密钥的签名范围内，中间人也无法剥掉好的选项、逼迫降级到旧算法。确实用到了旧算法的会话，状态栏会显示 **Legacy SSH**，鼠标悬停可看到是哪台服务器、哪些算法。如果服务器提供的算法 EdgeTerm 一个都不支持（比如只有 `ssh-dss` 主机密钥、`3des-cbc` 或 `hmac-md5`），连接会失败，并列出服务器提供的算法。
+## SSH
 
-**界面**
-- **时间戳 + 行号侧栏** —— WindTerm 最有辨识度的特性，每一行输出都带 `[HH:MM:SS.SSS]` 与累计行号，光标行高亮。可在 `Session` 菜单下切换四种显示模式。
-- **Session**（左侧）：保存的连接配置以可折叠的树形展示，双击连接。右击类型标题或分组可新建（可嵌套的）分组、重命名或删除分组；右击会话可连接、编辑、移动到其他分组或删除；新建会话时也可直接选择保存到哪个分组
-- **Filer**（右侧）：文件浏览器。SSH 会话下自动切到 SFTP，可上传 / 下载文件和文件夹、新建目录、删除；其他终端会话下浏览本地文件系统。拖拽双向可用，面板任意位置都能放：从访达 / 资源管理器拖文件或文件夹进来，远程会话下上传到当前远程目录，本地会话下复制到当前显示的文件夹；把条目从窗口里拖到桌面或文件管理器即下载 —— 远程条目会先拷到本地，请按住不放等它准备好。收不下的拖放会说明原因，不会毫无反应
-- **Sender**（底部）：发送文本，可选行尾（无 / LF / CRLF），目标为当前会话或一次发给全部已打开的会话。文本可以多行（`Shift+Enter` 换行），逐行发送并在行间等待 Shell 提示符返回，保存的多行脚本会依次执行，而不是一股脑塞成预输入。时钟按钮按定时重复发送 —— 每 N 秒、发指定次数或一直发到停止 —— 可用于巡检循环或会话保活；面板隐藏时仍继续，从条上停止。保存的命令带作用域 —— 某个会话、Session 面板的某个分组、某类会话（串口 / SSH / Shell）或全部 —— Sender 只列出对当前标签页适用的命令，越具体的排越前
+支持密码、公钥和 ssh-agent 认证，之后还能继续进行 keyboard-interactive 轮次——服务器用它们来要第二因素，比如一次性验证码或推送确认。跳板机（ProxyJump）通过另一个已保存的会话连接，一条路由需要多跳时会自动串联。
 
-**会话录制**
+**老设备也连得上。** 交换机、路由器、防火墙上的 SSH 服务常常停在这些年现代客户端已经不再提供的算法上。Kanso 同时提供 SHA-1 密钥交换、CBC 加密和 SHA-1 MAC——排在所有现代算法之后，不需要改任何设置。支持更好算法的服务器会拿到更好的；而由于双方的算法列表都由服务器主机密钥签名，中间人无法剥掉更好的选项来强推旧算法。用到了旧算法的会话会在状态栏标出 **Legacy SSH**。
 
-任何终端会话（Shell、SSH、串口）都可以录制到文件：在会话对话框里勾选 **Record this session's output to a file**（默认关闭，只有手动勾选才会录），之后该会话每次连接都会在你选择的文件夹（未填时为「文稿」下的 *EdgeTerm Recordings*，portable 版为 `data/recordings`）新建一个 `<名称>_<日期>_<时间>.log`。文件内容是终端收到的原始输出（含转义序列），首尾各有一行写明会话与起止时间，用 `cat` 即可在终端里回放；你输入的内容只以对端回显的形式出现，不回显的密码不会被记录。录制进行中状态栏显示 **REC**，点击可打开所在文件夹。录制随输出实时写入、随会话关闭；建不了文件时连接会直接报错而不是悄悄不录，中途磁盘出错则会话照常继续，状态栏提示录制已停止。
+**编码。** 默认 UTF-8，会话里可以改：对方说 GB18030 / GBK、Big5、Shift_JIS、EUC-JP、EUC-KR 或某个 Windows / KOI8 代码页时，它的输出会为终端解码，你键入的内容会为对方编码。
 
-**显示设置**
+**传文件不用二次登录。** Filer 面板复用同一条 SSH 连接，所以浏览和传输文件不需要再认证一次：两个方向都能拖拽，也可以直接跳到 shell 当前所在的目录。
 
-**View → Display Settings…** 可设置界面与终端的字号、各自使用的字体，以及每个会话保留的回滚行数。软件本身不打包字体：字体留空即使用平台自带的字体栈，输入框会列出本机实际安装的字体，同时允许手动填写任意名称，自编译的 Nerd Font 也能用。Powerlevel10k、Starship 等提示符主题用到的图标不必专门选字体：本机装有 Nerd Font 时，终端缺的字形会自动从它回退。窗口会按上次关闭时的大小打开（上次是最大化的就仍然最大化），不需要每次重新拖。
+## 终端本身
 
-**命令补全**
+- xterm.js 走 WebGL 渲染，带 Unicode 11 宽度表。
+- 时间戳与行号边栏，长会话也读得下去。
+- 搜索、右键菜单、中键粘贴，需要的话还有选中即复制。
+- 可嵌套的分栏，每个窗格有自己的标签栏。
+- 不捆绑字体：字体字段列出本机已装字体，也接受你手输的任何名字，私有 Nerd Font 构建同样可用；Nerd Font 字形会自动回退到它。
+- 深色与浅色主题，所有快捷键都可改。
 
-开启 **Edit → Command Suggestions** 后，EdgeTerm 会记住在终端里执行过的命令，输入时弹窗列出历史匹配。`↓` 进入列表，`Enter` / `Tab` 采纳，`Esc` 关闭；弹窗尚未选中任何一项时，其余按键仍照常发给 Shell，**Edit → Clear Command History…** 可清空历史。
-
-**标签活动**
-
-后台标签会显示其中正在运行的内容，结束后保留高亮直到你切回去，方便跑长任务时先去忙别的。Claude Code、Codex、Gemini CLI、Aider 这类 AI 命令行工具则按另一套规则跟踪：它们的会话要一直开着，所以标签显示的是助手的每一轮——它在干活时显示运行中，把终端交还给你时显示已结束。
-
-**数据导出与导入**
-
-**Session → Export Data…** 把保存的会话及其分组、Sender 的常用命令和显示设置导出为一个 `.edgeterm` 文件（内容为 JSON）；**Session → Import Data…** 只接受 `.edgeterm` 文件。
-
-**Session → Import OpenSSH Config…**（SSH Sessions 标题上也有）读取 OpenSSH 客户端配置（默认 `~/.ssh/config`），一次把其中的 `Host` 条目变成保存的 SSH 会话，并按 `ssh` 的规则解析：`HostName`、`Port`、`User`、`IdentityFile` 以及 `Include` 的文件，`Host *` 的默认值也会应用。单跳 `ProxyJump` 会变成保存的跳板会话；多级跳板不导入（会话仍会保存，只是不带跳板）。对话框列出每个主机及其连接目标，可勾选要导入哪些、归到哪个分组；已保存过的主机会标出，导入即就地更新那个会话。配置文件里没有密码，导入的会话首次连接时会再询问。
-
-**ZMODEM 与 XMODEM 传输**
-
-本地 Shell、SSH 和串口终端会自动检测 ZMODEM 会话。在终端中执行 `rz` 后可选择一个或多个本地文件并发送；执行 `sz <文件>` 后可为每个接收文件选择保存位置。
-
-XMODEM 没有可供检测的握手，需要从 **Session → File Transfer** 菜单手动发起。先在终端里启动对端（`rx <文件>`、`sx <文件>`、Bootloader 的 `loadx` 等），再选择 **Send via XMODEM…** 或 **Send via XMODEM-1K…** 并挑选要发送的文件，或选择 **Receive via XMODEM…** 并指定保存位置。接收支持 CRC 与校验和两种校验以及 128 字节 / 1 KiB 两种块长；发送在对端请求 CRC 时使用 CRC，否则退回 128 字节校验和块。XMODEM 不传文件长度，接收到的文件末块会保留发送方填充的 `^Z`。同一菜单的 **Cancel Transfer** 可中止任一协议的传输。
-
-**鼠标复制 / 粘贴**
-
-在终端里点击右键会弹出上下文菜单——Copy / Paste / Select All / Clear Buffer / Reveal Working Directory in Filer，并先选中指针所在的单词；中键粘贴。Windows 和 Linux 下可在 **Edit → Right Click** 改为 *Copy or Paste*，即控制台惯例：右键有选区时复制、没有选区时粘贴，不再弹菜单。macOS 始终使用菜单。vim、tmux（开启鼠标）、htop 等接管了鼠标的程序会收到这些点击；Windows / Linux 下按住 `Shift` 可绕过它们。
-
-**快捷键**
-
-| macOS | Windows / Linux | 动作 |
-| --- | --- | --- |
-| `⌘N` | `Alt+N` | 新建会话对话框 |
-| `⌘W` | `Ctrl+Shift+W` | 关闭当前会话（会话仍在连接中时需二次确认） |
-| `⌘F` / `⌘G` | `Ctrl+Shift+F` / `Ctrl+Shift+G` | 缓冲区内查找 / 下一个匹配 |
-| `⌘K` | `Alt+K` | 清屏 |
-| `⌘[` / `⌘]` | `Alt+[` / `Alt+]` | 切换到上一个 / 下一个已打开会话 |
-| `⌘1`–`⌘9` | `Alt+1`–`Alt+9` | 切换到第 N 个标签 |
-| `⌘⌥←` / `⌘⌥→` / `⌘⌥↓` | `Ctrl+Alt+←` / `Ctrl+Alt+→` / `Ctrl+Alt+↓` | 显示或隐藏 Session / Filer / Sender |
-| `⌘C` / `⌘V` | `Ctrl+Shift+C` / `Ctrl+Shift+V` | 复制 / 粘贴（终端内） |
-| `⌘A` | `Ctrl+Shift+A` | 全选终端缓冲区 |
-
-上表中的快捷键都可以在 **View → Keyboard Shortcuts…** 里重新绑定：点击某个命令的按键，再按下想要的组合即可，也可以清空让该命令不绑定任何按键；只有标签数字键例外。复制 / 粘贴 / 全选也在表里，习惯 `Ctrl+Insert` / `Shift+Insert` 或直接用 `Ctrl+C` / `Ctrl+V` 的人可以照旧；复制键若是单纯的 `Ctrl+字母`，没有选区时仍会发给 Shell，所以 `Ctrl+C` 照样能中断程序。**Help → Restore Default Settings…** 会把整张表恢复为缺省值。
-
-## 发布
+## 安装
 
 | 平台 | 安装包 |
 | --- | --- |
-| Windows x64 | NSIS 安装程序（`.exe`） |
-| macOS Apple Silicon | `.dmg`，以及应用内更新使用的 `.app.tar.gz` |
-| Linux x64 / ARM64 | `.AppImage` 和 `.deb` |
+| Windows x64 | NSIS 安装程序（`.exe`）与便携版 `.zip` |
+| macOS Apple Silicon | `.dmg` |
+| Linux x64 / ARM64 | `.AppImage` 与 `.deb` |
 
-已安装的版本启动时会检查最新 Release 并可在应用内直接更新；也可以随时用 **Help → Check for Updates…** 手动检查。
+下载见 [Releases 页面](https://github.com/chhuax/Kanso/releases/latest)。
 
-Release 不做 macOS 公证和 Windows Authenticode 代码签名，macOS 应用只使用 ad-hoc 签名，首次安装时系统仍可能弹出安全提示。
+Windows 便携版把所有设置放在可执行文件旁边的 `data` 目录里，整个目录可以在机器之间搬，也可以放在移动盘上；AppImage 在 Linux 上免安装就地运行。Release 不做 macOS 公证，也没有 Windows Authenticode 签名，首次安装时系统可能弹出安全提示。
 
+本版本已关闭自动更新。**Help → Check for Updates…** 会在浏览器中打开 Releases 页面，由你自行下载新版本。
+
+## 项目来源
+
+Kanso 是 miskin-lee 的 [EdgeTerm](https://github.com/miskin-lee/EdgeTerm) 的**修改版** fork：分叉点为提交 `39d35ca`（v0.8.3），日期 2026 年 9 月 17 日，此后持续修改。它是一个独立项目：与 EdgeTerm 及其作者无隶属关系、未获其赞助或背书，也不是 EdgeTerm 本身。上游代码部分的版权仍归 EdgeTerm 作者所有，改动的版权归 Kanso 贡献者所有。改动内容以 `git log 39d35ca..HEAD` 为准；GPL-3.0 第 5(a) 条要求的修改声明见 [NOTICE](NOTICE)。
 
 ## 许可证
 
-EdgeTerm 以 [GNU General Public License v3.0](LICENSE) 授权。分发的衍生作品必须以相同许可证发布并提供完整源码。
+Kanso 沿用 EdgeTerm 的 [GNU General Public License v3.0](LICENSE)，且**仅此一版**（`GPL-3.0-only`）。它是自由软件：你可以按相同条款再分发和修改；你分发的任何衍生作品都必须以 GPL-3.0 发布，并提供完整的对应源码。本软件**不提供任何担保**。
+
+随应用一起分发的第三方组件：
+
+- **Material Icon Theme** —— Filer 面板的文件类型图标。MIT，Copyright (c) 2025 Material Extensions。
+- **Codicons** —— 界面图标，[Microsoft](https://github.com/microsoft/vscode-codicons)。按 CC BY 4.0 使用。
+
+它们的许可证全文和署名声明见 [NOTICE](NOTICE)。

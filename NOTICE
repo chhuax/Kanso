@@ -1,0 +1,96 @@
+Kanso — copyright, licence and third-party notices
+==================================================
+
+Copyright (C) 2026 the Kanso contributors
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, version 3 of the License.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE.  See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along with
+this program.  If not, see <https://www.gnu.org/licenses/>.
+
+The complete licence text is the file LICENSE in this repository.
+
+
+-------------------------------------------------------------------------------
+Notice of modification — GNU GPL version 3, section 5(a)
+-------------------------------------------------------------------------------
+
+Kanso is a modified version of EdgeTerm by miskin-lee.  It is a fork, not a
+copy: it has been changed.  It is not affiliated with, sponsored by, or
+endorsed by EdgeTerm or its author, and it is not the EdgeTerm project.
+
+  Upstream program      EdgeTerm
+  Upstream author       miskin-lee  <https://github.com/miskin-lee>
+  Upstream source       https://github.com/miskin-lee/EdgeTerm
+  Upstream licence      GNU General Public License, version 3
+  Fork point            39d35ca  ("chore: bump version to 0.8.3", v0.8.3)
+  Date of fork point    17 September 2026
+  Modified since        September 2026
+
+Copyright in the upstream portions of this work remains with the EdgeTerm
+author and is not claimed here.  Copyright in the modifications is held by the
+Kanso contributors.
+
+The modifications are recorded in this repository's version history, from the
+fork point onward:
+
+    git log 39d35ca..HEAD
+
+They include: renaming the application and the identifiers that carry the name
+— the bundle identifier, the parameters the stored credentials are sealed with,
+the data-file format marker and extension, the shell-integration environment
+and function names, and the documentation; changes to the interface, theme and
+terminal rendering; and the removal of the automatic-update feed that pointed
+at the upstream project's releases.
+
+
+-------------------------------------------------------------------------------
+Third-party components
+-------------------------------------------------------------------------------
+
+The file-type icons in the Filer panel are from Material Icon Theme, used
+unmodified:
+
+  Material Icon Theme 5.38.1
+  Licence:  MIT
+  Copyright (c) 2025 Material Extensions
+  https://github.com/material-extensions/vscode-material-icon-theme
+
+The interface icons are from Codicons, used unmodified.  Only the SVG icons are
+redistributed; no code from this package is used.
+
+  Codicons
+  Icons:  Creative Commons Attribution 4.0 International (CC BY 4.0)
+          https://github.com/microsoft/vscode-codicons/blob/main/LICENSE
+  Code:   MIT, Copyright (c) Microsoft Corporation
+          https://github.com/microsoft/vscode-codicons
+  Copyright (c) Microsoft Corporation
+
+The MIT licence that applies to Material Icon Theme follows.
+
+  The MIT License (MIT)
+  Copyright (c) 2025 Material Extensions
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to
+  deal in the Software without restriction, including without limitation the
+  rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+  sell copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in
+  all copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.

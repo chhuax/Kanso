@@ -6,7 +6,6 @@ use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use tauri::AppHandle;
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use super::recording::Recorder;
 use super::{cwd, emit_state, locale, reject_unsupported, OutputPump, SessionCommand};
 use crate::error::{err, Result};
 use crate::model::{split_command_line, SessionKind, SessionProfile};
@@ -43,14 +42,12 @@ fn login_flag(argv: &[String], macos: bool) -> Option<&'static str> {
 ///
 /// Two threads per session: one parked on the pty reader, one draining the
 /// command queue. The pty crate is blocking, so neither belongs on the async
-/// runtime. `recorder` is the session's recording, when the profile asked
-/// for one; the reader thread feeds it and closes it when the shell exits.
+/// runtime.
 pub fn spawn(
     app: AppHandle,
     id: String,
     profile: &SessionProfile,
     mut rx: UnboundedReceiver<SessionCommand>,
-    recorder: Option<Recorder>,
 ) -> Result<()> {
     let pty = native_pty_system();
     let pair = pty
@@ -73,13 +70,20 @@ pub fn spawn(
     cmd.args(&argv[1..]);
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
-    cmd.env("TERM_PROGRAM", "EdgeTerm");
+    cmd.env("TERM_PROGRAM", "Kanso");
     cmd.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
     // A GUI application's environment names no locale on macOS, and a shell
     // without one runs in the C locale, where `ls` shows a Chinese file
     // name as `???` (issue #39). See `locale` for what is set and when.
     if let Some(lang) = locale::local_shell_lang(profile) {
         cmd.env("LANG", lang);
+    }
+    // The line above each prompt is printed by the shell itself, from the
+    // shim this points zsh at; see `shell`. A shell that is not zsh ignores
+    // the variable, and a shim that cannot be written is simply absent.
+    if let Some((shim, user)) = crate::shell::zsh_env() {
+        cmd.env("ZDOTDIR", shim);
+        cmd.env("KANSO_USER_ZDOTDIR", user);
     }
     if let Some(cwd) = profile.cwd.as_deref().filter(|c| !c.is_empty()) {
         cmd.cwd(cwd);
@@ -106,9 +110,9 @@ pub fn spawn(
     let reader_id = id.clone();
     let reader_close_requested = close_requested.clone();
     std::thread::Builder::new()
-        .name(format!("edgeterm-pty-read-{id}"))
+        .name(format!("kanso-pty-read-{id}"))
         .spawn(move || {
-            let mut pump = OutputPump::new(reader_app.clone(), reader_id.clone(), recorder);
+            let mut pump = OutputPump::new(reader_app.clone(), reader_id.clone());
             let mut buf = vec![0u8; 32 * 1024];
             loop {
                 match reader.read(&mut buf) {
@@ -131,7 +135,7 @@ pub fn spawn(
         .map_err(err)?;
 
     std::thread::Builder::new()
-        .name(format!("edgeterm-pty-ctl-{id}"))
+        .name(format!("kanso-pty-ctl-{id}"))
         .spawn(move || {
             while let Some(cmd) = rx.blocking_recv() {
                 match cmd {
