@@ -457,14 +457,10 @@ export default function App() {
     >
       <MenuBar
         onNewSession={newSession}
-        rightPanel={
-          availableRightTabs.length > 0
-            ? {
-                open: !rightCollapsed,
-                onToggle: () => setRightCollapsed(!rightCollapsed),
-              }
-            : undefined
-        }
+        rightPanel={{
+          open: !rightCollapsed,
+          onToggle: () => setRightCollapsed(!rightCollapsed),
+        }}
         onFind={openSearch}
         onFindNext={findNext}
         onFontSettings={() => setFontSettingsOpen(true)}
