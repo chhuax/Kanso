@@ -205,21 +205,28 @@ const XTERM_THEMES: Record<ThemeMode, ITheme> = {
     cursorAccent: "#050505",
     selectionBackground: "#19aad8",
     selectionInactiveBackground: "#123a47",
-    black: "#616161",
-    red: "#ff8272",
-    green: "#b4fa72",
-    yellow: "#fefdc2",
-    blue: "#a5d5fe",
-    magenta: "#ff8ffd",
-    cyan: "#d0d1fe",
-    white: "#f1f1f1",
-    brightBlack: "#8e8e8e",
-    brightRed: "#ffc4bd",
-    brightGreen: "#d6fcb9",
-    brightYellow: "#fefdd5",
-    brightBlue: "#c1e3fe",
-    brightMagenta: "#ffb1fe",
-    brightCyan: "#e5e6fe",
+    // Warp's own ANSI set is bright and low-saturation — nine of its sixteen
+    // sit above 0.6 luminance, its yellow and both its "bright" greens and
+    // cyans are near white — which is right for its UI and wrong for a
+    // terminal: any program that draws with ANSI colours (Claude Code's mark,
+    // a diff, `ls --color`) comes out washed out or grey. The page and the
+    // text are Warp's; the sixteen are a vivid set that clears 4.5:1 on
+    // #050505, so colour still reads as colour.
+    black: "#6b6b6b",
+    red: "#ff6b6b",
+    green: "#5fd75f",
+    yellow: "#e8d44d",
+    blue: "#6aa9ff",
+    magenta: "#e07bff",
+    cyan: "#4fd6d6",
+    white: "#e6e6e6",
+    brightBlack: "#8f8f8f",
+    brightRed: "#ff8a8a",
+    brightGreen: "#7ee87e",
+    brightYellow: "#f2e678",
+    brightBlue: "#8fc0ff",
+    brightMagenta: "#eb9dff",
+    brightCyan: "#72e4e4",
     brightWhite: "#ffffff",
   },
   light: {

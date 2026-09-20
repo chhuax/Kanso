@@ -72,25 +72,28 @@ export const SEMANTIC_PALETTES: Record<ThemeMode, SemanticPalette> = {
   // which is the point of the set — so the renderer's minimum-contrast pass
   // has nothing to move.
   dark: {
-    rose: "#ff8272",
-    red: "#ff8272",
-    coral: "#ffb1fe",
-    orange: "#ffb1fe",
-    amber: "#fefdc2",
-    yellow: "#fefdc2",
-    gold: "#f1f1f1",
-    lime: "#b4fa72",
-    green: "#b4fa72",
-    mint: "#d6fcb9",
-    cyan: "#d0d1fe",
-    sky: "#a5d5fe",
-    blue: "#a5d5fe",
-    violet: "#e5e6fe",
-    purple: "#ff8ffd",
-    orchid: "#ff8ffd",
-    pink: "#ffb1fe",
-    slate: "#8e8e8e",
-    gray: "#8e8e8e",
+    // The same vivid set the terminal draws ANSI with, spread over the roles
+    // (see XTERM_THEMES): a coloured token has to look like the colour a
+    // program asked for, and Warp's near-white entries did not.
+    rose: "#ff6b6b",
+    red: "#ff6b6b",
+    coral: "#ff8a8a",
+    orange: "#ff8a8a",
+    amber: "#e8d44d",
+    yellow: "#ffd166",
+    gold: "#e8d44d",
+    lime: "#5fd75f",
+    green: "#5fd75f",
+    mint: "#4fd6d6",
+    cyan: "#4fd6d6",
+    sky: "#6aa9ff",
+    blue: "#6aa9ff",
+    violet: "#8fc0ff",
+    purple: "#e07bff",
+    orchid: "#e07bff",
+    pink: "#eb9dff",
+    slate: "#8f8f8f",
+    gray: "#8f8f8f",
   },
   // The same hues pulled down to 4.5:1 on white. WindTerm's own light scheme
   // uses web-color names (Plum, DarkOrange, DodgerBlue) that fall well short
