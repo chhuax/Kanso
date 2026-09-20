@@ -102,11 +102,6 @@ export interface Pane {
   activeTabId: string | null;
 }
 
-/** Where a tab being dragged would land if it were released now. */
-export type DropTarget =
-  | { paneId: string; zone: "strip"; index: number }
-  | { paneId: string; zone: "center" | Side };
-
 /**
  * What makes two tabs "the same session" for `Tab.ordinal`: the profile when
  * there is one, else the name (ad-hoc connections have no profile).
@@ -455,9 +450,6 @@ interface AppStore {
   panes: Pane[];
   layout: LayoutNode;
   activePaneId: string;
-  /** A tab being dragged between strips, and where it would land. */
-  draggingTabId: string | null;
-  dropTarget: DropTarget | null;
   gutterMode: GutterMode;
   theme: ThemeMode;
   panelFontSize: number;
@@ -558,16 +550,6 @@ interface AppStore {
   /** Steps through the panes in reading order. */
   activateAdjacentPane: (direction: -1 | 1) => void;
   /**
-   * Moves a tab to `index` counted over the other tabs of its pane, i.e. its
-   * final position in the strip. Out-of-range indexes clamp to the ends.
-   */
-  moveTab: (id: string, index: number) => void;
-  /**
-   * Moves a tab into another pane, at `index` in that strip, and focuses it
-   * there. The pane it leaves folds away when that was its last tab.
-   */
-  moveTabToPane: (id: string, paneId: string, index: number) => void;
-  /**
    * Opens a new pane beside `paneId`, on the given side, and makes it the
    * active one; with `tabId` that tab moves into it, otherwise the pane is
    * empty until the caller opens a session in it. Returns the pane the
@@ -583,9 +565,6 @@ interface AppStore {
     delta: number,
     minSize: number,
   ) => void;
-  /** Publishes a tab drag so every strip and pane can draw its part of it. */
-  setTabDrag: (draggingTabId: string | null, dropTarget?: DropTarget | null) => void;
-
   applyState: (id: string, state: SessionState, message?: string) => void;
   /** Records a command, or an agentic CLI's turn, starting in a terminal. */
   markCommandStarted: (id: string, kind?: ActivityKind) => void;
@@ -743,14 +722,6 @@ const settlePane = (state: PaneState, paneId: string): PaneState => {
   };
 };
 
-const sameDropTarget = (a: DropTarget | null, b: DropTarget | null): boolean =>
-  a === b ||
-  (a !== null &&
-    b !== null &&
-    a.paneId === b.paneId &&
-    a.zone === b.zone &&
-    (a.zone !== "strip" || b.zone !== "strip" || a.index === b.index));
-
 export const useStore = create<AppStore>((set, get) => ({
   profiles: [],
   groups: [],
@@ -784,8 +755,6 @@ export const useStore = create<AppStore>((set, get) => ({
   panes: [{ id: ROOT_PANE_ID, activeTabId: null }],
   layout: leaf(ROOT_PANE_ID),
   activePaneId: ROOT_PANE_ID,
-  draggingTabId: null,
-  dropTarget: null,
 
   async loadProfiles() {
     const [profiles, groups] = await Promise.all([
@@ -983,40 +952,6 @@ export const useStore = create<AppStore>((set, get) => ({
     if (next) get().setActivePane(next);
   },
 
-  moveTab(id, index) {
-    const tabs = get().tabs;
-    const tab = tabs.find((item) => item.info.id === id);
-    if (!tab) return;
-    const strip = tabs.filter((item) => item.paneId === tab.paneId);
-    const from = strip.indexOf(tab);
-    const to = Math.max(0, Math.min(index, strip.length - 1));
-    if (to === from) return;
-    set({ tabs: placeTab(tabs, id, tab.paneId, index) });
-  },
-
-  moveTabToPane(id, paneId, index) {
-    const current = get();
-    const tab = current.tabs.find((item) => item.info.id === id);
-    if (!tab || !current.panes.some((pane) => pane.id === paneId)) return;
-    if (tab.paneId === paneId) {
-      get().moveTab(id, index);
-      return;
-    }
-    // The tab is shown and focused where it lands; then the pane it left
-    // picks a new tab to show, or folds away.
-    const settled = settlePane(
-      {
-        tabs: placeTab(current.tabs, id, paneId, index),
-        activeId: id,
-        panes: patchPane(current.panes, paneId, { activeTabId: id }),
-        layout: current.layout,
-        activePaneId: paneId,
-      },
-      tab.paneId,
-    );
-    set({ ...settled, tabs: acknowledgeTab(settled.tabs, id) });
-  },
-
   splitPane(paneId, side, tabId) {
     const current = get();
     if (!current.panes.some((pane) => pane.id === paneId)) {
@@ -1063,17 +998,6 @@ export const useStore = create<AppStore>((set, get) => ({
     const layout = get().layout;
     const resized = resizeSplit(layout, path, index, delta, minSize);
     if (resized !== layout) set({ layout: resized });
-  },
-
-  setTabDrag(draggingTabId, dropTarget = null) {
-    const current = get();
-    if (
-      current.draggingTabId === draggingTabId &&
-      sameDropTarget(current.dropTarget, dropTarget)
-    ) {
-      return;
-    }
-    set({ draggingTabId, dropTarget });
   },
 
   applyState(id, state, message) {
