@@ -284,12 +284,6 @@ interface Callbacks {
    * directly have no tabs to mark.
    */
   onAiTool?: (tool: AiTool | null) => void;
-  /**
-   * Ctrl+R: the app's own history search, which only the React layer can
-   * mount. Handled in the key filter rather than at the window, because the
-   * terminal's keys never reach the window while it has focus.
-   */
-  onHistory?: () => void;
 }
 
 /**
@@ -722,23 +716,6 @@ export class TerminalController {
           }
         }
       }
-    }
-
-    // Ctrl+R browses the commands this app remembers. It is taken before the
-    // shortcut table below, whose chords are matched against `code` and whose
-    // matches the key filter then cancels anyway — this one needs the window's
-    // help to draw a box, so it is asked here instead.
-    if (
-      key === "r" &&
-      event.ctrlKey &&
-      !event.altKey &&
-      !event.metaKey &&
-      !event.shiftKey &&
-      !event.isComposing
-    ) {
-      event.preventDefault();
-      this.callbacks.onHistory?.();
-      return false;
     }
 
     // Alt+arrow word jumps. xterm 5 rewrote Alt+←/→ into the readline

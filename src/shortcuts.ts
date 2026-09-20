@@ -227,10 +227,9 @@ const MAC_DEFAULTS: ShortcutBindings = {
   closeSession: chord("KeyW", { meta: true }),
   find: chord("KeyF", { meta: true }),
   findNext: chord("KeyG", { meta: true }),
-  // Ctrl+R is the shell's own reverse search; the box is this app's answer to
-  // the same question, and the one place it can search every tab at once.
-  // ⌘R is the webview's reload, which the page swallows, so it is not free.
-  historyBrowse: chord("KeyR", { ctrl: true }),
+  // ⇧⌘R, because ⌘R is the webview's reload (which the page swallows) and
+  // plain Ctrl+R belongs to the shell's own reverse search.
+  historyBrowse: chord("KeyR", { meta: true, shift: true }),
   clear: chord("KeyK", { meta: true }),
   revealCwd: chord("KeyJ", { meta: true }),
   prevTab: chord("BracketLeft", { meta: true }),
@@ -266,8 +265,10 @@ const OTHER_DEFAULTS: ShortcutBindings = {
   closeSession: chord("KeyW", { ctrl: true, shift: true }),
   find: chord("KeyF", { ctrl: true, shift: true }),
   findNext: chord("KeyG", { ctrl: true, shift: true }),
-  // The same key the shell binds, for the same reason; see MAC_DEFAULTS.
-  historyBrowse: chord("KeyR", { ctrl: true }),
+  // Ctrl+Shift+letter is this app's safe family: the shell receives the same
+  // control character as for plain Ctrl+letter, so its Ctrl+R reverse search
+  // is untouched.
+  historyBrowse: chord("KeyR", { ctrl: true, shift: true }),
   clear: chord("KeyK", { alt: true }),
   revealCwd: chord("KeyJ", { ctrl: true, shift: true }),
   prevTab: chord("BracketLeft", { alt: true }),
