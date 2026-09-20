@@ -10,7 +10,9 @@
 //! with no kubeconfig at all — loudly. A namespace that exists in the cluster
 //! but is named nowhere in the file is simply not offered.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+#[cfg(test)]
+use std::path::Path;
 
 use serde::Serialize;
 
@@ -42,8 +44,9 @@ pub fn names() -> KubeNames {
     names
 }
 
-/// The names out of a kubeconfig at a known path, for a caller that has one in
-/// hand — and for the tests, which do not want to touch the user's own.
+/// The names out of a kubeconfig at a known path: the tests' way in, since
+/// they must not read the user's own file to have an answer to check.
+#[cfg(test)]
 pub fn names_in(path: &Path) -> KubeNames {
     let mut names = base();
     if let Ok(text) = std::fs::read_to_string(path) {
