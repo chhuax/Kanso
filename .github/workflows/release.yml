@@ -150,14 +150,27 @@ jobs:
       # `--notes` is prepended to the notes GitHub generates from the commits,
       # so the licence statement heads the release page and the changelog
       # follows it.
-      - name: Create the release
+      #
+      # Assets are collected with `find`, not a `dist/*` glob: downloading the
+      # artifacts keeps each bundle's own path under `dist/`, so the glob also
+      # matches the `src-tauri` directory and `gh` refuses to upload a
+      # directory as an asset. Creating and uploading are separate steps so
+      # re-running this job tops an existing release up instead of failing on
+      # it.
+      - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          gh release create "$TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "Kanso ${TAG#v}" \
-            --generate-notes \
-            --notes "Corresponding source: the \`$TAG\` tag of this repository — the Source code archives below are that tag, which is what GPL-3.0 section 6 asks to be offered alongside these binaries. Kanso is free software under the GNU GPL v3.0 only, with no warranty; see LICENSE and NOTICE in the source." \
-            dist/*
+          mapfile -t assets < <(find dist -type f | sort)
+          printf '%s\n' "${assets[@]}"
+
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Kanso ${TAG#v}" \
+              --generate-notes \
+              --notes "Corresponding source: the \`$TAG\` tag of this repository — the Source code archives below are that tag, which is what GPL-3.0 section 6 asks to be offered alongside these binaries. Kanso is free software under the GNU GPL v3.0 only, with no warranty; see LICENSE and NOTICE in the source."
+          fi
+
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber "${assets[@]}"
