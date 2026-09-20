@@ -254,3 +254,71 @@ describe("where the shell is", () => {
     expect(asked).toEqual(["."]);
   });
 });
+
+describe("what a flag's value may be", () => {
+  const names = () =>
+    Promise.resolve({
+      contexts: ["minikube", "prod-eu"],
+      namespaces: ["argocd", "default", "payments"],
+    });
+
+  it("offers a namespace after -n and --namespace", async () => {
+    for (const line of ["kubectl -n ", "kubectl --namespace ", "kubectl get pods -n pay"]) {
+      const backend: CompletionBackend = {
+        local: true,
+        cwd: () => "/tmp",
+        list: () => Promise.resolve([]),
+        names,
+      };
+      const rows = await completionsFor(line, line.length, backend, "host");
+      const labels = rows.map((row) => row.label);
+      if (line.endsWith("pay")) expect(labels).toEqual(["payments"]);
+      else expect(labels).toContain("default");
+      expect(rows[0].hint).toBe("namespace");
+    }
+  });
+
+  it("offers a context after --context", async () => {
+    const backend: CompletionBackend = {
+      local: true,
+      cwd: () => "/tmp",
+      list: () => Promise.resolve([]),
+      names,
+    };
+    const rows = await completionsFor("kubectl --context prod", 21, backend, "host");
+    expect(rows.map((row) => row.label)).toEqual(["prod-eu"]);
+    expect(rows[0].hint).toBe("context");
+    expect(rows[0].line).toBe("kubectl --context prod-eu");
+    // The flag and the command stay where the user put them.
+    expect(rows[0].replaceStart).toBe(18);
+  });
+
+  it("prefers the name a flag declares over a file in the directory", async () => {
+    let listed = false;
+    const backend: CompletionBackend = {
+      local: true,
+      cwd: () => "/tmp",
+      list: () => {
+        listed = true;
+        return Promise.resolve([entry("payments.yaml")]);
+      },
+      names,
+    };
+    const rows = await completionsFor("kubectl -n pay", 14, backend, "host");
+    expect(rows.map((row) => row.label)).toEqual(["payments"]);
+    // A file called `payments.yaml` is sitting in the directory the shell is
+    // in, and it is not offered: this word is a namespace, not a path.
+    expect(listed).toBe(false);
+  });
+
+  it("offers nothing where the file cannot be read", async () => {
+    const backend: CompletionBackend = {
+      local: true,
+      cwd: () => "/tmp",
+      list: () => Promise.resolve([]),
+      // No `names`: an SSH session, whose kubeconfig is the server's.
+    };
+    const rows = await completionsFor("kubectl -n ", 11, backend, "host");
+    expect(rows).toEqual([]);
+  });
+});

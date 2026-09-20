@@ -7,6 +7,7 @@ import {
   KUBECTL_FLAGS,
   KUBECTL_RESOURCES,
   KUBECTL_SUBCOMMANDS,
+  KUBECTL_VALUE_FLAGS,
   type CommandFlag,
 } from "./commandTables";
 
@@ -55,6 +56,13 @@ export interface CompletionBackend {
   cwd: () => string | null | Promise<string | null>;
   /** Directory entries of `path`, or [] when it cannot be read. */
   list: (path: string) => Promise<FileEntry[]>;
+  /**
+   * The contexts and namespaces the session's own machine knows, or undefined
+   * where there is no way to ask — an SSH session's kubeconfig lives on the
+   * server, and the one here is not the one `kubectl` would read. Asked only
+   * where a value flag calls for one.
+   */
+  names?: () => Promise<{ contexts: string[]; namespaces: string[] }>;
 }
 
 /**
@@ -442,6 +450,33 @@ export async function pathCompletions(
   });
 }
 
+/**
+ * The rows for a flag that takes a name out of the kubeconfig: `-n ` offers a
+ * namespace, `--context ` a context. The names are the session machine's own,
+ * so nothing here is shipped with the app.
+ */
+async function kubeValueRows(
+  context: LineContext,
+  backend: CompletionBackend,
+): Promise<Completion[]> {
+  const flag = context.wordsBefore[context.wordsBefore.length - 1];
+  if (flag === undefined || !KUBECTL_VALUE_FLAGS.has(flag)) return [];
+  if (!backend.names) return [];
+  const names = await backend.names().catch(() => null);
+  if (!names) return [];
+  const values = flag === "--context" ? names.contexts : names.namespaces;
+  const hint = flag === "--context" ? "context" : "namespace";
+  return values
+    .filter((value) => startsWith(value, context.token))
+    .map((value) => ({
+      label: value,
+      ...wordEdit(context, value, false),
+      matchStart: 0,
+      matchLength: context.token.length,
+      hint,
+    }));
+}
+
 /** Rows for the tool the caret's command names: subcommands, then flags. */
 function toolCompletions(command: string, context: LineContext): Completion[] {
   const words = context.wordsBefore;
@@ -520,9 +555,17 @@ export async function completionsFor(
 
   const rows: Completion[] = [];
   if (context.command) rows.push(...toolCompletions(context.command, context));
-  // A path is offered after the tool's own words: a subcommand or a flag the
-  // tool actually has is a stronger guess than a file name in the directory.
-  if (rows.length < MAX_SUGGESTIONS && wantsPath(context)) {
+  // What a flag's value may be comes before a path: `-n ` names a namespace
+  // whether or not the word looks like a file.
+  let tookValue = false;
+  if (rows.length < MAX_SUGGESTIONS) {
+    const values = await kubeValueRows(context, backend);
+    tookValue = values.length > 0;
+    rows.push(...values);
+  }
+  // A path is offered after a tool's own vocabulary: a subcommand or a flag
+  // the tool actually has is a stronger guess than a file in the directory.
+  if (!tookValue && rows.length < MAX_SUGGESTIONS && wantsPath(context)) {
     rows.push(...(await pathCompletions(context, backend)));
   }
 

@@ -246,3 +246,11 @@ export const GIT_FLAGS: CommandFlag[] = [
   { name: "--pretty", hint: "Format the commit output" },
   { name: "--name-only", hint: "List changed paths without the diff" },
 ];
+
+/**
+ * The flags whose value is a name the kubeconfig knows rather than a file:
+ * `-n payments`, `--context prod-eu`. Completing these is what needs the file
+ * on the machine the shell runs on (see `kube.rs`); everything above could be
+ * a shipped table because it is the same everywhere.
+ */
+export const KUBECTL_VALUE_FLAGS = new Set(["-n", "--namespace", "--context"]);

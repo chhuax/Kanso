@@ -10,6 +10,7 @@ use crate::file_promise::{self, PromisedDragEvent};
 use crate::fonts::{self, FontFamily};
 use crate::fs_local;
 use crate::git;
+use crate::kube::KubeNames;
 use crate::model::{
     AppData, CommandHistoryEntry, DataSummary, DirListing, LocalCopySummary, OpenSessionOutcome,
     SavedCommand, SessionGroup, SessionInfo, SessionKind, SessionProfile, Theme,
@@ -654,6 +655,18 @@ pub fn git_branch(path: String) -> Option<String> {
 #[tauri::command]
 pub fn local_hostname() -> String {
     session::cwd::local_hostname()
+}
+
+/// The contexts and namespaces the machine's kubeconfig knows, which is what
+/// `kubectl -n ` and `--context ` are about to name. Read from the file rather
+/// than from a cluster; see `kube`.
+#[tauri::command]
+pub async fn kube_names() -> Result<KubeNames> {
+    // One small file, read off the main thread the way every other filesystem
+    // question in this app is.
+    Ok(tokio::task::spawn_blocking(crate::kube::names)
+        .await
+        .unwrap_or_default())
 }
 
 #[tauri::command]

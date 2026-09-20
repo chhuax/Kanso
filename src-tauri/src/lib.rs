@@ -4,6 +4,7 @@ mod file_promise;
 mod fonts;
 mod fs_local;
 mod git;
+mod kube;
 mod model;
 mod remote_edit;
 mod session;
@@ -339,6 +340,7 @@ pub fn run() {
             commands::session_cwd,
             commands::git_branch,
             commands::local_hostname,
+            commands::kube_names,
             commands::local_list,
             commands::local_parent,
             commands::local_is_directory,

@@ -32,6 +32,22 @@ async function listCached(
   }
 }
 
+/**
+ * The kubeconfig names a completion asks for, remembered for longer than a
+ * listing: the file changes when someone switches a context, not while a word
+ * is being typed.
+ */
+const KUBE_TTL_MS = 30_000;
+let kubeCache: { at: number; names: Promise<{ contexts: string[]; namespaces: string[] }> } | null =
+  null;
+
+function kubeNames(): Promise<{ contexts: string[]; namespaces: string[] }> {
+  if (kubeCache && Date.now() - kubeCache.at < KUBE_TTL_MS) return kubeCache.names;
+  const names = api.kubeNames().catch(() => ({ contexts: [], namespaces: [] }));
+  kubeCache = { at: Date.now(), names };
+  return names;
+}
+
 /** Where a provider is asked about paths: the shell's own report, or home. */
 export interface CompletionEnvironment {
   /** The session a path belongs to (local shell or SSH). */
@@ -61,6 +77,10 @@ export function sessionCompletions(
           ? api.localList(path).then((listing) => listing.entries)
           : api.sftpList(environment.id, path).then((listing) => listing.entries),
       ),
+    // An SSH session's kubectl reads the server's kubeconfig, and the one
+    // here is not it: a namespace named for the wrong machine is worse than
+    // no row at all.
+    names: environment.local ? kubeNames : undefined,
   };
   return (input: string) => completionsFor(input, input.length, backend, host);
 }
