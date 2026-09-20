@@ -284,6 +284,12 @@ interface Callbacks {
    * directly have no tabs to mark.
    */
   onAiTool?: (tool: AiTool | null) => void;
+  /**
+   * Ctrl+R: the app's own history search, which only the React layer can
+   * mount. Handled in the key filter rather than at the window, because the
+   * terminal's keys never reach the window while it has focus.
+   */
+  onHistory?: () => void;
 }
 
 /**
@@ -716,6 +722,23 @@ export class TerminalController {
           }
         }
       }
+    }
+
+    // Ctrl+R browses the commands this app remembers. It is taken before the
+    // shortcut table below, whose chords are matched against `code` and whose
+    // matches the key filter then cancels anyway — this one needs the window's
+    // help to draw a box, so it is asked here instead.
+    if (
+      key === "r" &&
+      event.ctrlKey &&
+      !event.altKey &&
+      !event.metaKey &&
+      !event.shiftKey &&
+      !event.isComposing
+    ) {
+      event.preventDefault();
+      this.callbacks.onHistory?.();
+      return false;
     }
 
     // Alt+arrow word jumps. xterm 5 rewrote Alt+←/→ into the readline
@@ -2022,6 +2045,34 @@ export class TerminalController {
     if (data && !this.locked && !this.isTransferActive()) {
       this.callbacks.onData(data);
     }
+  }
+
+  /**
+   * Puts a whole command on the shell's line, replacing whatever is typed
+   * there. Used by the history browser, whose choice is a line rather than a
+   * completion of one: it is left unsubmitted, so it can be read and edited
+   * before Enter.
+   */
+  putCommand(command: string): void {
+    if (this.locked || this.isTransferActive()) return;
+    const anchor = this.inputAnchor;
+    const buf = this.term.buffer.active;
+    let typed = "";
+    if (anchor && !anchor.marker.isDisposed && this.anchorOnCursorLine(anchor)) {
+      const read = this.readInput(anchor, {
+        row: buf.baseY + buf.cursorY,
+        col: buf.cursorX,
+      });
+      // Only what is on the caret's line is erased: a right prompt or an
+      // autosuggestion after the caret is not input.
+      typed = read ?? "";
+    }
+    this.dismissedInput = command;
+    this.hidePopup();
+    const data = "\x7f".repeat([...typed].length) + command;
+    // The bracket markers tell the activity tracker a command is being typed
+    // rather than run; without them the redraw reads as output.
+    this.callbacks.onData(`\x1b]133;B\x07${data}`);
   }
 
   private hidePopup() {

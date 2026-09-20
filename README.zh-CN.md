@@ -48,7 +48,9 @@
 
 **命令补全**
 
-开启 **Edit → Command Suggestions** 后，ZenTerm 会记住在终端里执行过的命令，输入时弹窗列出历史匹配。`↓` 进入列表，`Enter` / `Tab` 采纳，`Esc` 关闭；弹窗尚未选中任何一项时，其余按键仍照常发给 Shell，**Edit → Clear Command History…** 可清空历史。
+开启 **Edit → Command Suggestions** 后，ZenTerm 会记住在终端里执行过的命令，输入时补全：既有历史匹配和内置的常用命令，也有**当前这一行真正要的参数**。`cd`、`cat`、`vim` 这类命令后面的词会从会话自己的文件系统里补全——本地会话读本地，SSH 会话走 SFTP 读服务器——所以 `cd src/te` 直接补成 `cd src/terminal.ts`；`kubectl` 和 `git` 会补子命令、资源（`po` 和 `pods` 都给）和常用 flag，每个 flag 右侧带一句说明；`kubectl -n ` 会列出 kubeconfig 里的 namespace，`--context ` 列出 context。**只替换光标下的那个词**，命令、flag 和你已经打了一半的目录都原样保留。`Tab` 先选中第一项，再按就在列表里走；`↓` 进入列表；走过末尾时 `Tab` / `Enter` 采纳；`Esc` 关闭。弹窗未选中任何一项时，其余按键仍照常发给 Shell；而补全还在取（SSH 下列目录是一次往返）时按 `Tab` 会被扣住，不会和 Shell 自己的补全打架。
+
+`Ctrl+R` 打开历史搜索，搜的是这个 app 记住的全部命令（跨标签、跨主机），每行显示执行次数和上次时间。↑↓ 选择，`Enter` 把选中的命令放到命令行上——**不会直接执行**，可以先看再改——`Esc` 关闭。**Edit → Clear Command History…** 可清空历史。
 
 **标签活动**
 
@@ -78,6 +80,7 @@ XMODEM 没有可供检测的握手，需要从 **Session → File Transfer** 菜
 | `⌘T` | `Ctrl+Shift+T` | 新建标签页并打开本地 shell |
 | `⌘W` | `Ctrl+Shift+W` | 关闭当前会话（会话仍在连接中时需二次确认） |
 | `⌘F` / `⌘G` | `Ctrl+Shift+F` / `Ctrl+Shift+G` | 缓冲区内查找 / 下一个匹配 |
+| `Ctrl+R` | `Ctrl+R` | 搜索记住的命令历史 |
 | `⌘K` | `Alt+K` | 清屏 |
 | `⌘[` / `⌘]` | `Alt+[` / `Alt+]` | 切换到上一个 / 下一个已打开会话 |
 | `⌘1`–`⌘9` | `Alt+1`–`Alt+9` | 切换到第 N 个标签 |

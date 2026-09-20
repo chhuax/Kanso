@@ -42,6 +42,7 @@ import { FilerPanel } from "./components/panels/FilerPanel";
 import { SenderPanel } from "./components/panels/SenderPanel";
 import { SessionPanel } from "./components/panels/SessionPanel";
 import { applyFonts, symbolFallbacks } from "./fonts";
+import { HistoryOverlay } from "./components/HistoryOverlay";
 import { commandHistory } from "./history";
 import { setSemanticColorTheme } from "./semanticColors";
 import { matchAppShortcut } from "./shortcuts";
@@ -123,6 +124,8 @@ export default function App() {
     null,
   );
   const [searchOpen, setSearchOpen] = useState(false);
+  /** The command-history browser, open over the terminal while Ctrl+R holds. */
+  const [historyOpen, setHistoryOpen] = useState(false);
   const searchRef = useRef<SearchOverlayHandle>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [fontSettingsOpen, setFontSettingsOpen] = useState(false);
@@ -281,6 +284,20 @@ export default function App() {
     else setSearchOpen(true);
   }, [fileMode, searchOpen]);
 
+  const openHistory = useCallback(() => setHistoryOpen(true), []);
+
+  /**
+   * Puts a remembered command on the active session's line. The terminal that
+   * owns the prompt is the one the box was opened over, and it is left
+   * unsubmitted so the command can be read before Enter runs it.
+   */
+  const putHistoryCommand = useCallback(
+    (command: string) => {
+      if (activeId) getController(activeId)?.putCommand(command);
+    },
+    [activeId],
+  );
+
   // Jump to the next match; with the search box closed this just opens it
   // so the user can type a query.
   const findNext = useCallback(() => {
@@ -329,6 +346,12 @@ export default function App() {
         case "find":
           event.preventDefault();
           openSearch();
+          return;
+        case "historyBrowse":
+          // A file pane has no command line to put a command on.
+          if (fileMode) return;
+          event.preventDefault();
+          openHistory();
           return;
         case "findNext":
           event.preventDefault();
@@ -384,6 +407,7 @@ export default function App() {
     findNext,
     fileMode,
     newSession,
+    openHistory,
     openSearch,
     requestCloseTab,
     setActive,
@@ -487,6 +511,13 @@ export default function App() {
             <SearchOverlay
               ref={searchRef}
               onClose={() => setSearchOpen(false)}
+            />
+          )}
+          {historyOpen && (
+            <HistoryOverlay
+              sessionId={activeId}
+              onClose={() => setHistoryOpen(false)}
+              onAccept={putHistoryCommand}
             />
           )}
         </div>

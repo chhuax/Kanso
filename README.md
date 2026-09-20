@@ -52,7 +52,9 @@ Terminal sessions are UTF-8 unless the session dialog's **Encoding** says otherw
 
 **Command suggestions**
 
-With **Edit → Command Suggestions** enabled, ZenTerm remembers the commands you run in the terminal and shows matching history in a popup as you type. `↓` steps into the list, `Enter` / `Tab` accepts, `Esc` dismisses; while nothing in the popup is selected, every other key still reaches the shell. **Edit → Clear Command History…** clears the recorded history.
+With **Edit → Command Suggestions** enabled, ZenTerm remembers the commands you run in the terminal and completes them as you type: matching history and the everyday invocations of the tools it ships with, but also the argument the line is asking for. A word after `cd`, `cat`, `vim` and their like completes from the session's own filesystem — the local one, or the server's over SFTP — so `cd src/te` becomes `cd src/terminal.ts`; `kubectl` and `git` complete their subcommands, resources (`po` and `pods` both) and flags, each with a word about what it does; and `kubectl -n ` offers the namespaces in your kubeconfig, `--context ` its contexts. Only the word under the cursor is replaced, so the command, its flags and the directory you already typed stay where you put them. `Tab` takes the first row and then walks the list; `↓` steps into it; `Enter` / `Tab` past the end accepts; `Esc` dismisses. While nothing in the popup is selected every other key still reaches the shell, and while an answer is still on its way — a directory over SFTP is a round trip — `Tab` is held rather than handed to the shell, whose own completion would race it.
+
+`Ctrl+R` opens a search over everything remembered, across every tab and host, with how often and how long ago each command was last run. The arrows walk it, `Enter` puts the chosen command on the line — unsubmitted, so it can be read and edited before it runs — and `Esc` closes it. **Edit → Clear Command History…** clears the recorded history.
 
 **Tab activity**
 
@@ -86,6 +88,7 @@ A right click in the terminal opens a context menu — Copy, Paste, Select All, 
 | `⌘T` | `Ctrl+Shift+T` | Open a local shell in a new tab |
 | `⌘W` | `Ctrl+Shift+W` | Close the current session (asks for confirmation while it is still connected) |
 | `⌘F` / `⌘G` | `Ctrl+Shift+F` / `Ctrl+Shift+G` | Search the terminal buffer / find next |
+| `Ctrl+R` | `Ctrl+R` | Search the remembered command history |
 | `⌘K` | `Alt+K` | Clear the screen |
 | `⌘J` | `Ctrl+Shift+J` | Reveal the shell's working directory in the Filer |
 | `⌘[` / `⌘]` | `Alt+[` / `Alt+]` | Switch to the previous / next tab of the pane |

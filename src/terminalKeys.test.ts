@@ -194,3 +194,36 @@ describe("copy, paste and select all keys", () => {
     expect(filter(controller, press("KeyN"))).toBe(true);
   });
 });
+
+describe("the history browser's key", () => {
+  it("is taken from the shell and handed to the app", () => {
+    const onHistory = vi.fn();
+    const controller = new TerminalController(
+      "history-key",
+      {
+        onData() {},
+        onResize() {},
+        onStatus() {},
+        onCommand() {},
+        onCommandState() {},
+        suggest: () => [],
+        onHistory,
+      },
+      13,
+      100,
+    );
+    controllers.push(controller);
+
+    // Ctrl+R is what a shell binds to its own reverse search; the app answers
+    // the same question over the commands it remembers across every tab.
+    const event = press("KeyR", { ctrlKey: true });
+    expect(filter(controller, event)).toBe(false);
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(onHistory).toHaveBeenCalledTimes(1);
+
+    // A shell keeps every other key it had: plain R, and Ctrl+R with a
+    // companion modifier, are not this.
+    expect(filter(controller, press("KeyR"))).toBe(true);
+    expect(onHistory).toHaveBeenCalledTimes(1);
+  });
+});
