@@ -72,9 +72,10 @@ export const SEMANTIC_PALETTES: Record<ThemeMode, SemanticPalette> = {
   // which is the point of the set — so the renderer's minimum-contrast pass
   // has nothing to move.
   dark: {
-    // The same vivid set the terminal draws ANSI with, spread over the roles
-    // (see XTERM_THEMES): a coloured token has to look like the colour a
-    // program asked for, and Warp's near-white entries did not.
+    // This palette is the app's own: it colours plain output that carries no
+    // colour of its own, so it has to keep distinguishable hues. It is
+    // deliberately not Warp's sixteen, whose near-white entries would make
+    // "path", "number" and "warning" the same colour.
     rose: "#ff6b6b",
     red: "#ff6b6b",
     coral: "#ff8a8a",
