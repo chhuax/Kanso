@@ -2217,7 +2217,15 @@ export class TerminalController {
           byLine.delete(r);
         }
       }
-      if (last < cursorFirst || first > cursorIndex) {
+      // Everything except the logical line the caret is still on. The
+      // stronger test this replaces waited for the caret to leave *and* the
+      // line to scroll away from it — so a command kept the plain colour it
+      // had while being typed until the next output pushed it up, and then
+      // changed colour under the eye. A line the caret has left is finished:
+      // the shell has echoed it and is running it, so it can be coloured at
+      // once. The line under the caret is left alone because its text is still
+      // changing with every keystroke.
+      if (first !== cursorFirst || last !== cursorIndex) {
         this.colorLogicalLine(first, last, byLine);
       }
     }
