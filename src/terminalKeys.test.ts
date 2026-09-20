@@ -194,14 +194,3 @@ describe("copy, paste and select all keys", () => {
     expect(filter(controller, press("KeyN"))).toBe(true);
   });
 });
-
-describe("the shell's own keys", () => {
-  it("keeps Ctrl+R for the shell's reverse search", () => {
-    const controller = createController();
-    // The app's history browser is bound to Ctrl+Shift+R (and ⇧⌘R on macOS);
-    // plain Ctrl+R is the shell's, and must reach it.
-    for (const modifiers of [{ ctrlKey: true }, { ctrlKey: true, shiftKey: true }]) {
-      expect(filter(controller, press("KeyR", modifiers))).toBe(true);
-    }
-  });
-});

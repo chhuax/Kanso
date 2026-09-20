@@ -2024,34 +2024,6 @@ export class TerminalController {
     }
   }
 
-  /**
-   * Puts a whole command on the shell's line, replacing whatever is typed
-   * there. Used by the history browser, whose choice is a line rather than a
-   * completion of one: it is left unsubmitted, so it can be read and edited
-   * before Enter.
-   */
-  putCommand(command: string): void {
-    if (this.locked || this.isTransferActive()) return;
-    const anchor = this.inputAnchor;
-    const buf = this.term.buffer.active;
-    let typed = "";
-    if (anchor && !anchor.marker.isDisposed && this.anchorOnCursorLine(anchor)) {
-      const read = this.readInput(anchor, {
-        row: buf.baseY + buf.cursorY,
-        col: buf.cursorX,
-      });
-      // Only what is on the caret's line is erased: a right prompt or an
-      // autosuggestion after the caret is not input.
-      typed = read ?? "";
-    }
-    this.dismissedInput = command;
-    this.hidePopup();
-    const data = "\x7f".repeat([...typed].length) + command;
-    // The bracket markers tell the activity tracker a command is being typed
-    // rather than run; without them the redraw reads as output.
-    this.callbacks.onData(`\x1b]133;B\x07${data}`);
-  }
-
   private hidePopup() {
     if (this.candidates.length === 0) return;
     this.candidates = [];

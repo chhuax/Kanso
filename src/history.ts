@@ -106,26 +106,6 @@ class CommandHistory {
       .map(([command, { matchStart }]) => ({ command, matchStart }));
   }
 
-  /**
-   * The remembered commands for the history browser: every entry whose text
-   * contains the query, most recent first within a host, this session's host
-   * ahead of the others. Unlike `suggest` this is driven by a query the user
-   * typed into a box rather than by the line being completed, so it keeps
-   * commands as short as the query and returns a screenful at a time.
-   */
-  browse(query: string, host: string, limit = 100): CommandHistoryEntry[] {
-    const needle = query.trim().toLowerCase();
-    const rows = needle
-      ? this.entries.filter((entry) => entry.command.toLowerCase().includes(needle))
-      : [...this.entries];
-    return rows
-      .sort((a, b) => {
-        if (a.host === host !== (b.host === host)) return a.host === host ? -1 : 1;
-        return b.lastUsed - a.lastUsed;
-      })
-      .slice(0, limit);
-  }
-
   clear(): Promise<void> {
     this.entries = [];
     return api.clearCommandHistory();

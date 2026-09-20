@@ -36,7 +36,6 @@ export type ShortcutCommand =
   | "newLocalShell"
   | "closeSession"
   | "find"
-  | "historyBrowse"
   | "findNext"
   | "clear"
   | "revealCwd"
@@ -61,7 +60,6 @@ export type AppShortcut =
   | { kind: "newLocalShell" }
   | { kind: "closeSession" }
   | { kind: "find" }
-  | { kind: "historyBrowse" }
   | { kind: "findNext" }
   | { kind: "clear" }
   | { kind: "revealCwd" }
@@ -154,12 +152,6 @@ export const SHORTCUT_COMMANDS: {
     action: { kind: "selectAll" },
   },
   {
-    id: "historyBrowse",
-    label: "Search Command History",
-    hint: "Find a command this app remembers and put it on the line",
-    action: { kind: "historyBrowse" },
-  },
-  {
     id: "find",
     label: "Find",
     hint: "Search the terminal buffer",
@@ -227,9 +219,6 @@ const MAC_DEFAULTS: ShortcutBindings = {
   closeSession: chord("KeyW", { meta: true }),
   find: chord("KeyF", { meta: true }),
   findNext: chord("KeyG", { meta: true }),
-  // ⇧⌘R, because ⌘R is the webview's reload (which the page swallows) and
-  // plain Ctrl+R belongs to the shell's own reverse search.
-  historyBrowse: chord("KeyR", { meta: true, shift: true }),
   clear: chord("KeyK", { meta: true }),
   revealCwd: chord("KeyJ", { meta: true }),
   prevTab: chord("BracketLeft", { meta: true }),
@@ -265,10 +254,6 @@ const OTHER_DEFAULTS: ShortcutBindings = {
   closeSession: chord("KeyW", { ctrl: true, shift: true }),
   find: chord("KeyF", { ctrl: true, shift: true }),
   findNext: chord("KeyG", { ctrl: true, shift: true }),
-  // Ctrl+Shift+letter is this app's safe family: the shell receives the same
-  // control character as for plain Ctrl+letter, so its Ctrl+R reverse search
-  // is untouched.
-  historyBrowse: chord("KeyR", { ctrl: true, shift: true }),
   clear: chord("KeyK", { alt: true }),
   revealCwd: chord("KeyJ", { ctrl: true, shift: true }),
   prevTab: chord("BracketLeft", { alt: true }),
