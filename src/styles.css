@@ -17,8 +17,12 @@
   --border: #2b2b2b;
   --border-strong: #3c3c3c;
   --fg: #cccccc;
-  --fg-dim: #9d9d9d;
-  --fg-faint: #6e7681;
+  --fg-dim: #b4b4b4;
+  /* The weakest text still has to be readable: this was #6e7681, which is
+     3.9:1 on the chrome and 2.8:1 on a field — a placeholder you have to
+     squint at. It sits between --fg-dim and nothing on purpose, so it stays
+     dimmer than the labels and brighter than it was. */
+  --fg-faint: #8b949e;
   --accent: #0078d4;
   --accent-soft: #04395e;
   --accent-contrast: #ffffff;
@@ -52,8 +56,11 @@
   --symlink-label: #c586c0;
 
   --gutter-border: #2b2b2b;
-  --gutter-time-fg: #5a5d63;
-  --gutter-line-fg: #6e7681;
+  /* Timestamps and line numbers are the smallest text in the window and were
+     the faintest; the time at #5a5d63 sat at 2.5:1. Both come up to the same
+     step as --fg-faint. */
+  --gutter-time-fg: #8b949e;
+  --gutter-line-fg: #8b949e;
 
   --notice-info-bg: rgba(24, 33, 44, 0.95);
   --notice-info-fg: #85b6ff;
@@ -100,7 +107,7 @@
   --border-strong: #cecece;
   --fg: #3b3b3b;
   --fg-dim: #616161;
-  --fg-faint: #868686;
+  --fg-faint: #6f6f6f;
   --accent: #005fb8;
   --accent-soft: #bed6ed;
   --accent-contrast: #ffffff;
@@ -131,8 +138,8 @@
   --symlink-label: #652d90;
 
   --gutter-border: #e5e5e5;
-  --gutter-time-fg: #a3a8ae;
-  --gutter-line-fg: #6e7681;
+  --gutter-time-fg: #6f6f6f;
+  --gutter-line-fg: #6f6f6f;
 
   --notice-info-bg: rgba(238, 246, 255, 0.96);
   --notice-info-fg: #005fb8;
