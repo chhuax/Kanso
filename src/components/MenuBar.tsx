@@ -687,8 +687,9 @@ export function MenuBar(props: Props) {
         </div>
       )}
       {/* The bar's right end. The panel toggle sits here, where VS Code keeps
-          its layout controls: one button that says whether the right panel is
-          showing and puts it away or brings it back. */}
+          its layout controls: one button whose icon is the panel's state —
+          filled while it is showing, dashed while it is away — and whose
+          label says what pressing it will do. */}
       <div className="menubar-right" data-tauri-drag-region>
         <div className="layout-actions">
           <button
@@ -700,9 +701,12 @@ export function MenuBar(props: Props) {
           >
             <Icon
               name={
+                // The filled frame is the panel being there, the dashed one
+                // is it being away: the icon reads as the state, and the
+                // button's own label says what the press will do.
                 props.rightPanel.open
-                  ? "layout-sidebar-right-off"
-                  : "layout-sidebar-right"
+                  ? "layout-sidebar-right"
+                  : "layout-sidebar-right-off"
               }
             />
           </button>

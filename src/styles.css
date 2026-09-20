@@ -827,6 +827,12 @@ textarea:focus {
   cursor: default;
 }
 
+/* The panel is showing: the icon is the state, so it says so in the same way
+   the panel tabs do — brighter than a control that is merely available. */
+.layout-actions .panel-action[aria-pressed="true"] {
+  color: var(--fg);
+}
+
 .panel-action {
   display: inline-flex;
   align-items: center;
