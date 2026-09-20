@@ -1697,9 +1697,14 @@ Host odd-tokens
     );
     assert_eq!(web.username, "deploy");
     assert_eq!(web.auth, AuthKind::PublicKey);
+    // The config's `~/.ssh/...` is appended to the home directory verbatim, so
+    // on Windows the result mixes the home path's `\` with the config's `/`.
+    // That is a valid path but not an equal string, so compare the components.
+    let key_path = web.private_key_path.as_deref().expect("a key path");
+    let expected = dir.join(".ssh/deploy_deploy");
     assert_eq!(
-        web.private_key_path.as_deref(),
-        Some(dir.join(".ssh/deploy_deploy").to_str().unwrap()),
+        Path::new(key_path).components().collect::<Vec<_>>(),
+        expected.components().collect::<Vec<_>>(),
         "~ and %r are expanded"
     );
 
