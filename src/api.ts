@@ -615,14 +615,22 @@ export const setStartupTheme = (theme: ThemeMode): Promise<void> =>
  */
 export const showMainWindow = (): Promise<void> => invoke("show_main_window");
 
+/** 进程端读取的剪贴板内容；图片只返回存在性，字节由 CLI 自行读取。 */
+export interface ClipboardContent {
+  /** 可粘贴的纯文本；剪贴板没有文本时为空字符串。 */
+  text: string;
+  /** 从文件 URL 提取的绝对路径；有值时粘贴必须优先使用它。 */
+  paths: string[];
+  /** 是否存在应交由前台 CLI 原生处理的图片数据。 */
+  hasImage: boolean;
+}
+
 /**
- * The clipboard's text as the process reads it. The paste path on macOS,
- * where a page read outside WebKit's own ⌘V pops a confirmation menu, and
- * the fallback on Windows for a WebView2 profile that refuses the page's
- * read (see `read_clipboard_text`).
+ * 读取进程看到的剪贴板内容。macOS 用它避开 WebKit 的二次确认，
+ * Windows 在 WebView2 已拒绝剪贴板权限时用它回退读取文本。
  */
-export const readClipboardText = (): Promise<string> =>
-  invoke("read_clipboard_text");
+export const readClipboardContent = (): Promise<ClipboardContent> =>
+  invoke("read_clipboard_content");
 
 // --- portable mode ----------------------------------------------------------
 
