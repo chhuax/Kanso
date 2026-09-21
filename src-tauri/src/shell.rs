@@ -303,7 +303,7 @@ mod tests {
         let branch_position = prompt.find(" feature/parser").expect("branch in prompt");
         assert!(path_position < branch_position);
         assert!(branch_position < prompt.find("%#").unwrap());
-        assert!(prompt.starts_with("%{\u{1b}]133;A\u{7}%}"));
+        assert!(prompt.starts_with("%{\u{1b}]133;A;kanso-initial\u{7}%}"));
         assert!(prompt.ends_with("%# "));
 
         let next = fixture.run(&fixture.repo, &format!("KANSO_PROMPT_SEEN=1; {script}"));
