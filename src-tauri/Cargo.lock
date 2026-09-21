@@ -7136,44 +7136,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kanso"
-version = "0.8.3"
-dependencies = [
- "base64 0.22.1",
- "block2",
- "chrono",
- "clipboard-win",
- "core-foundation 0.10.1",
- "core-foundation-sys",
- "dirs",
- "drag",
- "encoding_rs",
- "fontdb",
- "libc",
- "notify",
- "objc2",
- "objc2-app-kit",
- "objc2-foundation",
- "parking_lot",
- "portable-pty",
- "ring",
- "russh",
- "russh-sftp",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
- "tauri-plugin-process",
- "tauri-plugin-updater",
- "tokio",
- "ttf-parser",
- "uuid",
- "windows-sys 0.59.0",
-]
-
-[[package]]
 name = "zerofrom"
 version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
