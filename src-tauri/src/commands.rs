@@ -801,33 +801,88 @@ pub fn show_main_window(window: tauri::WebviewWindow) -> Result<()> {
     Ok(())
 }
 
-/// The clipboard's text, read by the process rather than the page. On macOS
-/// this is the paste path (#47): WebKit lets a page read the pasteboard only
-/// from inside its own paste command (⌘V, Edit → Paste on the system menu)
-/// and answers any other gesture with a "Paste" confirmation menu the user
-/// has to click, so a paste key the user chose could not read it from the
-/// page. Elsewhere the page reads its own clipboard
-/// (`navigator.clipboard.readText`), and the window is created with
-/// `enable_clipboard_access` so WebView2 grants that; but a WebView2 profile
-/// that refused the permission prompt before the app granted it keeps
-/// refusing (the refusal is stored per origin and the prompt is not raised
-/// again), so on Windows the front end falls back to this (#45). Empty when
-/// the clipboard holds no text, as the page's read is.
+/// 一次粘贴需要的剪贴板元数据。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipboardContent {
+    /// 剪贴板可用的纯文本；没有文本时为空字符串。
+    pub text: String,
+    /// 剪贴板中文件 URL 对应的绝对路径，按复制顺序排列。
+    pub paths: Vec<String>,
+    /// 是否包含 CLI 可直接读取的原始图片数据。
+    pub has_image: bool,
+}
+
+/// 由进程读取剪贴板，供 WebView 无法稳定读取时的粘贴链路使用。
+///
+/// macOS 的 WebKit 只允许页面在系统粘贴命令内直接读取 pasteboard；
+/// Kanso 又允许用户重绑定粘贴键，所以必须由进程同时读取文本和图片类型。
+/// Windows 上仍作为 WebView2 剪贴板权限被拒绝时的文本回退。
 #[tauri::command]
-pub fn read_clipboard_text() -> Result<String> {
+pub fn read_clipboard_content() -> Result<ClipboardContent> {
     #[cfg(windows)]
     {
-        if !clipboard_win::is_format_avail(clipboard_win::formats::CF_UNICODETEXT) {
-            return Ok(String::new());
-        }
-        clipboard_win::get_clipboard_string().map_err(err)
+        let text = if clipboard_win::is_format_avail(clipboard_win::formats::CF_UNICODETEXT) {
+            clipboard_win::get_clipboard_string().map_err(err)?
+        } else {
+            String::new()
+        };
+        Ok(ClipboardContent {
+            text,
+            paths: Vec::new(),
+            // WebView2 在 AI CLI 粘贴时负责检测图片；这里只是文本权限回退。
+            has_image: false,
+        })
     }
     #[cfg(target_os = "macos")]
     {
-        use objc2_app_kit::{NSPasteboard, NSPasteboardTypeString};
-        let text =
-            NSPasteboard::generalPasteboard().stringForType(unsafe { NSPasteboardTypeString });
-        Ok(text.map(|text| text.to_string()).unwrap_or_default())
+        use objc2::ClassType;
+        use objc2_app_kit::{NSPasteboard, NSPasteboardTypeFileURL, NSPasteboardTypeString};
+        use objc2_foundation::{ns_string, NSArray, NSURL};
+
+        let pasteboard = NSPasteboard::generalPasteboard();
+        let text = pasteboard.stringForType(unsafe { NSPasteboardTypeString });
+        let file_url_types = NSArray::from_slice(&[unsafe { NSPasteboardTypeFileURL }]);
+        let paths = if pasteboard
+            .availableTypeFromArray(&file_url_types)
+            .is_some()
+        {
+            let url_classes = NSArray::from_slice(&[NSURL::class()]);
+            // API 的返回值是无类型 NSArray；只有按 NSURL class 读取后才能逐项下转。
+            unsafe {
+                pasteboard.readObjectsForClasses_options(&url_classes, None)
+            }
+            .map(|urls| {
+                urls.iter()
+                    .filter_map(|object| {
+                        object
+                            .downcast_ref::<NSURL>()
+                            .and_then(|url| url.path())
+                            .map(|path| path.to_string())
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        // Claude Code 自己从 pasteboard 读取图片，Kanso 只检测类型，避免复制大块图片数据。
+        let image_types = NSArray::from_slice(&[
+            ns_string!("public.png"),
+            ns_string!("public.jpeg"),
+            ns_string!("public.gif"),
+            ns_string!("public.webp"),
+            ns_string!("public.svg-image"),
+            ns_string!("public.tiff"),
+            ns_string!("com.compuserve.gif"),
+        ]);
+        Ok(ClipboardContent {
+            text: text.map(|text| text.to_string()).unwrap_or_default(),
+            // 文件复制可能附带图片预览；有文件 URL 时必须优先粘贴路径。
+            has_image: paths.is_empty()
+                && pasteboard.availableTypeFromArray(&image_types).is_some(),
+            paths,
+        })
     }
     #[cfg(not(any(windows, target_os = "macos")))]
     {
