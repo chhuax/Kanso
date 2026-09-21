@@ -4,10 +4,10 @@
     document.body.setAttribute('data-lang', lang);
     document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
     btn.textContent = lang === 'zh' ? 'EN' : '中文';
-    try { localStorage.setItem('zenterm-lang', lang); } catch (e) {}
+    try { localStorage.setItem('kanso-lang', lang); } catch (e) {}
   }
   var saved = null;
-  try { saved = localStorage.getItem('zenterm-lang'); } catch (e) {}
+  try { saved = localStorage.getItem('kanso-lang'); } catch (e) {}
   apply(saved || (/^zh/i.test(navigator.language || '') ? 'zh' : 'en'));
   btn.addEventListener('click', function () {
     apply(document.body.getAttribute('data-lang') === 'zh' ? 'en' : 'zh');

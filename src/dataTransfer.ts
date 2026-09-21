@@ -8,16 +8,16 @@ import * as api from "./api";
 import { useStore } from "./store";
 import type { AppData } from "./types";
 
-// Session → Export Data… / Import Data…: one `.zenterm` file (plain JSON
+// Session → Export Data… / Import Data…: one `.kanso` file (plain JSON
 // inside) holding the settings, saved sessions with their groups and Sender
 // tags. Passwords and passphrases never leave `credentials.json`; the backend
 // strips them on both sides, and the confirmation below says so, since
 // imported sessions will ask again.
 
 /** Mirrors `APP_DATA_EXTENSION` in model.rs; the backend enforces it too. */
-export const DATA_FILE_EXTENSION = "zenterm";
+export const DATA_FILE_EXTENSION = "kanso";
 const FILE_FILTERS = [
-  { name: "ZenTerm data", extensions: [DATA_FILE_EXTENSION] },
+  { name: "Kanso data", extensions: [DATA_FILE_EXTENSION] },
 ];
 
 const hasDataExtension = (path: string) =>
@@ -58,8 +58,8 @@ export async function exportAppData(): Promise<void> {
   try {
     const now = new Date();
     const picked = await saveDialog({
-      title: "Export ZenTerm Data",
-      defaultPath: `ZenTerm-${datestamp(now)}.${DATA_FILE_EXTENSION}`,
+      title: "Export Kanso Data",
+      defaultPath: `Kanso-${datestamp(now)}.${DATA_FILE_EXTENSION}`,
       filters: FILE_FILTERS,
     });
     if (!picked) return;
@@ -81,7 +81,7 @@ export async function importAppData(): Promise<void> {
   const store = useStore.getState();
   try {
     const picked = await openDialog({
-      title: "Import ZenTerm Data",
+      title: "Import Kanso Data",
       multiple: false,
       directory: false,
       filters: FILE_FILTERS,
@@ -92,7 +92,7 @@ export async function importAppData(): Promise<void> {
     // paths get through on some platforms; say what was expected up front.
     if (!hasDataExtension(path)) {
       store.setStatus(
-        `Import failed: “${basename(path)}” is not a ZenTerm data file (expected .${DATA_FILE_EXTENSION})`,
+        `Import failed: “${basename(path)}” is not a Kanso data file (expected .${DATA_FILE_EXTENSION})`,
       );
       return;
     }

@@ -20,7 +20,7 @@ use crate::store::{
 };
 
 fn temp_dir(tag: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("zenterm-test-{tag}-{}", uuid::Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("kanso-test-{tag}-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).expect("create temp dir");
     dir
 }
@@ -535,9 +535,9 @@ fn an_export_naming_a_removed_kind_still_imports_the_rest() {
     // The store's own files are filtered at load, but an export file is the
     // documented way to carry sessions between installs and goes through
     // `read_app_data` instead. One retired profile used to fail the whole
-    // file — and say "not a ZenTerm data file" while doing it.
+    // file — and say "not a Kanso data file" while doing it.
     let dir = temp_dir("retired-kinds-import");
-    let file = dir.join("backup.zenterm");
+    let file = dir.join("backup.kanso");
     std::fs::write(
         &file,
         format!(
@@ -924,12 +924,12 @@ fn store_import_refuses_foreign_or_newer_files() {
 
 #[test]
 fn data_files_are_recognised_by_extension_and_contents() {
-    assert_eq!(APP_DATA_EXTENSION, "zenterm");
-    assert!(is_data_file_path(Path::new("backup.zenterm")));
-    assert!(is_data_file_path(Path::new("/tmp/A.ZENTERM")));
+    assert_eq!(APP_DATA_EXTENSION, "kanso");
+    assert!(is_data_file_path(Path::new("backup.kanso")));
+    assert!(is_data_file_path(Path::new("/tmp/A.KANSO")));
     assert!(!is_data_file_path(Path::new("backup.json")));
-    assert!(!is_data_file_path(Path::new("zenterm")));
-    assert!(!is_data_file_path(Path::new("backup.zenterm.json")));
+    assert!(!is_data_file_path(Path::new("kanso")));
+    assert!(!is_data_file_path(Path::new("backup.kanso.json")));
 
     let dir = temp_dir("data-file");
     let store = Store::load_from(dir.join("sessions.json"));
@@ -943,20 +943,20 @@ fn data_files_are_recognised_by_extension_and_contents() {
     let json = dir.join("backup.json");
     std::fs::write(&json, &valid).expect("write json");
     let error = read_app_data(json.display().to_string()).expect_err("json refused");
-    assert!(error.to_string().contains(".zenterm"), "{error}");
+    assert!(error.to_string().contains(".kanso"), "{error}");
 
     // Right name, wrong contents.
-    let garbage = dir.join("garbage.zenterm");
+    let garbage = dir.join("garbage.kanso");
     std::fs::write(&garbage, "not json").expect("write garbage");
     assert!(read_app_data(garbage.display().to_string()).is_err());
-    let foreign = dir.join("foreign.zenterm");
+    let foreign = dir.join("foreign.kanso");
     std::fs::write(&foreign, r#"{"app":"Other","format":1}"#).expect("write foreign");
     assert!(read_app_data(foreign.display().to_string()).is_err());
-    let missing = dir.join("missing.zenterm");
+    let missing = dir.join("missing.kanso");
     assert!(read_app_data(missing.display().to_string()).is_err());
 
     // Right name and contents; a password smuggled into the file is dropped.
-    let good = dir.join("backup.zenterm");
+    let good = dir.join("backup.kanso");
     let smuggled = valid.replace("\"password\":null", "\"password\":\"x\"");
     assert_ne!(smuggled, valid, "the snapshot serialises an empty password");
     std::fs::write(&good, smuggled).expect("write");

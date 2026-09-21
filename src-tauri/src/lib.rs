@@ -371,7 +371,7 @@ pub fn run() {
             window_control,
         ])
         .build(tauri::generate_context!())
-        .expect("error while building ZenTerm")
+        .expect("error while building Kanso")
         .run(|app, event| match event {
             // ⌘Q and the updater's relaunch never close the window.
             tauri::RunEvent::ExitRequested { .. } => app.state::<WindowMemory>().flush(),

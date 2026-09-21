@@ -50,7 +50,7 @@ describe("shell prompt recognition", () => {
     "alice ~/src $ ",
     // The shim's chips: directory and branch in filled blocks, so the sign
     // lands far from the line's start and no word-shaped pattern fits it.
-    "/data/workspace/ZenTerm  main % ",
+    "/data/workspace/Kanso  main % ",
     "/data/workspace  main % ",
     "~/src  feature/x $ ",
     // The shim's chips are padded, so the line begins with a space and the

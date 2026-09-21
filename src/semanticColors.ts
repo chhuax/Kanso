@@ -277,7 +277,7 @@ const WINDOWS_PROMPT =
 
 /**
  * The sign that ends a prompt whose front is chips rather than words: the
- * directory and branch ZenTerm's own shim prints (`... main % cd /src`). The
+ * directory and branch Kanso's own shim prints (`... main % cd /src`). The
  * shapes above all expect the sign within a word or two of the line's start,
  * and a chip puts it twenty columns in, so the line went unrecognized and its
  * command line was coloured as output.

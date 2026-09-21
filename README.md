@@ -1,17 +1,16 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.png">
-    <img src="docs/logo.png" alt="ZenTerm" width="480">
-  </picture>
+<p align="center">
+  <img src="docs/icon.png" alt="Kanso" width="128">
+</p>
 </p>
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 A small, lightweight, high-performance terminal, SSH and SFTP client, built with **Rust + Tauri**.
 
-<img src="docs/screenshot-dark.png" alt="ZenTerm dark theme" width="100%">
+<img src="docs/screenshot-dark.png" alt="Kanso dark theme" width="100%">
 
-<img src="docs/screenshot-light.png" alt="ZenTerm light theme" width="100%">
+<img src="docs/screenshot-light.png" alt="Kanso light theme" width="100%">
 
 ## Small and lightweight
 
@@ -33,7 +32,7 @@ A small, lightweight, high-performance terminal, SSH and SFTP client, built with
 
 **Older SSH servers**
 
-Switches, routers, firewalls and other long-lived devices often run SSH servers that stop at algorithms modern clients no longer offer. ZenTerm still connects to them: besides the NIST ECDH curves (`ecdh-sha2-nistp256/384/521`), it offers the SHA-1 key exchanges `diffie-hellman-group14-sha1`, `diffie-hellman-group-exchange-sha1` and `diffie-hellman-group1-sha1`, the `aes128/192/256-cbc` ciphers and the `hmac-sha1` MACs, with no setting to change. They come after every modern algorithm, so a server that supports anything better gets that, and because both sides' algorithm lists are signed by the server's host key, nobody in between can strip the better choices to force the old ones. A session that did need one shows **Legacy SSH** in the status bar; hover over it to see which server and which algorithms. A server that offers nothing ZenTerm supports (only `ssh-dss` host keys, `3des-cbc` or `hmac-md5`, say) is refused with the list it offered.
+Switches, routers, firewalls and other long-lived devices often run SSH servers that stop at algorithms modern clients no longer offer. Kanso still connects to them: besides the NIST ECDH curves (`ecdh-sha2-nistp256/384/521`), it offers the SHA-1 key exchanges `diffie-hellman-group14-sha1`, `diffie-hellman-group-exchange-sha1` and `diffie-hellman-group1-sha1`, the `aes128/192/256-cbc` ciphers and the `hmac-sha1` MACs, with no setting to change. They come after every modern algorithm, so a server that supports anything better gets that, and because both sides' algorithm lists are signed by the server's host key, nobody in between can strip the better choices to force the old ones. A session that did need one shows **Legacy SSH** in the status bar; hover over it to see which server and which algorithms. A server that offers nothing Kanso supports (only `ssh-dss` host keys, `3des-cbc` or `hmac-md5`, say) is refused with the list it offered.
 
 **Text encoding and locale**
 
@@ -44,7 +43,7 @@ Terminal sessions are UTF-8 unless the session dialog's **Encoding** says otherw
 - **Sessions** (left): the rail shows open terminals. Click **＋** or right-click its blank area to open the session launcher: create a local shell or a new session, search saved connections by name, host or username, and click a connection to open it. Each saved session has an edit button and an **…** menu for connecting, editing, moving to a group or deleting. The **…** beside “Saved sessions” creates groups or imports OpenSSH config; a group's **…** renames or deletes it. Right-click an open terminal to edit its saved connection directly. The right sidebar is reserved for auxiliary tools such as Filer.
 - **Filer** (right): a file browser that automatically switches to SFTP for SSH sessions, with file and folder upload, download, create-directory, and delete operations. Drag and drop works in both directions, anywhere on the panel: dropping files or folders from Finder / Explorer uploads them into the current remote directory, or copies them into the folder on screen when the Filer is showing local files; dragging an entry out of the window drops it on the desktop or in a file manager — a remote entry is copied down first, so hold the drag until it is ready. A drop the panel cannot take says why instead of doing nothing. Other terminal sessions browse the local filesystem. `⌘J` / `Ctrl+Shift+J` (also in the terminal's context menu and the Filer's locate button) jumps the Filer to the directory the shell is in: a local shell is asked through the OS, an SSH shell through the server (Linux hosts), and a shell that reports its directory with OSC 7 — fish does by default; bash and zsh with a one-line prompt hook — is answered everywhere, `sudo` and nested shells included.
 - **Sender** (bottom): send text with a chosen line ending (none / LF / CRLF) to the current session or to all open sessions at once. Text may span several lines (`Shift+Enter` adds one) and each line is sent in turn, waiting for the shell's prompt between them, so a saved multi-line script runs cleanly instead of arriving as typeahead. The clock button repeats a command on a timer — every N seconds, a set number of times or until stopped — for an inspection loop or to keep a session alive; it keeps running while the panel is hidden and stops from the strip. Saved commands are scoped — to one session, a session group, a session kind (SSH / shell) or everywhere — and the Sender lists the ones that apply to the active tab, most specific first.
-- **Prompt line** (local shells): a line above each prompt saying where the shell is — the directory (its last three parts when it is long) and the git branch, in the chips Starship and the coding CLIs print. It is the shell's own `precmd`, added through a `ZDOTDIR` shim that sources your real startup files and changes nothing in them: only the local shells ZenTerm starts see it, and deleting `shell/` beside the store takes it away again.
+- **Prompt line** (local shells): a line above each prompt saying where the shell is — the directory (its last three parts when it is long) and the git branch, in the chips Starship and the coding CLIs print. It is the shell's own `precmd`, added through a `ZDOTDIR` shim that sources your real startup files and changes nothing in them: only the local shells Kanso starts see it, and deleting `shell/` beside the store takes it away again.
 
 **Display settings**
 
@@ -52,7 +51,7 @@ Terminal sessions are UTF-8 unless the session dialog's **Encoding** says otherw
 
 **Command suggestions**
 
-With **Edit → Command Suggestions** enabled, ZenTerm remembers the commands you run in the terminal and completes them as you type: matching history and the everyday invocations of the tools it ships with, but also the argument the line is asking for. A word after `cd`, `cat`, `vim` and their like completes from the session's own filesystem — the local one, or the server's over SFTP — so `cd src/te` becomes `cd src/terminal.ts`; `kubectl` and `git` complete their subcommands, resources (`po` and `pods` both) and flags, each with a word about what it does; and `kubectl -n ` offers the namespaces in your kubeconfig, `--context ` its contexts. Only the word under the cursor is replaced, so the command, its flags and the directory you already typed stay where you put them. `Tab` takes the first row and then walks the list; `↓` steps into it; `Enter` / `Tab` past the end accepts; `Esc` dismisses. While nothing in the popup is selected every other key still reaches the shell, and while an answer is still on its way — a directory over SFTP is a round trip — `Tab` is held rather than handed to the shell, whose own completion would race it. **Edit → Clear Command History…** clears the recorded history.
+With **Edit → Command Suggestions** enabled, Kanso remembers the commands you run in the terminal and completes them as you type: matching history and the everyday invocations of the tools it ships with, but also the argument the line is asking for. A word after `cd`, `cat`, `vim` and their like completes from the session's own filesystem — the local one, or the server's over SFTP — so `cd src/te` becomes `cd src/terminal.ts`; `kubectl` and `git` complete their subcommands, resources (`po` and `pods` both) and flags, each with a word about what it does; and `kubectl -n ` offers the namespaces in your kubeconfig, `--context ` its contexts. Only the word under the cursor is replaced, so the command, its flags and the directory you already typed stay where you put them. `Tab` takes the first row and then walks the list; `↓` steps into it; `Enter` / `Tab` past the end accepts; `Esc` dismisses. While nothing in the popup is selected every other key still reaches the shell, and while an answer is still on its way — a directory over SFTP is a round trip — `Tab` is held rather than handed to the shell, whose own completion would race it. **Edit → Clear Command History…** clears the recorded history.
 
 **Tab activity**
 
@@ -64,7 +63,7 @@ The terminal area splits the way VS Code's editor area does: every pane has its 
 
 **Data export and import**
 
-**Session → Export Data…** writes the saved sessions and their groups, the Sender's saved commands, and the display settings to a single `.zenterm` file (plain JSON inside); **Session → Import Data…** accepts only `.zenterm` files.
+**Session → Export Data…** writes the saved sessions and their groups, the Sender's saved commands, and the display settings to a single `.kanso` file (plain JSON inside); **Session → Import Data…** accepts only `.kanso` files.
 
 **Session → Import OpenSSH Config…** (also on the SSH Sessions heading) reads an OpenSSH client configuration — `~/.ssh/config` by default — and turns its `Host` entries into saved SSH sessions in one step, resolving each the way `ssh` does: `HostName`, `Port`, `User`, `IdentityFile` and `Include`d files, with `Host *` defaults applied. A single-hop `ProxyJump` becomes a saved jump host; a multi-hop chain is not imported (the session is still saved, just without a jump host). The dialog lists every host with what it connects to and lets you pick which to import and which group to file them under; a host already saved is shown so importing it updates that session in place. Passwords are never in the file, so imported sessions ask for theirs on first connect.
 
@@ -106,7 +105,7 @@ Every shortcut above can be rebound in **View → Keyboard Shortcuts…** — cl
 | macOS Apple Silicon | `.dmg`, plus the `.app.tar.gz` bundle used by the in-app updater |
 | Linux x64 / ARM64 | `.AppImage` and `.deb` |
 
-The Windows portable zip needs no installation: it ships a `data` folder next to `ZenTerm.exe`, and while that folder exists every setting is stored inside it, so the whole folder can move between machines or live on a removable drive (saved passwords are encrypted with a machine-bound key and do not decrypt elsewhere; sessions and settings travel fine). The AppImage likewise runs in place on Linux without installation.
+The Windows portable zip needs no installation: it ships a `data` folder next to `Kanso.exe`, and while that folder exists every setting is stored inside it, so the whole folder can move between machines or live on a removable drive (saved passwords are encrypted with a machine-bound key and do not decrypt elsewhere; sessions and settings travel fine). The AppImage likewise runs in place on Linux without installation.
 
 Installed copies check the latest Release on startup and can update in place; **Help → Check for Updates…** does the same on demand. A portable copy is not updated in place — it announces new versions and opens the download page instead.
 
@@ -114,12 +113,12 @@ Releases are not notarized on macOS or code-signed with Windows Authenticode; th
 
 ## Project status
 
-ZenTerm is maintained as an independent project. See the commit history for its development history and changes.
+Kanso is maintained as an independent project. See the commit history for its development history and changes.
 
-Automatic updates remain off until a ZenTerm-owned update endpoint, signing key and release manifest are available. See `UPDATES_ENABLED` in `src/updater.ts`.
+Automatic updates remain off until a Kanso-owned update endpoint, signing key and release manifest are available. See `UPDATES_ENABLED` in `src/updater.ts`.
 
 ## License
 
-ZenTerm is licensed under the [GNU General Public License v3.0](LICENSE). Derivative works that are distributed must be released under the same license with their full source code.
+Kanso is licensed under the [GNU General Public License v3.0](LICENSE). Derivative works that are distributed must be released under the same license with their full source code.
 
 The interface icons are [Codicons](https://github.com/microsoft/vscode-codicons) by Microsoft, used under the Creative Commons Attribution 4.0 license.

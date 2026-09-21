@@ -30,8 +30,8 @@ describe("cursor settings", () => {
 
     expect(useStore.getState().cursorStyle).toBe("bar");
     expect(useStore.getState().cursorBlink).toBe(false);
-    expect(localStorage.getItem("zenterm.cursorStyle")).toBe("bar");
-    expect(localStorage.getItem("zenterm.cursorBlink")).toBe("off");
+    expect(localStorage.getItem("kanso.cursorStyle")).toBe("bar");
+    expect(localStorage.getItem("kanso.cursorBlink")).toBe("off");
   });
 
   it("travel with a data export and survive a malformed import", () => {
@@ -45,8 +45,8 @@ describe("cursor settings", () => {
     store.resetSettings();
     expect(useStore.getState().cursorStyle).toBe("block");
     expect(useStore.getState().cursorBlink).toBe(true);
-    expect(localStorage.getItem("zenterm.cursorStyle")).toBeNull();
-    expect(localStorage.getItem("zenterm.cursorBlink")).toBeNull();
+    expect(localStorage.getItem("kanso.cursorStyle")).toBeNull();
+    expect(localStorage.getItem("kanso.cursorBlink")).toBeNull();
 
     useStore.getState().applySettings(exported);
     expect(useStore.getState().cursorStyle).toBe("underline");

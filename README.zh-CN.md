@@ -1,17 +1,16 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.png">
-    <img src="docs/logo.png" alt="ZenTerm" width="480">
-  </picture>
+<p align="center">
+  <img src="docs/icon.png" alt="Kanso" width="128">
+</p>
 </p>
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 一个小巧、轻量、高性能的终端 / SSH / SFTP 客户端，基于 **Rust + Tauri** 构建。
 
-<img src="docs/screenshot-dark.png" alt="ZenTerm 深色主题" width="100%">
+<img src="docs/screenshot-dark.png" alt="Kanso 深色主题" width="100%">
 
-<img src="docs/screenshot-light.png" alt="ZenTerm 浅色主题" width="100%">
+<img src="docs/screenshot-light.png" alt="Kanso 浅色主题" width="100%">
 
 ## 小巧轻量
 
@@ -33,14 +32,14 @@
 
 **老旧 SSH 设备**
 
-交换机、路由器、防火墙这类长期服役的设备，SSH 服务端往往停留在新版客户端已不再提供的算法上。ZenTerm 照样能连：除了 NIST ECDH 曲线（`ecdh-sha2-nistp256/384/521`），还提供 SHA-1 密钥交换 `diffie-hellman-group14-sha1`、`diffie-hellman-group-exchange-sha1`、`diffie-hellman-group1-sha1`，`aes128/192/256-cbc` 加密和 `hmac-sha1` 系列 MAC，无需任何设置。它们排在所有现代算法之后，服务器只要支持更好的就会用更好的；双方的算法列表都在服务器主机密钥的签名范围内，中间人也无法剥掉好的选项、逼迫降级到旧算法。确实用到了旧算法的会话，状态栏会显示 **Legacy SSH**，鼠标悬停可看到是哪台服务器、哪些算法。如果服务器提供的算法 ZenTerm 一个都不支持（比如只有 `ssh-dss` 主机密钥、`3des-cbc` 或 `hmac-md5`），连接会失败，并列出服务器提供的算法。
+交换机、路由器、防火墙这类长期服役的设备，SSH 服务端往往停留在新版客户端已不再提供的算法上。Kanso 照样能连：除了 NIST ECDH 曲线（`ecdh-sha2-nistp256/384/521`），还提供 SHA-1 密钥交换 `diffie-hellman-group14-sha1`、`diffie-hellman-group-exchange-sha1`、`diffie-hellman-group1-sha1`，`aes128/192/256-cbc` 加密和 `hmac-sha1` 系列 MAC，无需任何设置。它们排在所有现代算法之后，服务器只要支持更好的就会用更好的；双方的算法列表都在服务器主机密钥的签名范围内，中间人也无法剥掉好的选项、逼迫降级到旧算法。确实用到了旧算法的会话，状态栏会显示 **Legacy SSH**，鼠标悬停可看到是哪台服务器、哪些算法。如果服务器提供的算法 Kanso 一个都不支持（比如只有 `ssh-dss` 主机密钥、`3des-cbc` 或 `hmac-md5`），连接会失败，并列出服务器提供的算法。
 
 **界面**
 - **时间戳 + 行号侧栏** —— WindTerm 最有辨识度的特性，每一行输出都带 `[HH:MM:SS.SSS]` 与累计行号，光标行高亮。可在 `Session` 菜单下切换四种显示模式。
 - **Sessions**（左侧）：常驻列表展示已打开的终端。点击 **＋** 或右击空白处打开会话浮层，可新建本地终端、新建会话，按名称、主机或用户名搜索已保存的连接，点击连接名称即可打开。每个会话旁有编辑按钮和 **…** 菜单，可连接、编辑、移入分组或删除；“Saved sessions”旁的 **…** 可新建分组或导入 OpenSSH 配置，分组旁的 **…** 可重命名或删除分组。右击已打开的终端也可直接编辑对应连接配置。右侧留给 Filer 等辅助工具。
 - **Filer**（右侧）：文件浏览器。SSH 会话下自动切到 SFTP，可上传 / 下载文件和文件夹、新建目录、删除；其他终端会话下浏览本地文件系统。拖拽双向可用，面板任意位置都能放：从访达 / 资源管理器拖文件或文件夹进来，远程会话下上传到当前远程目录，本地会话下复制到当前显示的文件夹；把条目从窗口里拖到桌面或文件管理器即下载 —— 远程条目会先拷到本地，请按住不放等它准备好。收不下的拖放会说明原因，不会毫无反应
 - **Sender**（底部）：发送文本，可选行尾（无 / LF / CRLF），目标为当前会话或一次发给全部已打开的会话。文本可以多行（`Shift+Enter` 换行），逐行发送并在行间等待 Shell 提示符返回，保存的多行脚本会依次执行，而不是一股脑塞成预输入。时钟按钮按定时重复发送 —— 每 N 秒、发指定次数或一直发到停止 —— 可用于巡检循环或会话保活；面板隐藏时仍继续，从条上停止。保存的命令带作用域 —— 某个会话、会话浮层的某个分组、某类会话（SSH / Shell）或全部 —— Sender 只列出对当前标签页适用的命令，越具体的排越前
-- **提示符上方那一行**（仅本地 shell）：在每条提示符上方打印一行“在哪”——目录（过长时保留最后三段）和 git 分支，样式就是 Starship 和各家编码 CLI 那种方块 chip。它是 shell 自己的 `precmd`，通过一个 `ZDOTDIR` shim 加进去：真实启动文件原样 source，一个字不改，只有 ZenTerm 启动的本地 shell 会看到；把 store 旁边的 `shell/` 目录删掉即可移除。
+- **提示符上方那一行**（仅本地 shell）：在每条提示符上方打印一行“在哪”——目录（过长时保留最后三段）和 git 分支，样式就是 Starship 和各家编码 CLI 那种方块 chip。它是 shell 自己的 `precmd`，通过一个 `ZDOTDIR` shim 加进去：真实启动文件原样 source，一个字不改，只有 Kanso 启动的本地 shell 会看到；把 store 旁边的 `shell/` 目录删掉即可移除。
 
 **显示设置**
 
@@ -48,7 +47,7 @@
 
 **命令补全**
 
-开启 **Edit → Command Suggestions** 后，ZenTerm 会记住在终端里执行过的命令，输入时补全：既有历史匹配和内置的常用命令，也有**当前这一行真正要的参数**。`cd`、`cat`、`vim` 这类命令后面的词会从会话自己的文件系统里补全——本地会话读本地，SSH 会话走 SFTP 读服务器——所以 `cd src/te` 直接补成 `cd src/terminal.ts`；`kubectl` 和 `git` 会补子命令、资源（`po` 和 `pods` 都给）和常用 flag，每个 flag 右侧带一句说明；`kubectl -n ` 会列出 kubeconfig 里的 namespace，`--context ` 列出 context。**只替换光标下的那个词**，命令、flag 和你已经打了一半的目录都原样保留。`Tab` 先选中第一项，再按就在列表里走；`↓` 进入列表；走过末尾时 `Tab` / `Enter` 采纳；`Esc` 关闭。弹窗未选中任何一项时，其余按键仍照常发给 Shell；而补全还在取（SSH 下列目录是一次往返）时按 `Tab` 会被扣住，不会和 Shell 自己的补全打架。**Edit → Clear Command History…** 可清空历史。
+开启 **Edit → Command Suggestions** 后，Kanso 会记住在终端里执行过的命令，输入时补全：既有历史匹配和内置的常用命令，也有**当前这一行真正要的参数**。`cd`、`cat`、`vim` 这类命令后面的词会从会话自己的文件系统里补全——本地会话读本地，SSH 会话走 SFTP 读服务器——所以 `cd src/te` 直接补成 `cd src/terminal.ts`；`kubectl` 和 `git` 会补子命令、资源（`po` 和 `pods` 都给）和常用 flag，每个 flag 右侧带一句说明；`kubectl -n ` 会列出 kubeconfig 里的 namespace，`--context ` 列出 context。**只替换光标下的那个词**，命令、flag 和你已经打了一半的目录都原样保留。`Tab` 先选中第一项，再按就在列表里走；`↓` 进入列表；走过末尾时 `Tab` / `Enter` 采纳；`Esc` 关闭。弹窗未选中任何一项时，其余按键仍照常发给 Shell；而补全还在取（SSH 下列目录是一次往返）时按 `Tab` 会被扣住，不会和 Shell 自己的补全打架。**Edit → Clear Command History…** 可清空历史。
 
 **标签活动**
 
@@ -56,7 +55,7 @@
 
 **数据导出与导入**
 
-**Session → Export Data…** 把保存的会话及其分组、Sender 的常用命令和显示设置导出为一个 `.zenterm` 文件（内容为 JSON）；**Session → Import Data…** 只接受 `.zenterm` 文件。
+**Session → Export Data…** 把保存的会话及其分组、Sender 的常用命令和显示设置导出为一个 `.kanso` 文件（内容为 JSON）；**Session → Import Data…** 只接受 `.kanso` 文件。
 
 **Session → Import OpenSSH Config…**（SSH Sessions 标题上也有）读取 OpenSSH 客户端配置（默认 `~/.ssh/config`），一次把其中的 `Host` 条目变成保存的 SSH 会话，并按 `ssh` 的规则解析：`HostName`、`Port`、`User`、`IdentityFile` 以及 `Include` 的文件，`Host *` 的默认值也会应用。单跳 `ProxyJump` 会变成保存的跳板会话；多级跳板不导入（会话仍会保存，只是不带跳板）。对话框列出每个主机及其连接目标，可勾选要导入哪些、归到哪个分组；已保存过的主机会标出，导入即就地更新那个会话。配置文件里没有密码，导入的会话首次连接时会再询问。
 
@@ -102,10 +101,10 @@ Release 不做 macOS 公证和 Windows Authenticode 代码签名，macOS 应用�
 
 ## 项目状态
 
-ZenTerm 作为独立项目持续维护，开发历史与变更内容见提交历史。
+Kanso 作为独立项目持续维护，开发历史与变更内容见提交历史。
 
-在 ZenTerm 自有的更新地址、签名密钥和发布清单就绪前，自动更新保持关闭。开关见 `src/updater.ts` 的 `UPDATES_ENABLED`。
+在 Kanso 自有的更新地址、签名密钥和发布清单就绪前，自动更新保持关闭。开关见 `src/updater.ts` 的 `UPDATES_ENABLED`。
 
 ## 许可证
 
-ZenTerm 使用 [GNU General Public License v3.0](LICENSE) 授权。分发的衍生作品必须以相同许可证发布并提供完整源码。
+Kanso 使用 [GNU General Public License v3.0](LICENSE) 授权。分发的衍生作品必须以相同许可证发布并提供完整源码。

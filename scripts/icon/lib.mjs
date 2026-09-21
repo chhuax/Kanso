@@ -1,4 +1,4 @@
-// ZenTerm 应用图标的矢量定义。
+// Kanso 应用图标的矢量定义。
 //
 // 图标不是手画的位图，而是在这里拼出 SVG、再用无头 Chrome 栅格化。
 // 之所以不手写 SVG 文件：macOS 的图标外形是超椭圆而不是圆角矩形，路径必须算出来，
@@ -101,7 +101,7 @@ function brushArc({ cx, cy, r, from, sweep, width, steps = 240 }) {
 const C = {
   night: ['#16273F', '#080E1A'], // 深色底：夜蓝 → 近黑
   paper: ['#FFFFFF', '#E7EDF6'], // 浅色底：纸白 → 冷灰
-  blue: ['#5CC8F5', '#2563EB'], // 主色：青 → ZenTerm 品牌蓝
+  blue: ['#5CC8F5', '#2563EB'], // 主色：青 → Kanso 品牌蓝
   amber: '#FB923C', // 强调色：只给光标，全图唯一的暖色
   ink: '#0B1220',
 }
@@ -495,7 +495,7 @@ ${sandSvg(raked({ stones: [stone], rows }), { dark, width: 14 })}
     })
   },
 
-  // 窗：ZenTerm 自己的辨识特征 —— 左边那条时间戳栏 —— 直接画进图标。
+  // 窗：Kanso 自己的辨识特征 —— 左边那条时间戳栏 —— 直接画进图标。
   window: (dark = true) => {
     const ticks = [0, 1, 2]
       .map(
@@ -549,7 +549,7 @@ ${prompt({ x: 388, y: CANVAS / 2, scale: 1.2, chevron: dark ? '#E8F1FF' : C.ink 
 export function rasterize(svgPath, pngPath, size = CANVAS) {
   let src = svgPath
   if (size !== CANVAS) {
-    src = join(tmpdir(), `zenterm-icon-${size}.svg`)
+    src = join(tmpdir(), `kanso-icon-${size}.svg`)
     writeFileSync(
       src,
       readFileSync(svgPath, 'utf8').replace(

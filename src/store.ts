@@ -139,19 +139,19 @@ const DEFAULT_PANELS: Record<OptionalPanel, boolean> = {
   sender: false,
 };
 
-const PANEL_FONT_SIZE_KEY = "zenterm.panelFontSize";
-const BUFFER_FONT_SIZE_KEY = "zenterm.bufferFontSize";
-const PANEL_FONT_FAMILY_KEY = "zenterm.panelFontFamily";
-const BUFFER_FONT_FAMILY_KEY = "zenterm.bufferFontFamily";
-const TERMINAL_SCROLLBACK_KEY = "zenterm.terminalScrollback";
-const GUTTER_MODE_KEY = "zenterm.gutterMode";
-const PANELS_KEY = "zenterm.panels";
-const THEME_KEY = "zenterm.theme";
-const SUGGESTIONS_KEY = "zenterm.suggestions";
-const RIGHT_CLICK_KEY = "zenterm.rightClick";
-const SHORTCUTS_KEY = "zenterm.shortcuts";
-const CURSOR_STYLE_KEY = "zenterm.cursorStyle";
-const CURSOR_BLINK_KEY = "zenterm.cursorBlink";
+const PANEL_FONT_SIZE_KEY = "kanso.panelFontSize";
+const BUFFER_FONT_SIZE_KEY = "kanso.bufferFontSize";
+const PANEL_FONT_FAMILY_KEY = "kanso.panelFontFamily";
+const BUFFER_FONT_FAMILY_KEY = "kanso.bufferFontFamily";
+const TERMINAL_SCROLLBACK_KEY = "kanso.terminalScrollback";
+const GUTTER_MODE_KEY = "kanso.gutterMode";
+const PANELS_KEY = "kanso.panels";
+const THEME_KEY = "kanso.theme";
+const SUGGESTIONS_KEY = "kanso.suggestions";
+const RIGHT_CLICK_KEY = "kanso.rightClick";
+const SHORTCUTS_KEY = "kanso.shortcuts";
+const CURSOR_STYLE_KEY = "kanso.cursorStyle";
+const CURSOR_BLINK_KEY = "kanso.cursorBlink";
 
 // Opt-in: command capture and the completion popup stay off until the user
 // enables them in the Edit menu.
@@ -182,7 +182,7 @@ const parseRightClickAction = (value: unknown): RightClickAction | null =>
  * have no such convention, so the value is pinned there: a stored or
  * imported `copyPaste` never applies and the menu doesn't offer it.
  */
-const COPY_ON_SELECT_KEY = "zenterm.copyOnSelect";
+const COPY_ON_SELECT_KEY = "kanso.copyOnSelect";
 
 /**
  * Whether a finished selection goes straight to the clipboard. On by default:

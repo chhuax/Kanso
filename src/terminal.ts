@@ -577,11 +577,11 @@ export class TerminalController {
       if (marker === "C" && !this.commandRunning) this.beginCommand();
       else if (marker === "D" || marker === "A") {
         if (marker === "A") {
-          const initialPrompt = parameters.includes("zenterm-initial");
+          const initialPrompt = parameters.includes("kanso-initial");
           this.promptDividerReady =
             initialPrompt ||
             (this.dividers &&
-              this.registerCommandDivider(parameters.includes("zenterm-spacer")));
+              this.registerCommandDivider(parameters.includes("kanso-spacer")));
         }
         this.finishCommand();
       }

@@ -16,7 +16,7 @@
 //
 // 两份源图，排版不同：
 //   macOS 版  本体内缩到 824/1024、烘焙投影 —— 程序坞里图标本来就比画布小一圈，
-//             不留这圈边，ZenTerm 会显得比旁边的 App 大。只用于 icon.icns。
+//             不留这圈边，Kanso 会显得比旁边的 App 大。只用于 icon.icns。
 //   满幅版    本体撑满 1024、不带投影 —— Windows 任务栏自己会加阴影，图上再画一层
 //             就是重影；内缩则会让图标凭空小一圈。用于 ico 和几张 PNG。
 
@@ -37,14 +37,14 @@ if (!concepts[name]) {
   process.exit(1)
 }
 
-const work = mkdtempSync(join(tmpdir(), 'zenterm-icon-'))
+const work = mkdtempSync(join(tmpdir(), 'kanso-icon-'))
 
 // 矢量源。改设计改 lib.mjs 里的方案定义，不要直接改这两个 svg。
-const macSvg = join(DOCS, 'zenterm-icon.svg')
-const flatSvg = join(DOCS, 'zenterm-icon-flat.svg')
+const macSvg = join(DOCS, 'kanso-icon.svg')
+const flatSvg = join(DOCS, 'kanso-icon-flat.svg')
 writeFileSync(macSvg, render(name, { dark: true }))
 writeFileSync(flatSvg, render(name, { dark: true, flat: true }))
-console.log('docs/zenterm-icon.svg  docs/zenterm-icon-flat.svg')
+console.log('docs/kanso-icon.svg  docs/kanso-icon-flat.svg')
 
 // icon.ico：借 tauri icon 的编码器，产物落在临时目录，只取这一个文件。
 const sourcePng = join(work, 'app-icon.png')
@@ -68,7 +68,7 @@ console.log('src-tauri/icons/32x32.png  128x128.png  128x128@2x.png')
 
 // icns 的每一层同样按尺寸重出，用 macOS 版。
 // iconutil 只认这套文件名，少一档 Finder 就会去缩相邻的层，边缘会发毛。
-const iconset = join(work, 'ZenTerm.iconset')
+const iconset = join(work, 'Kanso.iconset')
 mkdirSync(iconset, { recursive: true })
 for (const [base, size] of [
   ['16x16', 16],

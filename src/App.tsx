@@ -57,7 +57,7 @@ const SessionDialog = lazy(() =>
   })),
 );
 
-const REPO_URL = "http://10.66.0.60:3000/huaxin/ZenTerm";
+const REPO_URL = "https://github.com/chhuax/Kanso";
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
@@ -617,10 +617,10 @@ export default function App() {
             style={{ width: 380 }}
             onMouseDown={(event) => event.stopPropagation()}
           >
-            <div className="dialog-header">About ZenTerm</div>
+            <div className="dialog-header">About Kanso</div>
             <div className="dialog-body" style={{ lineHeight: 1.7 }}>
               <strong>
-                ZenTerm{updater.appVersion ? ` ${updater.appVersion}` : ""}
+                Kanso{updater.appVersion ? ` ${updater.appVersion}` : ""}
               </strong>
               <span>
                 A small, fast terminal, SSH, SFTP and FTP client. The
@@ -639,7 +639,7 @@ export default function App() {
                     });
                   }}
                 >
-                  10.66.0.60:3000/huaxin/ZenTerm
+                  github.com/chhuax/Kanso
                 </a>
               </span>
             </div>

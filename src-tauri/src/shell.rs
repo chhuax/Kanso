@@ -1,6 +1,6 @@
 //! 本地 zsh 的轻量启动 shim，用于目录、Git 分支和命令块间距。
 //!
-//! shim 通过 `ZDOTDIR` 加载用户原有启动文件，再追加 ZenTerm 自己的
+//! shim 通过 `ZDOTDIR` 加载用户原有启动文件，再追加 Kanso 自己的
 //! `precmd`。用户目录不会被修改，删除 shim 目录也不会留下配置残留。
 
 use std::fs;
@@ -14,8 +14,8 @@ use crate::store;
 const ZSH_STARTUP: &[&str] = &[".zshenv", ".zprofile", ".zshrc", ".zlogin", ".zlogout"];
 
 /// 最后加载的 hook：在命令符前显示目录与分支，并保留 OSC 133 命令块标记。
-const ZSH_HOOK: &str = r#"# ZenTerm 的本地提示符：目录后紧跟当前 Git 分支。
-zenterm_branch() {
+const ZSH_HOOK: &str = r#"# Kanso 的本地提示符：目录后紧跟当前 Git 分支。
+kanso_branch() {
   setopt localoptions extendedglob
   local dir=$1 head line target
   # 直接读取 HEAD，避免每次显示 prompt 都启动 Git 进程；worktree 的
@@ -53,7 +53,7 @@ zenterm_branch() {
   [[ ${line[1,7]} == [0-9a-fA-F](#c7) ]] && print -r -- "${line[1,7]}"
 }
 
-zenterm_precmd() {
+kanso_precmd() {
   setopt localoptions extendedglob
 
   local where
@@ -72,40 +72,40 @@ zenterm_precmd() {
     where=".../$tail"
   fi
 
-  # 目录由 ZenTerm 统一放在命令符前，因此移除模板中的目录转义；`$PWD`
+  # 目录由 Kanso 统一放在命令符前，因此移除模板中的目录转义；`$PWD`
   # 这类任意 shell 表达式不能安全重写，保留原配置且不再重复注入目录。
-  ZENTERM_BASE=$ZENTERM_USER_PROMPT
+  KANSO_BASE=$KANSO_USER_PROMPT
   local directory_is_shown=no
-  [[ $ZENTERM_BASE == *PWD* || $ZENTERM_BASE == *pwd* ]] &&
+  [[ $KANSO_BASE == *PWD* || $KANSO_BASE == *pwd* ]] &&
     directory_is_shown=yes
 
   # `~` 在 zsh pattern 中是排除运算符，放进字符类后才表示字面量；
   # `[0-9]#` 同时覆盖 `%~`、`%1~`、`%2d` 等目录转义。
   local escape='%[0-9]#[/d~]'
-  ZENTERM_BASE=${ZENTERM_BASE//${~escape}/}
+  KANSO_BASE=${KANSO_BASE//${~escape}/}
   # 用户名和与其绑定的主机名保持隐藏，终端标签已经标明会话身份。
-  ZENTERM_BASE=${ZENTERM_BASE//'%n'/}
-  ZENTERM_BASE=${ZENTERM_BASE//'%N'/}
-  [[ $ZENTERM_BASE == *'@%m'* ]] && ZENTERM_BASE=${ZENTERM_BASE//'@%m'/}
-  [[ $ZENTERM_BASE == *'@%M'* ]] && ZENTERM_BASE=${ZENTERM_BASE//'@%M'/}
-  while [[ $ZENTERM_BASE == *'  '* ]]; do
-    ZENTERM_BASE=${ZENTERM_BASE//'  '/' '}
+  KANSO_BASE=${KANSO_BASE//'%n'/}
+  KANSO_BASE=${KANSO_BASE//'%N'/}
+  [[ $KANSO_BASE == *'@%m'* ]] && KANSO_BASE=${KANSO_BASE//'@%m'/}
+  [[ $KANSO_BASE == *'@%M'* ]] && KANSO_BASE=${KANSO_BASE//'@%M'/}
+  while [[ $KANSO_BASE == *'  '* ]]; do
+    KANSO_BASE=${KANSO_BASE//'  '/' '}
   done
   # 只清理开头空格；命令符后的尾随空格仍是光标与 prompt 的正常间距。
-  while [[ $ZENTERM_BASE == ' '* ]]; do
-    ZENTERM_BASE=${ZENTERM_BASE# }
+  while [[ $KANSO_BASE == ' '* ]]; do
+    KANSO_BASE=${KANSO_BASE# }
   done
   local text=$'%{\e[38;5;252m%}' green=$'%{\e[38;5;114m%}' off=$'%{\e[0m%}'
-  local branch=$(zenterm_branch "$PWD") branch_label branch_suffix=""
+  local branch=$(kanso_branch "$PWD") branch_label branch_suffix=""
   # 分支名是数据：转义 prompt 的百分号；启用 promptsubst 时通过变量引用
   # 延后插入，避免分支名中的命令替换被二次执行。
-  ZENTERM_PROMPT_BRANCH=${branch//\%/%%}
-  branch_label=$ZENTERM_PROMPT_BRANCH
-  [[ -o promptsubst ]] && branch_label='${ZENTERM_PROMPT_BRANCH}'
+  KANSO_PROMPT_BRANCH=${branch//\%/%%}
+  branch_label=$KANSO_PROMPT_BRANCH
+  [[ -o promptsubst ]] && branch_label='${KANSO_PROMPT_BRANCH}'
   [[ -n $branch ]] && branch_suffix="${green} ${branch_label}${off} "
 
   if [[ $directory_is_shown == yes ]]; then
-    PROMPT=$ZENTERM_BASE
+    PROMPT=$KANSO_BASE
     if [[ -n $branch && $PROMPT == *'%#'* ]]; then
       PROMPT=${PROMPT/'%#'/"${branch_suffix}%#"}
     elif [[ -n $branch ]]; then
@@ -113,23 +113,23 @@ zenterm_precmd() {
       PROMPT="${branch_suffix}${PROMPT}"
     fi
   else
-    PROMPT="${text}${where}${off} ${branch_suffix}${ZENTERM_BASE}"
+    PROMPT="${text}${where}${off} ${branch_suffix}${KANSO_BASE}"
   fi
 
   # 后续 prompt 保留两行命令块间距，前端把分割线画在正中；首个 prompt
   # 不写入空行，顶部间距由终端容器提供，避免时间线和缓冲区从第二行开始。
   local mark
-  if [[ -n ${ZENTERM_PROMPT_SEEN-} ]]; then
-    mark=$'%{\e]133;A;zenterm-spacer\a%}\n\n'
+  if [[ -n ${KANSO_PROMPT_SEEN-} ]]; then
+    mark=$'%{\e]133;A;kanso-spacer\a%}\n\n'
   else
-    ZENTERM_PROMPT_SEEN=1
-    mark=$'%{\e]133;A;zenterm-initial\a%}'
+    KANSO_PROMPT_SEEN=1
+    mark=$'%{\e]133;A;kanso-initial\a%}'
   fi
   PROMPT="${mark}${PROMPT}"
 }
 
-ZENTERM_USER_PROMPT=${PROMPT-'%m %~ %# '}
-autoload -Uz add-zsh-hook 2>/dev/null && add-zsh-hook precmd zenterm_precmd
+KANSO_USER_PROMPT=${PROMPT-'%m %~ %# '}
+autoload -Uz add-zsh-hook 2>/dev/null && add-zsh-hook precmd kanso_precmd
 "#;
 
 /// Where the user's own startup files are: their `ZDOTDIR` if they set one,
@@ -146,24 +146,24 @@ fn user_dir() -> PathBuf {
 /// file zsh reads, so an earlier or later one is never silently skipped.
 fn forwarding(file: &str) -> String {
     format!(
-        r#"# ZenTerm's shim for {file}: the user's own file, and nothing else.
-[[ -n $ZENTERM_USER_ZDOTDIR ]] || ZENTERM_USER_ZDOTDIR=$HOME
-[[ -f $ZENTERM_USER_ZDOTDIR/{file} ]] && source $ZENTERM_USER_ZDOTDIR/{file}
+        r#"# Kanso's shim for {file}: the user's own file, and nothing else.
+[[ -n $KANSO_USER_ZDOTDIR ]] || KANSO_USER_ZDOTDIR=$HOME
+[[ -f $KANSO_USER_ZDOTDIR/{file} ]] && source $KANSO_USER_ZDOTDIR/{file}
 "#
     )
 }
 
 /// The `.zshrc` shim: the user's own, the history file put back where it was,
 /// then the hook.
-const ZSH_RC: &str = r#"# ZenTerm's shim for .zshrc: the user's own file, plus the line above the
+const ZSH_RC: &str = r#"# Kanso's shim for .zshrc: the user's own file, plus the line above the
 # prompt. zsh keeps its history file under `$ZDOTDIR`, which is this
-# directory while a ZenTerm shell runs, so it is pointed back at the user's.
-[[ -n $ZENTERM_USER_ZDOTDIR ]] || ZENTERM_USER_ZDOTDIR=$HOME
+# directory while a Kanso shell runs, so it is pointed back at the user's.
+[[ -n $KANSO_USER_ZDOTDIR ]] || KANSO_USER_ZDOTDIR=$HOME
 case $HISTFILE in
-  $ZDOTDIR/*) HISTFILE=$ZENTERM_USER_ZDOTDIR/.zsh_history ;;
+  $ZDOTDIR/*) HISTFILE=$KANSO_USER_ZDOTDIR/.zsh_history ;;
 esac
-[[ -f $ZENTERM_USER_ZDOTDIR/.zshrc ]] && source $ZENTERM_USER_ZDOTDIR/.zshrc
-source $ZDOTDIR/zenterm.zsh
+[[ -f $KANSO_USER_ZDOTDIR/.zshrc ]] && source $KANSO_USER_ZDOTDIR/.zshrc
+source $ZDOTDIR/kanso.zsh
 "#;
 
 /// Writes the shim beside the store and answers the directory to point
@@ -185,7 +185,7 @@ fn ensure_zsh_shim_in(root: &Path) -> Option<PathBuf> {
         };
         write(&dir.join(file), &contents)?;
     }
-    write(&dir.join("zenterm.zsh"), ZSH_HOOK)?;
+    write(&dir.join("kanso.zsh"), ZSH_HOOK)?;
     Some(dir)
 }
 
@@ -218,8 +218,8 @@ mod tests {
     impl HookFixture {
         fn new() -> Self {
             let root =
-                std::env::temp_dir().join(format!("zenterm-prompt-{}", uuid::Uuid::new_v4()));
-            let hook = ensure_zsh_shim_in(&root).unwrap().join("zenterm.zsh");
+                std::env::temp_dir().join(format!("kanso-prompt-{}", uuid::Uuid::new_v4()));
+            let hook = ensure_zsh_shim_in(&root).unwrap().join("kanso.zsh");
             let repo = root.join("project");
             fs::create_dir_all(repo.join(".git")).unwrap();
             fs::write(repo.join(".git/HEAD"), "ref: refs/heads/feature/parser\n").unwrap();
@@ -230,7 +230,7 @@ mod tests {
             let output = Command::new("zsh")
                 .args(["-f", "-c"])
                 .arg(format!("source \"$1\"\n{script}"))
-                .arg("zenterm-prompt-test")
+                .arg("kanso-prompt-test")
                 .arg(&self.hook)
                 .current_dir(dir)
                 .output()
@@ -268,7 +268,7 @@ mod tests {
         let deep = fixture.repo.join("src/parser");
         fs::create_dir_all(&deep).unwrap();
         assert_eq!(
-            fixture.run(&deep, "zenterm_branch \"$PWD\""),
+            fixture.run(&deep, "kanso_branch \"$PWD\""),
             "feature/parser\n"
         );
 
@@ -276,7 +276,7 @@ mod tests {
         fs::create_dir_all(&worktree).unwrap();
         fs::write(worktree.join(".git"), "gitdir: ../project/.git\n").unwrap();
         assert_eq!(
-            fixture.run(&worktree, "zenterm_branch \"$PWD\""),
+            fixture.run(&worktree, "kanso_branch \"$PWD\""),
             "feature/parser\n"
         );
 
@@ -286,7 +286,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            fixture.run(&worktree, "zenterm_branch \"$PWD\""),
+            fixture.run(&worktree, "kanso_branch \"$PWD\""),
             "a1b2c3d\n"
         );
     }
@@ -297,7 +297,7 @@ mod tests {
             return;
         }
         let fixture = HookFixture::new();
-        let script = "ZENTERM_USER_PROMPT='%n %~ %# '; zenterm_precmd; print -rn -- \"$PROMPT\"";
+        let script = "KANSO_USER_PROMPT='%n %~ %# '; kanso_precmd; print -rn -- \"$PROMPT\"";
         let prompt = fixture.run(&fixture.repo, script);
         let path_position = prompt.find("/project").expect("directory in prompt");
         let branch_position = prompt.find(" feature/parser").expect("branch in prompt");
@@ -306,8 +306,8 @@ mod tests {
         assert!(prompt.starts_with("%{\u{1b}]133;A\u{7}%}"));
         assert!(prompt.ends_with("%# "));
 
-        let next = fixture.run(&fixture.repo, &format!("ZENTERM_PROMPT_SEEN=1; {script}"));
-        assert!(next.starts_with("%{\u{1b}]133;A;zenterm-spacer\u{7}%}\n\n"));
+        let next = fixture.run(&fixture.repo, &format!("KANSO_PROMPT_SEEN=1; {script}"));
+        assert!(next.starts_with("%{\u{1b}]133;A;kanso-spacer\u{7}%}\n\n"));
         assert!(next.contains(" feature/parser"));
     }
 
@@ -320,14 +320,14 @@ mod tests {
         let prompt = fixture.run(
             &fixture.repo,
             r#"
-ZENTERM_USER_PROMPT='%~ %# '
-zenterm_precmd
+KANSO_USER_PROMPT='%~ %# '
+kanso_precmd
 [[ $PROMPT == *'feature/parser'* ]] || exit 1
 print -r -- 'ref: refs/heads/another-branch' > .git/HEAD
-zenterm_precmd
+kanso_precmd
 [[ $PROMPT == *'another-branch'* ]] || exit 2
 cd ..
-zenterm_precmd
+kanso_precmd
 print -rn -- "$PROMPT"
 "#,
         );
@@ -351,8 +351,8 @@ print -rn -- "$PROMPT"
             &fixture.repo,
             r#"
 setopt promptsubst
-ZENTERM_USER_PROMPT='$PWD %# '
-zenterm_precmd
+KANSO_USER_PROMPT='$PWD %# '
+kanso_precmd
 print -Prn -- "$PROMPT"
 "#,
         );
@@ -365,26 +365,26 @@ print -Prn -- "$PROMPT"
         for file in ZSH_STARTUP {
             let shim = forwarding(file);
             assert!(
-                shim.contains(&format!("$ZENTERM_USER_ZDOTDIR/{file}")),
+                shim.contains(&format!("$KANSO_USER_ZDOTDIR/{file}")),
                 "{file} does not source the user's copy"
             );
         }
         // `.zshrc` is the one that also carries the hook, and it puts the
         // history file back: zsh would otherwise keep it in our shim.
-        assert!(ZSH_RC.contains("source $ZENTERM_USER_ZDOTDIR/.zshrc"));
-        assert!(ZSH_RC.contains("HISTFILE=$ZENTERM_USER_ZDOTDIR/.zsh_history"));
-        assert!(ZSH_RC.contains("source $ZDOTDIR/zenterm.zsh"));
+        assert!(ZSH_RC.contains("source $KANSO_USER_ZDOTDIR/.zshrc"));
+        assert!(ZSH_RC.contains("HISTFILE=$KANSO_USER_ZDOTDIR/.zsh_history"));
+        assert!(ZSH_RC.contains("source $ZDOTDIR/kanso.zsh"));
         assert!(ZSH_HOOK.contains("add-zsh-hook precmd"));
     }
 
     #[test]
     fn the_shim_covers_every_file_zsh_reads() {
-        let root = std::env::temp_dir().join(format!("zenterm-shim-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("kanso-shim-{}", uuid::Uuid::new_v4()));
         let dir = ensure_zsh_shim_in(&root).expect("write the shim");
         for file in ZSH_STARTUP {
             assert!(dir.join(file).is_file(), "{file} was not written");
         }
-        assert!(dir.join("zenterm.zsh").is_file());
+        assert!(dir.join("kanso.zsh").is_file());
         std::fs::remove_dir_all(root).ok();
     }
 }

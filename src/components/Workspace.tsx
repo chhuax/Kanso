@@ -96,7 +96,7 @@ export function Workspace({ onNewSession }: Props) {
                     alt=""
                     draggable={false}
                   />
-                  <h1>ZenTerm</h1>
+                  <h1>Kanso</h1>
                   <button className="btn is-primary" onClick={onNewSession}>
                     New Session
                   </button>

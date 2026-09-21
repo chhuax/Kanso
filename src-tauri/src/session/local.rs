@@ -70,7 +70,7 @@ pub fn spawn(
     cmd.args(&argv[1..]);
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
-    cmd.env("TERM_PROGRAM", "ZenTerm");
+    cmd.env("TERM_PROGRAM", "Kanso");
     cmd.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
     // A GUI application's environment names no locale on macOS, and a shell
     // without one runs in the C locale, where `ls` shows a Chinese file
@@ -83,7 +83,7 @@ pub fn spawn(
     // the variable, and a shim that cannot be written is simply absent.
     if let Some((shim, user)) = crate::shell::zsh_env() {
         cmd.env("ZDOTDIR", shim);
-        cmd.env("ZENTERM_USER_ZDOTDIR", user);
+        cmd.env("KANSO_USER_ZDOTDIR", user);
     }
     if let Some(cwd) = profile.cwd.as_deref().filter(|c| !c.is_empty()) {
         cmd.cwd(cwd);
@@ -110,7 +110,7 @@ pub fn spawn(
     let reader_id = id.clone();
     let reader_close_requested = close_requested.clone();
     std::thread::Builder::new()
-        .name(format!("zenterm-pty-read-{id}"))
+        .name(format!("kanso-pty-read-{id}"))
         .spawn(move || {
             let mut pump = OutputPump::new(reader_app.clone(), reader_id.clone());
             let mut buf = vec![0u8; 32 * 1024];
@@ -135,7 +135,7 @@ pub fn spawn(
         .map_err(err)?;
 
     std::thread::Builder::new()
-        .name(format!("zenterm-pty-ctl-{id}"))
+        .name(format!("kanso-pty-ctl-{id}"))
         .spawn(move || {
             while let Some(cmd) = rx.blocking_recv() {
                 match cmd {

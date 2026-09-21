@@ -1457,7 +1457,7 @@ function FilerEntryIcon({
 
 
 /** Applications the user has opened files with, most recent first. */
-const OPEN_WITH_KEY = "zenterm.filerOpenWith";
+const OPEN_WITH_KEY = "kanso.filerOpenWith";
 const OPEN_WITH_LIMIT = 6;
 
 function loadOpenWithApps(): string[] {

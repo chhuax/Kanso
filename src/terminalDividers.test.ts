@@ -100,11 +100,11 @@ describe("the rule above each prompt", () => {
     const { host, place } = attachHost(controller);
     const prompt = "huaxin ~ % ";
 
-    await write(controller, `\x1b]133;A;zenterm-initial\x07${prompt}`);
+    await write(controller, `\x1b]133;A;kanso-initial\x07${prompt}`);
     await run(controller, "ls", "README.md\r\n");
     await write(
       controller,
-      `\x1b]133;A;zenterm-spacer\x07\r\n\r\n${prompt}`,
+      `\x1b]133;A;kanso-spacer\x07\r\n\r\n${prompt}`,
     );
     place();
 
@@ -119,9 +119,9 @@ describe("the rule above each prompt", () => {
     const controller = createController();
     const { host, place } = attachHost(controller);
     const prompt = "huaxin ~ % ";
-    const spacedPrompt = `\x1b]133;A;zenterm-spacer\x07\r\n\r\n${prompt}`;
+    const spacedPrompt = `\x1b]133;A;kanso-spacer\x07\r\n\r\n${prompt}`;
 
-    await write(controller, `\x1b]133;A;zenterm-initial\x07${prompt}`);
+    await write(controller, `\x1b]133;A;kanso-initial\x07${prompt}`);
     await run(controller, "ls", "README.md\r\n");
     await write(controller, spacedPrompt);
     place();

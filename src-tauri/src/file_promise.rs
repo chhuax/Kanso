@@ -109,7 +109,7 @@ mod imp {
     define_class!(
         #[unsafe(super(NSObject))]
         #[thread_kind = MainThreadOnly]
-        #[name = "ZenTermFilePromiseDelegate"]
+        #[name = "KansoFilePromiseDelegate"]
         #[ivars = DelegateIvars]
         struct PromiseDelegate;
 
@@ -173,7 +173,7 @@ mod imp {
     define_class!(
         #[unsafe(super(NSObject))]
         #[thread_kind = MainThreadOnly]
-        #[name = "ZenTermPromiseDragSource"]
+        #[name = "KansoPromiseDragSource"]
         #[ivars = SourceIvars]
         struct PromiseDragSource;
 
@@ -186,7 +186,7 @@ mod imp {
                 _session: &NSDraggingSession,
                 context: NSDraggingContext,
             ) -> NSDragOperation {
-                // Inside ZenTerm the promise has nowhere to go: the terminal
+                // Inside Kanso the promise has nowhere to go: the terminal
                 // and the Filer take paths, not promises. Refusing up front
                 // shows the "not allowed" cursor there instead of a drop that
                 // looks accepted and does nothing.
@@ -227,7 +227,7 @@ mod imp {
         );
         let error = unsafe {
             NSError::errorWithDomain_code_userInfo(
-                &NSString::from_str("ZenTerm"),
+                &NSString::from_str("Kanso"),
                 1,
                 Some(&user_info),
             )

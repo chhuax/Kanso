@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "ZenTerm",
+  "productName": "Kanso",
   "version": "../package.json",
-  "identifier": "com.zenterm.desktop",
+  "identifier": "com.kanso.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "ZenTerm",
+        "title": "Kanso",
         "create": false,
         "width": 1440,
         "height": 900,
@@ -34,7 +34,11 @@
     "targets": "all",
     "createUpdaterArtifacts": false,
     "category": "DeveloperTool",
-    "shortDescription": "Lightweight terminal, SSH, FTP and serial client built with Rust (installer under 5 MB)",
+    "shortDescription": "Lightweight terminal, SSH and SFTP client built with Rust (installer under 5 MB)",
+    "resources": {
+      "../LICENSE": "LICENSE",
+      "../NOTICE": "NOTICE"
+    },
     "macOS": {
       "signingIdentity": "-"
     },

@@ -635,7 +635,7 @@ mod tests {
     }
 
     fn repo(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("zenterm-git-{tag}-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("kanso-git-{tag}-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(dir.join(".git")).expect("create .git");
         dir
     }
@@ -645,11 +645,11 @@ mod tests {
     }
 
     fn initialized_repo(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("zenterm-git-{tag}-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("kanso-git-{tag}-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create repository");
         run_test_git(&dir, &["init", "-q"]);
-        run_test_git(&dir, &["config", "user.name", "ZenTerm Test"]);
-        run_test_git(&dir, &["config", "user.email", "zenterm@example.invalid"]);
+        run_test_git(&dir, &["config", "user.name", "Kanso Test"]);
+        run_test_git(&dir, &["config", "user.email", "kanso@example.invalid"]);
         run_test_git(&dir, &["config", "commit.gpgsign", "false"]);
         dir
     }
@@ -695,11 +695,11 @@ mod tests {
     #[test]
     fn changes_and_diffs_are_read_from_a_real_repository() {
         let dir =
-            std::env::temp_dir().join(format!("zenterm-git-changes-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("kanso-git-changes-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create repository");
         run_test_git(&dir, &["init", "-q"]);
-        run_test_git(&dir, &["config", "user.name", "ZenTerm Test"]);
-        run_test_git(&dir, &["config", "user.email", "zenterm@example.invalid"]);
+        run_test_git(&dir, &["config", "user.name", "Kanso Test"]);
+        run_test_git(&dir, &["config", "user.email", "kanso@example.invalid"]);
         run_test_git(&dir, &["config", "commit.gpgsign", "false"]);
 
         std::fs::write(dir.join("tracked.txt"), "one\n").expect("write tracked file");
@@ -872,7 +872,7 @@ mod tests {
 
     #[test]
     fn a_directory_in_no_repository_has_no_branch() {
-        let dir = std::env::temp_dir().join(format!("zenterm-git-none-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("kanso-git-none-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create dir");
         assert_eq!(branch_for(&dir), None);
         std::fs::remove_dir_all(dir).ok();

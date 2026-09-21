@@ -1,0 +1,177 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to build and publish, such as v0.1.0
+        required: true
+
+# `gh release create` writes to the repository, so this needs more than read.
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            name: Linux x64
+            bundles: deb,appimage
+          - os: ubuntu-24.04-arm
+            name: Linux arm64
+            bundles: deb,appimage
+          - os: macos-latest
+            name: macOS arm64
+            bundles: dmg
+          - os: macos-15-intel
+            name: macOS x64
+            bundles: dmg
+          - os: windows-latest
+            name: Windows x64
+            bundles: nsis
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      # The binaries and the tag have to be the same thing. GPL-3.0 section 6
+      # allows the Corresponding Source to be offered from this repository only
+      # while the released object code really is the tagged source; a mismatch
+      # here is the one way this pipeline can quietly stop complying.
+      - name: Check the tag is the version being built
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::tag $TAG does not match package.json version $version (expected v$version)"
+            exit 1
+          fi
+          echo "building Kanso $version from $TAG"
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            patchelf \
+            wget \
+            xdg-utils
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: release
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build the bundles
+        run: npx tauri build --bundles ${{ matrix.bundles }}
+
+      # The portable build is the bare executable beside a `data` directory:
+      # that directory is what puts the app in portable mode (see
+      # `store::portable_data_dir`, which only fires when it already exists),
+      # so the zip has to carry it even though it is empty. Compress-Archive
+      # silently drops empty directories, so write the archive by hand.
+      - name: Pack the Windows portable zip
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $exe = Get-ChildItem src-tauri/target/release -File -Filter *.exe |
+            Where-Object { $_.Name -notlike '*setup*' } |
+            Select-Object -First 1
+          if (-not $exe) { throw 'no portable executable under src-tauri/target/release' }
+
+          Add-Type -AssemblyName System.IO.Compression
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zipPath = Join-Path $PWD "Kanso_${version}_x64_portable.zip"
+          Remove-Item $zipPath -ErrorAction SilentlyContinue
+          $zip = [System.IO.Compression.ZipFile]::Open($zipPath, 'Create')
+          try {
+            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+              $zip, $exe.FullName, 'Kanso.exe') | Out-Null
+            $zip.CreateEntry('data/') | Out-Null
+          } finally {
+            $zip.Dispose()
+          }
+          Get-Item $zipPath | Select-Object Name, Length
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.name }}
+          if-no-files-found: error
+          path: |
+            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            *.zip
+
+  publish:
+    name: Publish the release
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List what is being published
+        run: ls -lh dist
+
+      # `--notes` is prepended to the notes GitHub generates from the commits,
+      # so the licence statement heads the release page and the changelog
+      # follows it.
+      #
+      # Assets are collected with `find`, not a `dist/*` glob: downloading the
+      # artifacts keeps each bundle's own path under `dist/`, so the glob also
+      # matches the `src-tauri` directory and `gh` refuses to upload a
+      # directory as an asset. Creating and uploading are separate steps so
+      # re-running this job tops an existing release up instead of failing on
+      # it.
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          assets=()
+          while IFS= read -r file; do assets+=("$file"); done < <(find dist -type f | sort)
+          printf '%s\n' "${assets[@]}"
+
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Kanso ${TAG#v}" \
+              --generate-notes \
+              --notes "Corresponding source: the \`$TAG\` tag of this repository — the Source code archives below are that tag, which is what GPL-3.0 section 6 asks to be offered alongside these binaries. Kanso is free software under the GNU GPL v3.0 only, with no warranty; see LICENSE and NOTICE in the source."
+          fi
+
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber "${assets[@]}"

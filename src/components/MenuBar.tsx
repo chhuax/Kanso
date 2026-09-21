@@ -39,7 +39,7 @@ import { MenuCheck, menuRole, type MenuMark } from "./ContextMenu";
 import { Icon } from "./icons";
 import { submenuKey, useSubmenuHover } from "./submenuHover";
 
-const TUTORIAL_URL = "http://10.66.0.60:3000/huaxin/ZenTerm/src/branch/main/docs/tutorial.html";
+const TUTORIAL_URL = "https://github.com/chhuax/Kanso/src/branch/main/docs/tutorial.html";
 
 // The menubar is also the title bar: it is the window drag region and shares
 // its row with the window controls, laid out like VS Code's custom title bar.
@@ -52,7 +52,7 @@ const TUTORIAL_URL = "http://10.66.0.60:3000/huaxin/ZenTerm/src/branch/main/docs
 //   on the right. Double-clicking the app icon closes the window (the
 //   system-menu convention VS Code keeps on both platforms).
 //
-// The window title (`<session> - ZenTerm`, VS Code's `<file> - <app>`
+// The window title (`<session> - Kanso`, VS Code's `<file> - <app>`
 // shape) is also pushed to the OS so the taskbar / overview shows the same.
 
 /** Track a boolean window property, re-reading it whenever the window resizes. */
@@ -265,8 +265,8 @@ export function MenuBar(props: Props) {
       ? activeTab.gitChanges
       : null;
   const windowTitle = activeTab
-    ? `${tabTitle(activeTab)}${IS_MAC ? " \u2014 " : " - "}ZenTerm`
-    : "ZenTerm";
+    ? `${tabTitle(activeTab)}${IS_MAC ? " \u2014 " : " - "}Kanso`
+    : "Kanso";
   useEffect(() => {
     getCurrentWindow()
       .setTitle(windowTitle)
@@ -594,7 +594,7 @@ export function MenuBar(props: Props) {
           },
         },
         "separator",
-        { label: "About ZenTerm", action: props.onAbout },
+        { label: "About Kanso", action: props.onAbout },
       ],
     },
   ];

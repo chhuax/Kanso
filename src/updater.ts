@@ -8,7 +8,7 @@ import { portableMode } from "./api";
 /**
  * 自动更新在本分支中关闭。
  *
- * ZenTerm 目前没有配置自有的更新地址和签名材料。若提前开放检查，客户端无法验证
+ * Kanso 目前没有配置自有的更新地址和签名材料。若提前开放检查，客户端无法验证
  * 并安装由本项目发布的新版本。在发布渠道完整就绪前，这里必须保持 false。
  *
  * 改成 true 之前要同时确认三件事：`endpoints` 指向本项目、`pubkey` 换成本项目的
@@ -17,7 +17,7 @@ import { portableMode } from "./api";
 const UPDATES_ENABLED = false;
 
 /** 关闭自动更新后，「检查更新」改为引导用户去发布页自取。 */
-const RELEASES_URL = "http://10.66.0.60:3000/huaxin/ZenTerm/releases/latest";
+const RELEASES_URL = "https://github.com/chhuax/Kanso/releases/latest";
 
 export type UpdaterState =
   | { phase: "idle" }

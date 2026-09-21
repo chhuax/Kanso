@@ -1,4 +1,4 @@
-// 横版 logo 锁定：图标 + ZenTerm 字样，出 README 和官网用的 PNG。
+// 横版 logo 锁定：图标 + Kanso 字样，出 README 和官网用的 PNG。
 //
 // 用法：
 //   node scripts/icon/logo.mjs            出正式文件（docs/logo*.png、docs/icon.png）
@@ -17,14 +17,14 @@ import { CHROME, rasterize } from './lib.mjs'
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const DOCS = join(ROOT, 'docs')
 const LAB = join(DOCS, 'icon-lab')
-const MAC_SVG = join(DOCS, 'zenterm-icon.svg')
+const MAC_SVG = join(DOCS, 'kanso-icon.svg')
 
 // 字号和间距按 320 高的画布定，和旧 logo 的比例一致（图标占满高，字略小于图标）。
 const H = 320
 
 // 锁定里的图标按 320 直接栅格化，不是拿大图缩的。放临时目录：它是中间产物，
 // src-tauri/icons 只留构建真正要的五个文件。
-const MAC_PNG = join(mkdtempSync(join(tmpdir(), 'zenterm-logo-')), `icon-${H}.png`)
+const MAC_PNG = join(mkdtempSync(join(tmpdir(), 'kanso-logo-')), `icon-${H}.png`)
 rasterize(MAC_SVG, MAC_PNG, H)
 // 注意：macOS 上没装 SF Pro Rounded 时 rounded 会静默回落成 SF Pro，两者出图一样。
 // 旧 logo 是圆体，新图标偏几何，正式版用 display。
@@ -47,7 +47,7 @@ function html({ font, color, caret }) {
 </style>
 <div id="wrap">
   <img src="file://${MAC_PNG}" width="${H}" height="${H}">
-  <div id="word">ZenTerm</div>
+  <div id="word">Kanso</div>
   ${caretEl}
 </div>
 <script>
