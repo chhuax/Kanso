@@ -651,6 +651,8 @@ mod tests {
         run_test_git(&dir, &["config", "user.name", "Kanso Test"]);
         run_test_git(&dir, &["config", "user.email", "kanso@example.invalid"]);
         run_test_git(&dir, &["config", "commit.gpgsign", "false"]);
+        // 测试不能继承 runner 的全局换行策略，否则 Git 恢复后的字节内容会随平台变化。
+        run_test_git(&dir, &["config", "core.autocrlf", "false"]);
         dir
     }
 
