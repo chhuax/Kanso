@@ -352,7 +352,7 @@ describe("左侧会话管理", () => {
     ).toEqual(["documents"]);
   });
 
-  it("按其他标签的实时中点计算拖拽落点", () => {
+  function renderDraggableTabs() {
     act(() => {
       useStore.setState({ ...initialState }, true);
       HTMLElement.prototype.scrollIntoView = vi.fn();
@@ -391,16 +391,26 @@ describe("左侧会话管理", () => {
         }) as DOMRect;
     });
 
-    const pointer = (type: string, target: Element, clientY: number) => {
+    const pointer = (
+      type: string,
+      target: Element,
+      clientY: number,
+      buttons = type === "pointerdown" || type === "pointermove" ? 1 : 0,
+    ) => {
       const event = new MouseEvent(type, {
         bubbles: true,
         button: 0,
+        buttons,
         clientY,
       });
       Object.defineProperty(event, "pointerId", { value: 7 });
       target.dispatchEvent(event);
     };
+    return { rail, rows, pointer };
+  }
 
+  it("按其他标签的实时中点计算拖拽落点", () => {
+    const { rail, rows, pointer } = renderDraggableTabs();
     act(() => pointer("pointerdown", rows[1], 102));
     act(() => pointer("pointermove", rail, 205));
     expect(rows[1].style.getPropertyValue("--tab-drag-y")).toBe("103px");
@@ -410,5 +420,56 @@ describe("左侧会话管理", () => {
       "c",
       "b",
     ]);
+  });
+
+  it.each([false, true])("无按键移动会取消残留手势，已开始拖拽：%s", (active) => {
+    const { rail, rows, pointer } = renderDraggableTabs();
+    act(() => pointer("pointerdown", rows[1], 102));
+    if (active) act(() => pointer("pointermove", rail, 205));
+
+    // 模拟 WebView 漏发释放：下次只有移动事件，左键已经不再按住。
+    act(() => pointer("pointermove", rail, 220, 0));
+    expect(rail.classList.contains("is-reordering")).toBe(false);
+    expect(rows[1].style.getPropertyValue("--tab-drag-y")).toBe("");
+    expect(rail.querySelector(".is-drop-before, .is-drop-after")).toBeNull();
+    expect(useStore.getState().tabs.map((tab) => tab.info.id)).toEqual(["a", "b", "c"]);
+
+    // 清理后仍能重新发起正常拖拽，不能留下永久阻塞的新按压状态。
+    act(() => pointer("pointerdown", rows[1], 102));
+    act(() => pointer("pointermove", rail, 205));
+    act(() => pointer("pointerup", rail, 205));
+    expect(useStore.getState().tabs.map((tab) => tab.info.id)).toEqual(["a", "c", "b"]);
+  });
+
+  it.each([false, true])("触摸板滚动会取消残留手势，已开始拖拽：%s", (active) => {
+    const { rail, rows, pointer } = renderDraggableTabs();
+    act(() => pointer("pointerdown", rows[1], 102));
+    if (active) act(() => pointer("pointermove", rail, 205));
+
+    act(() => {
+      rail.dispatchEvent(new WheelEvent("wheel", { bubbles: true, buttons: 0, deltaY: 40 }));
+      rail.scrollTop = 40;
+      rail.dispatchEvent(new Event("scroll"));
+      pointer("pointermove", rail, 220, 0);
+    });
+    expect(rail.classList.contains("is-reordering")).toBe(false);
+    expect(rows[1].style.getPropertyValue("--tab-drag-y")).toBe("");
+    expect(rail.querySelector(".is-drop-before, .is-drop-after")).toBeNull();
+    expect(useStore.getState().tabs.map((tab) => tab.info.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it.each(["pointercancel", "lostpointercapture", "blur"])("%s 会结束拖拽且不改变顺序", (type) => {
+    const { rail, rows, pointer } = renderDraggableTabs();
+    act(() => pointer("pointerdown", rows[1], 102));
+    act(() => pointer("pointermove", rail, 205));
+    expect(rail.classList.contains("is-reordering")).toBe(true);
+    act(() => {
+      if (type === "blur") window.dispatchEvent(new Event("blur"));
+      else pointer(type, rail, 205);
+    });
+    expect(rail.classList.contains("is-reordering")).toBe(false);
+    expect(rows[1].style.getPropertyValue("--tab-drag-y")).toBe("");
+    expect(useStore.getState().tabs.map((tab) => tab.info.id)).toEqual(["a", "b", "c"]);
+    expect(rail.releasePointerCapture).toHaveBeenCalledWith(7);
   });
 });
