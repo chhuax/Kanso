@@ -264,8 +264,39 @@ export function TabRail({ onNewSession, onEditProfile }: Props) {
     });
   };
 
+  const finishDrag = useCallback((commit = false) => {
+    const state = drag.current;
+    if (!state) return;
+    // 释放捕获可能再次触发 lostpointercapture，先清空状态防止重复结束或排序。
+    drag.current = null;
+    state.row.style.removeProperty("--tab-drag-y");
+    setDragView(null);
+    const rail = railRef.current;
+    if (rail?.hasPointerCapture(state.pointerId)) {
+      rail.releasePointerCapture(state.pointerId);
+    }
+    // 只有正常抬起左键才提交排序，补偿丢失事件时只恢复界面。
+    if (commit && state.active) moveTab(state.id, state.dropIndex);
+  }, [moveTab]);
+
+  useEffect(() => {
+    const cancel = () => finishDrag();
+    const onVisibilityChange = () => {
+      if (document.hidden) cancel();
+    };
+    window.addEventListener("blur", cancel);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("blur", cancel);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      cancel();
+    };
+  }, [finishDrag]);
+
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || drag.current || pathNeedle) return;
+    if (event.button !== 0 || (event.buttons & 1) === 0 || pathNeedle) return;
+    // 新按压开始前清除上一轮残留，不能让漏掉的释放事件阻塞后续操作。
+    finishDrag();
     const target = event.target as Element;
     if (target.closest("button, input")) return;
     const row = target.closest<HTMLElement>(".tab-row");
@@ -292,6 +323,11 @@ export function TabRail({ onNewSession, onEditProfile }: Props) {
   const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     const state = drag.current;
     if (!state || state.pointerId !== event.pointerId) return;
+    // WebView 可能漏发 pointerup；普通移动不能激活或继续上一轮拖拽。
+    if ((event.buttons & 1) === 0) {
+      finishDrag();
+      return;
+    }
     if (!state.active) {
       if (Math.abs(event.clientY - state.startY) < TAB_DRAG_THRESHOLD) return;
       state.active = true;
@@ -310,15 +346,7 @@ export function TabRail({ onNewSession, onEditProfile }: Props) {
   const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     const state = drag.current;
     if (!state || state.pointerId !== event.pointerId) return;
-    drag.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    state.row.style.removeProperty("--tab-drag-y");
-    setDragView(null);
-    if (state.active && event.type !== "pointercancel") {
-      moveTab(state.id, state.dropIndex);
-    }
+    finishDrag(event.type === "pointerup" && event.button === 0);
   };
 
   const handleRailScroll = () => {
@@ -379,6 +407,11 @@ export function TabRail({ onNewSession, onEditProfile }: Props) {
           onPointerMove={handlePointerMove}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
+          onLostPointerCapture={endDrag}
+          onWheelCapture={(event) => {
+            // 触摸板滚动可能没有 pointermove，须在 scroll 更新拖拽位置前取消。
+            if ((event.buttons & 1) === 0) finishDrag();
+          }}
           onScroll={handleRailScroll}
         >
           {blocks.map((block) => {
