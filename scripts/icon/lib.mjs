@@ -101,7 +101,7 @@ function brushArc({ cx, cy, r, from, sweep, width, steps = 240 }) {
 const C = {
   night: ['#16273F', '#080E1A'], // 深色底：夜蓝 → 近黑
   paper: ['#FFFFFF', '#E7EDF6'], // 浅色底：纸白 → 冷灰
-  blue: ['#5CC8F5', '#2563EB'], // 主色：青 → 品牌蓝（#2563EB 自 EdgeTerm 沿用）
+  blue: ['#5CC8F5', '#2563EB'], // 主色：青 → Kanso 品牌蓝
   amber: '#FB923C', // 强调色：只给光标，全图唯一的暖色
   ink: '#0B1220',
 }

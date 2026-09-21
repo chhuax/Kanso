@@ -186,9 +186,8 @@ fn machine_id() -> Option<String> {
 /// solely while opening a saved session.  Keeping credentials app-local avoids
 /// the macOS Keychain authorization dialog that otherwise reappears when an
 /// unsigned development build changes identity between restarts.
-/// `session_groups.json` holds the user-defined folders of the Session panel;
-/// it is a separate file so older builds keep reading `sessions.json` as a
-/// plain profile list.
+/// `session_groups.json` 保存左侧会话浮层中的用户分组；
+/// 它必须单独存放，确保旧版本仍能把 `sessions.json` 当作普通配置列表读取。
 /// `sender_commands.json` keeps reusable Sender tags across restarts and upgrades.
 /// `command_history.json` remembers executed commands for inline suggestions;
 /// like credentials it may contain sensitive text, so it is owner-only too.

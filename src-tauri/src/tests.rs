@@ -1697,14 +1697,9 @@ Host odd-tokens
     );
     assert_eq!(web.username, "deploy");
     assert_eq!(web.auth, AuthKind::PublicKey);
-    // The config's `~/.ssh/...` is appended to the home directory verbatim, so
-    // on Windows the result mixes the home path's `\` with the config's `/`.
-    // That is a valid path but not an equal string, so compare the components.
-    let key_path = web.private_key_path.as_deref().expect("a key path");
-    let expected = dir.join(".ssh/deploy_deploy");
     assert_eq!(
-        Path::new(key_path).components().collect::<Vec<_>>(),
-        expected.components().collect::<Vec<_>>(),
+        web.private_key_path.as_deref(),
+        Some(dir.join(".ssh/deploy_deploy").to_str().unwrap()),
         "~ and %r are expanded"
     );
 
@@ -1972,14 +1967,9 @@ Host db
 /// The rail's second line and the Filer's "Reveal Working Directory" both ask
 /// the OS where a local shell is; see `session::cwd`. A real pty is the only
 /// way to cover it: the foreground process group comes off the master.
-///
-/// Unix only: `libc::tcgetpgrp`, `as_raw_fd` and `process_cwd` all live on the
-/// Unix side of `session::cwd`, and `libc` is a `cfg(unix)` dependency. Windows
-/// reaches the same feature through its own branch, but not through any of
-/// these, so the test has nothing to compile against there.
-#[cfg(unix)]
 #[test]
 #[ignore = "needs a pty; run with --ignored where the sandbox allows openpty"]
+#[cfg(unix)]
 fn a_local_shells_working_directory_is_read_from_the_os() {
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 

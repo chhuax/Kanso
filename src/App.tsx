@@ -15,9 +15,9 @@ import {
 import {
   acceptHostKey,
   openLocalShell,
-  revealCwdInFiler,
   SESSION_CLOSED_NOTICE,
   splitSession,
+  toggleFilerForSession,
 } from "./actions";
 import * as api from "./api";
 import { AuthPromptDialog } from "./components/AuthPromptDialog";
@@ -38,13 +38,13 @@ import { TabRail } from "./components/TabRail";
 import { UpdateDialog } from "./components/UpdateDialog";
 import { Workspace } from "./components/Workspace";
 import { FilerPanel } from "./components/panels/FilerPanel";
+import { GitChangesPanel } from "./components/panels/GitChangesPanel";
 import { SenderPanel } from "./components/panels/SenderPanel";
-import { SessionPanel } from "./components/panels/SessionPanel";
 import { applyFonts, symbolFallbacks } from "./fonts";
 import { commandHistory } from "./history";
 import { setSemanticColorTheme } from "./semanticColors";
 import { matchAppShortcut } from "./shortcuts";
-import { useActiveTab, useStore, type PanelName } from "./store";
+import { useActiveTab, useStore } from "./store";
 import { allControllers, getController } from "./terminalRegistry";
 import { isFileSession, type SessionProfile, type SessionState } from "./types";
 import { useUpdater } from "./updater";
@@ -58,10 +58,6 @@ const SessionDialog = lazy(() =>
 );
 
 const REPO_URL = "https://github.com/chhuax/Kanso";
-// GPL-3.0 section 5(c): the About dialog has to say where the licence and the
-// notices can be read, so both are linked from the same place the source is.
-const LICENSE_URL = `${REPO_URL}/blob/main/LICENSE`;
-const NOTICE_URL = `${REPO_URL}/blob/main/NOTICE`;
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
@@ -131,19 +127,12 @@ export default function App() {
   const [fontSettingsOpen, setFontSettingsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [quitPromptOpen, setQuitPromptOpen] = useState(false);
+  const [changesOpen, setChangesOpen] = useState(false);
 
   const [railWidth, setRailWidth] = useState(248);
-  const [rightWidth, setRightWidth] = useState(220);
+  const [filerWidth, setFilerWidth] = useState(320);
+  const [rightWidth, setRightWidth] = useState(420);
   const [senderHeight, setSenderHeight] = useState(160);
-  // Which panel the right sidebar shows; the View menu's two flags decide
-  // which ones it offers (see `availableRightTabs`).
-  const [rightTab, setRightTab] = useState<PanelName>("sessions");
-  // Open to begin with: the session list is the window's second half, and a
-  // window that opens with an empty space beside the terminal makes the user
-  // find the control before they can use the app. Tucking it away is one press
-  // — the menu bar's panel toggle, the only control for it — and is not
-  // remembered, so a fresh window always shows what it has.
-  const [rightCollapsed, setRightCollapsed] = useState(false);
 
   // --- backend events -------------------------------------------------------
 
@@ -317,8 +306,13 @@ export default function App() {
           activateAdjacentTab(shortcut.step);
           return;
         case "togglePanel":
+          if (fileMode && shortcut.panel === "filer") return;
           event.preventDefault();
-          togglePanel(shortcut.panel);
+          if (shortcut.panel === "filer" && activeId) {
+            void toggleFilerForSession(activeId);
+          } else {
+            togglePanel(shortcut.panel);
+          }
           return;
         case "newSession":
           event.preventDefault();
@@ -347,10 +341,7 @@ export default function App() {
           }
           return;
         case "revealCwd":
-          if (activeId && !fileMode) {
-            event.preventDefault();
-            void revealCwdInFiler(activeId);
-          }
+          // 保留旧绑定的数据兼容性，但在 Filer 重新设计前不响应。
           return;
         case "splitPane":
           if (activeId) {
@@ -398,54 +389,14 @@ export default function App() {
 
   // --- layout ---------------------------------------------------------------
 
-  // The session list and the Filer share the right sidebar as two tabs, each
-  // with its own View-menu flag; a file session brings its own dual-pane
-  // manager, so the Filer tab is not offered alongside it.
-  const availableRightTabs: PanelName[] = [
-    // Always there: it is the window's other half, and a sidebar that can be
-    // emptied by the View menu is one the panel toggle can no longer open.
-    "sessions",
-    ...(panels.filer && !fileMode ? (["filer"] as PanelName[]) : []),
-  ];
-  const activeRightTab = availableRightTabs.includes(rightTab)
-    ? rightTab
-    : availableRightTabs[0];
-  const panelTabs = {
-    active: activeRightTab,
-    available: availableRightTabs,
-    onSelect: setRightTab,
-  };
-
-  // The View menu and "reveal the shell's directory in the Filer" switch a
-  // panel on without knowing about the tabs; showing the one they turned on
-  // is what turning it on means.
-  const previousPanels = useRef(panels);
-  useEffect(() => {
-    const previous = previousPanels.current;
-    if (panels.filer && !previous.filer) {
-      setRightTab("filer");
-      setRightCollapsed(false);
-    }
-    previousPanels.current = panels;
-  }, [panels]);
-
-  // "Reveal the shell's directory in the Filer" bumps `filerTarget` whether or
-  // not the Filer is already switched on, so it has to move the tab itself.
-  const filerTarget = useStore((s) => s.filerTarget);
-  useEffect(() => {
-    if (filerTarget) {
-      setRightTab("filer");
-      setRightCollapsed(false);
-    }
-  }, [filerTarget]);
-
-  // "Manage Sessions…" from the rail's menu: the Session panel is where a
-  // saved session is edited, so bring it forward and make sure the sidebar is
-  // showing — the panel is always there, so there is no flag to turn on.
-  const manageSessions = useCallback(() => {
-    setRightTab("sessions");
-    setRightCollapsed(false);
-  }, []);
+  // 只有已连接的 Local Shell 提供 Git 数据；面板本身始终可以打开并展示空状态。
+  const changesTab =
+    activeTab?.info.kind === "local" && activeTab.state === "connected"
+      ? activeTab
+      : null;
+  // 文件会话本身就是双栏浏览器，不再重复打开辅助文件列。
+  const filerPanelOpen = panels.filer && !fileMode;
+  const rightPanelOpen = changesOpen;
 
   return (
     <div
@@ -454,14 +405,15 @@ export default function App() {
         {
           "--panel-font-size": `${panelFontSize}px`,
           "--buffer-font-size": `${bufferFontSize}px`,
+          "--terminal-line-height": `${bufferFontSize * 1.25}px`,
         } as CSSProperties
       }
     >
       <MenuBar
         onNewSession={newSession}
-        rightPanel={{
-          open: !rightCollapsed,
-          onToggle: () => setRightCollapsed(!rightCollapsed),
+        changesPanel={{
+          open: rightPanelOpen,
+          onToggle: () => setChangesOpen((value) => !value),
         }}
         onFind={openSearch}
         onFindNext={findNext}
@@ -471,12 +423,15 @@ export default function App() {
         onAbout={() => setAboutOpen(true)}
       />
 
-      <div className="main">
+      <div className="app-shell">
         <div
           className="sidebar sidebar-left"
           style={{ width: railWidth, flex: `0 0 ${railWidth}px` }}
         >
-          <TabRail onNewSession={newSession} onManageSessions={manageSessions} />
+          <TabRail
+            onNewSession={newSession}
+            onEditProfile={(profile) => setDialog({ profile })}
+          />
         </div>
         <Splitter
           orientation="vertical"
@@ -487,57 +442,74 @@ export default function App() {
           }
         />
 
-        <div className="center">
-          <Workspace onNewSession={newSession} />
-          {searchOpen && (
-            <SearchOverlay
-              ref={searchRef}
-              onClose={() => setSearchOpen(false)}
-            />
-          )}
-        </div>
+        <div className="app-content">
+          <div className="main">
+            {filerPanelOpen && (
+              <>
+                <div
+                  className="sidebar sidebar-filer"
+                  style={{ width: filerWidth, flex: `0 0 ${filerWidth}px` }}
+                >
+                  <FilerPanel />
+                </div>
+                <Splitter
+                  orientation="vertical"
+                  onResize={(delta) =>
+                    setFilerWidth((width) => clamp(width + delta, 220, 560))
+                  }
+                />
+              </>
+            )}
 
-        {!rightCollapsed && (
-          <>
-            <Splitter
-                orientation="vertical"
+            <div className="center">
+              <Workspace onNewSession={newSession} />
+              {searchOpen && (
+                <SearchOverlay
+                  ref={searchRef}
+                  onClose={() => setSearchOpen(false)}
+                />
+              )}
+            </div>
+
+            {rightPanelOpen && (
+              <>
+                <Splitter
+                  orientation="vertical"
+                  onResize={(delta) =>
+                    setRightWidth((width) => clamp(width - delta, 280, 760))
+                  }
+                />
+                <div
+                  className="sidebar sidebar-right"
+                  style={{ width: rightWidth, flex: `0 0 ${rightWidth}px` }}
+                >
+                  <GitChangesPanel
+                    key={activeTab?.info.id ?? "no-session"}
+                    tab={changesTab}
+                    onClose={() => setChangesOpen(false)}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+
+          {panels.sender && (
+            <>
+              <Splitter
+                orientation="horizontal"
                 onResize={(delta) =>
-                  setRightWidth((width) => clamp(width - delta, 150, 520))
+                  setSenderHeight((height) => clamp(height - delta, 80, 400))
                 }
               />
-              <div
-                className="sidebar sidebar-right"
-                style={{ width: rightWidth, flex: `0 0 ${rightWidth}px` }}
-              >
-                {activeRightTab === "filer" ? (
-                  <FilerPanel tabs={panelTabs} />
-                ) : (
-                  <SessionPanel
-                    tabs={panelTabs}
-                    onNewSession={newSession}
-                    onEditProfile={(profile) => setDialog({ profile })}
-                  />
-                )}
+              <div className="bottom-dock" style={{ height: senderHeight }}>
+                <SenderPanel />
               </div>
-          </>
-        )}
+            </>
+          )}
+
+          <StatusBar />
+        </div>
       </div>
-
-      {panels.sender && (
-        <>
-          <Splitter
-            orientation="horizontal"
-            onResize={(delta) =>
-              setSenderHeight((height) => clamp(height - delta, 80, 400))
-            }
-          />
-          <div className="bottom-dock" style={{ height: senderHeight }}>
-            <SenderPanel />
-          </div>
-        </>
-      )}
-
-      <StatusBar />
 
       <UpdateDialog
         appVersion={updater.appVersion}
@@ -651,11 +623,12 @@ export default function App() {
                 Kanso{updater.appVersion ? ` ${updater.appVersion}` : ""}
               </strong>
               <span>
-                A small, fast terminal, SSH and SFTP client. The installer is
-                tiny, it starts instantly, and it stays out of your way.
+                A small, fast terminal, SSH, SFTP and FTP client. The
+                installer is tiny, it starts instantly, and it stays out of
+                your way.
               </span>
               <span style={{ color: "var(--fg-faint)" }}>
-                A fork of EdgeTerm by miskin-lee ·{" "}
+                Made by miskin ·{" "}
                 <a
                   className="about-link"
                   href={REPO_URL}
@@ -667,43 +640,6 @@ export default function App() {
                   }}
                 >
                   github.com/chhuax/Kanso
-                </a>
-              </span>
-              {/* GPL-3.0 section 5(c) appropriate legal notices. */}
-              <span
-                style={{
-                  color: "var(--fg-faint)",
-                  fontSize: 11,
-                  lineHeight: 1.5,
-                }}
-              >
-                Copyright (C) 2026 the Kanso contributors. Free software under
-                the GNU General Public License v3.0 only, with no warranty; you
-                may redistribute it under that licence.{" "}
-                <a
-                  className="about-link"
-                  href={LICENSE_URL}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    void openUrl(LICENSE_URL).catch((error) => {
-                      console.error("Failed to open the licence:", error);
-                    });
-                  }}
-                >
-                  Licence
-                </a>
-                {" · "}
-                <a
-                  className="about-link"
-                  href={NOTICE_URL}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    void openUrl(NOTICE_URL).catch((error) => {
-                      console.error("Failed to open the notices:", error);
-                    });
-                  }}
-                >
-                  Notices
                 </a>
               </span>
             </div>

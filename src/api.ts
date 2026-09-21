@@ -6,6 +6,8 @@ import type {
   AuthPrompt,
   DataSummary,
   DirListing,
+  GitChanges,
+  GitFileDiff,
   HostKeyChange,
   OpenSessionOutcome,
   SavedCommand,
@@ -134,8 +136,16 @@ export const clearCommandHistory = () =>
 
 // --- sessions ---------------------------------------------------------------
 
-export const openSession = (profile: SessionProfile, sessionId: string) =>
-  invoke<OpenSessionOutcome>("open_session", { profile, sessionId });
+export const openSession = (
+  profile: SessionProfile,
+  sessionId: string,
+  transportSessionId?: string,
+) =>
+  invoke<OpenSessionOutcome>("open_session", {
+    profile,
+    sessionId,
+    transportSessionId: transportSessionId ?? null,
+  });
 
 /** Records the key from a reported change as the host's only known key. */
 export const acceptHostKey = (change: HostKeyChange) =>
@@ -339,6 +349,26 @@ export const sessionCwd = (id: string) =>
  */
 export const gitBranch = (path: string) =>
   invoke<string | null>("git_branch", { path });
+
+/** 返回本地目录所属仓库的未提交变更；不在仓库中时返回 null。 */
+export const gitChanges = (path: string) =>
+  invoke<GitChanges | null>("git_changes", { path });
+
+/** 读取仓库内一个未提交文件的统一 diff。 */
+export const gitFileDiff = (root: string, path: string) =>
+  invoke<GitFileDiff | null>("git_file_diff", { root, path });
+
+/** 暂存仓库内的全部变更并创建提交。 */
+export const gitCommitAll = (root: string, message: string) =>
+  invoke<GitChanges>("git_commit_all", { root, message });
+
+/** 丢弃一个当前未提交文件；新增或未跟踪内容会被永久删除。 */
+export const gitDiscardFile = (root: string, path: string) =>
+  invoke<GitChanges>("git_discard_file", { root, path });
+
+/** 丢弃仓库内全部未提交变更，但保留被忽略的内容。 */
+export const gitDiscardAll = (root: string) =>
+  invoke<GitChanges>("git_discard_all", { root });
 
 export const localHostname = () => invoke<string>("local_hostname");
 

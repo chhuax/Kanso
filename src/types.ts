@@ -23,10 +23,7 @@ export interface SessionProfile {
   name: string;
   kind: SessionKind;
   color?: string | null;
-  /**
-   * Session panel group holding this profile; null / undefined lists it
-   * directly under its kind's top-level heading.
-   */
+  /** 会话所属分组；null 或 undefined 表示在会话浮层顶层展示。 */
   groupId?: string | null;
 
   // terminal text (local / ssh)
@@ -60,11 +57,7 @@ export interface SessionProfile {
   jumpProfileId?: string | null;
 }
 
-/**
- * A user-defined folder in the Session panel. Groups are one level deep and
- * hold any session kind, so one folder can gather the SSH and SFTP sessions of
- * the same host; nothing ties a group to a kind or to another group.
- */
+/** 会话库的单层用户分组，可混合保存不同协议的会话，不支持嵌套。 */
 export interface SessionGroup {
   id: string;
   name: string;
@@ -160,14 +153,50 @@ export interface DirListing {
   entries: FileEntry[];
 }
 
+/** 未提交文件的主要 Git 状态，供本地变更列表展示。 */
+export type GitFileStatus =
+  | "modified"
+  | "added"
+  | "deleted"
+  | "renamed"
+  | "copied"
+  | "untracked"
+  | "conflicted"
+  | "typeChanged";
+
+/** Git 工作区中的一个未提交文件，由 Local Shell 的当前目录解析。 */
+export interface GitFileChange {
+  path: string;
+  previousPath: string | null;
+  status: GitFileStatus;
+  /** 二进制或超出读取上限的文件没有可靠行数，返回 null。 */
+  additions: number | null;
+  /** 二进制或超出读取上限的文件没有可靠行数，返回 null。 */
+  deletions: number | null;
+}
+
+/** 当前 Local Shell 所在仓库的只读变更摘要。 */
+export interface GitChanges {
+  root: string;
+  branch: string | null;
+  files: GitFileChange[];
+  additions: number;
+  deletions: number;
+}
+
+/** 单文件展开后显示的统一 diff；过大的内容会由后端截断。 */
+export interface GitFileDiff {
+  text: string;
+  truncated: boolean;
+}
+
 export type SessionState = "connecting" | "connected" | "closed" | "error";
 
 export type LineEnding = "none" | "lf" | "crlf";
 
 /**
- * Where a saved Sender command is listed: everywhere, for one session kind,
- * for a Session panel group (and everything nested in it), or for one saved
- * session. See `senderScope.ts` for how a tab's chain of scopes is resolved.
+ * Sender 命令的可见范围：全局、某种会话类型、某个会话分组，或某个已保存
+ * 会话。标签页如何解析作用域链见 `senderScope.ts`。
  */
 export type CommandScope =
   | { type: "global" }

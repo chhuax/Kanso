@@ -407,16 +407,19 @@ fn describe_host_key_change(
 }
 
 pub struct SshConnection {
-    handle: Arc<Handle<Client>>,
+    transport: SharedSshTransport,
     channel: Channel<Msg>,
-    hops: Hops,
-    legacy: Vec<LegacyAlgorithms>,
 }
 
 impl SshConnection {
-    /// The transports that could only connect on legacy algorithms.
+    /// 返回此 Shell 所属的共享 transport，供复制标签时新开 PTY channel。
+    pub fn transport(&self) -> SharedSshTransport {
+        self.transport.clone()
+    }
+
+    /// 返回只能使用旧算法连接的 transport。
     pub fn legacy_algorithms(&self) -> &[LegacyAlgorithms] {
-        &self.legacy
+        self.transport.legacy_algorithms()
     }
 }
 
@@ -438,6 +441,66 @@ impl Hops {
     }
 }
 
+struct SharedSshTransportInner {
+    handle: Arc<Handle<Client>>,
+    // 最后一个共享引用释放时取出并按逆序关闭；Option 防止重复断开。
+    hops: Mutex<Option<Hops>>,
+    legacy: Vec<LegacyAlgorithms>,
+}
+
+impl Drop for SharedSshTransportInner {
+    fn drop(&mut self) {
+        let handle = self.handle.clone();
+        let hops = self.hops.get_mut().take();
+
+        // 断开需要异步执行，放在 Arc 内层的 Drop 中才能保证并发关闭多个标签时
+        // 只有真正释放最后一个引用的一方负责断开，不会出现彼此都认为还有引用。
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            let _ = runtime.spawn(async move {
+                let _ = handle
+                    .disconnect(russh::Disconnect::ByApplication, "", "en")
+                    .await;
+                if let Some(hops) = hops {
+                    hops.disconnect().await;
+                }
+            });
+        }
+    }
+}
+
+/**
+ * 已完成认证的 SSH transport。多个终端标签各自持有独立 channel，但共享这里的
+ * transport 和跳板链路；只有最后一个持有者结束时才真正断开。
+ */
+#[derive(Clone)]
+pub struct SharedSshTransport(Arc<SharedSshTransportInner>);
+
+impl SharedSshTransport {
+    fn new(transport: Transport) -> Self {
+        Self(Arc::new(SharedSshTransportInner {
+            handle: Arc::new(transport.handle),
+            hops: Mutex::new(Some(transport.hops)),
+            legacy: transport.legacy,
+        }))
+    }
+
+    fn handle(&self) -> Arc<Handle<Client>> {
+        self.0.handle.clone()
+    }
+
+    fn legacy_algorithms(&self) -> &[LegacyAlgorithms] {
+        &self.0.legacy
+    }
+
+    fn is_closed(&self) -> bool {
+        self.0.handle.is_closed()
+    }
+
+    async fn open_shell(&self, profile: &SessionProfile) -> Result<Channel<Msg>> {
+        open_shell_channel(self.0.handle.as_ref(), profile).await
+    }
+}
+
 pub enum ConnectOutcome {
     Ready(SshConnection),
     /// The handshake was refused because the host's key changed; nothing was
@@ -448,15 +511,18 @@ pub enum ConnectOutcome {
 /// An SSH transport that carries only the SFTP subsystem: a file-transfer
 /// session with no shell channel or PTY. See `spawn_sftp`.
 pub struct SftpConnection {
-    handle: Arc<Handle<Client>>,
-    hops: Hops,
-    legacy: Vec<LegacyAlgorithms>,
+    transport: SharedSshTransport,
 }
 
 impl SftpConnection {
-    /// The transports that could only connect on legacy algorithms.
+    /// 返回此文件会话所属的共享 transport。
+    pub fn transport(&self) -> SharedSshTransport {
+        self.transport.clone()
+    }
+
+    /// 返回只能使用旧算法连接的 transport。
     pub fn legacy_algorithms(&self) -> &[LegacyAlgorithms] {
-        &self.legacy
+        self.transport.legacy_algorithms()
     }
 }
 
@@ -638,18 +704,38 @@ pub async fn connect(
     jumps: &[SessionProfile],
     prompter: &AuthPrompter<'_>,
 ) -> Result<ConnectOutcome> {
-    let Transport {
-        handle,
-        hops,
-        legacy,
-    } = match connect_handle(profile, jumps, prompter).await? {
+    let transport = match connect_handle(profile, jumps, prompter).await? {
         HandleOutcome::Ready(transport) => transport,
         HandleOutcome::HostKeyChanged(change) => {
             return Ok(ConnectOutcome::HostKeyChanged(change));
         }
     };
-    let handle = Arc::new(handle);
+    let transport = SharedSshTransport::new(transport);
+    let channel = transport.open_shell(profile).await?;
 
+    Ok(ConnectOutcome::Ready(SshConnection { transport, channel }))
+}
+
+/**
+ * 在已经认证的 transport 上新建独立 Shell channel。这里不会重新握手或认证，
+ * 因此复制需要 OTP 的会话时不会再次向用户索要验证码。
+ */
+pub async fn connect_shared(
+    profile: &SessionProfile,
+    transport: SharedSshTransport,
+) -> Result<SshConnection> {
+    if transport.is_closed() {
+        return Err(AppError::new("the shared SSH transport is closed"));
+    }
+    let channel = transport.open_shell(profile).await?;
+    Ok(SshConnection { transport, channel })
+}
+
+/** 在认证后的 transport 上创建一个带 PTY 的交互式 Shell channel。 */
+async fn open_shell_channel(
+    handle: &Handle<Client>,
+    profile: &SessionProfile,
+) -> Result<Channel<Msg>> {
     let channel = handle.channel_open_session().await?;
     channel
         .request_pty(true, "xterm-256color", 80, 24, 0, 0, &[])
@@ -666,13 +752,7 @@ pub async fn connect(
         let _ = channel.set_env(false, "LANG", lang).await;
     }
     channel.request_shell(true).await?;
-
-    Ok(ConnectOutcome::Ready(SshConnection {
-        handle,
-        channel,
-        hops,
-        legacy,
-    }))
+    Ok(channel)
 }
 
 /// Opens an SFTP-only session: the same SSH handshake and authentication as a
@@ -685,14 +765,8 @@ pub async fn connect_sftp(
     prompter: &AuthPrompter<'_>,
 ) -> Result<SftpConnectOutcome> {
     match connect_handle(profile, jumps, prompter).await? {
-        HandleOutcome::Ready(Transport {
-            handle,
-            hops,
-            legacy,
-        }) => Ok(SftpConnectOutcome::Ready(SftpConnection {
-            handle: Arc::new(handle),
-            hops,
-            legacy,
+        HandleOutcome::Ready(transport) => Ok(SftpConnectOutcome::Ready(SftpConnection {
+            transport: SharedSshTransport::new(transport),
         })),
         HandleOutcome::HostKeyChanged(change) => Ok(SftpConnectOutcome::HostKeyChanged(change)),
     }
@@ -991,12 +1065,8 @@ pub fn spawn(
     mut rx: UnboundedReceiver<SessionCommand>,
 ) {
     tauri::async_runtime::spawn(async move {
-        let SshConnection {
-            handle,
-            channel,
-            hops,
-            ..
-        } = conn;
+        let SshConnection { transport, channel } = conn;
+        let handle = transport.handle();
         let (mut reader, writer) = channel.split();
         let mut pump = OutputPump::new(app.clone(), id.clone());
         let mut sftp: Option<Arc<SftpSession>> = None;
@@ -1079,10 +1149,7 @@ pub fn spawn(
                 exit_status.map(|c| format!("exit status {c}")),
             );
         }
-        let _ = handle
-            .disconnect(russh::Disconnect::ByApplication, "", "en")
-            .await;
-        hops.disconnect().await;
+        drop(transport);
     });
 }
 
@@ -1099,7 +1166,8 @@ pub fn spawn_sftp(
     mut rx: UnboundedReceiver<SessionCommand>,
 ) {
     tauri::async_runtime::spawn(async move {
-        let SftpConnection { handle, hops, .. } = conn;
+        let SftpConnection { transport } = conn;
+        let handle = transport.handle();
         let mut sftp: Option<Arc<SftpSession>> = None;
         // Set when the frontend asked for the close; see `emit_state`.
         let mut close_requested = false;
@@ -1143,10 +1211,7 @@ pub fn spawn_sftp(
         if !close_requested {
             emit_state(&app, &id, "closed", None);
         }
-        let _ = handle
-            .disconnect(russh::Disconnect::ByApplication, "", "en")
-            .await;
-        hops.disconnect().await;
+        drop(transport);
     });
 }
 
@@ -1780,7 +1845,7 @@ mod tests {
             "marker missing from {}",
             String::from_utf8_lossy(&output)
         );
-        conn.hops.disconnect().await;
+        drop(conn);
 
         // SFTP through the same kind of tunnel.
         let sftp = match connect_sftp(&target, std::slice::from_ref(&jump), &prompter)
@@ -1791,7 +1856,8 @@ mod tests {
             SftpConnectOutcome::HostKeyChanged(change) => panic!("{}", change.message),
         };
         let mut slot = None;
-        let session = ensure_sftp(&sftp.handle, &mut slot)
+        let handle = sftp.transport.handle();
+        let session = ensure_sftp(&handle, &mut slot)
             .await
             .expect("sftp subsystem");
         match run_sftp(session, SftpRequest::List { path: "/".into() })
@@ -1801,7 +1867,9 @@ mod tests {
             SftpResponse::Listing(listing) => assert!(!listing.entries.is_empty()),
             other => panic!("unexpected response: {other:?}"),
         }
-        sftp.hops.disconnect().await;
+        drop(slot);
+        drop(handle);
+        drop(sftp);
 
         // Both hops went through the host key policy: each was learned.
         let known_hosts = std::fs::read_to_string(home.join(".ssh").join("known_hosts"))
@@ -1851,7 +1919,8 @@ mod tests {
             SftpConnectOutcome::HostKeyChanged(change) => panic!("{}", change.message),
         };
         let mut slot = None;
-        let session = ensure_sftp(&sftp.handle, &mut slot)
+        let handle = sftp.transport.handle();
+        let session = ensure_sftp(&handle, &mut slot)
             .await
             .expect("sftp subsystem");
 
@@ -1882,7 +1951,9 @@ mod tests {
             },
         )
         .await;
-        sftp.hops.disconnect().await;
+        drop(slot);
+        drop(handle);
+        drop(sftp);
 
         let error = outcome.expect_err("the download stops").to_string();
         assert!(error.contains("transfer cancelled"), "{error}");

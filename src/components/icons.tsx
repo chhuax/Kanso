@@ -22,17 +22,22 @@ import copilot from "@vscode/codicons/src/icons/copilot.svg?raw";
 import copy from "@vscode/codicons/src/icons/copy.svg?raw";
 import cursor from "@vscode/codicons/src/icons/cursor.svg?raw";
 import debugStop from "@vscode/codicons/src/icons/debug-stop.svg?raw";
+import diff from "@vscode/codicons/src/icons/diff.svg?raw";
+import discard from "@vscode/codicons/src/icons/discard.svg?raw";
 import edit from "@vscode/codicons/src/icons/edit.svg?raw";
+import ellipsis from "@vscode/codicons/src/icons/ellipsis.svg?raw";
 import error from "@vscode/codicons/src/icons/error.svg?raw";
 import folder from "@vscode/codicons/src/icons/folder.svg?raw";
 import folderOpened from "@vscode/codicons/src/icons/folder-opened.svg?raw";
 import goToFile from "@vscode/codicons/src/icons/go-to-file.svg?raw";
 import googleGemini from "@vscode/codicons/src/icons/google-gemini.svg?raw";
+import gitCommit from "@vscode/codicons/src/icons/git-commit.svg?raw";
 import home from "@vscode/codicons/src/icons/home.svg?raw";
 import layoutSidebarRight from "@vscode/codicons/src/icons/layout-sidebar-right.svg?raw";
 import layoutSidebarRightOff from "@vscode/codicons/src/icons/layout-sidebar-right-off.svg?raw";
 import linkExternal from "@vscode/codicons/src/icons/link-external.svg?raw";
 import listSelection from "@vscode/codicons/src/icons/list-selection.svg?raw";
+import kebabVertical from "@vscode/codicons/src/icons/kebab-vertical.svg?raw";
 import move from "@vscode/codicons/src/icons/move.svg?raw";
 import newFile from "@vscode/codicons/src/icons/new-file.svg?raw";
 import newFolder from "@vscode/codicons/src/icons/new-folder.svg?raw";
@@ -51,12 +56,14 @@ import save from "@vscode/codicons/src/icons/save.svg?raw";
 import search from "@vscode/codicons/src/icons/search.svg?raw";
 import send from "@vscode/codicons/src/icons/send.svg?raw";
 import server from "@vscode/codicons/src/icons/server.svg?raw";
+import sourceControl from "@vscode/codicons/src/icons/source-control.svg?raw";
 import sparkle from "@vscode/codicons/src/icons/sparkle.svg?raw";
 import splitHorizontal from "@vscode/codicons/src/icons/split-horizontal.svg?raw";
 import splitVertical from "@vscode/codicons/src/icons/split-vertical.svg?raw";
 import tag from "@vscode/codicons/src/icons/tag.svg?raw";
 import target from "@vscode/codicons/src/icons/target.svg?raw";
 import terminal from "@vscode/codicons/src/icons/terminal.svg?raw";
+import terminalPrompt from "../assets/terminal-prompt.svg?raw";
 import trash from "@vscode/codicons/src/icons/trash.svg?raw";
 import warning from "@vscode/codicons/src/icons/warning.svg?raw";
 import watch from "@vscode/codicons/src/icons/watch.svg?raw";
@@ -81,15 +88,20 @@ const SVGS = {
   copy,
   cursor,
   "debug-stop": debugStop,
+  diff,
+  discard,
   edit,
+  ellipsis,
   error,
   folder,
   "folder-opened": folderOpened,
   "go-to-file": goToFile,
   "google-gemini": googleGemini,
+  "git-commit": gitCommit,
   home,
   "link-external": linkExternal,
   "list-selection": listSelection,
+  "kebab-vertical": kebabVertical,
   move,
   "new-file": newFile,
   openai,
@@ -105,6 +117,7 @@ const SVGS = {
   search,
   send,
   server,
+  "source-control": sourceControl,
   sparkle,
   "layout-sidebar-right": layoutSidebarRight,
   "layout-sidebar-right-off": layoutSidebarRightOff,
@@ -113,6 +126,7 @@ const SVGS = {
   tag,
   target,
   terminal,
+  "terminal-prompt": terminalPrompt,
   trash,
   warning,
   watch,

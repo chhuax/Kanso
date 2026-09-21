@@ -208,13 +208,13 @@ describe("storage", () => {
       {
         find: { code: "KeyF" },
         clear: 7,
-        revealCwd: chord("KeyR", { meta: true }),
+        prevTab: chord("KeyR", { meta: true }),
       },
       DEFAULT_SHORTCUTS,
     );
     expect(parsed?.find).toEqual(DEFAULT_SHORTCUTS.find);
     expect(parsed?.clear).toEqual(DEFAULT_SHORTCUTS.clear);
-    expect(parsed?.revealCwd).toEqual(chord("KeyR", { meta: true }));
+    expect(parsed?.prevTab).toEqual(chord("KeyR", { meta: true }));
     expect(parseShortcuts("nonsense", DEFAULT_SHORTCUTS)).toBeNull();
   });
 

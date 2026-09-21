@@ -115,7 +115,11 @@ impl Context {
     fn expand_tilde(&self, value: &str) -> String {
         match (value.strip_prefix('~'), &self.home) {
             (Some(rest), Some(home)) if rest.is_empty() || rest.starts_with(['/', '\\']) => {
-                format!("{}{}", home.to_string_lossy(), rest)
+                // 去掉前导分隔符后再交给 PathBuf 拼接，避免 Windows 结果混用 `/` 与 `\\`；
+                // 也不能直接拼接绝对形式的 rest，否则 join 会丢掉 home。
+                home.join(rest.trim_start_matches(['/', '\\']))
+                    .to_string_lossy()
+                    .into_owned()
             }
             _ => value.to_string(),
         }

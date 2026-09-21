@@ -357,6 +357,37 @@ function isTableHeader(text: string): boolean {
   return capitalized * 3 >= tokens.length * 2;
 }
 
+const COMMAND_PREFIXES = new Set(["sudo", "doas", "env", "command", "builtin", "nohup"]);
+const COMMAND_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+
+function commandBinary(segment: string): string {
+  const tokens = segment.trim().split(/\s+/).filter(Boolean);
+  let prefixed = false;
+  for (const token of tokens) {
+    if (COMMAND_ASSIGNMENT.test(token) || (prefixed && token.startsWith("-"))) {
+      continue;
+    }
+    const name = (token.split(/[/\\]/).pop() ?? "").toLowerCase();
+    if (COMMAND_PREFIXES.has(name)) {
+      prefixed = true;
+      continue;
+    }
+    return name;
+  }
+  return "";
+}
+
+/**
+ * 判断一条已提交命令的输出能否使用表头着色。调用方必须传入完整命令行；
+ * 只要组合命令中包含 `ls`，整块输出都禁用表头着色，因为终端无法可靠区分
+ * 各子命令分别写出的行。
+ */
+export function allowsTableHeaderColors(command: string): boolean {
+  return !command
+    .split(/&&|\|\||[;|]/)
+    .some((segment) => commandBinary(segment) === "ls");
+}
+
 /**
  * Finds useful tokens in plain, single-width terminal output. ANSI-styled cells
  * are filtered by TerminalController before these ranges become decorations.
@@ -371,7 +402,14 @@ function isTableHeader(text: string): boolean {
 const MAX_RANGES_PER_LINE = 240;
 const PUNCTUATION_MAX_LENGTH = 1000;
 
-export function semanticLine(text: string): SemanticLine {
+/**
+ * 为一行无 ANSI 样式的终端文本生成语义颜色。`allowTableHeaders` 应由所属
+ * 命令块决定；无法确定命令时保持默认值，不影响现有着色行为。
+ */
+export function semanticLine(
+  text: string,
+  allowTableHeaders = true,
+): SemanticLine {
   const C = SEMANTIC_COLORS;
   const ranges: SemanticRange[] = [];
   let band: string | undefined;
@@ -453,7 +491,7 @@ export function semanticLine(text: string): SemanticLine {
     add(0, text.length, C.gray);
   } else if (/^\s*\[[^\]\s][^\]]*\]\s*$/.test(text)) {
     add(0, text.length, C.violet);
-  } else if (isTableHeader(text)) {
+  } else if (allowTableHeaders && isTableHeader(text)) {
     add(0, text.length, C.sky);
     band = BANDS.header;
   } else {

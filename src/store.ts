@@ -25,6 +25,7 @@ import type { CursorStyle, GutterMode, RightClickAction } from "./terminal";
 import { disposeController, getController } from "./terminalRegistry";
 import type {
   AuthPrompt,
+  GitChanges,
   HostKeyChange,
   SessionGroup,
   SessionInfo,
@@ -85,6 +86,8 @@ export interface Tab {
    * directory is in no repository, so the row keeps one line.
    */
   branch?: string | null;
+  /** 当前本地工作目录所属仓库的未提交变更；SSH/SFTP 会话永不设置。 */
+  gitChanges?: GitChanges | null;
   message?: string;
   cols: number;
   rows: number;
@@ -120,13 +123,8 @@ export interface HostKeyPrompt {
   change: HostKeyChange;
 }
 
-export type PanelName = "filer" | "sessions" | "sender";
-/**
- * The panels the View menu can switch on. The session list is not one of them:
- * it is always the right sidebar's first tab, and a sidebar that could be
- * emptied had no way back to itself.
- */
-export type OptionalPanel = Exclude<PanelName, "sessions">;
+/** 可由菜单和快捷键切换的辅助面板；会话管理由左侧入口承载。 */
+export type OptionalPanel = "filer" | "sender";
 
 export const PANEL_FONT_SIZE = { min: 9, max: 18, default: 12 } as const;
 export const BUFFER_FONT_SIZE = { min: 8, max: 32, default: 14 } as const;
@@ -135,9 +133,7 @@ export const TERMINAL_SCROLLBACK = {
   max: 1_000_000,
   default: 20_000,
 } as const;
-// The session list is always in the right sidebar, so the flags cover only
-// what may join it: the Filer and the Sender stay hidden until the user opens
-// them from the View menu.
+// 辅助面板默认收起，把主窗口空间留给终端；已保存的用户设置优先。
 const DEFAULT_PANELS: Record<OptionalPanel, boolean> = {
   filer: false,
   sender: false,
@@ -437,7 +433,7 @@ export interface AppSettings {
 
 interface AppStore {
   profiles: SessionProfile[];
-  /** User-defined folders of the Session panel; see `SessionGroup`. */
+  /** 已保存会话的用户分组，与左侧会话入口共享。 */
   groups: SessionGroup[];
   tabs: Tab[];
   /** The focused tab: the active tab of the active pane. */
@@ -549,6 +545,8 @@ interface AppStore {
   activateAdjacentTab: (direction: -1 | 1) => void;
   /** Steps through the panes in reading order. */
   activateAdjacentPane: (direction: -1 | 1) => void;
+  /** 将标签移动到所属窗格内的指定位置；索引按移除自身后的标签计算。 */
+  moveTab: (id: string, index: number) => void;
   /**
    * Opens a new pane beside `paneId`, on the given side, and makes it the
    * active one; with `tabId` that tab moves into it, otherwise the pane is
@@ -574,6 +572,8 @@ interface AppStore {
   setCwd: (id: string, cwd: string | null) => void;
   /** Records the branch that directory is on, for the line under it. */
   setBranch: (id: string, branch: string | null) => void;
+  /** 更新 Local Shell 当前仓库的只读变更摘要。 */
+  setGitChanges: (id: string, changes: GitChanges | null) => void;
   /** Leaves an unread completion on a background tab until it is selected. */
   markCommandCompleted: (id: string, kind?: ActivityKind) => void;
   /** Clears activity when a submitted write failed before reaching the shell. */
@@ -952,6 +952,17 @@ export const useStore = create<AppStore>((set, get) => ({
     if (next) get().setActivePane(next);
   },
 
+  moveTab(id, index) {
+    const tabs = get().tabs;
+    const tab = tabs.find((item) => item.info.id === id);
+    if (!tab) return;
+    const siblings = tabs.filter((item) => item.paneId === tab.paneId);
+    const from = siblings.indexOf(tab);
+    const to = Math.max(0, Math.min(index, siblings.length - 1));
+    if (to === from) return;
+    set({ tabs: placeTab(tabs, id, tab.paneId, to) });
+  },
+
   splitPane(paneId, side, tabId) {
     const current = get();
     if (!current.panes.some((pane) => pane.id === paneId)) {
@@ -1025,7 +1036,13 @@ export const useStore = create<AppStore>((set, get) => ({
     // Reported after every command; nothing to do while it has not moved.
     const tab = get().tabs.find((item) => item.info.id === id);
     if (!tab || tab.cwd === cwd) return;
-    set({ tabs: patchTab(get().tabs, id, { cwd }) });
+    set({
+      tabs: patchTab(get().tabs, id, {
+        cwd,
+        branch: null,
+        gitChanges: null,
+      }),
+    });
   },
 
   setBranch(id, branch) {
@@ -1033,6 +1050,17 @@ export const useStore = create<AppStore>((set, get) => ({
     const tab = get().tabs.find((item) => item.info.id === id);
     if (!tab || tab.branch === branch) return;
     set({ tabs: patchTab(get().tabs, id, { branch }) });
+  },
+
+  setGitChanges(id, changes) {
+    const tab = get().tabs.find((item) => item.info.id === id);
+    if (tab?.info.kind !== "local") return;
+    set({
+      tabs: patchTab(get().tabs, id, {
+        gitChanges: changes,
+        branch: changes?.branch ?? null,
+      }),
+    });
   },
 
   markCommandStarted(id, kind = "command") {

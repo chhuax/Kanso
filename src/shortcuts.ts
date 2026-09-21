@@ -169,18 +169,6 @@ export const SHORTCUT_COMMANDS: {
     action: { kind: "clear" },
   },
   {
-    id: "revealCwd",
-    label: "Reveal Working Directory",
-    hint: "Point the Filer at the shell's directory",
-    action: { kind: "revealCwd" },
-  },
-  {
-    id: "panelFiler",
-    label: "Toggle Filer Panel",
-    hint: "Show or hide the right panel",
-    action: { kind: "togglePanel", panel: "filer" },
-  },
-  {
     id: "panelSender",
     label: "Toggle Sender Panel",
     hint: "Show or hide the bottom panel",

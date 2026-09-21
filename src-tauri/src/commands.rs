@@ -227,9 +227,14 @@ pub async fn open_session(
     // The frontend mints the id so it can have a terminal listening before the
     // first byte of output arrives.
     session_id: String,
+    // 复制 SSH 标签时指定来源会话；普通新建和重连传 None。
+    transport_session_id: Option<String>,
 ) -> Result<OpenSessionOutcome> {
     // A profile may arrive by id (from the tree) or inline (quick connect).
-    let profile = if !profile.id.is_empty() {
+    // 复制必须沿用来源标签实际连接时的配置；若保存项此后被编辑，不能把旧
+    // transport 标成新地址。只有普通新建才重新读取保存项。
+    let reuse_requested = transport_session_id.is_some() && profile.kind == SessionKind::Ssh;
+    let profile = if !reuse_requested && !profile.id.is_empty() {
         match state.store.get(&profile.id)? {
             // Prefer a secret supplied by the dialog over the saved credential.
             Some(saved) => merge_secrets(saved, profile),
@@ -246,6 +251,7 @@ pub async fn open_session(
     };
     let (tx, rx) = mpsc::unbounded_channel();
     let mut info = session::make_info(&id, &profile);
+    let mut ssh_transport = None;
 
     match profile.kind {
         SessionKind::Local => {
@@ -253,11 +259,34 @@ pub async fn open_session(
         }
         SessionKind::Ssh => {
             let prompter = AuthPrompter::ui(&app, &state.auth_prompts, &id);
-            match session::ssh::connect(&profile, &state.store.jump_chain(&profile)?, &prompter)
+            let shared = transport_session_id
+                .as_deref()
+                .and_then(|source_id| state.sessions.ssh_transport(source_id));
+            let outcome = if let Some(transport) = shared {
+                match session::ssh::connect_shared(&profile, transport).await {
+                    Ok(conn) => ConnectOutcome::Ready(conn),
+                    // transport 已失效或服务器拒绝新 channel 时才完整重连。
+                    Err(_) => {
+                        session::ssh::connect(
+                            &profile,
+                            &state.store.jump_chain(&profile)?,
+                            &prompter,
+                        )
+                        .await?
+                    }
+                }
+            } else {
+                session::ssh::connect(
+                    &profile,
+                    &state.store.jump_chain(&profile)?,
+                    &prompter,
+                )
                 .await?
-            {
+            };
+            match outcome {
                 ConnectOutcome::Ready(conn) => {
                     info.legacy_algorithms = conn.legacy_algorithms().to_vec();
+                    ssh_transport = Some(conn.transport());
                     session::ssh::spawn(app.clone(), id.clone(), conn, rx);
                 }
                 // Nothing was opened; the user decides whether to trust the new
@@ -278,6 +307,7 @@ pub async fn open_session(
             {
                 SftpConnectOutcome::Ready(conn) => {
                     info.legacy_algorithms = conn.legacy_algorithms().to_vec();
+                    ssh_transport = Some(conn.transport());
                     session::ssh::spawn_sftp(app.clone(), id.clone(), conn, rx);
                 }
                 // Same host-key decision as a shell session on the same transport.
@@ -291,6 +321,7 @@ pub async fn open_session(
     state.sessions.insert(SessionHandle {
         info: info.clone(),
         tx,
+        ssh_transport,
         encoding: session::encoding::terminal_encoding(&profile),
     });
     Ok(OpenSessionOutcome::Connected { info })
@@ -650,6 +681,51 @@ pub async fn session_cwd(state: State<'_, AppState>, id: String) -> Result<Strin
 #[tauri::command]
 pub fn git_branch(path: String) -> Option<String> {
     git::branch_for(Path::new(&path))
+}
+
+/// 返回本地目录所属仓库的未提交变更；目录不在仓库中时返回 None。
+#[tauri::command]
+pub async fn git_changes(path: String) -> Result<Option<git::GitChanges>> {
+    tokio::task::spawn_blocking(move || git::changes_for(Path::new(&path)))
+        .await
+        .map_err(|error| AppError::new(format!("git status task failed: {error}")))?
+        .map_err(AppError::from)
+}
+
+/// 返回仓库内一个未提交文件的统一 diff，供右侧 Changes 面板按需展开。
+#[tauri::command]
+pub async fn git_file_diff(root: String, path: String) -> Result<Option<git::GitFileDiff>> {
+    tokio::task::spawn_blocking(move || git::diff_for(Path::new(&root), &path))
+        .await
+        .map_err(|error| AppError::new(format!("git diff task failed: {error}")))?
+        .map_err(AppError::from)
+}
+
+/// 暂存当前仓库的全部变更并创建提交，返回提交后的最新状态。
+#[tauri::command]
+pub async fn git_commit_all(root: String, message: String) -> Result<git::GitChanges> {
+    tokio::task::spawn_blocking(move || git::commit_all(Path::new(&root), &message))
+        .await
+        .map_err(|error| AppError::new(format!("git commit task failed: {error}")))?
+        .map_err(AppError::from)
+}
+
+/// 丢弃一个当前未提交文件，返回操作后的最新状态。
+#[tauri::command]
+pub async fn git_discard_file(root: String, path: String) -> Result<git::GitChanges> {
+    tokio::task::spawn_blocking(move || git::discard_file(Path::new(&root), &path))
+        .await
+        .map_err(|error| AppError::new(format!("git discard task failed: {error}")))?
+        .map_err(AppError::from)
+}
+
+/// 丢弃当前仓库的全部未提交变更，返回操作后的最新状态。
+#[tauri::command]
+pub async fn git_discard_all(root: String) -> Result<git::GitChanges> {
+    tokio::task::spawn_blocking(move || git::discard_all(Path::new(&root)))
+        .await
+        .map_err(|error| AppError::new(format!("git discard-all task failed: {error}")))?
+        .map_err(AppError::from)
 }
 
 #[tauri::command]
