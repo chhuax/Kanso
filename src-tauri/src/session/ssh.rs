@@ -1845,7 +1845,7 @@ mod tests {
             "marker missing from {}",
             String::from_utf8_lossy(&output)
         );
-        conn.hops.disconnect().await;
+        drop(conn);
 
         // SFTP through the same kind of tunnel.
         let sftp = match connect_sftp(&target, std::slice::from_ref(&jump), &prompter)
@@ -1856,7 +1856,8 @@ mod tests {
             SftpConnectOutcome::HostKeyChanged(change) => panic!("{}", change.message),
         };
         let mut slot = None;
-        let session = ensure_sftp(&sftp.handle, &mut slot)
+        let handle = sftp.transport.handle();
+        let session = ensure_sftp(&handle, &mut slot)
             .await
             .expect("sftp subsystem");
         match run_sftp(session, SftpRequest::List { path: "/".into() })
@@ -1866,7 +1867,9 @@ mod tests {
             SftpResponse::Listing(listing) => assert!(!listing.entries.is_empty()),
             other => panic!("unexpected response: {other:?}"),
         }
-        sftp.hops.disconnect().await;
+        drop(slot);
+        drop(handle);
+        drop(sftp);
 
         // Both hops went through the host key policy: each was learned.
         let known_hosts = std::fs::read_to_string(home.join(".ssh").join("known_hosts"))
@@ -1916,7 +1919,8 @@ mod tests {
             SftpConnectOutcome::HostKeyChanged(change) => panic!("{}", change.message),
         };
         let mut slot = None;
-        let session = ensure_sftp(&sftp.handle, &mut slot)
+        let handle = sftp.transport.handle();
+        let session = ensure_sftp(&handle, &mut slot)
             .await
             .expect("sftp subsystem");
 
@@ -1947,7 +1951,9 @@ mod tests {
             },
         )
         .await;
-        sftp.hops.disconnect().await;
+        drop(slot);
+        drop(handle);
+        drop(sftp);
 
         let error = outcome.expect_err("the download stops").to_string();
         assert!(error.contains("transfer cancelled"), "{error}");

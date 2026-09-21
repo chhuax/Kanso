@@ -1969,6 +1969,7 @@ Host db
 /// way to cover it: the foreground process group comes off the master.
 #[test]
 #[ignore = "needs a pty; run with --ignored where the sandbox allows openpty"]
+#[cfg(unix)]
 fn a_local_shells_working_directory_is_read_from_the_os() {
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
