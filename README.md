@@ -41,9 +41,9 @@ Terminal sessions are UTF-8 unless the session dialog's **Encoding** says otherw
 
 **Interface**
 - **Timestamp and line-number gutter** — WindTerm's most recognizable feature. Every output line includes `[HH:MM:SS.SSS]` and a cumulative line number, with the cursor line highlighted. Four display modes are available from the `Session` menu.
-- **Session** (left): saved connection profiles in a collapsible tree; double-click to connect. Right-click a heading or a group to create (nested) groups, rename or delete them; right-click a session to connect, edit, move it to another group, or delete it. The New Session dialog lets you choose which group a session is saved to.
+- **Sessions** (left): the rail shows open terminals. Click **＋** or right-click its blank area to open the session launcher: create a local shell or a new session, search saved connections by name, host or username, and click a connection to open it. Each saved session has an edit button and an **…** menu for connecting, editing, moving to a group or deleting. The **…** beside “Saved sessions” creates groups or imports OpenSSH config; a group's **…** renames or deletes it. Right-click an open terminal to edit its saved connection directly. The right sidebar is reserved for auxiliary tools such as Filer.
 - **Filer** (right): a file browser that automatically switches to SFTP for SSH sessions, with file and folder upload, download, create-directory, and delete operations. Drag and drop works in both directions, anywhere on the panel: dropping files or folders from Finder / Explorer uploads them into the current remote directory, or copies them into the folder on screen when the Filer is showing local files; dragging an entry out of the window drops it on the desktop or in a file manager — a remote entry is copied down first, so hold the drag until it is ready. A drop the panel cannot take says why instead of doing nothing. Other terminal sessions browse the local filesystem. `⌘J` / `Ctrl+Shift+J` (also in the terminal's context menu and the Filer's locate button) jumps the Filer to the directory the shell is in: a local shell is asked through the OS, an SSH shell through the server (Linux hosts), and a shell that reports its directory with OSC 7 — fish does by default; bash and zsh with a one-line prompt hook — is answered everywhere, `sudo` and nested shells included.
-- **Sender** (bottom): send text with a chosen line ending (none / LF / CRLF) to the current session or to all open sessions at once. Text may span several lines (`Shift+Enter` adds one) and each line is sent in turn, waiting for the shell's prompt between them, so a saved multi-line script runs cleanly instead of arriving as typeahead. The clock button repeats a command on a timer — every N seconds, a set number of times or until stopped — for an inspection loop or to keep a session alive; it keeps running while the panel is hidden and stops from the strip. Saved commands are scoped — to one session, a Session panel group, a session kind (SSH / shell) or everywhere — and the Sender lists the ones that apply to the active tab, most specific first.
+- **Sender** (bottom): send text with a chosen line ending (none / LF / CRLF) to the current session or to all open sessions at once. Text may span several lines (`Shift+Enter` adds one) and each line is sent in turn, waiting for the shell's prompt between them, so a saved multi-line script runs cleanly instead of arriving as typeahead. The clock button repeats a command on a timer — every N seconds, a set number of times or until stopped — for an inspection loop or to keep a session alive; it keeps running while the panel is hidden and stops from the strip. Saved commands are scoped — to one session, a session group, a session kind (SSH / shell) or everywhere — and the Sender lists the ones that apply to the active tab, most specific first.
 - **Prompt line** (local shells): a line above each prompt saying where the shell is — the directory (its last three parts when it is long) and the git branch, in the chips Starship and the coding CLIs print. It is the shell's own `precmd`, added through a `ZDOTDIR` shim that sources your real startup files and changes nothing in them: only the local shells ZenTerm starts see it, and deleting `shell/` beside the store takes it away again.
 
 **Display settings**
@@ -112,14 +112,14 @@ Installed copies check the latest Release on startup and can update in place; **
 
 Releases are not notarized on macOS or code-signed with Windows Authenticode; the macOS application uses ad hoc signing only, so the operating system may show a security warning on first install.
 
-## Origin
+## Project status
 
-ZenTerm is a modified fork of [EdgeTerm](https://github.com/miskin-lee/EdgeTerm) by miskin-lee, taken at v0.8.3 in September 2026, and is not affiliated with or endorsed by that project. See the commit history for what was changed.
+ZenTerm is maintained as an independent project. See the commit history for its development history and changes.
 
-Automatic updates are off in this fork: the upstream release feed would offer to replace it with EdgeTerm. See `UPDATES_ENABLED` in `src/updater.ts`.
+Automatic updates remain off until a ZenTerm-owned update endpoint, signing key and release manifest are available. See `UPDATES_ENABLED` in `src/updater.ts`.
 
 ## License
 
-ZenTerm is licensed under the [GNU General Public License v3.0](LICENSE), inherited from EdgeTerm. Derivative works that are distributed must be released under the same license with their full source code.
+ZenTerm is licensed under the [GNU General Public License v3.0](LICENSE). Derivative works that are distributed must be released under the same license with their full source code.
 
 The interface icons are [Codicons](https://github.com/microsoft/vscode-codicons) by Microsoft, used under the Creative Commons Attribution 4.0 license.

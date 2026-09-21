@@ -9,13 +9,14 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 
-import { ensureController, revealCwdInFiler } from "../actions";
+import { ensureController } from "../actions";
 import { fontStack } from "../fonts";
 import { IS_MAC } from "../platform";
 import { chordLabel, type ShortcutCommand } from "../shortcuts";
 import { useStore, type Tab } from "../store";
 import type { TerminalController } from "../terminal";
 import { getController } from "../terminalRegistry";
+import { startTerminalSelectionReleaseRecovery } from "../terminalSelection";
 import { isFileSession } from "../types";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
 import { Icon } from "./icons";
@@ -114,8 +115,11 @@ function TerminalHost({
    * clipboard is the sort of thing found out much later.
    */
   const [copied, setCopied] = useState<{ x: number; y: number } | null>(null);
-  /** Set by a press in this pane, read by the release below. */
+  /** 终端内左键按下时置位，由 document 上的释放监听读取。 */
   const selecting = useRef(false);
+  const selectionRecovery = useRef<ReturnType<
+    typeof startTerminalSelectionReleaseRecovery
+  > | null>(null);
   const id = tab.info.id;
   // xterm loads on demand, so the terminal can arrive a tick after the pane
   // first renders (see ensureController). Effects that looked it up in the
@@ -128,7 +132,6 @@ function TerminalHost({
   const pasteKey = useAccelerator("paste");
   const selectAllKey = useAccelerator("selectAll");
   const clearKey = useAccelerator("clear");
-  const revealCwdKey = useAccelerator("revealCwd");
 
   const ownsClick = (event: ReactMouseEvent) => {
     const controller = getController(id);
@@ -156,16 +159,15 @@ function TerminalHost({
     });
   };
 
-  // A selection is copied when the button comes up, and the release is caught
-  // on the document rather than here: a drag that ends outside the pane — a
-  // line dragged past the window edge, or the mouse let go over the rail —
-  // never reaches this element, and the copy would simply not happen.
-  // `onSelectionChange` would fire all through the drag, one clipboard write
-  // per pixel, so the release is the moment to use.
+  // 选择在左键抬起时复制。监听放在 document 上，保证鼠标在侧栏等终端外部
+  // 松开时仍能结束手势；WebView 边界外丢失的释放事件由恢复器补偿。
+  // `onSelectionChange` 会在拖动期间持续触发，不能用它逐像素写剪贴板。
   useEffect(() => {
     const onRelease = (event: MouseEvent) => {
       if (!selecting.current) return;
       selecting.current = false;
+      selectionRecovery.current?.dispose();
+      selectionRecovery.current = null;
       if (event.button !== 0 || !copyOnSelect) return;
       const controller = getController(id);
       if (!controller?.hasSelection()) return;
@@ -173,7 +175,9 @@ function TerminalHost({
       setCopied({ x: event.clientX, y: event.clientY });
     };
     document.addEventListener("mouseup", onRelease);
-    return () => document.removeEventListener("mouseup", onRelease);
+    return () => {
+      document.removeEventListener("mouseup", onRelease);
+    };
   }, [id, copyOnSelect]);
 
   // The word above is quiet and brief; it goes on its own.
@@ -184,8 +188,23 @@ function TerminalHost({
   }, [copied]);
 
   const onMouseDown = (event: ReactMouseEvent<HTMLDivElement>) => {
-    if (event.button === 0) selecting.current = true;
+    if (event.button !== 0) return;
+    selectionRecovery.current?.dispose();
+    selecting.current = true;
+    selectionRecovery.current = startTerminalSelectionReleaseRecovery(
+      event.nativeEvent,
+    );
   };
+
+  // 会话关闭时移除仍在等待释放的临时监听，不能把监听留在 document 上。
+  useEffect(
+    () => () => {
+      selecting.current = false;
+      selectionRecovery.current?.dispose();
+      selectionRecovery.current = null;
+    },
+    [],
+  );
 
   // A program that owns the mouse has no xterm selection, so the copy above
   // is quiet in vim and the like either way.
@@ -243,13 +262,6 @@ function TerminalHost({
       icon: "clear-all",
       shortcut: clearKey,
       action: withTerminal((controller) => controller.clear()),
-    },
-    "separator",
-    {
-      label: "Reveal Working Directory in Filer",
-      icon: "folder-opened",
-      shortcut: revealCwdKey,
-      action: withTerminal(() => void revealCwdInFiler(id)),
     },
   ];
 

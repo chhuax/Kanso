@@ -102,29 +102,44 @@ function userFriendlyPath(path: string, home: string): string {
   return /^[/\\]/.test(rest) ? `~${rest}` : path;
 }
 
+const localWhereRequests = new Map<string, symbol>();
+
 /**
- * Reads where a local shell is into its tab: the directory for the row's first
- * line and the branch it is on for the second (see `Tab.cwd` / `Tab.branch`).
- * The Filer's "Reveal Working Directory" asks the same question through
- * `shellCwd`, so a shell the OS cannot be asked about still has its own OSC 7
- * report used here. A read that comes back with nothing says so: the row would
- * otherwise stay as it was with no way to tell why.
+ * 刷新 Local Shell 的当前目录、分支和未提交变更。优先读取进程目录，无法读取时
+ * 仍可使用 Shell 的 OSC 7 报告；远程会话不会进入这里，也不会执行 Git 查询。
  */
-function refreshLocalWhere(id: string) {
+export async function refreshLocalWhere(id: string): Promise<void> {
   const tab = useStore.getState().tabs.find((item) => item.info.id === id);
-  if (!tab || tab.info.kind !== "local") return;
-  void Promise.all([shellCwd(tab), homeDir()])
-    .then(async ([cwd, home]) => {
-      if (!cwd) throw new Error("the shell reported no directory");
-      const store = useStore.getState();
-      store.setCwd(id, userFriendlyPath(cwd, home));
-      // The branch is read from the directory itself, and a checkout is a
-      // command like any other, so it arrives with the directory that moved.
-      store.setBranch(id, await api.gitBranch(cwd).catch(() => null));
-    })
-    .catch((error) =>
-      useStore.getState().setStatus(`Working directory: ${String(error)}`),
+  if (!tab || tab.info.kind !== "local" || tab.state !== "connected") return;
+  const request = Symbol();
+  localWhereRequests.set(id, request);
+  const isCurrent = () => {
+    const current = useStore.getState().tabs.find((item) => item.info.id === id);
+    return (
+      localWhereRequests.get(id) === request &&
+      current?.info.kind === "local" &&
+      current.state === "connected"
     );
+  };
+  try {
+    const [cwd, home] = await Promise.all([shellCwd(tab), homeDir()]);
+    if (!isCurrent()) return;
+    if (!cwd) throw new Error("the shell reported no directory");
+    const friendly = userFriendlyPath(cwd, home);
+    useStore.getState().setCwd(id, friendly);
+    const changes = await api.gitChanges(cwd);
+    // 快速执行命令或切换目录时，先发出的查询可能后返回；只接受最后一次请求。
+    if (isCurrent()) {
+      useStore.getState().setGitChanges(id, changes);
+    }
+  } catch (error) {
+    if (isCurrent()) {
+      useStore.getState().setGitChanges(id, null);
+      useStore.getState().setStatus(`Working directory / Git: ${String(error)}`);
+    }
+  } finally {
+    if (localWhereRequests.get(id) === request) localWhereRequests.delete(id);
+  }
 }
 
 export async function ensureController(
@@ -155,7 +170,7 @@ export async function ensureController(
           store.markCommandCompleted(id, kind);
           // A shell only moves while a command runs, and asking the OS where a
           // local one is costs no round trip.
-          if (local) refreshLocalWhere(id);
+          if (local) void refreshLocalWhere(id);
         } else store.clearCommandActivity(id);
       },
       // Completions know what the line is asking for: a path lists this
@@ -204,6 +219,7 @@ export async function ensureController(
  */
 export async function openSession(
   profile: SessionProfile,
+  transportSessionId?: string,
 ): Promise<string | null> {
   const id = newSessionId();
   useStore
@@ -212,10 +228,10 @@ export async function openSession(
   if (!isFileSession(profile.kind)) {
     await ensureController(id, profile.kind === "local");
   }
-  return connectSession(id, profile);
+  return connectSession(id, profile, transportSessionId);
 }
 
-/** The ad-hoc profile behind every "just give me a terminal" entry point. */
+/** 所有“直接打开终端”入口共用的临时本地 Shell 配置。 */
 export const LOCAL_SHELL_PROFILE: SessionProfile = {
   id: "",
   name: "Local Shell",
@@ -223,17 +239,39 @@ export const LOCAL_SHELL_PROFILE: SessionProfile = {
   color: "#3fb950",
 };
 
-/**
- * Opens a local shell. Double-clicking the blank part of a tab strip and the
- * Session panel's Local Shell row both mean this.
- *
- * `paneId` names the pane to open in: `addTab` uses the *active* pane, so a
- * double-click on another pane's strip would otherwise open the tab in
- * whichever pane happened to be active before the press.
- */
+/** 打开本地 Shell；`paneId` 指定新标签所属 pane。 */
 export async function openLocalShell(paneId?: string): Promise<string | null> {
   if (paneId) useStore.getState().setActivePane(paneId);
   return openSession(LOCAL_SHELL_PROFILE);
+}
+
+/**
+ * 复制已打开的标签。Local Shell 使用当前真实目录，而不是最初配置的目录；
+ * SSH 复用原标签已认证的 transport 并新开独立 PTY channel；SFTP 仍按原配置新建连接。
+ */
+export async function duplicateSession(
+  id: string,
+  paneId?: string,
+): Promise<string | null> {
+  const tab = useStore.getState().tabs.find((item) => item.info.id === id);
+  if (!tab) return null;
+
+  let profile = tab.profile;
+  if (tab.info.kind === "local" && tab.state === "connected") {
+    try {
+      profile = { ...profile, cwd: await shellCwd(tab) };
+    } catch {
+      // 当前目录暂时不可读时仍复制 Shell，并沿用原配置的启动目录。
+    }
+  }
+
+  useStore.getState().setActivePane(paneId ?? tab.paneId);
+  return openSession(
+    profile,
+    tab.info.kind === "ssh" && tab.state === "connected"
+      ? tab.info.id
+      : undefined,
+  );
 }
 
 /**
@@ -323,6 +361,7 @@ export function toggleSessionConnection(id: string): void {
 async function connectSession(
   id: string,
   profile: SessionProfile,
+  transportSessionId?: string,
 ): Promise<string | null> {
   const store = useStore.getState();
   const pending = store.tabs.find((item) => item.info.id === id);
@@ -341,7 +380,7 @@ async function connectSession(
 
   pendingConnects.add(id);
   try {
-    const outcome = await api.openSession(profile, id);
+    const outcome = await api.openSession(profile, id, transportSessionId);
 
     // The user may close the optimistic tab while SSH is still negotiating.
     // In that case close the newly-created backend session immediately.
@@ -366,7 +405,7 @@ async function connectSession(
     const { info } = outcome;
     connectedStore.updateTabInfo(id, info);
     connectedStore.applyState(id, "connected");
-    if (info.kind === "local") refreshLocalWhere(id);
+    if (info.kind === "local") void refreshLocalWhere(id);
     connectedStore.setStatus(
       `Connected to ${tabTitle({ info, ordinal: tab.ordinal })}`,
     );
@@ -525,4 +564,17 @@ export async function revealCwdInFiler(id: string): Promise<void> {
   } catch (error) {
     useStore.getState().setError(`Filer: ${String(error)}`, id);
   }
+}
+
+/**
+ * 切换文件浏览器。关闭时立即收起；打开时先读取当前 Shell 的真实目录，避免
+ * 面板挂载后退回 Home。调用方必须传入当前高亮的 Local 或 SSH 标签。
+ */
+export async function toggleFilerForSession(id: string): Promise<void> {
+  const store = useStore.getState();
+  if (store.panels.filer) {
+    store.togglePanel("filer");
+    return;
+  }
+  await revealCwdInFiler(id);
 }

@@ -1,9 +1,8 @@
 import type { SessionGroup, SessionKind, SessionProfile } from "./types";
 
 /**
- * Per-kind display names, used where an individual kind is named — the
- * Sender's kind-scope description, for instance. The Session panel itself
- * lists groups and sessions without them.
+ * 各会话类型的显示名称，例如 Sender 的类型作用域说明。左侧会话浮层本身
+ * 直接展示分组与会话，不使用这些名称。
  */
 export const KIND_LABELS: Record<SessionKind, string> = {
   ssh: "SSH Sessions",
@@ -12,13 +11,13 @@ export const KIND_LABELS: Record<SessionKind, string> = {
 };
 
 /**
- * Case-insensitive, locale-aware name order. The Session list draws its
- * groups first, then the sessions outside them, each sorted with this.
+ * 忽略大小写并遵循本地化规则的名称排序。会话列表先展示分组，再展示未分组
+ * 会话，两部分都使用这个顺序。
  */
 export const byName = (a: { name: string }, b: { name: string }) =>
   a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
 
-/** The group a profile is drawn in, or null for the top level. */
+/** 返回配置实际所属的分组；顶层会话返回 null。 */
 export function effectiveGroupId(
   groups: readonly SessionGroup[],
   profile: SessionProfile,

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { toggleFilerForSession } from "../actions";
 import { useActiveTab, useStore } from "../store";
 import { isFileSession, type LegacyAlgorithms } from "../types";
 import { Icon } from "./icons";
@@ -13,8 +14,10 @@ const legacyTitle = (servers: LegacyAlgorithms[]): string =>
 
 export function StatusBar() {
   const tab = useActiveTab();
-  const status = useStore((s) => s.status);
   const error = useStore((s) => s.error);
+  const filerOpen = useStore((s) => s.panels.filer);
+  const gutterMode = useStore((s) => s.gutterMode);
+  const setGutterMode = useStore((s) => s.setGutterMode);
   const [clock, setClock] = useState(() => new Date());
 
   useEffect(() => {
@@ -22,36 +25,68 @@ export function StatusBar() {
     return () => window.clearInterval(timer);
   }, []);
 
-  const pad = (n: number) => String(n).padStart(2, "0");
+  const pad = (value: number) => String(value).padStart(2, "0");
   const stamp = `${clock.getFullYear()}/${clock.getMonth() + 1}/${clock.getDate()} ${pad(
     clock.getHours(),
   )}:${pad(clock.getMinutes())}`;
-
   const legacy = tab?.state === "connected" ? tab.info.legacyAlgorithms : [];
+  const fileSession = tab ? isFileSession(tab.info.kind) : false;
+  const activeFiler = filerOpen && !fileSession;
 
   return (
     <div className="statusbar">
-      <span className={`status-item${error ? " is-error" : ""}`}>
-        {error ?? status}
-      </span>
-      <div className="status-spacer" />
       {tab && (
         <>
-          {legacy.length > 0 && (
-            <span className="status-item status-legacy" title={legacyTitle(legacy)}>
-              <Icon name="warning" />
-              Legacy SSH
+          <button
+            type="button"
+            className={`status-action${activeFiler ? " is-active" : ""}`}
+            onClick={() => tab && void toggleFilerForSession(tab.info.id)}
+            disabled={fileSession}
+            aria-pressed={activeFiler}
+            title={
+              fileSession
+                ? "File explorer is already open in this file session"
+                : activeFiler
+                  ? "Hide file explorer"
+                  : "Show file explorer"
+            }
+          >
+            <Icon name={activeFiler ? "folder-opened" : "folder"} />
+            <span>File explorer</span>
+          </button>
+          {!fileSession && (
+            <button
+              type="button"
+              className={`status-action${gutterMode !== "off" ? " is-active" : ""}`}
+              onClick={() => setGutterMode(gutterMode === "off" ? "both" : "off")}
+              aria-pressed={gutterMode !== "off"}
+              title={gutterMode === "off" ? "Show timeline" : "Hide timeline"}
+            >
+              <Icon name="watch" />
+              <span>Timeline</span>
+            </button>
+          )}
+          {tab.cwd && (
+            <span className="status-context status-directory" title={tab.cwd}>
+              <Icon name="folder" />
+              <span>{tab.cwd}</span>
             </span>
           )}
-          {isFileSession(tab.info.kind) ? (
-            <span className="status-item">Dual-pane file transfer</span>
-          ) : (
-            <span className="status-item">
-              Window {tab.rows}×{tab.cols}
+          {tab.branch && (
+            <span className="status-context status-branch" title={tab.branch}>
+              <Icon name="source-control" />
+              <span>{tab.branch}</span>
             </span>
           )}
-          <span className="status-item">{tab.info.protocol}</span>
         </>
+      )}
+      <div className="status-spacer" />
+      {error && <span className="status-item is-error">{error}</span>}
+      {legacy.length > 0 && (
+        <span className="status-item status-legacy" title={legacyTitle(legacy)}>
+          <Icon name="warning" />
+          Legacy SSH
+        </span>
       )}
       <span className="status-item">{stamp}</span>
     </div>

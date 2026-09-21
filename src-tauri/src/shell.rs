@@ -1,14 +1,7 @@
-//! The line above a local shell's prompt, saying where the shell is.
+//! 本地 zsh 的轻量启动 shim，用于目录、Git 分支和命令块间距。
 //!
-//! A shell draws its own prompt, so the only way to put a line there is to
-//! give the shell one — which is what every terminal that does this does, and
-//! what Starship is. This writes a small `ZDOTDIR` shim instead: zsh looks for
-//! its startup files in that directory rather than in the home directory, each
-//! shim file forwards to the user's own copy, and one of them adds a `precmd`
-//! that prints the directory and the branch above the prompt.
-//!
-//! Nothing in the user's home is touched, and only the shells ZenTerm starts
-//! are given the variable. Delete the directory and nothing is left behind.
+//! shim 通过 `ZDOTDIR` 加载用户原有启动文件，再追加 ZenTerm 自己的
+//! `precmd`。用户目录不会被修改，删除 shim 目录也不会留下配置残留。
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -20,45 +13,35 @@ use crate::store;
 /// what is added at the end.
 const ZSH_STARTUP: &[&str] = &[".zshenv", ".zprofile", ".zshrc", ".zlogin", ".zlogout"];
 
-/// The hook, sourced last: the last three path components and the branch, the
-/// shape the coding CLIs print. Pure zsh builtins — finding the repository
-/// walks up for a `.git` and reads `HEAD` rather than running `git`, which on
-/// a machine without the developer tools raises a system prompt.
-const ZSH_HOOK: &str = r#"# ZenTerm: where the shell is, as the chips the coding CLIs print, after the
-# user's name on the prompt line. The prompt's own directory escape is taken
-# out and shown in the chip instead, so the directory is said once; the chips
-# go into `PROMPT` rather than being printed above it so zsh still knows how
-# wide its prompt is (`%{...%}` marks the colour codes as taking no room).
+/// 最后加载的 hook：在命令符前显示目录与分支，并保留 OSC 133 命令块标记。
+const ZSH_HOOK: &str = r#"# ZenTerm 的本地提示符：目录后紧跟当前 Git 分支。
 zenterm_branch() {
-  local dir=$1 head line target
-  # `##` (one or more) is off by default in zsh, and trimming the space after
-  # `gitdir:` needs it; the setting is local to this function.
   setopt localoptions extendedglob
+  local dir=$1 head line target
+  # 直接读取 HEAD，避免每次显示 prompt 都启动 Git 进程；worktree 的
+  # .git 文件相对于其所在目录解析，与 git.rs 的分支读取规则保持一致。
   while true; do
     if [[ -d $dir/.git ]]; then
       head=$dir/.git/HEAD
       break
     elif [[ -f $dir/.git ]]; then
       line=$(<"$dir/.git") || return 0
-      line=${line#gitdir:}
-      line=${line##[[:space:]]##}
-      line=${line%%[[:space:]]##}
-      target=${line/#\~/$HOME}
+      [[ $line == 'gitdir:'* ]] || return 0
+      target=${line#gitdir:}
+      target=${target##[[:space:]]##}
+      target=${target%%[[:space:]]##}
+      [[ -n $target ]] || return 0
       [[ $target == /* ]] || target=$dir/$target
-      [[ -f $target/HEAD ]] || return 0
       head=$target/HEAD
       break
     fi
     [[ $dir == / ]] && return 0
     dir=${dir:h}
   done
+  [[ -f $head ]] || return 0
   line=$(<"$head") || return 0
   line=${line##[[:space:]]##}
   line=${line%%[[:space:]]##}
-  # Read the way the app's own tab line reads it (see `git.rs`): a reference
-  # names its branch, a detached head is named by the commit it is parked on,
-  # and anything else has no name to give. The two must agree — they are the
-  # same fact on the same screen.
   if [[ $line == 'ref:'* ]]; then
     local reference=${line#ref:}
     reference=${reference##[[:space:]]##}
@@ -66,18 +49,16 @@ zenterm_branch() {
     [[ -n $reference ]] && print -r -- "${reference#refs/heads/}"
     return 0
   fi
+  # detached HEAD 与标签栏一样显示七位提交号，不把未知内容当成分支。
   [[ ${line[1,7]} == [0-9a-fA-F](#c7) ]] && print -r -- "${line[1,7]}"
 }
 
 zenterm_precmd() {
   setopt localoptions extendedglob
-  # Not `path`: that is zsh's array twin of `PATH`, so a scalar assigned to it
-  # lands in an array and `${#path}` counts elements rather than characters.
-  local where branch
+
+  local where
   where=${(%):-%~}
-  # A path too long for the line keeps its end — that is the half that says
-  # where you are — whole components at a time, with `...` where the rest of
-  # it went. A short path is left exactly as it is.
+  # 长目录保留最有辨识度的尾部完整路径段，避免把命令符推得过远。
   local budget=36
   if (( ${#where} > budget )); then
     local -a parts
@@ -90,34 +71,19 @@ zenterm_precmd() {
     done
     where=".../$tail"
   fi
-  branch=$(zenterm_branch $PWD)
 
-  # The chip says where the shell is, so the prompt must not say it too: every
-  # directory escape comes out of the template and the chip takes its place.
-  # That includes the numbered forms — `%1~` prints the last component and
-  # `%2d` a tail of the path — and they are the reason the template has to be
-  # read rather than left alone: a chip saying `.../work/src/parser` beside a
-  # bare `parser` is one directory spelled two ways. A prompt that spells the
-  # path out itself (`$PWD`) cannot be edited safely, so it keeps its own and
-  # the chip stays off the line rather than being the same fact a second time.
+  # 目录由 ZenTerm 统一放在命令符前，因此移除模板中的目录转义；`$PWD`
+  # 这类任意 shell 表达式不能安全重写，保留原配置且不再重复注入目录。
   ZENTERM_BASE=$ZENTERM_USER_PROMPT
   local directory_is_shown=no
   [[ $ZENTERM_BASE == *PWD* || $ZENTERM_BASE == *pwd* ]] &&
     directory_is_shown=yes
 
-  # `~` is zsh's pattern-exclusion operator, so it is spelled inside a bracket
-  # expression, where it is a literal character. The pattern lives in a
-  # variable because the `/` it also matches would otherwise close it, and
-  # `${~…}` is what makes the value a pattern again. `[0-9]#` is what lets one
-  # pattern cover `%~`, `%/` and `%d` alongside their numbered forms; the space
-  # the escape sat in goes with it, and the run of spaces that can leave is
-  # closed up again below.
+  # `~` 在 zsh pattern 中是排除运算符，放进字符类后才表示字面量；
+  # `[0-9]#` 同时覆盖 `%~`、`%1~`、`%2d` 等目录转义。
   local escape='%[0-9]#[/d~]'
   ZENTERM_BASE=${ZENTERM_BASE//${~escape}/}
-  # The user's name goes too: in a shell started here it is always the same
-  # name, and the chip says the part that changes. The host it was joined to
-  # goes with it — `%n@%m` would otherwise leave a bare `@` on the line, and
-  # which machine the shell is on is what the window is for.
+  # 用户名和与其绑定的主机名保持隐藏，终端标签已经标明会话身份。
   ZENTERM_BASE=${ZENTERM_BASE//'%n'/}
   ZENTERM_BASE=${ZENTERM_BASE//'%N'/}
   [[ $ZENTERM_BASE == *'@%m'* ]] && ZENTERM_BASE=${ZENTERM_BASE//'@%m'/}
@@ -125,40 +91,40 @@ zenterm_precmd() {
   while [[ $ZENTERM_BASE == *'  '* ]]; do
     ZENTERM_BASE=${ZENTERM_BASE//'  '/' '}
   done
-  # Only the front: the trailing space is where the cursor sits after the
-  # sign, and the prompt had one.
+  # 只清理开头空格；命令符后的尾随空格仍是光标与 prompt 的正常间距。
   while [[ $ZENTERM_BASE == ' '* ]]; do
     ZENTERM_BASE=${ZENTERM_BASE# }
   done
+  local text=$'%{\e[38;5;252m%}' green=$'%{\e[38;5;114m%}' off=$'%{\e[0m%}'
+  local branch=$(zenterm_branch "$PWD") branch_label branch_suffix=""
+  # 分支名是数据：转义 prompt 的百分号；启用 promptsubst 时通过变量引用
+  # 延后插入，避免分支名中的命令替换被二次执行。
+  ZENTERM_PROMPT_BRANCH=${branch//\%/%%}
+  branch_label=$ZENTERM_PROMPT_BRANCH
+  [[ -o promptsubst ]] && branch_label='${ZENTERM_PROMPT_BRANCH}'
+  [[ -n $branch ]] && branch_suffix="${green} ${branch_label}${off} "
 
-  local chip=$'%{\e[48;5;236m%}'
-  local text=$'%{\e[38;5;252m%}'
-  local green=$'%{\e[38;5;114m%}'
-  local off=$'%{\e[0m%}'
-  local fork=""
-
-  ZENTERM_CHIPS=""
-  [[ $directory_is_shown == no ]] &&
-    ZENTERM_CHIPS="${chip} ${text}${where} ${off}"
-  if [[ -n $branch ]]; then
-    [[ -n $ZENTERM_CHIPS ]] && ZENTERM_CHIPS+=" "
-    ZENTERM_CHIPS+="${chip} ${green}${fork} ${branch} ${off}"
-  fi
-
-  # After the user's name, where a prompt usually has the directory; in front
-  # of the prompt for one that starts with something else.
-  if [[ -z $ZENTERM_CHIPS ]]; then
+  if [[ $directory_is_shown == yes ]]; then
     PROMPT=$ZENTERM_BASE
-  elif [[ $ZENTERM_BASE == '%'[nNmM]* ]]; then
-    PROMPT="${ZENTERM_BASE[1,2]} ${ZENTERM_CHIPS}${ZENTERM_BASE[3,-1]}"
+    if [[ -n $branch && $PROMPT == *'%#'* ]]; then
+      PROMPT=${PROMPT/'%#'/"${branch_suffix}%#"}
+    elif [[ -n $branch ]]; then
+      # 任意用户表达式不能安全拆分；没有标准命令符时沿用前置分支的行为。
+      PROMPT="${branch_suffix}${PROMPT}"
+    fi
   else
-    PROMPT="${ZENTERM_CHIPS} ${ZENTERM_BASE}"
+    PROMPT="${text}${where}${off} ${branch_suffix}${ZENTERM_BASE}"
   fi
 
-  # The prompt line begins here. The terminal brackets commands with this
-  # (OSC 133), so a command's end is told rather than guessed from the shape
-  # of a prompt the chips have changed.
-  local mark=$'%{\e]133;A\a%}'
+  # 后续 prompt 保留两行命令块间距，前端把分割线画在正中；首个 prompt
+  # 不写入空行，顶部间距由终端容器提供，避免时间线和缓冲区从第二行开始。
+  local mark
+  if [[ -n ${ZENTERM_PROMPT_SEEN-} ]]; then
+    mark=$'%{\e]133;A;zenterm-spacer\a%}\n\n'
+  else
+    ZENTERM_PROMPT_SEEN=1
+    mark=$'%{\e]133;A;zenterm-initial\a%}'
+  fi
   PROMPT="${mark}${PROMPT}"
 }
 
@@ -241,6 +207,158 @@ fn write(path: &Path, contents: &str) -> Option<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
+
+    struct HookFixture {
+        root: PathBuf,
+        hook: PathBuf,
+        repo: PathBuf,
+    }
+
+    impl HookFixture {
+        fn new() -> Self {
+            let root =
+                std::env::temp_dir().join(format!("zenterm-prompt-{}", uuid::Uuid::new_v4()));
+            let hook = ensure_zsh_shim_in(&root).unwrap().join("zenterm.zsh");
+            let repo = root.join("project");
+            fs::create_dir_all(repo.join(".git")).unwrap();
+            fs::write(repo.join(".git/HEAD"), "ref: refs/heads/feature/parser\n").unwrap();
+            Self { root, hook, repo }
+        }
+
+        fn run(&self, dir: &Path, script: &str) -> String {
+            let output = Command::new("zsh")
+                .args(["-f", "-c"])
+                .arg(format!("source \"$1\"\n{script}"))
+                .arg("zenterm-prompt-test")
+                .arg(&self.hook)
+                .current_dir(dir)
+                .output()
+                .expect("run zsh");
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8(output.stdout).unwrap()
+        }
+    }
+
+    impl Drop for HookFixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn has_zsh() -> bool {
+        if Command::new("zsh").arg("--version").output().is_ok() {
+            true
+        } else {
+            eprintln!("跳过提示符测试：此平台未安装 zsh");
+            false
+        }
+    }
+
+    #[test]
+    fn branch_follows_parent_worktree_and_detached_head() {
+        if !has_zsh() {
+            return;
+        }
+        let fixture = HookFixture::new();
+        let deep = fixture.repo.join("src/parser");
+        fs::create_dir_all(&deep).unwrap();
+        assert_eq!(
+            fixture.run(&deep, "zenterm_branch \"$PWD\""),
+            "feature/parser\n"
+        );
+
+        let worktree = fixture.root.join("worktree");
+        fs::create_dir_all(&worktree).unwrap();
+        fs::write(worktree.join(".git"), "gitdir: ../project/.git\n").unwrap();
+        assert_eq!(
+            fixture.run(&worktree, "zenterm_branch \"$PWD\""),
+            "feature/parser\n"
+        );
+
+        fs::write(
+            fixture.repo.join(".git/HEAD"),
+            "a1b2c3d4e5f67890123456789012345678901234\n",
+        )
+        .unwrap();
+        assert_eq!(
+            fixture.run(&worktree, "zenterm_branch \"$PWD\""),
+            "a1b2c3d\n"
+        );
+    }
+
+    #[test]
+    fn prompt_places_branch_after_directory_and_keeps_command_spacing() {
+        if !has_zsh() {
+            return;
+        }
+        let fixture = HookFixture::new();
+        let script = "ZENTERM_USER_PROMPT='%n %~ %# '; zenterm_precmd; print -rn -- \"$PROMPT\"";
+        let prompt = fixture.run(&fixture.repo, script);
+        let path_position = prompt.find("/project").expect("directory in prompt");
+        let branch_position = prompt.find(" feature/parser").expect("branch in prompt");
+        assert!(path_position < branch_position);
+        assert!(branch_position < prompt.find("%#").unwrap());
+        assert!(prompt.starts_with("%{\u{1b}]133;A\u{7}%}"));
+        assert!(prompt.ends_with("%# "));
+
+        let next = fixture.run(&fixture.repo, &format!("ZENTERM_PROMPT_SEEN=1; {script}"));
+        assert!(next.starts_with("%{\u{1b}]133;A;zenterm-spacer\u{7}%}\n\n"));
+        assert!(next.contains(" feature/parser"));
+    }
+
+    #[test]
+    fn prompt_refreshes_branch_and_clears_it_after_leaving_repository() {
+        if !has_zsh() {
+            return;
+        }
+        let fixture = HookFixture::new();
+        let prompt = fixture.run(
+            &fixture.repo,
+            r#"
+ZENTERM_USER_PROMPT='%~ %# '
+zenterm_precmd
+[[ $PROMPT == *'feature/parser'* ]] || exit 1
+print -r -- 'ref: refs/heads/another-branch' > .git/HEAD
+zenterm_precmd
+[[ $PROMPT == *'another-branch'* ]] || exit 2
+cd ..
+zenterm_precmd
+print -rn -- "$PROMPT"
+"#,
+        );
+        assert!(!prompt.contains(""));
+        assert!(prompt.ends_with("%# "));
+    }
+
+    #[test]
+    fn custom_directory_prompt_keeps_branch_names_literal() {
+        if !has_zsh() {
+            return;
+        }
+        let fixture = HookFixture::new();
+        let branch = "topic/%F{red}$(false)";
+        fs::write(
+            fixture.repo.join(".git/HEAD"),
+            format!("ref: refs/heads/{branch}\n"),
+        )
+        .unwrap();
+        let prompt = fixture.run(
+            &fixture.repo,
+            r#"
+setopt promptsubst
+ZENTERM_USER_PROMPT='$PWD %# '
+zenterm_precmd
+print -Prn -- "$PROMPT"
+"#,
+        );
+        assert!(prompt.contains(&format!(" {branch}")), "{prompt:?}");
+        assert!(prompt.find("/project").unwrap() < prompt.find("").unwrap());
+    }
 
     #[test]
     fn every_startup_file_forwards_to_the_users_own() {
@@ -268,236 +386,5 @@ mod tests {
         }
         assert!(dir.join("zenterm.zsh").is_file());
         std::fs::remove_dir_all(root).ok();
-    }
-
-    /// The hook's own half, run by a real zsh: reading `HEAD` by hand is the
-    /// part most likely to be wrong, and no amount of Rust testing sees it.
-    /// Skipped where there is no zsh to run (the suite also runs on machines
-    /// that have none).
-    #[test]
-    fn the_hook_reads_a_branch_and_prints_the_line() {
-        use std::process::Command;
-
-        let root = std::env::temp_dir().join(format!("zenterm-hook-{}", uuid::Uuid::new_v4()));
-        let shim = ensure_zsh_shim_in(&root).expect("write the shim");
-        let repo = root.join("work").join("api");
-        fs::create_dir_all(repo.join(".git")).expect("create the repository");
-        fs::write(repo.join(".git").join("HEAD"), "ref: refs/heads/feature/x\n").unwrap();
-
-        let run = |dir: &Path, script: &str| -> Option<String> {
-            let output = Command::new("zsh")
-                .arg("-c")
-                .arg(format!(
-                    "source {}/zenterm.zsh\n{script}",
-                    shim.display()
-                ))
-                .current_dir(dir)
-                .output()
-                .ok()?;
-            Some(String::from_utf8_lossy(&output.stdout).trim_end().to_string())
-        };
-
-        let Some(branch) = run(&repo, "zenterm_branch $PWD") else {
-            eprintln!("no zsh on this machine; the hook itself is untested here");
-            fs::remove_dir_all(root).ok();
-            return;
-        };
-        assert_eq!(branch, "feature/x");
-
-        // A shell inside the tree is still on the same branch.
-        let deep = repo.join("src").join("parser");
-        fs::create_dir_all(&deep).expect("create a subtree");
-        assert_eq!(
-            run(&deep, "zenterm_branch $PWD").as_deref(),
-            Some("feature/x")
-        );
-
-        // The chip is what says the directory, so a prompt that prints one is
-        // edited to stop: the escape comes out of the template and the chip
-        // takes its place. Leaving both would put the directory on the line
-        // twice, and dropping both would leave it nowhere.
-        // The marker after the prompt keeps a trailing space from being
-        // trimmed away with the newline by the helper above.
-        let with_dir = run(
-            &deep,
-            "PROMPT='%n %~ %# '; ZENTERM_USER_PROMPT=$PROMPT; zenterm_precmd; print -rn -- \"$PROMPT\"; print -r -- '|'",
-        )
-        .expect("zsh");
-        assert!(
-            with_dir.contains(".../"),
-            "the directory is on neither the chip nor the prompt: {with_dir}"
-        );
-        assert!(with_dir.contains("feature/x"), "no branch in: {with_dir}");
-        assert!(
-            !with_dir.contains("%~"),
-            "the prompt kept a directory the chip alone should say: {with_dir}"
-        );
-        assert!(
-            !with_dir.contains("%n"),
-            "the user's name is still on the line: {with_dir}"
-        );
-        assert!(with_dir.contains("%#"), "the sign is gone: {with_dir}");
-        assert!(
-            with_dir.ends_with("%# |"),
-            "the cursor has no room after the sign: {with_dir:?}"
-        );
-        assert!(
-            with_dir.contains("\u{1b}]133;A\u{7}"),
-            "no prompt-start marker: {with_dir}"
-        );
-
-        // A prompt that names its directory as `$PWD` cannot be edited safely;
-        // it keeps its own and goes without the chip rather than saying it twice.
-        let literal = run(
-            &deep,
-            "PROMPT='%n $PWD %# '; ZENTERM_USER_PROMPT=$PROMPT; zenterm_precmd; print -r -- \"$PROMPT\"",
-        )
-        .expect("zsh");
-        assert!(
-            !literal.contains(".../"),
-            "the directory is on the line twice: {literal}"
-        );
-        assert!(literal.contains("feature/x"), "no branch in: {literal}");
-
-        // A numbered escape prints the last component (`%1~`) or a tail of the
-        // path (`%2~`), not the path itself. That is precisely why it comes out
-        // of the template too: a chip reading `.../work/src/parser` next to a
-        // bare `parser` is the same directory spelled two ways, and the prompt
-        // would look like it had grown a folder.
-        let tail = run(
-            &deep,
-            "PROMPT='%n@%m %1~ %# '; ZENTERM_USER_PROMPT=$PROMPT; zenterm_precmd; print -r -- \"$PROMPT\"",
-        )
-        .expect("zsh");
-        assert!(
-            tail.contains(".../"),
-            "the directory is on neither the chip nor the prompt: {tail}"
-        );
-        assert!(tail.contains("feature/x"), "no branch in: {tail}");
-        assert!(
-            !tail.contains("%1~"),
-            "the prompt kept a directory the chip alone should say: {tail}"
-        );
-        assert!(
-            !tail.contains("@%m") && !tail.contains("@%M"),
-            "the host stayed behind with no user: {tail}"
-        );
-        assert!(tail.contains("%#"), "the sign is gone: {tail}");
-
-        let numbered = run(
-            &deep,
-            "PROMPT='%n %2~ %# '; ZENTERM_USER_PROMPT=$PROMPT; zenterm_precmd; print -r -- \"$PROMPT\"",
-        )
-        .expect("zsh");
-        assert!(
-            numbered.contains(".../"),
-            "the directory is on neither the chip nor the prompt: {numbered}"
-        );
-        assert!(
-            !numbered.contains("%2~"),
-            "the prompt kept a directory the chip alone should say: {numbered}"
-        );
-
-        // A prompt with no user in front gets the chips in front of it, with
-        // the colour codes marked as taking no room.
-        let bare = run(
-            &deep,
-            "PROMPT='$ '; ZENTERM_USER_PROMPT=$PROMPT; zenterm_precmd; print -r -- \"$PROMPT\"",
-        )
-        .expect("zsh");
-        assert!(bare.contains(".../"), "no directory chip: {bare}");
-        assert!(bare.contains("feature/x"), "no branch in: {bare}");
-        assert!(bare.contains("%{"), "colour codes are not zero-width: {bare}");
-        // The branch keeps its mark; the path has none in front of it.
-        assert!(bare.contains("\u{f126}"), "no branch mark in: {bare}");
-        assert!(
-            !bare.contains("\u{f114}"),
-            "the path grew a mark again: {bare}"
-        );
-
-        // A worktree's `.git` is a file naming the real git directory.
-        let elsewhere = root.join("real-git");
-        fs::create_dir_all(&elsewhere).expect("create a git dir");
-        fs::write(elsewhere.join("HEAD"), "ref: refs/heads/from-a-worktree\n").unwrap();
-        let worktree = root.join("worktree");
-        fs::create_dir_all(&worktree).expect("create a worktree");
-        fs::write(worktree.join(".git"), "gitdir: ../real-git\n").expect("write .git");
-        assert_eq!(
-            run(&worktree, "zenterm_branch $PWD").as_deref(),
-            Some("from-a-worktree")
-        );
-
-        // A short path is not shortened at all: the `...` is there to stand
-        // for something that was actually dropped.
-        let short = run(
-            Path::new("/tmp"),
-            "PROMPT='$ '; ZENTERM_USER_PROMPT=$PROMPT; zenterm_precmd; print -r -- \"$PROMPT\"",
-        )
-        .expect("zsh");
-        // macOS resolves `/tmp` to `/private/tmp`, so match the end of it.
-        assert!(short.contains("/tmp "), "the path was touched: {short}");
-        assert!(!short.contains("..."), "a short path was shortened: {short}");
-
-        // Somewhere with no repository, a bare prompt still gets the path and
-        // nothing else.
-        fs::remove_dir_all(repo.join(".git")).expect("remove the repository");
-        let prompt = run(
-            &repo,
-            "PROMPT='$ '; ZENTERM_USER_PROMPT=$PROMPT; zenterm_precmd; print -r -- \"$PROMPT\"",
-        )
-        .expect("zsh");
-        assert!(prompt.contains("/tmp") || prompt.contains(".../"), "unexpected prompt: {prompt}");
-        assert!(
-            !prompt.contains("\u{f126}"),
-            "a branch appeared from nowhere: {prompt}"
-        );
-
-        fs::remove_dir_all(root).ok();
-    }
-
-    /// The chip and the app's own tab line read `HEAD` for the same fact, so
-    /// they must not disagree: a detached head is named by its commit there,
-    /// and it is named by its commit here too.
-    #[test]
-    fn a_detached_head_is_named_by_its_commit() {
-        use std::process::Command;
-
-        let root = std::env::temp_dir().join(format!("zenterm-detached-{}", uuid::Uuid::new_v4()));
-        let shim = ensure_zsh_shim_in(&root).expect("write the shim");
-        let repo = root.join("work");
-        fs::create_dir_all(repo.join(".git")).expect("create the repository");
-
-        let branch_of = |head: &str| -> Option<String> {
-            fs::write(repo.join(".git").join("HEAD"), head).expect("write HEAD");
-            let output = Command::new("zsh")
-                .arg("-c")
-                .arg(format!(
-                    "source {}/zenterm.zsh\nzenterm_branch \"$PWD\"",
-                    shim.display()
-                ))
-                .current_dir(&repo)
-                .output()
-                .ok()?;
-            Some(String::from_utf8_lossy(&output.stdout).trim_end().to_string())
-        };
-
-        let Some(commit) = branch_of("a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0\n") else {
-            eprintln!("no zsh on this machine; the hook itself is untested here");
-            fs::remove_dir_all(root).ok();
-            return;
-        };
-        assert_eq!(commit, "a1b2c3d", "a detached head was not named");
-
-        // The whitespace `git.rs` trims comes off here too, and a branch is
-        // still a branch.
-        assert_eq!(branch_of("  ref: refs/heads/feature/parser  \n").as_deref(), Some("feature/parser"));
-        assert_eq!(branch_of("ref: refs/heads/main\n").as_deref(), Some("main"));
-
-        // A short or non-hex HEAD names no commit, so the chip stays away
-        // rather than saying something it cannot stand behind.
-        assert_eq!(branch_of("a1b2c3\n").as_deref(), Some(""));
-        assert_eq!(branch_of("not a commit\n").as_deref(), Some(""));
-
-        fs::remove_dir_all(root).ok();
     }
 }

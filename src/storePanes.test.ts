@@ -127,6 +127,17 @@ describe("panes", () => {
     expect(state.panes).toHaveLength(1);
   });
 
+  it("同一窗格内排序时不影响其他窗格", () => {
+    open("a");
+    open("b");
+    open("c");
+    open("d");
+    const right = useStore.getState().splitPane(ROOT, "right", "d");
+    useStore.getState().moveTab("a", 2);
+    expect(stripOf(ROOT)).toEqual(["b", "c", "a"]);
+    expect(stripOf(right)).toEqual(["d"]);
+  });
+
 
 
   it("steps tabs within the active pane and panes in reading order", () => {

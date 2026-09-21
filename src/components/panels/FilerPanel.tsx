@@ -19,7 +19,6 @@ import { ContextMenu, type MenuItem } from "../ContextMenu";
 import { DeleteEntryDialog } from "../DeleteEntryDialog";
 import { FileIcon } from "../FileIcon";
 import { Icon } from "../icons";
-import { PanelTabs, type PanelTabsProps } from "../PanelTabs";
 import type { FileEntry, ThemeMode } from "../../types";
 
 interface TransferState {
@@ -104,7 +103,8 @@ interface DropVerdict {
 const dropPoint = (position: PhysicalPosition): { x: number; y: number } =>
   IS_WINDOWS ? position.toLogical(window.devicePixelRatio) : position;
 
-export function FilerPanel({ tabs }: { tabs?: PanelTabsProps }) {
+/** 跟随当前终端浏览本地或远程文件；独立文件会话由双栏工作区承载。 */
+export function FilerPanel() {
   const tab = useActiveTab();
   const theme = useStore((s) => s.theme);
   const remote = Boolean(
@@ -1116,23 +1116,6 @@ export function FilerPanel({ tabs }: { tabs?: PanelTabsProps }) {
       className={`panel filer-panel${dragOver ? (dragOver.accept ? " is-drag-over" : dragOver.reason ? " is-drag-blocked" : "") : ""}`}
       style={{ flex: 1 }}
     >
-      <div className="panel-header">
-        {tabs ? (
-          <PanelTabs
-            {...tabs}
-            filerBadge={remote ? tab?.info.protocol : "local"}
-          />
-        ) : (
-          <div className="panel-title is-filer">
-            <Icon name="folder" />
-            Filer
-            <span className="panel-badge">
-              {remote ? tab?.info.protocol : "local"}
-            </span>
-          </div>
-        )}
-      </div>
-
       {/* Upload and download stay visible on local sessions, just disabled. */}
       <div className="filer-toolbar" role="toolbar" aria-label="File actions">
         <button

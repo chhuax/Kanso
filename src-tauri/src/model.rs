@@ -51,8 +51,7 @@ pub struct SessionProfile {
     /// Tab / tree dot colour, as a CSS colour string.
     #[serde(default)]
     pub color: Option<String>,
-    /// Session panel group holding this profile; `None` lists it directly
-    /// under its kind's top-level heading.
+    /// 会话在左侧浮层中所属的分组；`None` 表示直接显示在顶层。
     #[serde(default)]
     pub group_id: Option<String>,
 
@@ -152,9 +151,8 @@ impl SessionProfile {
     }
 }
 
-/// A user-defined folder in the Session panel. Groups are one level deep and
-/// hold any session kind, so one folder can gather the SSH and SFTP sessions
-/// of the same host; nothing ties a group to a kind or to another group.
+/// 左侧会话浮层中的用户分组。分组只支持一层且可容纳任意会话类型，因此同一
+/// 主机的 SSH 与 SFTP 会话可以放在一起；分组不绑定类型，也不能嵌套。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionGroup {

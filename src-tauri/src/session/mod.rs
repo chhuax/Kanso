@@ -115,6 +115,8 @@ pub enum SessionCommand {
 pub struct SessionHandle {
     pub info: SessionInfo,
     pub tx: mpsc::UnboundedSender<SessionCommand>,
+    /// SSH/SFTP 会话已认证的 transport；复制 SSH 标签时从这里取得共享引用。
+    pub ssh_transport: Option<ssh::SharedSshTransport>,
     /// What the session's bytes are in; keyboard text is encoded to it by
     /// `write_text` (see `encoding`).
     pub encoding: &'static Encoding,
@@ -140,6 +142,14 @@ impl SessionManager {
             .values()
             .map(|h| h.info.clone())
             .collect()
+    }
+
+    /** 返回会话已认证的 SSH transport；Local Shell 或已移除会话返回 None。 */
+    pub fn ssh_transport(&self, id: &str) -> Option<ssh::SharedSshTransport> {
+        self.sessions
+            .lock()
+            .get(id)
+            .and_then(|handle| handle.ssh_transport.clone())
     }
 
     pub fn send(&self, id: &str, cmd: SessionCommand) -> Result<()> {
@@ -379,6 +389,7 @@ mod tests {
                 legacy_algorithms: Vec::new(),
             },
             tx,
+            ssh_transport: None,
             encoding: encoding_rs::UTF_8,
         });
 
@@ -425,6 +436,7 @@ mod tests {
                 legacy_algorithms: Vec::new(),
             },
             tx,
+            ssh_transport: None,
             encoding: encoding_rs::GBK,
         });
 

@@ -11,6 +11,16 @@
   --bg-panel: #050505;
   --bg-panel-alt: #111111;
   --bg-terminal: #050505;
+  /* 标签栏用独立的灰阶，区分导航区域与终端，并突出当前选中的会话。 */
+  --bg-tab-rail: #111111;
+  --bg-tab-hover: #242424;
+  --bg-tab-active: #323232;
+  --tab-active-border: #4c4c4c;
+  --bg-tab-active-band: #202020;
+  --bg-tab-icon: #262626;
+  --bg-tab-icon-active: #444444;
+  --tab-row-border: #242424;
+  --tab-fg: #dedede;
   /* A field is a box you type in, not a grey tile. Warp derives it as the page
      background with 10% white over it (#1a1a1a) and that reads as a slab once
      the page itself is #050505, so the field keeps only enough lift to be
@@ -30,9 +40,7 @@
   --accent: #19aad8;
   --accent-soft: #0b2b33;
   --accent-contrast: #ffffff;
-  --panel-session: #a5d5fe;
   --panel-sender: #ff8272;
-  --panel-filer: #b4fa72;
   --green: #b4fa72;
   --yellow: #fefdc2;
   --red: #ff8272;
@@ -104,6 +112,15 @@
   --bg-panel: #f8f8f8;
   --bg-panel-alt: #ffffff;
   --bg-terminal: #ffffff;
+  --bg-tab-rail: #f0f0f0;
+  --bg-tab-hover: #e5e5e5;
+  --bg-tab-active: #ffffff;
+  --tab-active-border: #c7c7c7;
+  --bg-tab-active-band: #e8e8e8;
+  --bg-tab-icon: #dedede;
+  --bg-tab-icon-active: #ececec;
+  --tab-row-border: #d9d9d9;
+  --tab-fg: #3b3b3b;
   --bg-field: #ffffff;
   --bg-active: #e8e8e8;
   --bg-hover: #f2f2f2;
@@ -115,9 +132,7 @@
   --accent: #005fb8;
   --accent-soft: #bed6ed;
   --accent-contrast: #ffffff;
-  --panel-session: #2563eb;
   --panel-sender: #c2410c;
-  --panel-filer: #087f6b;
   --green: #107c10;
   --yellow: #bf8803;
   --red: #cd3131;
@@ -648,6 +663,20 @@ textarea:focus {
   background: var(--menu-separator);
 }
 
+.app-shell {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.app-content {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+
 .main {
   flex: 1;
   display: flex;
@@ -669,6 +698,10 @@ textarea:focus {
   background: var(--bg-panel);
   min-height: 0;
   font-size: var(--panel-font-size);
+}
+
+.sidebar-left {
+  background: var(--bg-tab-rail);
 }
 
 /* What the right sidebar leaves behind once it is tucked away: a clickable
@@ -732,7 +765,7 @@ textarea:focus {
 
 /* Collect UI's compact navigation pills translate well to a terminal's
    dense chrome: colour identifies the workspace without tinting its data. */
-.panel-title:is(.is-session, .is-sender, .is-filer) {
+.panel-title.is-sender {
   flex: 0 1 auto;
   height: 24px;
   margin-right: auto;
@@ -741,73 +774,13 @@ textarea:focus {
   letter-spacing: 0.035em;
 }
 
-.panel-title.is-session {
-  color: var(--panel-session);
-  background: color-mix(in srgb, var(--panel-session) 12%, transparent);
-}
-
 .panel-title.is-sender {
   color: var(--panel-sender);
   background: color-mix(in srgb, var(--panel-sender) 12%, transparent);
 }
 
-.panel-title.is-filer {
-  color: var(--panel-filer);
-  background: color-mix(in srgb, var(--panel-filer) 12%, transparent);
-}
-
-.panel-title:is(.is-session, .is-sender, .is-filer) > .icon {
+.panel-title.is-sender > .icon {
   color: currentColor;
-}
-
-/* Session / Filer switcher of the right sidebar, drawn where a single panel
-   title used to sit. The chosen tab wears that panel's colour; the other one
-   stays a quiet button until it is picked. */
-.panel-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex: 0 1 auto;
-  height: 24px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--fg-faint);
-  font-family: inherit;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.035em;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.panel-tab:hover {
-  background: color-mix(in srgb, var(--fg) 8%, transparent);
-  color: var(--fg-dim);
-}
-
-.panel-tab.is-active {
-  cursor: default;
-}
-
-.panel-tab.is-active.is-session {
-  color: var(--panel-session);
-  background: color-mix(in srgb, var(--panel-session) 12%, transparent);
-}
-
-.panel-tab.is-active.is-filer {
-  color: var(--panel-filer);
-  background: color-mix(in srgb, var(--panel-filer) 12%, transparent);
-}
-
-.panel-tab > .icon {
-  color: currentColor;
-}
-
-/* Pushes whatever the docked panel draws after the tabs to the far end. */
-.panel-tabs-spacer {
-  flex: 1;
 }
 
 /* Secondary word beside a title ("local", "ssh"): a lowercase pill. */
@@ -1093,6 +1066,84 @@ textarea:focus {
   color: var(--fg-faint);
 }
 
+/* 浮层独立于侧栏宽度，列表内部滚动，管理菜单仍可伸出列表边界。 */
+.session-launcher {
+  position: fixed;
+  z-index: 140;
+  display: flex;
+  flex-direction: column;
+  width: min(360px, calc(100vw - 16px));
+  max-height: min(520px, calc(100vh - 16px));
+  padding: 6px 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--bg-menu);
+  box-shadow: var(--shadow-menu);
+  font-size: var(--panel-font-size);
+}
+
+.session-launcher-quick {
+  flex-shrink: 0;
+  padding: 0 6px 6px;
+}
+
+.session-launcher .panel-filter {
+  flex-shrink: 0;
+}
+
+.session-launcher-heading {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px 4px;
+  color: var(--fg-faint);
+  font-size: 11px;
+}
+
+.session-launcher .row {
+  height: 44px;
+}
+
+.session-launcher .row.is-group {
+  height: 30px;
+}
+
+.session-launcher-connect {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  text-align: left;
+}
+
+.session-launcher-label {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.session-launcher-target {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fg-faint);
+  font-size: 11px;
+}
+
+.session-launcher .row:focus-within {
+  background: var(--bg-hover);
+}
+
+.session-launcher .row > .panel-action {
+  flex-shrink: 0;
+  opacity: 1;
+}
+
 /* --- the tab rail --------------------------------------------------------- */
 
 /* The rail's column: the bar at the top, the rows below it, and the menus the
@@ -1104,15 +1155,45 @@ textarea:focus {
   min-height: 0;
 }
 
-/* Warp's control bar, which is where its new-tab button sits; here it holds
-   only that button, at the same trailing edge and the same 4px / 8px padding,
-   a 24px button with a 4px radius. It does not scroll, so the way to a new
-   session stays where it is while the rows below it move. */
+/* 搜索和新建入口固定在顶部，标签列表滚动时仍可直接使用。 */
 .tab-rail-bar {
   flex: 0 0 auto;
   display: flex;
-  justify-content: flex-end;
-  padding: 4px 8px 0;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+}
+
+.tab-rail-path-search {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.tab-rail-path-search input {
+  width: 100%;
+  height: 28px;
+  padding: 0 8px 0 28px;
+  border-color: transparent;
+  border-radius: 4px;
+  background: var(--bg-field);
+}
+
+.tab-rail-path-search input:hover {
+  border-color: var(--border-strong);
+}
+
+.tab-rail-path-search input:focus {
+  border-color: var(--accent);
+}
+
+.tab-rail-path-search-icon {
+  position: absolute;
+  z-index: 1;
+  top: 6px;
+  left: 7px;
+  color: var(--fg-faint);
+  pointer-events: none;
 }
 
 .tab-rail-add {
@@ -1126,10 +1207,11 @@ textarea:focus {
   border-radius: 4px;
   background: transparent;
   color: var(--fg-dim);
+  flex: 0 0 24px;
 }
 
 .tab-rail-add:hover {
-  background: var(--bg-hover);
+  background: var(--bg-tab-hover);
   color: var(--fg);
 }
 
@@ -1140,8 +1222,15 @@ textarea:focus {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  /* Warp's own numbers: 8px body padding, 4px between rows. */
-  padding: 8px;
+  /* 分割线延伸到侧栏边缘；卡片和文字的留白由每个会话行提供。 */
+  padding: 0;
+  border-top: 1px solid var(--tab-row-border);
+}
+
+.tab-rail-empty {
+  padding: 18px 12px;
+  color: var(--fg-faint);
+  text-align: center;
 }
 
 /* A pane's rows, when the window is split: the header names it and the rule
@@ -1149,7 +1238,7 @@ textarea:focus {
 .tab-rail-block {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 0;
 }
 
 .tab-rail-block + .tab-rail-block {
@@ -1182,16 +1271,17 @@ textarea:focus {
 }
 
 .tab-row-icon {
-  /* Warp's mark: a 24px disk with its glyph at two thirds of it. */
+  /* 普通终端使用灰色圆底；工具图标在下面改用各自的品牌色。 */
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
-  color: var(--fg-faint);
+  color: var(--tab-fg);
+  background: var(--bg-tab-icon);
 }
 
 .tab-row-icon > .icon {
@@ -1200,25 +1290,15 @@ textarea:focus {
 }
 
 .tab-row.is-active .tab-row-icon {
-  color: var(--session-color, var(--accent));
+  color: var(--fg);
+  background: var(--bg-tab-icon-active);
 }
 
-/* An agentic CLI owns the row's mark: the tool's own glyph, on a disk of its
-   own colour, so a Claude session wears Claude's mark. */
-.tab-row-icon.is-agent {
-  color: var(--agent-color, var(--accent));
-  background: color-mix(
-    in srgb,
-    var(--agent-color, var(--accent)) 20%,
-    transparent
-  );
-}
-
-/* The mark keeps the tool's colour on the active row as well: it is that
-   tool's logo, and the session's colour is not what it is saying. This has to
-   out-specify `.tab-row.is-active .tab-row-icon` above. */
+/* 品牌图标保持实色圆底和白色标记，选中状态不能覆盖工具本身的识别色。 */
+.tab-row-icon.is-agent,
 .tab-row.is-active .tab-row-icon.is-agent {
-  color: var(--agent-color, var(--accent));
+  color: #ffffff;
+  background: var(--agent-color, var(--accent));
 }
 
 /* A row is two lines when it has a second fact to show — a local shell's
@@ -1237,9 +1317,7 @@ textarea:focus {
   display: flex;
   align-items: center;
   min-width: 0;
-  /* Pinned so a two-line row lands on Warp's 48px: 16 (this line) + 2
-     (spacing) + 14 (the metadata row) + 8 + 8 (the row's padding). A one-line
-     row keeps the 24px icon as its tallest part, so 40px. */
+  gap: 8px;
   height: 16px;
   line-height: 16px;
 }
@@ -1250,8 +1328,8 @@ textarea:focus {
   height: 14px;
   line-height: 14px;
   overflow: hidden;
-  color: var(--fg-faint);
-  font-size: 10px;
+  color: var(--fg-dim);
+  font-size: calc(var(--panel-font-size) - 1px);
   font-style: normal;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1262,17 +1340,77 @@ textarea:focus {
   isolation: isolate;
   display: flex;
   align-items: center;
-  /* Warp's ICON_WITH_STATUS_GAP, and its one-line row: 24px icon + 16px of
-     padding. A row with a path is 48px, the icon-taller of the two lines. */
-  gap: 8px;
-  min-height: 40px;
-  padding: 8px;
-  border-radius: 4px;
-  color: var(--fg-dim);
+  gap: 10px;
+  min-height: 68px;
+  padding: 17px 18px;
+  border-bottom: 1px solid var(--tab-row-border);
+  color: var(--tab-fg);
   white-space: nowrap;
   overflow: hidden;
   /* WebKit still shows an I-beam over unselectable text under cursor: auto. */
   cursor: default;
+}
+
+/* 拖动行直接跟随指针；目标区间内的其它标签用短缓动让出最终插入位置。 */
+.tab-rail.is-reordering {
+  cursor: grabbing;
+}
+
+.tab-row.is-dragging {
+  z-index: 3;
+  transform: translateY(var(--tab-drag-y, 0));
+  box-shadow: var(--shadow-pop);
+  opacity: 0.94;
+  will-change: transform;
+}
+
+.tab-row.is-shift-up,
+.tab-row.is-shift-down {
+  transition: transform 130ms cubic-bezier(0.2, 0, 0, 1);
+  will-change: transform;
+}
+
+.tab-row.is-shift-up {
+  transform: translateY(-100%);
+}
+
+.tab-row.is-shift-down {
+  transform: translateY(100%);
+}
+
+.tab-rail.is-reordering .tab-close {
+  visibility: hidden;
+}
+
+.tab-row.is-drop-before::after,
+.tab-row.is-drop-after::after {
+  content: "";
+  position: absolute;
+  z-index: 4;
+  right: 8px;
+  left: 8px;
+  height: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.tab-row.is-drop-before::after {
+  top: 0;
+}
+
+.tab-row.is-drop-after::after {
+  bottom: 0;
+}
+
+/* 卡片在行内缩进，整行分割线独立绘制；选中时不增加边框宽度，避免文字跳动。 */
+.tab-row::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 9px 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  pointer-events: none;
 }
 
 /* Background activity is a badge on the row's mark: a dot in the session's
@@ -1300,15 +1438,14 @@ textarea:focus {
   display: block;
 }
 
-/* Finished background work borrows the active tab's bright top edge and
-   terminal surface, with a light session-colour tint. It stays until visited. */
+/* 后台任务完成后用轻微的会话色提醒，灰阶基底跟随标签栏，访问后恢复。 */
 .tab-row.is-command-complete:not(.is-active) {
   color: var(--fg);
   font-style: normal;
   background: color-mix(
     in srgb,
     var(--session-color, var(--accent)) 12%,
-    var(--bg-terminal)
+    var(--bg-tab-rail)
   );
   box-shadow: inset 2px 0 0 var(--session-color, var(--accent));
   animation: tab-command-ready 760ms cubic-bezier(0.2, 0, 0, 1);
@@ -1331,7 +1468,7 @@ textarea:focus {
     background-color: color-mix(
       in srgb,
       var(--session-color, var(--accent)) 32%,
-      var(--bg-terminal)
+      var(--bg-tab-rail)
     );
   }
 }
@@ -1348,22 +1485,20 @@ textarea:focus {
   }
 }
 
-.tab-row:hover {
-  background: var(--bg-hover);
+.tab-row:hover::before {
+  background: var(--bg-tab-hover);
 }
 
-/* A border marks the selected row, the way Warp draws it. */
+/* 选中会话使用更亮的中性灰和细边框，颜色层次与截图保持一致。 */
 .tab-row.is-active {
-  border: 1px solid var(--border);
-}
-
-
-
-.tab-row.is-active {
-  background: var(--bg-terminal);
+  background: var(--bg-tab-active-band);
   color: var(--fg);
   font-style: normal;
-  box-shadow: inset 2px 0 0 var(--session-color, var(--accent));
+}
+
+.tab-row.is-active::before {
+  border-color: var(--tab-active-border);
+  background: var(--bg-tab-active);
 }
 
 .tab-row.is-closed .tab-label {
@@ -1386,7 +1521,23 @@ textarea:focus {
   text-overflow: ellipsis;
 }
 
+.tab-row-actions {
+  display: grid;
+  flex: none;
+  align-items: center;
+  justify-items: end;
+  min-width: 24px;
+}
+
+.tab-shortcut {
+  grid-area: 1 / 1;
+  color: var(--fg-dim);
+  font-size: var(--panel-font-size);
+  font-variant-numeric: tabular-nums;
+}
+
 .tab-close {
+  grid-area: 1 / 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1399,12 +1550,18 @@ textarea:focus {
 }
 
 .tab-row:hover .tab-close,
-.tab-row.is-active .tab-close {
+.tab-row:focus-within .tab-close {
   visibility: visible;
 }
 
+/* 关闭按钮与序号共用位置，悬停时替换显示，不挤压标题宽度。 */
+.tab-row:hover .tab-shortcut,
+.tab-row:focus-within .tab-shortcut {
+  visibility: hidden;
+}
+
 .tab-close:hover {
-  background: var(--bg-hover);
+  background: var(--bg-tab-hover);
   color: var(--red);
 }
 
@@ -1528,6 +1685,8 @@ textarea:focus {
   position: absolute;
   inset: 0;
   display: flex;
+  box-sizing: border-box;
+  padding-top: var(--terminal-line-height);
   overflow: hidden;
 }
 
@@ -1948,7 +2107,9 @@ textarea:focus {
 .term-gutter {
   position: relative;
   flex: 0 0 auto;
-  padding: 0 8px 0 6px;
+  /* 容器上伸到面板顶边，让竖线贯通；内边距保留时间线与终端首行的对齐。 */
+  margin-top: calc(-1 * var(--terminal-line-height));
+  padding: var(--terminal-line-height) 8px 0 6px;
   background: var(--bg-terminal);
   border-right: 1px solid var(--gutter-border);
   font-family: var(--font-mono);
@@ -1971,35 +2132,6 @@ textarea:focus {
   line-height: var(--gutter-cell);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
-}
-
-/* The row the cursor is on: the one line the eye is looking for, so it gets a
-   tint that reads from across the window and both its columns come up with it.
-   The text is the window's own foreground rather than the accent or white —
-   white on the accent's own tint washes out in the light theme, where the tint
-   is pale and the contrast has to come from the text being dark. The `color`
-   is set on the two columns by name: each of them sets its own further down,
-   which outranks a colour on the row. */
-.gutter-row.is-cursor {
-  background: color-mix(in srgb, var(--accent) 30%, transparent);
-  color: var(--fg);
-}
-
-.gutter-row.is-cursor .gutter-time,
-.gutter-row.is-cursor .gutter-line {
-  color: var(--fg);
-  font-weight: 600;
-}
-
-:root[data-theme="light"] .gutter-row.is-cursor {
-  /* The light accent is a mid blue; full strength is the only place it reads
-     as a mark rather than as a smudge on a white terminal. */
-  background: var(--accent);
-}
-
-:root[data-theme="light"] .gutter-row.is-cursor .gutter-time,
-:root[data-theme="light"] .gutter-row.is-cursor .gutter-line {
-  color: var(--accent-contrast);
 }
 
 .gutter-time {
@@ -2043,10 +2175,8 @@ textarea:focus {
   left: 0;
   right: 0;
   height: 1px;
-  /* Not `--border`: on the terminal's own background that is a 5% step and
-     reads as nothing at all. This is the palette's hairline for a rule that
-     has to be seen. */
-  background: var(--border-strong);
+  /* 命令块只需要弱分隔；使用强边框色会让终端看起来像表格。 */
+  background: var(--row-separator);
   pointer-events: none;
 }
 
@@ -2729,8 +2859,8 @@ textarea:focus {
   height: 24px;
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 0 12px;
+  gap: 6px;
+  padding: 0 8px;
   background: var(--bg-app);
   border-top: 1px solid var(--border);
   color: var(--fg-dim);
@@ -2744,6 +2874,70 @@ textarea:focus {
 .status-item {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.status-action {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--fg-dim);
+  font: inherit;
+  white-space: nowrap;
+}
+
+.status-action:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.status-action.is-active {
+  background: var(--bg-active);
+  color: var(--fg);
+}
+
+.status-action:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.status-action:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.status-context {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 4px;
+  color: var(--fg-dim);
+  white-space: nowrap;
+}
+
+.status-context > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-directory {
+  max-width: min(42vw, 520px);
+}
+
+.status-branch {
+  max-width: min(20vw, 240px);
+}
+
+.status-context .icon,
+.status-action .icon {
+  flex: 0 0 auto;
 }
 
 .status-item.is-error {
@@ -2764,9 +2958,7 @@ textarea:focus {
 
 /* --- splitters ------------------------------------------------------------ */
 
-/* The splitter is the 1px divider itself; a 7px hit area (`::after`)
-   straddles it, and a 3px accent line (`::before`) lights up after a short
-   hover delay — as VS Code's sashes do — so brushing past never flashes. */
+/* 分割线始终保持 1px；7px 的透明命中区域只负责降低拖拽难度。 */
 .splitter {
   position: relative;
   z-index: 5;
@@ -2774,7 +2966,6 @@ textarea:focus {
   background: var(--border);
 }
 
-.splitter::before,
 .splitter::after {
   content: "";
   position: absolute;
@@ -2796,39 +2987,7 @@ textarea:focus {
   cursor: row-resize;
 }
 
-.splitter::before {
-  background: var(--accent);
-  opacity: 0;
-  transition: opacity 80ms ease;
-  pointer-events: none;
-}
-
-.splitter.is-vertical::before {
-  top: 0;
-  bottom: 0;
-  left: -1px;
-  width: 3px;
-}
-
-.splitter.is-horizontal::before {
-  left: 0;
-  right: 0;
-  top: -1px;
-  height: 3px;
-}
-
-.splitter:hover::before {
-  opacity: 1;
-  transition: opacity 120ms ease 300ms;
-}
-
-.splitter.is-dragging::before {
-  opacity: 1;
-  transition: none;
-}
-
-/* While a drag is on, the resize cursor holds over whatever the pointer
-   crosses (the terminal would otherwise show its text cursor). */
+/* 拖拽期间保持缩放光标，避免经过终端内容时变回文本光标。 */
 .app:has(.splitter.is-vertical.is-dragging),
 .app:has(.splitter.is-vertical.is-dragging) * {
   cursor: col-resize !important;
@@ -3906,6 +4065,475 @@ textarea:focus {
   .protocol-picker {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+/* --- git changes ---------------------------------------------------------- */
+
+.git-changes-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 28px;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--fg-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.git-changes-toggle.has-counts {
+  min-width: 72px;
+}
+
+.git-changes-toggle:hover,
+.git-changes-toggle[aria-pressed="true"] {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.git-changes-toggle:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.git-changes-toggle > .icon {
+  width: 14px;
+  height: 14px;
+  margin-right: 1px;
+  color: var(--fg-dim);
+}
+
+.panel-title.is-changes > .icon {
+  color: var(--accent);
+}
+
+.git-added {
+  color: var(--green);
+}
+
+.git-removed {
+  color: var(--red);
+}
+
+.git-changes-panel {
+  flex: 1;
+}
+
+.git-changes-panel .panel-action.is-spinning .icon {
+  animation: update-spin 0.8s linear infinite;
+}
+
+.git-repo-summary {
+  display: flex;
+  flex: 0 0 34px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 34px;
+  padding: 0 12px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel-alt);
+}
+
+.git-repo-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-repo-branch {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-faint);
+  font-family: var(--font-mono);
+  font-size: calc(var(--panel-font-size) - 1px);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-change-total {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: calc(var(--panel-font-size) - 1px);
+  font-variant-numeric: tabular-nums;
+}
+
+.git-commit-bar {
+  display: flex;
+  flex: 0 0 38px;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.git-commit-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--bg-field);
+  color: var(--fg);
+  font: inherit;
+}
+
+.git-commit-input::placeholder {
+  color: var(--fg-faint);
+}
+
+.git-commit-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.git-commit-button,
+.git-more-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  color: var(--fg-dim);
+}
+
+.git-commit-button {
+  gap: 5px;
+  min-width: 78px;
+  padding: 0 10px;
+}
+
+.git-more-button {
+  width: 28px;
+}
+
+.git-commit-button:hover:not(:disabled),
+.git-more-button:hover:not(:disabled),
+.git-more-button[aria-expanded="true"] {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.git-commit-button:focus-visible,
+.git-more-button:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.git-commit-button:disabled,
+.git-more-button:disabled,
+.git-commit-input:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.git-operation-error {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 8px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--red) 40%, var(--border));
+  background: color-mix(in srgb, var(--red) 10%, var(--bg-panel));
+  color: var(--red);
+  font-size: calc(var(--panel-font-size) - 1px);
+  line-height: 1.4;
+}
+
+.git-operation-error > .icon {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.git-operation-error > span {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+}
+
+.git-operation-error > button {
+  display: inline-flex;
+  flex: 0 0 22px;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-top: -3px;
+  color: inherit;
+}
+
+.git-operation-error > button:hover {
+  background: var(--bg-hover);
+}
+
+.git-change-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--bg-panel);
+}
+
+.git-change-list.is-empty {
+  display: grid;
+  place-items: center;
+}
+
+.git-changes-empty {
+  display: flex;
+  max-width: 310px;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--fg-faint);
+  text-align: center;
+}
+
+.git-changes-empty > .icon {
+  width: 38px;
+  height: 38px;
+  margin-bottom: 8px;
+}
+
+.git-changes-empty > strong {
+  color: var(--fg-dim);
+  font-size: 14px;
+}
+
+.git-changes-empty > span {
+  line-height: 1.5;
+}
+
+.git-change {
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--bg-panel-alt);
+}
+
+.git-change-header {
+  display: flex;
+  min-width: 0;
+  min-height: 36px;
+}
+
+.git-change-row {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 4px 10px 4px 7px;
+  text-align: left;
+}
+
+.git-change-row:hover,
+.git-change-row[aria-expanded="true"] {
+  background: var(--bg-hover);
+}
+
+.git-change-row:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.git-change-action {
+  display: inline-flex;
+  flex: 0 0 34px;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  min-height: 34px;
+  margin: 1px 1px 1px 0;
+  border-left: 1px solid var(--border);
+  color: var(--fg-faint);
+}
+
+.git-change-action:hover {
+  background: var(--bg-hover);
+  color: var(--red);
+}
+
+.git-change-action:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.git-change-action:disabled,
+.git-change-row:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.git-change-path {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.git-change-path > span,
+.git-change-path > small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-change-path > small {
+  color: var(--fg-faint);
+  font-size: calc(var(--panel-font-size) - 2px);
+}
+
+.git-change-counts {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: calc(var(--panel-font-size) - 1px);
+  font-variant-numeric: tabular-nums;
+}
+
+.git-change-binary {
+  flex: 0 0 auto;
+  color: var(--fg-faint);
+  font-size: calc(var(--panel-font-size) - 2px);
+}
+
+.git-change-status {
+  display: inline-flex;
+  flex: 0 0 16px;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  color: var(--fg-dim);
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+
+.git-change-status:is(.is-added, .is-untracked, .is-copied) {
+  color: var(--green);
+}
+
+.git-change-status.is-deleted,
+.git-change-status.is-conflicted {
+  color: var(--red);
+}
+
+.git-change-status.is-renamed,
+.git-change-status.is-typeChanged {
+  color: var(--accent);
+}
+
+.git-diff-view {
+  max-height: min(420px, 52vh);
+  overflow: auto;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel-alt);
+  user-select: text;
+}
+
+.git-diff-view pre {
+  min-width: max-content;
+  margin: 0;
+  padding: 6px 0;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--panel-font-size);
+  line-height: 1.5;
+  tab-size: 4;
+}
+
+.git-diff-line {
+  display: grid;
+  grid-template-columns: 52px 32px minmax(max-content, 1fr);
+  min-height: 1.5em;
+  white-space: pre;
+}
+
+.git-diff-line-number {
+  padding: 0 9px 0 6px;
+  border-right: 1px solid var(--border);
+  color: var(--fg-faint);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+.git-diff-line-marker {
+  text-align: center;
+  user-select: none;
+}
+
+.git-diff-line-text {
+  padding: 0 12px 0 16px;
+}
+
+.git-diff-line.is-added {
+  box-shadow: inset 3px 0 0 var(--green);
+  background: color-mix(in srgb, var(--green) 16%, var(--bg-panel-alt));
+}
+
+.git-diff-line.is-removed {
+  box-shadow: inset 3px 0 0 var(--red);
+  background: color-mix(in srgb, var(--red) 15%, var(--bg-panel-alt));
+}
+
+.git-diff-line.is-added .git-diff-line-marker {
+  color: var(--green);
+}
+
+.git-diff-line.is-removed .git-diff-line-marker {
+  color: var(--red);
+}
+
+.git-diff-line.is-hunk {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-panel-alt));
+}
+
+.git-diff-line.is-meta {
+  color: var(--fg-faint);
+}
+
+.git-diff-message,
+.git-diff-truncated {
+  padding: 9px 12px 10px 31px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-app);
+  color: var(--fg-faint);
+  font-size: calc(var(--panel-font-size) - 1px);
+}
+
+.git-diff-message.is-error {
+  color: var(--red);
+}
+
+.git-diff-truncated {
+  border-top: 0;
+  color: var(--accent);
 }
 
 /* --- filer ---------------------------------------------------------------- */

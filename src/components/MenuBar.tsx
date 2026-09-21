@@ -15,7 +15,6 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import appIcon from "../../src-tauri/icons/32x32.png";
 import {
   openLocalShell,
-  revealCwdInFiler,
   splitSession,
   toggleSessionConnection,
 } from "../actions";
@@ -223,6 +222,7 @@ function hasCheckable(entries: (Entry | "separator")[]): boolean {
 interface Entry {
   label: string;
   shortcut?: string;
+  disabled?: boolean;
   /** Marks the entry as a choice, and says whether it is the chosen one. */
   checked?: boolean;
   /** The control shape a checkable entry draws; a box by default. */
@@ -238,8 +238,8 @@ interface Menu {
 
 interface Props {
   onNewSession: () => void;
-  /** The right panel, for the button at the end of the bar. */
-  rightPanel: { open: boolean; onToggle: () => void };
+  /** 标题栏 Changes 按钮控制的右侧只读面板。 */
+  changesPanel: { open: boolean; onToggle: () => void };
   onFind: () => void;
   onFindNext: () => void;
   onFontSettings: () => void;
@@ -260,6 +260,10 @@ export function MenuBar(props: Props) {
   const activeId = useStore((s) => s.activeId);
   const activeTab = useActiveTab();
   const activeState = activeTab?.state;
+  const gitChanges =
+    activeTab?.info.kind === "local" && activeState === "connected"
+      ? activeTab.gitChanges
+      : null;
   const windowTitle = activeTab
     ? `${tabTitle(activeTab)}${IS_MAC ? " \u2014 " : " - "}ZenTerm`
     : "ZenTerm";
@@ -375,8 +379,7 @@ export function MenuBar(props: Props) {
         },
         "separator",
         {
-          // One entry that mirrors the Session panel's power toggle: it names
-          // whichever side of the switch applies to the active session now.
+          // 同一个菜单项按当前连接状态展示相反操作，避免同时出现连接和断开。
           label:
             activeState === "closed" || activeState === "error"
               ? "Reconnect Session"
@@ -527,12 +530,6 @@ export function MenuBar(props: Props) {
       title: "View",
       entries: [
         {
-          label: "Filer",
-          shortcut: accel("panelFiler"),
-          checked: panels.filer,
-          action: () => togglePanel("filer"),
-        },
-        {
           label: "Sender",
           shortcut: accel("panelSender"),
           checked: panels.sender,
@@ -550,12 +547,6 @@ export function MenuBar(props: Props) {
           label: "Split Down",
           shortcut: accel("splitDown"),
           action: withActive((id) => void splitSession(id, "down")),
-        },
-        "separator",
-        {
-          label: "Reveal Working Directory in Filer",
-          shortcut: accel("revealCwd"),
-          action: withActive((id) => void revealCwdInFiler(id)),
         },
         "separator",
         {
@@ -686,29 +677,26 @@ export function MenuBar(props: Props) {
           </span>
         </div>
       )}
-      {/* The bar's right end. The panel toggle sits here, where VS Code keeps
-          its layout controls: one button whose icon is the panel's state —
-          filled while it is showing, dashed while it is away — and whose
-          label says what pressing it will do. */}
       <div className="menubar-right" data-tauri-drag-region>
         <div className="layout-actions">
           <button
-            className="panel-action"
-            onClick={props.rightPanel.onToggle}
-            title={props.rightPanel.open ? "Hide Panel" : "Show Panel"}
-            aria-label={props.rightPanel.open ? "Hide Panel" : "Show Panel"}
-            aria-pressed={props.rightPanel.open}
+            className={`git-changes-toggle${gitChanges ? " has-counts" : ""}`}
+            onClick={props.changesPanel.onToggle}
+            title={props.changesPanel.open ? "Hide Changes" : "Show Changes"}
+            aria-label={
+              gitChanges
+                ? `${props.changesPanel.open ? "Hide" : "Show"} Changes, ${gitChanges.additions} additions and ${gitChanges.deletions} deletions`
+                : `${props.changesPanel.open ? "Hide" : "Show"} Changes`
+            }
+            aria-pressed={props.changesPanel.open}
           >
-            <Icon
-              name={
-                // The filled frame is the panel being there, the dashed one
-                // is it being away: the icon reads as the state, and the
-                // button's own label says what the press will do.
-                props.rightPanel.open
-                  ? "layout-sidebar-right"
-                  : "layout-sidebar-right-off"
-              }
-            />
+            <Icon name="source-control" />
+            {gitChanges && (
+              <>
+              <span className="git-added">+{gitChanges.additions}</span>
+              <span className="git-removed">-{gitChanges.deletions}</span>
+              </>
+            )}
           </button>
         </div>
         {!IS_MAC && <WindowControls maximized={maximized} />}
@@ -786,6 +774,7 @@ function MenuDropdown({
         return (
           <button
             key={entry.label}
+            disabled={entry.disabled}
             className={`menu-entry${entry.checked ? " is-checked" : ""}`}
             role={menuRole(entry)}
             aria-checked={

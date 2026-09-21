@@ -23,6 +23,7 @@ import { IS_MAC, IS_WINDOWS } from "./platform";
 import { matchAppShortcut } from "./shortcuts";
 import { SEARCH_HIGHLIGHT_LIMIT } from "./terminalSearch";
 import {
+  allowsTableHeaderColors,
   isShellPrompt,
   semanticLine,
   shellPromptEnd,
@@ -312,6 +313,18 @@ interface InputAnchor {
   col: number;
 }
 
+interface CommandDivider {
+  marker: IMarker;
+  /** true 表示该线位于两行专用留白正中，而不是紧贴 prompt。 */
+  centered: boolean;
+}
+
+interface SemanticCommand {
+  marker: IMarker;
+  /** 该命令块是否允许把普通文本识别为表头。 */
+  allowTableHeaders: boolean;
+}
+
 interface SemanticRow {
   /** Tracks the row across scrolling and scrollback trimming. */
   marker: IMarker;
@@ -384,12 +397,12 @@ export class TerminalController {
   private commandRunning = false;
   /** Callers waiting for the running command to return; see `waitForCommand`. */
   private commandWaiters: (() => void)[] = [];
-  /**
-   * One marker per command start, oldest first, for the rule drawn above each
-   * prompt (see `dividers`). xterm disposes the marker as its line leaves the
-   * scrollback, which is also what prunes this list.
-   */
-  private commandStarts: IMarker[] = [];
+  /** 每条命令块分割线的 marker，按时间从旧到新排列。 */
+  private commandStarts: CommandDivider[] = [];
+  /** 当前 prompt 已由 OSC 133 A 创建分割线，命令提交时不得重复登记。 */
+  private promptDividerReady = false;
+  /** 命令与输出的起点，供语义着色在滚动和重绘后仍能识别所属命令。 */
+  private semanticCommands: SemanticCommand[] = [];
   /** The rule layer inside the terminal's own box, and its pool of 1px lines. */
   private dividersLayer: HTMLElement | null = null;
   private dividerLines: HTMLElement[] = [];
@@ -560,9 +573,18 @@ export class TerminalController {
     // is the authoritative completion signal when available; prompt matching
     // below covers ordinary bash/zsh/fish/cmd/PowerShell installations.
     this.term.parser.registerOscHandler(133, (data) => {
-      const marker = data.split(";", 1)[0];
+      const [marker, ...parameters] = data.split(";");
       if (marker === "C" && !this.commandRunning) this.beginCommand();
-      else if (marker === "D" || marker === "A") this.finishCommand();
+      else if (marker === "D" || marker === "A") {
+        if (marker === "A") {
+          const initialPrompt = parameters.includes("zenterm-initial");
+          this.promptDividerReady =
+            initialPrompt ||
+            (this.dividers &&
+              this.registerCommandDivider(parameters.includes("zenterm-spacer")));
+        }
+        this.finishCommand();
+      }
       return marker === "A" || marker === "B" || marker === "C" || marker === "D";
     });
     // A shell's `clear` restarts the line numbering and drops the scrollback,
@@ -635,6 +657,9 @@ export class TerminalController {
       this.trimLineMetadata();
       this.measureCell();
       this.invalidateGutter();
+      // 宽度变化会让 xterm 重排软换行并更新 marker；即使可视行数和分割线
+      // 数量没变，也必须按 marker 的新行位置重新放置分割线。
+      this.dividersPainted = null;
       this.syncGutter();
     });
 
@@ -1514,19 +1539,27 @@ export class TerminalController {
       prompt = buf.getLine(row)?.translateToString(false, 0, col) ?? "";
     }
 
+    const command = sent ?? this.submittedCommand(prompt);
     this.commandMarker?.dispose();
     this.commandMarker = this.term.registerMarker(0);
-    if (this.dividers) {
-      const start = this.term.registerMarker(0);
-      if (start) this.commandStarts.push(start);
+    const semanticMarker = this.term.registerMarker(0);
+    if (semanticMarker) {
+      this.semanticCommands.push({
+        marker: semanticMarker,
+        allowTableHeaders: allowsTableHeaderColors(command),
+      });
     }
+    if (this.dividers && !this.promptDividerReady) {
+      this.registerCommandDivider(false);
+    }
+    this.promptDividerReady = false;
     this.commandPrompt = prompt;
     // Appending a space lets a compact bare prompt such as `$` satisfy the
     // same look-ahead rule as `$ command` in semantic coloring.
     this.commandPromptRecognized = isShellPrompt(`${prompt} `);
     this.commandOutputAdvanced = false;
     this.commandRunning = true;
-    this.aiTool = aiToolForCommand(sent ?? this.submittedCommand(prompt));
+    this.aiTool = aiToolForCommand(command);
     this.aiSession = this.aiTool !== null;
     this.callbacks.onAiTool?.(this.aiTool);
     // An agentic CLI runs until the user quits it, so reporting its whole
@@ -2277,7 +2310,9 @@ export class TerminalController {
     // worth the regex cost; their rows are still recorded below so they are
     // not re-examined every frame.
     const { ranges, band }: { ranges: SemanticRange[]; band?: string } =
-      text && text.length <= 4000 ? semanticLine(text) : { ranges: [] };
+      text && text.length <= 4000
+        ? semanticLine(text, this.tableHeadersAllowedAt(first))
+        : { ranges: [] };
 
     const cursorIndex = buf.baseY + buf.cursorY;
     const rowMarkers = new Map<number, IMarker>();
@@ -2381,6 +2416,18 @@ export class TerminalController {
     this.semanticRows = [];
   }
 
+  /** 返回指定缓冲区行所属命令的表头策略，并顺手清理已离开回滚区的 marker。 */
+  private tableHeadersAllowedAt(line: number): boolean {
+    this.semanticCommands = this.semanticCommands.filter(
+      ({ marker }) => !marker.isDisposed,
+    );
+    for (let index = this.semanticCommands.length - 1; index >= 0; index -= 1) {
+      const command = this.semanticCommands[index];
+      if (command.marker.line <= line) return command.allowTableHeaders;
+    }
+    return true;
+  }
+
   /**
    * `.xterm-screen` spans exactly `rows` cells, so its height divided by the
    * row count is the exact cell height — no reaching into xterm's renderer.
@@ -2402,6 +2449,27 @@ export class TerminalController {
     this.gutterPainted = null;
   }
 
+  /** 登记当前命令块边界；重复的 prompt 标记仍视为已登记，但不能再叠加分割线。 */
+  private registerCommandDivider(centered: boolean): boolean {
+    const marker = this.term.registerMarker(0);
+    if (!marker) return false;
+    const line = marker.line + (centered ? 1 : 0);
+    // zsh 重绘 prompt 会重发 OSC 133 A；半透明线叠加会越画越亮。
+    // 按实际分隔行去重，并释放新 marker，避免输入期间持续积累无用标记。
+    for (let index = this.commandStarts.length - 1; index >= 0; index -= 1) {
+      const existing = this.commandStarts[index];
+      if (
+        !existing.marker.isDisposed &&
+        existing.marker.line + (existing.centered ? 1 : 0) === line
+      ) {
+        marker.dispose();
+        return true;
+      }
+    }
+    this.commandStarts.push({ marker, centered });
+    return true;
+  }
+
   /**
    * Places a rule above every command's prompt that is on screen. Reuses the
    * gutter's pass — same viewport, same idle bail-out, no second listener —
@@ -2420,7 +2488,10 @@ export class TerminalController {
     const rows = this.term.rows;
     // Trimmed lines take their markers with them; drop the dead ones so the
     // list stays sorted and short.
-    while (this.commandStarts.length > 0 && this.commandStarts[0].isDisposed) {
+    while (
+      this.commandStarts.length > 0 &&
+      this.commandStarts[0].marker.isDisposed
+    ) {
       this.commandStarts.shift();
     }
     const painted = this.dividersPainted;
@@ -2443,7 +2514,8 @@ export class TerminalController {
     let used = 0;
     if (!alternate) {
       const last = viewportY + rows;
-      for (const marker of this.commandStarts) {
+      for (const divider of this.commandStarts) {
+        const { marker } = divider;
         if (marker.isDisposed) continue;
         // Sorted, so the first start past the viewport ends the scan.
         if (marker.line < viewportY) continue;
@@ -2461,7 +2533,8 @@ export class TerminalController {
         // antialiased into two fainter ones, which over a terminal's own
         // background is the same as not drawing it.
         line.style.transform = `translateY(${snapToPixel(
-          (marker.line - viewportY) * this.cellHeight,
+          (marker.line - viewportY + (divider.centered ? 1 : 0)) *
+            this.cellHeight,
         )}px)`;
         used += 1;
       }

@@ -9,7 +9,7 @@ interface Props {
   onCancel: () => void;
 }
 
-/** Asks for a group name when creating or renaming a Session panel group. */
+/** 新建或重命名会话分组时收集分组名称。 */
 export function GroupNameDialog({
   title,
   initialName = "",
