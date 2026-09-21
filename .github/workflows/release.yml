@@ -25,18 +25,28 @@ jobs:
           - os: ubuntu-24.04
             name: Linux x64
             bundles: deb,appimage
+            asset_os: Linux
+            asset_arch: x64
           - os: ubuntu-24.04-arm
             name: Linux arm64
             bundles: deb,appimage
+            asset_os: Linux
+            asset_arch: arm64
           - os: macos-latest
             name: macOS arm64
             bundles: dmg
+            asset_os: macOS
+            asset_arch: arm64
           - os: macos-15-intel
             name: macOS x64
             bundles: dmg
+            asset_os: macOS
+            asset_arch: x64
           - os: windows-latest
             name: Windows x64
             bundles: nsis
+            asset_os: Windows
+            asset_arch: x64
 
     steps:
       - uses: actions/checkout@v7
@@ -94,11 +104,9 @@ jobs:
       - name: Build the bundles
         run: npx tauri build --bundles ${{ matrix.bundles }}
 
-      # The portable build is the bare executable beside a `data` directory:
-      # that directory is what puts the app in portable mode (see
-      # `store::portable_data_dir`, which only fires when it already exists),
-      # so the zip has to carry it even though it is empty. Compress-Archive
-      # silently drops empty directories, so write the archive by hand.
+      # 便携版由裸可执行文件和旁边的 `data` 目录组成；只有该目录已经存在时，
+      # `store::portable_data_dir` 才会启用便携模式。即使目录为空也必须打进压缩包，
+      # 而 Compress-Archive 会忽略空目录，因此这里需要直接创建 ZIP 条目。
       - name: Pack the Windows portable zip
         if: runner.os == 'Windows'
         shell: pwsh
@@ -111,7 +119,7 @@ jobs:
 
           Add-Type -AssemblyName System.IO.Compression
           Add-Type -AssemblyName System.IO.Compression.FileSystem
-          $zipPath = Join-Path $PWD "Kanso_${version}_x64_portable.zip"
+          $zipPath = Join-Path $PWD "Kanso_${version}_Windows_x64_portable.zip"
           Remove-Item $zipPath -ErrorAction SilentlyContinue
           $zip = [System.IO.Compression.ZipFile]::Open($zipPath, 'Create')
           try {
@@ -123,16 +131,45 @@ jobs:
           }
           Get-Item $zipPath | Select-Object Name, Length
 
-      - uses: actions/upload-artifact@v7
-        with:
-          name: ${{ matrix.name }}
-          if-no-files-found: error
-          path: |
+      - name: Add operating system to package names
+        shell: bash
+        env:
+          ASSET_OS: ${{ matrix.asset_os }}
+          ASSET_ARCH: ${{ matrix.asset_arch }}
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          mkdir -p release-assets
+          shopt -s nullglob
+          files=(
             src-tauri/target/release/bundle/dmg/*.dmg
             src-tauri/target/release/bundle/nsis/*.exe
             src-tauri/target/release/bundle/deb/*.deb
             src-tauri/target/release/bundle/appimage/*.AppImage
             *.zip
+          )
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::error::no release packages were found"
+            exit 1
+          fi
+
+          for file in "${files[@]}"; do
+            case "$file" in
+              *.AppImage) suffix=.AppImage ;;
+              *.deb) suffix=.deb ;;
+              *.dmg) suffix=.dmg ;;
+              *.exe) suffix=_setup.exe ;;
+              *.zip) suffix=_portable.zip ;;
+              *) continue ;;
+            esac
+            cp "$file" "release-assets/Kanso_${version}_${ASSET_OS}_${ASSET_ARCH}${suffix}"
+          done
+          ls -lh release-assets
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.name }}
+          if-no-files-found: error
+          path: release-assets/*
 
   publish:
     name: Publish the release
