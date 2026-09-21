@@ -1,7 +1,7 @@
 {
   "name": "kanso",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "GPL-3.0-only",
   "type": "module",
   "description": "A lightweight terminal, SSH and SFTP client built with Rust + Tauri - installer under 5 MB, fast startup",
