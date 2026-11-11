@@ -152,6 +152,15 @@ const RIGHT_CLICK_KEY = "kanso.rightClick";
 const SHORTCUTS_KEY = "kanso.shortcuts";
 const CURSOR_STYLE_KEY = "kanso.cursorStyle";
 const CURSOR_BLINK_KEY = "kanso.cursorBlink";
+const DEFAULT_LOCAL_PROFILE_KEY = "kanso.defaultLocalProfileId";
+
+export const loadDefaultLocalProfileId = (): string | null => {
+  try {
+    return localStorage.getItem(DEFAULT_LOCAL_PROFILE_KEY)?.trim() || null;
+  } catch {
+    return null;
+  }
+};
 
 // Opt-in: command capture and the completion popup stay off until the user
 // enables them in the Edit menu.
@@ -410,6 +419,7 @@ const saveShortcuts = (bindings: ShortcutBindings) => {
  * backend instead.
  */
 export interface AppSettings {
+  defaultLocalProfileId: string | null;
   panels: Record<OptionalPanel, boolean>;
   gutterMode: GutterMode;
   theme: ThemeMode;
@@ -433,6 +443,8 @@ export interface AppSettings {
 
 interface AppStore {
   profiles: SessionProfile[];
+  profilesLoaded: boolean;
+  defaultLocalProfileId: string | null;
   /** 已保存会话的用户分组，与左侧会话入口共享。 */
   groups: SessionGroup[];
   tabs: Tab[];
@@ -510,7 +522,7 @@ interface AppStore {
   senderLibraryVersion: number;
 
   /** Fetches saved profiles and their groups together. */
-  loadProfiles: () => Promise<void>;
+  loadProfiles: (refresh?: boolean) => Promise<void>;
   upsertProfile: (profile: SessionProfile) => Promise<SessionProfile>;
   /** Deletes a saved profile with everything that belongs to it. */
   removeProfile: (id: string) => Promise<void>;
@@ -595,6 +607,7 @@ interface AppStore {
   setRightClickAction: (action: RightClickAction) => void;
   setCopyOnSelect: (on: boolean) => void;
   setShortcuts: (bindings: ShortcutBindings) => void;
+  setDefaultLocalProfileId: (id: string | null) => void;
   resetSettings: () => void;
   /** The preferences a data export carries; see `applySettings`. */
   exportSettings: () => AppSettings;
@@ -722,8 +735,13 @@ const settlePane = (state: PaneState, paneId: string): PaneState => {
   };
 };
 
+let profilesRequest: Promise<void> | null = null;
+let profilesRevision = 0;
+
 export const useStore = create<AppStore>((set, get) => ({
   profiles: [],
+  profilesLoaded: false,
+  defaultLocalProfileId: loadDefaultLocalProfileId(),
   groups: [],
   tabs: [],
   activeId: null,
@@ -756,16 +774,31 @@ export const useStore = create<AppStore>((set, get) => ({
   layout: leaf(ROOT_PANE_ID),
   activePaneId: ROOT_PANE_ID,
 
-  async loadProfiles() {
-    const [profiles, groups] = await Promise.all([
-      api.listProfiles(),
-      api.listSessionGroups(),
-    ]);
-    set({ profiles, groups });
+  async loadProfiles(refresh = false) {
+    if (refresh) profilesRevision++;
+    profilesRequest ??= (async () => {
+      while (true) {
+        const revision = profilesRevision;
+        const [profiles, groups] = await Promise.all([
+          api.listProfiles(), api.listSessionGroups(),
+        ]);
+        // A save/delete/import that finishes during this read makes the
+        // snapshot stale. Fetch again before replacing profiles or defaults.
+        if (revision !== profilesRevision) continue;
+        set({ profiles, groups, profilesLoaded: true });
+        const id = get().defaultLocalProfileId;
+        if (id && !profiles.some((profile) => profile.id === id && profile.kind === "local")) {
+          get().setDefaultLocalProfileId(null);
+        }
+        return;
+      }
+    })().finally(() => { profilesRequest = null; });
+    await profilesRequest;
   },
 
   async upsertProfile(profile) {
     const saved = await api.saveProfile(profile);
+    profilesRevision++;
     const profiles = get().profiles;
     const index = profiles.findIndex((p) => p.id === saved.id);
     set({
@@ -774,12 +807,17 @@ export const useStore = create<AppStore>((set, get) => ({
           ? [...profiles, saved]
           : profiles.map((p) => (p.id === saved.id ? saved : p)),
     });
+    if (saved.id === get().defaultLocalProfileId && saved.kind !== "local") {
+      get().setDefaultLocalProfileId(null);
+    }
     return saved;
   },
 
   async removeProfile(id) {
     await api.deleteProfile(id);
+    profilesRevision++;
     set({ profiles: get().profiles.filter((p) => p.id !== id) });
+    if (get().defaultLocalProfileId === id) get().setDefaultLocalProfileId(null);
     // Sender commands scoped to the profile went with it.
     get().bumpSenderLibrary();
   },
@@ -792,6 +830,7 @@ export const useStore = create<AppStore>((set, get) => ({
 
   async upsertGroup(group) {
     const saved = await api.saveSessionGroup(group);
+    profilesRevision++;
     const groups = get().groups;
     const index = groups.findIndex((g) => g.id === saved.id);
     set({
@@ -805,7 +844,7 @@ export const useStore = create<AppStore>((set, get) => ({
 
   async removeGroup(id) {
     await api.deleteSessionGroup(id);
-    await get().loadProfiles();
+    await get().loadProfiles(true);
     // Sender commands scoped to the subtree moved up a level in the backend.
     get().bumpSenderLibrary();
   },
@@ -1210,6 +1249,17 @@ export const useStore = create<AppStore>((set, get) => ({
     saveShortcuts(shortcuts);
   },
 
+  setDefaultLocalProfileId(value) {
+    const id = value?.trim() || null;
+    set({ defaultLocalProfileId: id });
+    try {
+      if (id) localStorage.setItem(DEFAULT_LOCAL_PROFILE_KEY, id);
+      else localStorage.removeItem(DEFAULT_LOCAL_PROFILE_KEY);
+    } catch {
+      // The choice still applies for this run when storage is unavailable.
+    }
+  },
+
   resetSettings() {
     const shortcuts = defaultShortcuts();
     setActiveShortcuts(shortcuts);
@@ -1228,6 +1278,7 @@ export const useStore = create<AppStore>((set, get) => ({
       suggestionsEnabled: false,
       rightClickAction: "menu",
       copyOnSelect: true,
+      defaultLocalProfileId: null,
     });
     try {
       localStorage.removeItem(PANELS_KEY);
@@ -1244,6 +1295,7 @@ export const useStore = create<AppStore>((set, get) => ({
       localStorage.removeItem(RIGHT_CLICK_KEY);
       localStorage.removeItem(COPY_ON_SELECT_KEY);
       localStorage.removeItem(SHORTCUTS_KEY);
+      localStorage.removeItem(DEFAULT_LOCAL_PROFILE_KEY);
     } catch {
       // The defaults still apply for this run when storage is unavailable.
     }
@@ -1252,6 +1304,7 @@ export const useStore = create<AppStore>((set, get) => ({
   exportSettings() {
     const state = get();
     return {
+      defaultLocalProfileId: state.defaultLocalProfileId,
       panels: { ...state.panels },
       gutterMode: state.gutterMode,
       theme: state.theme,
@@ -1275,6 +1328,9 @@ export const useStore = create<AppStore>((set, get) => ({
     const state = get();
     // Each setter validates and persists the way the menus do, so a partial
     // or hand-edited file can only ever change the fields it names.
+    if (values.defaultLocalProfileId === null || typeof values.defaultLocalProfileId === "string") {
+      state.setDefaultLocalProfileId(values.defaultLocalProfileId);
+    }
     const theme = parseTheme(values.theme);
     if (theme) state.setTheme(theme);
     const gutterMode = parseGutterMode(values.gutterMode);

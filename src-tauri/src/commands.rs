@@ -41,6 +41,11 @@ pub struct AppState {
 // --- profiles ---------------------------------------------------------------
 
 #[tauri::command]
+pub fn list_local_shells() -> Vec<crate::local_shells::LocalShell> {
+    crate::local_shells::list()
+}
+
+#[tauri::command]
 pub fn list_profiles(state: State<'_, AppState>) -> Vec<SessionProfile> {
     state.store.list()
 }

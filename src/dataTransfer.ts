@@ -120,7 +120,7 @@ export async function importAppData(): Promise<void> {
 
     const result = await api.importAppData(data);
     if (hasSettings) store.applySettings(data.settings);
-    await store.loadProfiles();
+    await store.loadProfiles(true);
     store.bumpSenderLibrary();
     let status = `Imported ${describe(result)}${hasSettings ? " and settings" : ""}`;
     if (result.skippedSenderCommands > 0) {

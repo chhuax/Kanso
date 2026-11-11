@@ -1087,6 +1087,36 @@ textarea:focus {
   padding: 0 6px 6px;
 }
 
+.session-launcher-local {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.session-launcher-local > .menu-entry {
+  flex: 1;
+  min-width: 0;
+}
+
+.session-launcher-default {
+  max-width: 48%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fg-dim);
+  font-size: 11px;
+}
+
+.session-launcher-local > .menu-entry:hover .session-launcher-default,
+.session-launcher-local > .menu-entry:focus-visible .session-launcher-default {
+  color: inherit;
+}
+
+.session-field-hint {
+  color: var(--fg-dim);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
 .session-launcher .panel-filter {
   flex-shrink: 0;
 }

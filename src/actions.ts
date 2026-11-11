@@ -10,7 +10,12 @@ import {
   getController,
   setController,
 } from "./terminalRegistry";
-import { isFileSession, type SessionInfo, type SessionProfile } from "./types";
+import {
+  isFileSession,
+  type LocalShell,
+  type SessionInfo,
+  type SessionProfile,
+} from "./types";
 
 /** How long a session's asked-for directory answers the popup; see below. */
 const CWD_ASK_TTL_MS = 2000;
@@ -239,10 +244,71 @@ export const LOCAL_SHELL_PROFILE: SessionProfile = {
   color: "#3fb950",
 };
 
+function reportLocalShellFallback(id: string, message: string): void {
+  useStore.getState().setStatus(message);
+  const notice = message.replace(/[\x00-\x1f\x7f]/g, " ");
+  getController(id)?.writeText(`\r\n\x1b[33m[${notice}]\x1b[0m\r\n`);
+}
+
 /** 打开本地 Shell；`paneId` 指定新标签所属 pane。 */
-export async function openLocalShell(paneId?: string): Promise<string | null> {
+export async function openLocalShell(
+  paneId?: string,
+  shell?: LocalShell,
+): Promise<string | null> {
+  let warning: string | null = null;
+  const preferredId = useStore.getState().defaultLocalProfileId;
+  if (!shell && preferredId && !useStore.getState().profilesLoaded) {
+    try {
+      await useStore.getState().loadProfiles();
+    } catch (error) {
+      warning = `Could not load the default local shell: ${String(error)}. Using the system shell.`;
+    }
+  }
+  const store = useStore.getState();
+  const preferred = warning ? undefined : store.profiles.find(
+    (profile) => profile.id === store.defaultLocalProfileId && profile.kind === "local",
+  );
+  if (!shell && preferredId && !preferred && !warning) {
+    store.setDefaultLocalProfileId(null);
+    warning = "The default local shell is no longer saved. Using the system shell.";
+  }
   if (paneId) useStore.getState().setActivePane(paneId);
-  return openSession(LOCAL_SHELL_PROFILE);
+  if (!shell && preferred) {
+    const id = newSessionId();
+    useStore.getState().addTab(
+      pendingSessionInfo(id, preferred), preferred, "connecting",
+    );
+    await ensureController(id, true);
+    const connected = await connectSession(id, preferred);
+    if (connected) return connected;
+    const failed = useStore.getState().tabs.find((tab) => tab.info.id === id);
+    // A closed tab belongs to the user; only retry a failed initial spawn.
+    if (failed?.state !== "error") return null;
+    const reason = failed.message ?? "the configured shell could not be started";
+    useStore.setState((state) => ({
+      tabs: state.tabs.map((tab) => tab.info.id === id
+        ? {
+            ...tab,
+            profile: LOCAL_SHELL_PROFILE,
+            info: pendingSessionInfo(id, LOCAL_SHELL_PROFILE),
+          }
+        : tab),
+    }));
+    const fallback = await connectSession(id, LOCAL_SHELL_PROFILE);
+    if (fallback) {
+      reportLocalShellFallback(fallback,
+        `Default shell ${preferred.name} failed: ${reason}. Opened the system shell; choose another in Local Shell Settings.`,
+      );
+    }
+    return fallback;
+  }
+  const id = await openSession(
+    shell
+      ? { ...LOCAL_SHELL_PROFILE, name: shell.name, shell: shell.command }
+      : preferred ?? LOCAL_SHELL_PROFILE,
+  );
+  if (warning && id) reportLocalShellFallback(id, warning);
+  return id;
 }
 
 /**

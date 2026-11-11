@@ -8,7 +8,6 @@ import {
   LOCALE_SUGGESTIONS,
   TERMINAL_ENCODINGS,
 } from "../encodings";
-import { IS_WINDOWS } from "../platform";
 import { sortedGroups } from "../sessionGroups";
 import { useStore } from "../store";
 import {
@@ -16,6 +15,7 @@ import {
   requestDialogAttention,
 } from "./dialogAttention";
 import { GroupNameDialog } from "./GroupNameDialog";
+import { LocalShellFields } from "./LocalShellFields";
 import { useDialogDrag } from "./useDialogDrag";
 import {
   colorForSession,
@@ -36,6 +36,7 @@ const NEW_GROUP = "__new__";
 
 interface Props {
   initial: SessionProfile | null;
+  paneId?: string;
   onClose: () => void;
 }
 
@@ -71,8 +72,9 @@ const PROTOCOL_OPTIONS: {
 
 /** The picker icon of the choice a kind belongs to; also the dialog's badge. */
 const protocolIcon = (kind: SessionKind): IconName =>
-  PROTOCOL_OPTIONS.find((option) => option.kinds.includes(kind))?.icon ??
-  "server";
+  kind === "local"
+    ? "terminal"
+    : PROTOCOL_OPTIONS.find((option) => option.kinds.includes(kind))?.icon ?? "server";
 
 /** Column count of `.session-color-picker`; keep in sync with styles.css. */
 const COLOR_PICKER_COLUMNS = 8;
@@ -114,6 +116,9 @@ const describeJumpHost = (p: SessionProfile) =>
   `${p.name} — ${p.username ?? ""}@${p.host ?? ""}:${p.port ?? 22}`;
 
 function validateProfile(profile: SessionProfile): string | null {
+  if (profile.kind === "local" && profile.shell === "") {
+    return "Enter a shell command or choose the default shell.";
+  }
   if (profile.locale && !LOCALE_NAME.test(profile.locale)) {
     return "Locale must be a locale name such as en_US.UTF-8 or C.UTF-8.";
   }
@@ -148,7 +153,9 @@ function nextColorIndex(
   }
 }
 
-export function SessionDialog({ initial, onClose }: Props) {
+export function SessionDialog({ initial, paneId, onClose }: Props) {
+  const localDialog = initial?.kind === "local";
+  const title = `${initial?.id ? "Edit" : "New"} ${localDialog ? "Local Shell" : "Session"}`;
   const colorPickerRef = useRef<HTMLDivElement>(null);
   const { dialogRef, handleProps: dragHandleProps } =
     useDialogDrag<HTMLDivElement>();
@@ -156,6 +163,7 @@ export function SessionDialog({ initial, onClose }: Props) {
     initial
       ? {
           ...initial,
+          shell: initial.shell?.trim() || null,
           color:
             initial.color ?? colorForSession(initial.id || initial.name),
         }
@@ -163,6 +171,12 @@ export function SessionDialog({ initial, onClose }: Props) {
   );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [shellName, setShellName] = useState("Local Shell");
+  const defaultLocalProfileId = useStore((s) => s.defaultLocalProfileId);
+  const setDefaultLocalProfileId = useStore((s) => s.setDefaultLocalProfileId);
+  const [makeDefault, setMakeDefault] = useState(
+    Boolean(localDialog && (!defaultLocalProfileId || initial?.id === defaultLocalProfileId)),
+  );
   // The Group field's "New group…" prompt, drawn over this dialog.
   const [creatingGroup, setCreatingGroup] = useState(false);
 
@@ -184,12 +198,14 @@ export function SessionDialog({ initial, onClose }: Props) {
   const defaultName = () => {
     if (profile.kind === "ssh") return profile.host ?? "ssh";
     if (profile.kind === "sftp") return profile.host ?? "sftp";
-    return "shell";
+    return shellName;
   };
 
   const normalized = (): SessionProfile => ({
     ...profile,
     name: profile.name.trim() || defaultName(),
+    shell: profile.kind === "local" ? profile.shell?.trim() ?? null : profile.shell,
+    cwd: profile.kind === "local" ? profile.cwd?.trim() || null : profile.cwd,
     // A jump host only means something on an SSH transport; drop one left
     // over from before the protocol was switched.
     jumpProfileId: isSshTransport(profile.kind)
@@ -338,6 +354,15 @@ export function SessionDialog({ initial, onClose }: Props) {
     </>
   );
 
+  const saveProfile = async (candidate: SessionProfile) => {
+    const saved = await upsertProfile(candidate);
+    if (localDialog) {
+      if (makeDefault) setDefaultLocalProfileId(saved.id);
+      else if (saved.id === defaultLocalProfileId) setDefaultLocalProfileId(null);
+    }
+    return saved;
+  };
+
   const save = async () => {
     const candidate = normalized();
     const validationError = validateProfile(candidate);
@@ -349,7 +374,7 @@ export function SessionDialog({ initial, onClose }: Props) {
     setBusy(true);
     setError(null);
     try {
-      await upsertProfile(candidate);
+      await saveProfile(candidate);
       onClose();
     } catch (e) {
       setError(String(e));
@@ -371,7 +396,8 @@ export function SessionDialog({ initial, onClose }: Props) {
     try {
       // Saving first keeps the profile in the tree and stores its credentials
       // in the operating system's secure credential vault.
-      const saved = candidate.name ? await upsertProfile(candidate) : candidate;
+      const saved = candidate.name ? await saveProfile(candidate) : candidate;
+      if (paneId) useStore.getState().setActivePane(paneId);
       const id = await openSession({
         ...saved,
         password: candidate.password,
@@ -424,7 +450,7 @@ export function SessionDialog({ initial, onClose }: Props) {
           </span>
           <div className="session-dialog-heading">
             <div id="session-dialog-title" className="session-dialog-title">
-              {initial?.id ? "Edit Session" : "New Session"}
+              {title}
             </div>
           </div>
           <button
@@ -444,7 +470,7 @@ export function SessionDialog({ initial, onClose }: Props) {
               <span>Session</span>
             </div>
             <div className="session-form-grid">
-              <div className="session-field is-wide">
+              {!localDialog && <div className="session-field is-wide">
                 <span className="session-field-label">Protocol</span>
                 <div
                   className="protocol-picker"
@@ -488,7 +514,7 @@ export function SessionDialog({ initial, onClose }: Props) {
                     );
                   })}
                 </div>
-              </div>
+              </div>}
 
               <label className="session-field">
                 <span className="session-field-label">Name</span>
@@ -686,15 +712,13 @@ export function SessionDialog({ initial, onClose }: Props) {
                 <span>Local shell</span>
               </div>
               <div className="session-form-grid">
-                <label className="session-field is-wide">
-                  <span className="session-field-label">Shell</span>
-                  <input
-                    {...RAW_TEXT_INPUT}
-                    value={profile.shell ?? ""}
-                    placeholder={IS_WINDOWS ? "%COMSPEC%" : "$SHELL"}
-                    onChange={(event) => patch({ shell: event.target.value })}
-                  />
-                </label>
+                <LocalShellFields
+                  value={profile.shell}
+                  onChange={(shell, name) => {
+                    patch({ shell });
+                    setShellName(name);
+                  }}
+                />
                 <label className="session-field is-wide">
                   <span className="session-field-label">Directory</span>
                   <input
@@ -705,6 +729,17 @@ export function SessionDialog({ initial, onClose }: Props) {
                   />
                 </label>
                 {renderTextFields(true)}
+                <label className="session-check">
+                  <input
+                    type="checkbox"
+                    checked={makeDefault}
+                    onChange={(event) => setMakeDefault(event.target.checked)}
+                  />
+                  Use as default local shell
+                </label>
+                <span className="session-field-hint session-field is-wide">
+                  Used by Local Shell, the new-terminal shortcut, and app startup.
+                </span>
               </div>
             </section>
           )}

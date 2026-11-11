@@ -2,7 +2,8 @@ import { act, createElement, useCallback, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../platform", () => ({ IS_MAC: true, IS_WINDOWS: false }));
+const platform = vi.hoisted(() => ({ IS_MAC: true, IS_WINDOWS: false }));
+vi.mock("../platform", () => platform);
 vi.mock("../actions", () => ({
   openSession: vi.fn(),
   openLocalShell: vi.fn(),
@@ -17,6 +18,7 @@ vi.mock("../api", () => ({
   deleteSessionGroup: vi.fn(),
   listProfiles: vi.fn(),
   listSessionGroups: vi.fn(),
+  listLocalShells: vi.fn(),
 }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: vi.fn() }));
 
@@ -66,6 +68,7 @@ describe("左侧会话管理", () => {
   let container: HTMLDivElement;
   const onEdit = vi.fn();
   const onNew = vi.fn();
+  const onNewLocal = vi.fn();
 
   function Harness() {
     const [anchor, setAnchor] = useState<{ x: number; y: number } | null>({
@@ -78,6 +81,7 @@ describe("左侧会话管理", () => {
       onClose: close,
       onEditProfile: onEdit,
       onNewSession: onNew,
+      onConfigureLocalShell: onNewLocal,
     });
   }
 
@@ -121,6 +125,7 @@ describe("左侧会话管理", () => {
 
   beforeEach(() => {
     vi.resetAllMocks();
+    platform.IS_WINDOWS = false;
     useStore.setState(
       {
         ...initialState,
@@ -131,6 +136,10 @@ describe("左侧会话管理", () => {
       true,
     );
     vi.mocked(api.listSenderCommands).mockResolvedValue([]);
+    vi.mocked(api.listLocalShells).mockResolvedValue([
+      { name: "PowerShell 7 (pwsh)", command: '"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -NoLogo' },
+      { name: "WSL (default distribution)", command: '"C:\\Windows\\System32\\wsl.exe"' },
+    ]);
     vi.mocked(api.saveProfile).mockImplementation(async (profile) => profile);
     vi.mocked(api.saveSessionGroup).mockImplementation(async (group) => ({
       ...group,
@@ -274,8 +283,32 @@ describe("左侧会话管理", () => {
     expect(document.querySelector('[aria-label="Sessions"]')).toBeNull();
   });
 
-  it("从当前窗格创建本地终端", async () => {
-    await click("New Local Shell");
+  it.each([false, true])("齿轮打开独立的本地 Shell 配置，Windows：%s", async (windows) => {
+    platform.IS_WINDOWS = windows;
+    await click("Configure Local Shell");
+    expect(onNewLocal).toHaveBeenCalledExactlyOnceWith();
+    expect(onNew).not.toHaveBeenCalled();
+    expect(document.querySelector('[aria-label="Sessions"]')).toBeNull();
+    expect(document.querySelector(".local-shell-picker")).toBeNull();
+    expect(openLocalShell).not.toHaveBeenCalled();
+    expect(api.listLocalShells).not.toHaveBeenCalled();
+  });
+
+  it("Local Shell 一键启动默认终端，不打开配置页", async () => {
+    await click("Local Shell");
+    expect(openLocalShell).toHaveBeenCalledExactlyOnceWith("pane-2");
+    expect(onNewLocal).not.toHaveBeenCalled();
+    expect(document.querySelector('[aria-label="Sessions"]')).toBeNull();
+  });
+
+  it("已保存的本地 Shell 可设为默认，入口展示默认配置名称", async () => {
+    const shell: SessionProfile = { id: "pwsh", name: "PowerShell 7", kind: "local", shell: "pwsh.exe" };
+    act(() => useStore.setState({ profiles: [shell] }));
+    await click("Actions for PowerShell 7");
+    await click("Use as Default Local Shell");
+    expect(useStore.getState().defaultLocalProfileId).toBe("pwsh");
+    expect(document.querySelector(".session-launcher-default")?.textContent).toBe("PowerShell 7");
+    await click("Local Shell");
     expect(openLocalShell).toHaveBeenCalledWith("pane-2");
   });
 
@@ -288,7 +321,7 @@ describe("左侧会话管理", () => {
   it("＋与左侧空白处右键都能进入管理，保存后的名称实时更新", async () => {
     act(() =>
       root.render(
-        createElement(TabRail, { onNewSession: onNew, onEditProfile: onEdit }),
+        createElement(TabRail, { onNewSession: onNew, onConfigureLocalShell: onNewLocal, onEditProfile: onEdit }),
       ),
     );
     await click("Sessions");
@@ -330,7 +363,7 @@ describe("左侧会话管理", () => {
         cwd: "C:\\Users\\huaxin\\Documents",
       });
       root.render(
-        createElement(TabRail, { onNewSession: onNew, onEditProfile: onEdit }),
+        createElement(TabRail, { onNewSession: onNew, onConfigureLocalShell: onNewLocal, onEditProfile: onEdit }),
       );
     });
 
@@ -365,7 +398,7 @@ describe("左侧会话管理", () => {
         });
       }
       root.render(
-        createElement(TabRail, { onNewSession: onNew, onEditProfile: onEdit }),
+        createElement(TabRail, { onNewSession: onNew, onConfigureLocalShell: onNewLocal, onEditProfile: onEdit }),
       );
     });
 
