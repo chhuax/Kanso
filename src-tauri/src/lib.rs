@@ -5,6 +5,7 @@ mod fonts;
 mod fs_local;
 mod git;
 mod kube;
+mod local_shells;
 mod model;
 mod remote_edit;
 mod session;
@@ -310,6 +311,7 @@ pub fn run() {
             commands::read_ssh_config,
             commands::import_ssh_config,
             commands::open_session,
+            commands::list_local_shells,
             commands::accept_host_key,
             commands::answer_auth_prompt,
             commands::close_session,

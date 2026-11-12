@@ -87,6 +87,7 @@ function dropIndexAt(
 interface Props {
   /** Opens the New Session dialog: the rail's own way to a host by hand. */
   onNewSession: () => void;
+  onConfigureLocalShell: () => void;
   /** 直接编辑左侧选中的已保存会话，由应用统一承载编辑对话框。 */
   onEditProfile: (profile: SessionProfile) => void;
 }
@@ -123,7 +124,7 @@ function rowMeta(tab: Tab): string | null {
 }
 
 /** 左侧展示已打开终端，并提供会话浮层入口；新建与编辑由应用对话框负责。 */
-export function TabRail({ onNewSession, onEditProfile }: Props) {
+export function TabRail({ onNewSession, onConfigureLocalShell, onEditProfile }: Props) {
   const allTabs = useStore((s) => s.tabs);
   const panes = useStore((s) => s.panes);
   const profiles = useStore((s) => s.profiles);
@@ -563,6 +564,7 @@ export function TabRail({ onNewSession, onEditProfile }: Props) {
         anchor={railMenu}
         onClose={closeRailMenu}
         onNewSession={onNewSession}
+        onConfigureLocalShell={onConfigureLocalShell}
         onEditProfile={onEditProfile}
       />
     </>

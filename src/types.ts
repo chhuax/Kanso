@@ -18,6 +18,11 @@ export function isSshTransport(kind: SessionKind): boolean {
 
 export type ThemeMode = "dark" | "light";
 
+export interface LocalShell {
+  name: string;
+  command: string;
+}
+
 export interface SessionProfile {
   id: string;
   name: string;

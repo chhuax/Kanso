@@ -9,6 +9,7 @@ import type {
   GitChanges,
   GitFileDiff,
   HostKeyChange,
+  LocalShell,
   OpenSessionOutcome,
   SavedCommand,
   SessionGroup,
@@ -46,6 +47,8 @@ export interface ZmodemFileInfo {
 // --- profiles ---------------------------------------------------------------
 
 export const listProfiles = () => invoke<SessionProfile[]>("list_profiles");
+
+export const listLocalShells = () => invoke<LocalShell[]>("list_local_shells");
 
 export const saveProfile = (profile: SessionProfile) =>
   invoke<SessionProfile>("save_profile", { profile });

@@ -238,6 +238,7 @@ interface Menu {
 
 interface Props {
   onNewSession: () => void;
+  onConfigureLocalShell: () => void;
   /** 标题栏 Changes 按钮控制的右侧只读面板。 */
   changesPanel: { open: boolean; onToggle: () => void };
   onFind: () => void;
@@ -352,9 +353,13 @@ export function MenuBar(props: Props) {
           action: props.onNewSession,
         },
         {
-          label: "New Local Shell",
+          label: "Local Shell",
           shortcut: accel("newLocalShell"),
           action: () => void openLocalShell(),
+        },
+        {
+          label: "Local Shell Settings…",
+          action: props.onConfigureLocalShell,
         },
         "separator",
         {

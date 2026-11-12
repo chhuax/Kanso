@@ -78,6 +78,7 @@ interface Props {
   onClose: () => void;
   onEditProfile: (profile: SessionProfile) => void;
   onNewSession: () => void;
+  onConfigureLocalShell: () => void;
 }
 
 /** 左侧会话入口；调用方保持组件挂载，以便收起浮层后继续完成编辑和删除确认。 */
@@ -86,13 +87,19 @@ export function SessionLauncher({
   onClose,
   onEditProfile,
   onNewSession,
+  onConfigureLocalShell,
 }: Props) {
   const launcherRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const [position, setPosition] = useState({ left: 0, top: 0 });
-  const activePaneId = useStore((s) => s.activePaneId);
   const panelFontSize = useStore((s) => s.panelFontSize);
   const profiles = useStore((s) => s.profiles);
+  const activePaneId = useStore((s) => s.activePaneId);
+  const defaultLocalProfileId = useStore((s) => s.defaultLocalProfileId);
+  const setDefaultLocalProfileId = useStore((s) => s.setDefaultLocalProfileId);
+  const defaultLocalProfile = profiles.find(
+    (profile) => profile.id === defaultLocalProfileId && profile.kind === "local",
+  );
   const groups = useStore((s) => s.groups);
   const removeProfile = useStore((s) => s.removeProfile);
   const moveProfileToGroup = useStore((s) => s.moveProfileToGroup);
@@ -348,6 +355,12 @@ export function SessionLauncher({
     return [
       connectItem,
       { label: "Edit…", icon: "edit", action: () => edit(profile) },
+      ...(profile.kind === "local" ? [{
+        label: "Use as Default Local Shell",
+        checked: profile.id === defaultLocalProfileId,
+        mark: "radio" as const,
+        action: () => setDefaultLocalProfileId(profile.id),
+      }] : []),
       { label: "Move to Group", icon: "move", children: choices },
       "separator",
       {
@@ -465,17 +478,36 @@ export function SessionLauncher({
           id="session-launcher"
         >
           <div className="session-launcher-quick">
+            <div className="session-launcher-local">
             <button
               type="button"
               className="menu-entry"
+              aria-label="Local Shell"
+              title={defaultLocalProfile ? `Open ${defaultLocalProfile.name}` : "Open system shell"}
               onClick={() => {
                 onClose();
                 void openLocalShell(activePaneId);
               }}
             >
               <Icon name="terminal" />
-              New Local Shell
+              <span className="menu-entry-label">Local Shell</span>
+              {defaultLocalProfile && (
+                <span className="session-launcher-default">{defaultLocalProfile.name}</span>
+              )}
             </button>
+            <button
+              type="button"
+              className="panel-action"
+              aria-label="Configure Local Shell"
+              title="Local Shell Settings…"
+              onClick={() => {
+                onClose();
+                onConfigureLocalShell();
+              }}
+            >
+              <Icon name="gear" />
+            </button>
+            </div>
             <button
               type="button"
               className="menu-entry"

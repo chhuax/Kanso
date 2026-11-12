@@ -14,6 +14,7 @@ import {
 
 import {
   acceptHostKey,
+  LOCAL_SHELL_PROFILE,
   openLocalShell,
   SESSION_CLOSED_NOTICE,
   splitSession,
@@ -118,9 +119,10 @@ export default function App() {
     [closePrompt, tabs],
   );
 
-  const [dialog, setDialog] = useState<{ profile: SessionProfile | null } | null>(
-    null,
-  );
+  const [dialog, setDialog] = useState<{
+    profile: SessionProfile | null;
+    paneId: string;
+  } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const searchRef = useRef<SearchOverlayHandle>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -137,7 +139,9 @@ export default function App() {
   // --- backend events -------------------------------------------------------
 
   useEffect(() => {
-    void loadProfiles();
+    void loadProfiles().catch((error) =>
+      useStore.getState().setStatus(`Could not load saved sessions: ${String(error)}`),
+    );
     // Opt-in feature: fetch the history only for users who enabled it.
     if (useStore.getState().suggestionsEnabled) commandHistory.load();
   }, [loadProfiles]);
@@ -266,7 +270,27 @@ export default function App() {
 
   // --- actions --------------------------------------------------------------
 
-  const newSession = useCallback(() => setDialog({ profile: null }), []);
+  const newSession = useCallback(() => {
+    setDialog({ profile: null, paneId: useStore.getState().activePaneId });
+  }, []);
+  const configureLocalShell = useCallback(async () => {
+    const initial = useStore.getState();
+    if (!initial.profilesLoaded) {
+      try {
+        await initial.loadProfiles();
+      } catch (error) {
+        useStore.getState().setStatus(`Could not load saved sessions: ${String(error)}`);
+      }
+    }
+    const store = useStore.getState();
+    const preferred = store.profiles.find(
+      (profile) => profile.id === store.defaultLocalProfileId && profile.kind === "local",
+    );
+    setDialog({
+      profile: preferred ?? { ...LOCAL_SHELL_PROFILE, name: "" },
+      paneId: store.activePaneId,
+    });
+  }, []);
 
   // Opening the box focuses it via its mount effect; when it is already
   // open that effect does not re-run, so refocus it explicitly.
@@ -411,6 +435,7 @@ export default function App() {
     >
       <MenuBar
         onNewSession={newSession}
+        onConfigureLocalShell={configureLocalShell}
         changesPanel={{
           open: rightPanelOpen,
           onToggle: () => setChangesOpen((value) => !value),
@@ -430,7 +455,10 @@ export default function App() {
         >
           <TabRail
             onNewSession={newSession}
-            onEditProfile={(profile) => setDialog({ profile })}
+            onConfigureLocalShell={configureLocalShell}
+            onEditProfile={(profile) =>
+              setDialog({ profile, paneId: useStore.getState().activePaneId })
+            }
           />
         </div>
         <Splitter
@@ -523,7 +551,9 @@ export default function App() {
       {dialog && (
         <Suspense fallback={null}>
           <SessionDialog
+            key={dialog.profile?.id || dialog.profile?.kind || "ssh"}
             initial={dialog.profile}
+            paneId={dialog.paneId}
             onClose={() => setDialog(null)}
           />
         </Suspense>
