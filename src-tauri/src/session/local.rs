@@ -68,6 +68,8 @@ pub fn spawn(
     }
     let mut cmd = CommandBuilder::new(&argv[0]);
     cmd.args(&argv[1..]);
+    // Kanso 明确提供彩色终端；不能把构建器或代理进程的无彩色约束泄漏给用户 shell。
+    cmd.env_remove("NO_COLOR");
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TERM_PROGRAM", "Kanso");
