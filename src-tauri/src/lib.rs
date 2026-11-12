@@ -73,14 +73,12 @@ fn create_main_window(app: &tauri::App) -> tauri::Result<()> {
 
     // `mut` is for the decorations below, which only Windows and Linux drop.
     #[allow(unused_mut)]
-    // A paste reads the clipboard from the page (`navigator.clipboard.readText`),
-    // which Windows and Linux gate behind a permission. With this, wry answers
-    // WebView2's PermissionRequested with "allow" and turns on WebKitGTK's
-    // javascript-can-access-clipboard; without it WebView2 shows its own
-    // prompt, remembers a refusal, and every paste fails silently (#45).
-    // `read_clipboard_text` covers a profile that already refused, and is
-    // the whole paste path on macOS, where WebKit confirms any page read
-    // outside its own ⌘V with a "Paste" menu (#47).
+    // Windows/Linux 的页面剪贴板 API 需要 WebView 权限。这个开关让 wry
+    // 允许 WebView2 的 PermissionRequested，并开启 WebKitGTK 的
+    // javascript-can-access-clipboard；否则 WebView2 会记住一次拒绝，
+    // 以后的粘贴都无声失败（#45）。`read_clipboard_content` 为已拒绝权限
+    // 的 Windows profile 回退读取文本，也是 macOS 的完整粘贴读取链路，
+    // 因为 WebKit 会对自身 ⌘V 命令以外的页面读取要求二次确认（#47）。
     let mut builder = tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?
         .enable_clipboard_access()
         .background_color(match store::startup_theme() {
@@ -367,7 +365,7 @@ pub fn run() {
             commands::portable_mode,
             commands::set_startup_theme,
             commands::show_main_window,
-            commands::read_clipboard_text,
+            commands::read_clipboard_content,
             window_control,
         ])
         .build(tauri::generate_context!())

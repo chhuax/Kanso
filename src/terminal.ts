@@ -14,7 +14,7 @@ import {
 } from "@xterm/xterm";
 
 import { aiToolForCommand, type AiTool } from "./aiTools";
-import { readClipboardText } from "./api";
+import { readClipboardContent, type ClipboardContent } from "./api";
 import { createOutputDecoder } from "./encodings";
 import { MONO_FONT_FAMILY } from "./fonts";
 import { tabAction, type Completion } from "./completion";
@@ -113,6 +113,22 @@ const LINE_TIME_SLACK = 4096;
  */
 const TERMINAL_REPORT =
   /^(?:\x1b\[[?>]?[0-9;]*(?:[cnRtIO]|\$y)|\x1b\[<[0-9;]*[Mm]|\x1b\[M[\s\S]{3}|\x1b\][0-9]+;[\s\S]*?(?:\x07|\x1b\\)|\x1bP[\s\S]*?\x1b\\)$/;
+
+/** Warp 用于保持 POSIX shell 路径语义的特殊字符集。 */
+const POSIX_PATH_ESCAPE = /([ "$'\\#=\[\]!><|;{}()*?&`~]|\n|\t)/g;
+/** PowerShell 的转义集不包含反斜杠，但包含数组和列表操作符。 */
+const POWERSHELL_PATH_ESCAPE = /([ "$'#=\[\]!><|;{}()*&`@,]|\n|\t)/g;
+
+/**
+ * 把复制的文件路径组合成一次终端粘贴。AI CLI 需要原始路径做附件识别；
+ * 普通 shell 则必须转义空格等元字符，避免粘贴后的参数被拆分或展开。
+ */
+function clipboardPathsText(paths: string[], verbatim: boolean): string {
+  if (verbatim) return paths.join(" ");
+  const pattern = IS_WINDOWS ? POWERSHELL_PATH_ESCAPE : POSIX_PATH_ESCAPE;
+  const replacement = IS_WINDOWS ? "`$1" : "\\$1";
+  return paths.map((path) => path.replace(pattern, replacement)).join(" ");
+}
 
 /** A working directory the shell announced with an OSC sequence. */
 export interface ReportedCwd {
@@ -1209,15 +1225,27 @@ export class TerminalController {
   }
 
   /**
-   * Pastes the clipboard as typed input. xterm applies bracketed paste and
-   * drops it while the terminal is locked (`disableStdin`). A read that
-   * fails is reported in the pane rather than swallowed, which is how #45
-   * looked: a paste that did nothing at all.
+   * 把剪贴板作为用户输入送入前台程序。AI CLI 遇到原始图片时改为
+   * 转发它原生的图片粘贴键，由 CLI 直接读取系统剪贴板；文本仍由
+   * xterm 套用 bracketed paste。读取失败必须在 pane 中显示，否则用户只会
+   * 看到粘贴毫无反应。
    */
   pasteFromClipboard() {
     void this.readClipboard().then(
-      (text) => {
-        if (text) this.term.paste(text);
+      (content) => {
+        if (content.paths.length > 0) {
+          this.term.paste(clipboardPathsText(content.paths, this.aiSession));
+          return;
+        }
+        if (content.hasImage && this.aiSession) {
+          // Claude Code 在 Windows 使用 Alt+V，macOS/Linux 使用 Ctrl+V；
+          // 只有图片时才转发，避免改变普通文本粘贴语义。
+          if (!IS_WINDOWS || this.aiTool?.id === "claude") {
+            this.term.input(IS_WINDOWS ? "\x1bv" : "\x16", true);
+            return;
+          }
+        }
+        if (content.text) this.term.paste(content.text);
       },
       (error: unknown) => {
         this.showTransferNotice(`Paste failed: ${errorMessage(error)}`, "error");
@@ -1226,24 +1254,35 @@ export class TerminalController {
   }
 
   /**
-   * The clipboard's text. On macOS the process reads it
-   * (`read_clipboard_text`): WebKit lets a page read the pasteboard only from
-   * inside its own paste command (⌘V, Edit → Paste on the system menu) and
-   * answers any other gesture with a "Paste" confirmation menu the user has
-   * to click, which a rebindable paste key cannot live with. Elsewhere the
-   * page reads it, which WebView2 gates behind the clipboard-read permission
-   * (granted through `enable_clipboard_access` in lib.rs). A profile that
-   * refused the prompt before the app granted it keeps refusing, and the
-   * prompt is not raised again, so on Windows the process reads it as well
-   * when the page cannot.
+   * 读取剪贴板文本及图片存在性。macOS 必须由进程读取，因为 WebKit
+   * 会对非系统粘贴命令弹出二次确认；Windows/Linux 优先使用页面 API，
+   * Windows 的 WebView2 权限曾被拒绝时再由进程回退读取文本。
    */
-  private async readClipboard(): Promise<string> {
-    if (IS_MAC) return readClipboardText();
+  private async readClipboard(): Promise<ClipboardContent> {
+    if (IS_MAC) return readClipboardContent();
     try {
-      return await navigator.clipboard.readText();
+      if (this.aiSession && "read" in navigator.clipboard) {
+        const items = await navigator.clipboard.read();
+        const hasImage = items.some((item) =>
+          item.types.some((type) => type.startsWith("image/")),
+        );
+        if (hasImage) return { text: "", paths: [], hasImage: true };
+        const textItem = items.find((item) =>
+          item.types.includes("text/plain"),
+        );
+        const text = textItem
+          ? await (await textItem.getType("text/plain")).text()
+          : "";
+        return { text, paths: [], hasImage: false };
+      }
+      return {
+        text: await navigator.clipboard.readText(),
+        paths: [],
+        hasImage: false,
+      };
     } catch (error) {
       if (!IS_WINDOWS) throw error;
-      return readClipboardText();
+      return readClipboardContent();
     }
   }
 
