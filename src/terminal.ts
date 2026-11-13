@@ -120,7 +120,7 @@ const POSIX_PATH_ESCAPE = /([ "$'\\#=\[\]!><|;{}()*?&`~]|\n|\t)/g;
 const POWERSHELL_PATH_ESCAPE = /([ "$'#=\[\]!><|;{}()*&`@,]|\n|\t)/g;
 
 /**
- * 把复制的文件路径组合成一次终端粘贴。AI CLI 需要原始路径做附件识别；
+ * 把复制或拖入的文件路径组合成一次终端粘贴。AI CLI 需要原始路径做附件识别；
  * 普通 shell 则必须转义空格等元字符，避免粘贴后的参数被拆分或展开。
  */
 function clipboardPathsText(paths: string[], verbatim: boolean): string {
@@ -1224,6 +1224,13 @@ export class TerminalController {
     this.term.options.rightClickSelectsWord = action === "menu";
   }
 
+  /** 文件拖放与剪贴板复用同一路径转义和 xterm bracketed paste。 */
+  pastePaths(paths: string[]) {
+    if (paths.length > 0) {
+      this.term.paste(clipboardPathsText(paths, this.aiSession));
+    }
+  }
+
   /**
    * 把剪贴板作为用户输入送入前台程序。AI CLI 遇到原始图片时改为
    * 转发它原生的图片粘贴键，由 CLI 直接读取系统剪贴板；文本仍由
@@ -1234,7 +1241,7 @@ export class TerminalController {
     void this.readClipboard().then(
       (content) => {
         if (content.paths.length > 0) {
-          this.term.paste(clipboardPathsText(content.paths, this.aiSession));
+          this.pastePaths(content.paths);
           return;
         }
         if (content.hasImage && this.aiSession) {

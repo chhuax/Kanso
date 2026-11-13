@@ -123,3 +123,49 @@ describe("终端剪贴板图片粘贴", () => {
     );
   });
 });
+
+
+describe("终端文件路径粘贴", () => {
+  it("将含空格、中文和 shell 特殊字符的文件与文件夹转义后一次粘贴", () => {
+    const controller = createController([]);
+    const paste = vi.spyOn(controller.term, "paste").mockImplementation(() => {});
+
+    controller.pastePaths([
+      "/Users/example/项目 目录/截图.png",
+      "/tmp/a'$文件;[1].txt",
+    ]);
+
+    expect(paste).toHaveBeenCalledExactlyOnceWith(
+      "/Users/example/项目\\ 目录/截图.png /tmp/a\\'\\$文件\\;\\[1\\].txt",
+    );
+    expect(readClipboardContent).not.toHaveBeenCalled();
+  });
+
+  it("AI CLI 保留原始路径，与从 Finder 复制路径的语义一致", () => {
+    const controller = createController([]);
+    enterAiSession(controller, { id: "claude", label: "Claude", color: "#d97757" });
+    const paste = vi.spyOn(controller.term, "paste").mockImplementation(() => {});
+
+    controller.pastePaths(["/Users/example/项目 目录/图片.png"]);
+
+    expect(paste).toHaveBeenCalledExactlyOnceWith("/Users/example/项目 目录/图片.png");
+  });
+
+  it("通过 xterm 发送 bracketed paste，且不追加回车执行命令", async () => {
+    const output: string[] = [];
+    const controller = createController(output);
+    controller.term.open(document.createElement("div"));
+    await new Promise<void>((resolve) => controller.term.write("\x1b[?2004h", resolve));
+
+    controller.pastePaths(["/tmp/项目 目录"]);
+
+    expect(output).toEqual(["\x1b[200~/tmp/项目\\ 目录\x1b[201~"]);
+  });
+
+  it("没有文件路径时不发送输入", () => {
+    const controller = createController([]);
+    const paste = vi.spyOn(controller.term, "paste").mockImplementation(() => {});
+    controller.pastePaths([]);
+    expect(paste).not.toHaveBeenCalled();
+  });
+});
