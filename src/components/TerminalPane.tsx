@@ -1,3 +1,4 @@
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import {
   lazy,
   Suspense,
@@ -11,7 +12,7 @@ import {
 
 import { ensureController } from "../actions";
 import { fontStack } from "../fonts";
-import { IS_MAC } from "../platform";
+import { IS_MAC, IS_WINDOWS } from "../platform";
 import { chordLabel, type ShortcutCommand } from "../shortcuts";
 import { useStore, type Tab } from "../store";
 import type { TerminalController } from "../terminal";
@@ -287,6 +288,32 @@ function TerminalHost({
       observer.disconnect();
     };
   }, [id]);
+
+  // 原生文件拖放由 Tauri 接收，不会变成 xterm 的文本粘贴事件。
+  // 按松手处的实际元素命中终端，分屏、文件面板和模态框各自处理输入。
+  useEffect(() => {
+    if (!terminal || !visible) return;
+    let live = true;
+    const unlisten = getCurrentWebview().onDragDropEvent(({ payload }) => {
+      if (!live || payload.type !== "drop" || payload.paths.length === 0) return;
+      // 与 Filer 一致：macOS/Linux 已是逻辑坐标，仅 Windows 需要缩放。
+      const position = IS_WINDOWS
+        ? payload.position.toLogical(window.devicePixelRatio)
+        : payload.position;
+      const target = document.elementFromPoint(position.x, position.y);
+      if (!target || !ref.current?.contains(target)) return;
+      useStore.getState().setActive(id);
+      terminal.focus();
+      terminal.pastePaths(payload.paths);
+    });
+    void unlisten.catch((error) => {
+      console.error("Failed to listen for terminal file drops", error);
+    });
+    return () => {
+      live = false;
+      void unlisten.then((off) => off()).catch(() => {});
+    };
+  }, [id, terminal, visible]);
 
   useEffect(() => {
     terminal?.setGutterMode(gutterMode);
