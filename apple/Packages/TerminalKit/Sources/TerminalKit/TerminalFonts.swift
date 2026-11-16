@@ -22,9 +22,10 @@ public struct TerminalMetrics: Equatable, Sendable {
     let lineThickness: Int
     /// 删除线顶边相对单元格顶部的位置。
     let strikeTop: Int
-    /// 字形区（ascent 顶到 descent 底）相对单元格顶部的上下边，不含行距留白；竖线光标按它画。
-    let textTop: Int
-    let textBottom: Int
+    /// 竖线光标相对单元格顶部的上下边：从略高于大写字母顶到基线下方半个 descent，
+    /// 比整个字形区（ascent+descent）短，观感接近"一个字母高"。
+    let barTop: Int
+    let barBottom: Int
 }
 
 /// 一个字面（正文或栏）的字体集合与度量。
@@ -142,7 +143,8 @@ final class TerminalFonts {
         return TerminalMetrics(
             cellWidth: cellWidth, cellHeight: cellHeight, baseline: baseline,
             underlineTop: max(0, underlineTop), lineThickness: thickness, strikeTop: strikeTop,
-            textTop: max(0, baseline - ascent), textBottom: min(cellHeight, baseline + descent)
+            barTop: max(0, baseline - Int((CTFontGetCapHeight(font) * 1.2).rounded())),
+            barBottom: min(cellHeight, baseline + Int((CTFontGetDescent(font) * 0.5).rounded()))
         )
     }
 
