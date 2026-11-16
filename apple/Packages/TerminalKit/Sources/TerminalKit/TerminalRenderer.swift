@@ -541,7 +541,8 @@ public final class TerminalRenderer {
                     // 光标与其上字符的配色由主题成对给出，保证可读，不再做对比度调整。
                     bg = palette.cursor
                     fg = palette.cursorText
-                } else if isMinimumContrastEnabled {
+                } else if isMinimumContrastEnabled, !GlyphAtlas.isPowerlineGeometric(cell.ch) {
+                    // Powerline 分隔符的前景色必须与相邻色块的背景色一致才能无缝拼接，不做对比度调整。
                     // 提示符标签里的字实际画在标签底色上（默认背景时），按标签底色算对比度。
                     let chipBg = RGB8(palette.chipBackground.r, palette.chipBackground.g, palette.chipBackground.b)
                     let shown = cell.flags.contains(.chip) && bg == palette.background ? chipBg : bg
