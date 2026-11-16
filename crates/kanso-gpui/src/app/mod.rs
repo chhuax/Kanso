@@ -19,6 +19,7 @@ pub mod controller;
 pub mod events;
 pub mod layout;
 pub mod prompts;
+pub mod sessions;
 pub mod tab;
 #[cfg(test)]
 mod testutil;
