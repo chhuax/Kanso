@@ -289,6 +289,15 @@ impl TextInput {
 
     /// 一次状态变更之后的收尾：发 `Change`、光标常亮、重绘。
     fn touched(&mut self, changed: bool, cx: &mut Context<Self>) {
+        if crate::ui::LOG_INPUT.load(std::sync::atomic::Ordering::Relaxed) {
+            crate::ui::log(&format!(
+                "state changed={changed} cursor={} sel={:?} marked={:?} len={}",
+                self.state.cursor(),
+                self.state.selection(),
+                self.state.marked_range(),
+                self.state.text().len()
+            ));
+        }
         if changed {
             cx.emit(TextInputEvent::Change(self.state.text().to_owned().into()));
         }
@@ -376,6 +385,9 @@ impl TextInput {
         if self.disabled {
             return;
         }
+        if crate::ui::LOG_INPUT.load(std::sync::atomic::Ordering::Relaxed) {
+            crate::ui::log(&format!("copy -> {:?}", self.state.copy_text()));
+        }
         if let Some(t) = self.state.copy_text() {
             cx.write_to_clipboard(ClipboardItem::new_string(t));
         }
@@ -395,7 +407,11 @@ impl TextInput {
         if self.disabled {
             return;
         }
-        if let Some(t) = cx.read_from_clipboard().and_then(|item| item.text()) {
+        let clip = cx.read_from_clipboard().and_then(|item| item.text());
+        if crate::ui::LOG_INPUT.load(std::sync::atomic::Ordering::Relaxed) {
+            crate::ui::log(&format!("paste <- {clip:?}"));
+        }
+        if let Some(t) = clip {
             let changed = self.state.paste(&t);
             self.touched(changed, cx);
         }
@@ -407,6 +423,14 @@ impl TextInput {
             return;
         }
         let m = &ev.keystroke.modifiers;
+        if crate::ui::LOG_INPUT.load(std::sync::atomic::Ordering::Relaxed) {
+            crate::ui::log(&format!(
+                "key {} char={:?} composing={}",
+                ev.keystroke.unparse(),
+                ev.keystroke.key_char,
+                self.state.is_composing()
+            ));
+        }
         match ev.keystroke.key.as_str() {
             "escape" if !m.control && !m.alt && !m.platform => {
                 // 输入法用这个 Esc 取消了组字：键归输入法，不当作“关闭”。只吞一次。
