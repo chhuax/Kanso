@@ -22,8 +22,9 @@ pub struct ImeState {
     marked: Option<String>,
     /// 预编辑串内的光标位置（UTF-16 码元）。
     caret: usize,
-    /// 最近一次组字结束（上屏 / 取消 / 清空）的时刻，用来识别“结束组字的那个按键”。
-    ended_at: Option<Instant>,
+    /// 最近一次组字**被取消**（清空、没有上屏）的时刻，用来识别“取消组字的那个 Esc”。
+    /// 上屏不记录：上屏后紧跟的 Enter / Backspace 等都是正常按键。
+    cancelled_at: Option<Instant>,
 }
 
 fn utf16_len(s: &str) -> usize {
@@ -77,7 +78,7 @@ impl ImeState {
     /// 空串等于结束组字。
     pub fn replace_and_mark(&mut self, text: &str, caret: Option<Range<usize>>) {
         if text.is_empty() {
-            self.end();
+            self.end(true);
             return;
         }
         let len = utf16_len(text);
@@ -87,29 +88,32 @@ impl ImeState {
 
     /// 上屏。结束组字，返回需要发给会话的文字；上屏空串（输入法取消组字）返回 `None`。
     pub fn commit(&mut self, text: &str) -> Option<String> {
-        self.end();
+        self.end(text.is_empty());
         (!text.is_empty()).then(|| text.to_owned())
     }
 
     /// 丢弃组字（窗口失焦等）。**不**上屏：避免输入法随后又上屏一次造成重复（checklist 场景 5）。
     pub fn cancel(&mut self) {
-        self.end();
+        self.end(true);
     }
 
-    fn end(&mut self) {
-        if self.marked.take().is_some() {
-            self.ended_at = Some(Instant::now());
+    fn end(&mut self, cancelled: bool) {
+        if self.marked.take().is_some() && cancelled {
+            self.cancelled_at = Some(Instant::now());
         }
         self.caret = 0;
     }
 
-    /// 组字是否刚刚结束（`within` 以内）。
+    /// 这个 Esc 是否就是刚刚取消组字的那个按键；是则返回 `true` 并消耗标记（只吞一次）。
     ///
     /// 用途：Windows 输入法处理 Esc 取消组字时，会**先**发出“组字清空”，**然后**才把这个 Esc 的
     /// `KeyDown` 交给应用；此时 `marked_text_range` 已经是空，应用无法再靠“正在组字”识别，
-    /// 结果 Esc 漏给 shell（实测）。按键处理里用本函数把“紧跟在组字结束之后的无修饰按键”吞掉。
-    pub fn ended_within(&self, within: Duration) -> bool {
-        self.ended_at.is_some_and(|t| t.elapsed() <= within)
+    /// 结果 Esc 漏给 shell（实测）。只有 Esc 会这样漏出来（Enter、Backspace 在组字中被输入法
+    /// 整个吃掉），且只有“取消”需要吞；上屏之后的按键都是正常按键，不能吞。
+    pub fn take_cancel_escape(&mut self, within: Duration) -> bool {
+        let hit = self.cancelled_at.is_some_and(|t| t.elapsed() <= within);
+        self.cancelled_at = None;
+        hit
     }
 
     /// 预编辑串的显示宽度（列数）。
@@ -242,18 +246,49 @@ mod tests {
     }
 
     #[test]
-    fn ended_within_tracks_only_real_compositions() {
+    fn escape_right_after_cancel_is_swallowed_once() {
+        let g = Duration::from_secs(10);
         let mut ime = ImeState::default();
-        assert!(!ime.ended_within(Duration::from_secs(10)));
-        ime.commit(""); // 没有组字：不算结束
-        assert!(!ime.ended_within(Duration::from_secs(10)));
         ime.replace_and_mark("zhong", None);
-        assert!(
-            !ime.ended_within(Duration::from_secs(10)),
-            "组字中不算已结束"
-        );
+        assert!(!ime.take_cancel_escape(g), "组字中不算已取消");
         ime.replace_and_mark("", None); // Esc 取消
-        assert!(ime.ended_within(Duration::from_secs(10)));
+        assert!(ime.take_cancel_escape(g));
+        assert!(!ime.take_cancel_escape(g), "只吞一次");
+        // 经 commit("") 或 cancel() 取消同理。
+        ime.replace_and_mark("a", None);
+        ime.commit("");
+        assert!(ime.take_cancel_escape(g));
+        ime.replace_and_mark("a", None);
+        ime.cancel();
+        assert!(ime.take_cancel_escape(g));
+    }
+
+    #[test]
+    fn keys_after_commit_are_not_swallowed() {
+        let g = Duration::from_secs(10);
+        let mut ime = ImeState::default();
+        ime.replace_and_mark("ni", None);
+        assert_eq!(ime.commit("你"), Some("你".to_owned()));
+        // 上屏后紧跟的 Enter / Backspace / Esc 都不吞。
+        assert!(!ime.take_cancel_escape(g));
+    }
+
+    #[test]
+    fn plain_escape_without_composition_is_not_swallowed() {
+        let g = Duration::from_secs(10);
+        let mut ime = ImeState::default();
+        assert!(!ime.take_cancel_escape(g));
+        ime.commit(""); // 没有组字：不算取消
+        assert!(!ime.take_cancel_escape(g));
+    }
+
+    #[test]
+    fn cancel_flag_expires_and_is_replaced_by_later_commit() {
+        let mut ime = ImeState::default();
+        ime.replace_and_mark("a", None);
+        ime.cancel();
+        std::thread::sleep(Duration::from_millis(30));
+        assert!(!ime.take_cancel_escape(Duration::from_millis(5)), "超时不吞");
     }
 
     #[test]
