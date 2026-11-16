@@ -25,7 +25,8 @@ final class GitTitlebarButton: NSView {
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.cornerRadius = DesignTokens.Radius.md
-        icon.image = .symbol("arrow.triangle.branch")
+        // Lucide 的 git-branch 图标（ISC 许可，见 docs/assets-provenance.md）；模板图，颜色跟随 contentTintColor。
+        icon.image = NSImage(named: "GitBranch")
         icon.symbolConfiguration = .init(pointSize: 13, weight: .regular)
         stats.font = Self.statsFont
         // 单行不换行：宽度不够时宁可裁掉，也不能在空格处折行把"−M"挤到看不见的第二行。
