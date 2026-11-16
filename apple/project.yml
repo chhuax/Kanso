@@ -1,0 +1,200 @@
+# XcodeGen 工程描述。Kanso.xcodeproj 由 `cargo xtask xcode` 生成，不入库；改工程设置只改本文件。
+# 说明见 docs/apple-build.md。
+name: Kanso
+
+options:
+  developmentLanguage: en
+  # 与 docs/design.md 的首发语言一致；新增语言时同步 Localizable.xcstrings。
+  knownRegions: [en, zh-Hans]
+  deploymentTarget:
+    macOS: "14.0"
+
+# 六个 configuration = 三个发行渠道 x Debug/Release。
+# 渠道决定 Rust feature、Swift 编译条件与 entitlements（architecture §9）。
+configs:
+  Debug-Direct: debug
+  Release-Direct: release
+  Debug-MAS: debug
+  Release-MAS: release
+  Debug-Setapp: debug
+  Release-Setapp: release
+
+settings:
+  base:
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    # 只支持 Apple Silicon（design.md §7）。
+    ARCHS: arm64
+    ONLY_ACTIVE_ARCH: NO
+    ENABLE_HARDENED_RUNTIME: YES
+    # Swift 6 语言模式，开启严格并发检查。
+    SWIFT_VERSION: "6.0"
+    # 本地开发用 Sign to Run Locally，不绑定团队；正式签名在发布流水线（T12）处理。
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # Direct 与 MAS 共用同一个 Bundle ID；Setapp 版按 Setapp 的要求带 -setapp 后缀，见下方 Setapp 配置。
+    # 钥匙串 service 名、Application Support 目录、os_log subsystem 都取自它，发布后不要再改。
+    PRODUCT_BUNDLE_IDENTIFIER: com.chhuax.kanso
+  configs:
+    Debug-Direct:
+      KANSO_CHANNEL: direct
+      KANSO_RUST_PROFILE: debug
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) DEBUG"
+      CODE_SIGN_ENTITLEMENTS: Kanso/Entitlements/Kanso-Direct.entitlements
+    Release-Direct:
+      KANSO_CHANNEL: direct
+      KANSO_RUST_PROFILE: release
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited)"
+      CODE_SIGN_ENTITLEMENTS: Kanso/Entitlements/Kanso-Direct.entitlements
+    Debug-MAS:
+      KANSO_CHANNEL: mas
+      KANSO_RUST_PROFILE: debug
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) DEBUG MAS"
+      CODE_SIGN_ENTITLEMENTS: Kanso/Entitlements/Kanso-MAS.entitlements
+    Release-MAS:
+      KANSO_CHANNEL: mas
+      KANSO_RUST_PROFILE: release
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) MAS"
+      CODE_SIGN_ENTITLEMENTS: Kanso/Entitlements/Kanso-MAS.entitlements
+    Debug-Setapp:
+      KANSO_CHANNEL: setapp
+      PRODUCT_BUNDLE_IDENTIFIER: com.chhuax.kanso-setapp
+      KANSO_RUST_PROFILE: debug
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) DEBUG SETAPP"
+      CODE_SIGN_ENTITLEMENTS: Kanso/Entitlements/Kanso-Setapp.entitlements
+    Release-Setapp:
+      KANSO_CHANNEL: setapp
+      PRODUCT_BUNDLE_IDENTIFIER: com.chhuax.kanso-setapp
+      KANSO_RUST_PROFILE: release
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) SETAPP"
+      CODE_SIGN_ENTITLEMENTS: Kanso/Entitlements/Kanso-Setapp.entitlements
+
+packages:
+  KansoBridge:
+    path: Packages/KansoBridge
+  TerminalKit:
+    path: Packages/TerminalKit
+  KansoUI:
+    path: Packages/KansoUI
+  PlatformMac:
+    path: Packages/PlatformMac
+
+targets:
+  Kanso:
+    type: application
+    platform: macOS
+    sources:
+      - path: Kanso
+        excludes:
+          - Entitlements/**
+          - Generated/**
+          - Info.plist
+      # gen-tokens 的输出（Colors.xcassets、DesignTokens.swift）。目录由 `cargo xtask xcode` 先生成；
+      # optional 让单独运行 xcodegen 时不因目录缺失而报错。
+      - path: Kanso/Generated
+        optional: true
+    dependencies:
+      - package: KansoBridge
+      - package: TerminalKit
+      - package: KansoUI
+      - package: PlatformMac
+    info:
+      path: Kanso/Info.plist
+      properties:
+        CFBundleDisplayName: Kanso
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        NSPrincipalClass: NSApplication
+        LSApplicationCategoryType: public.app-category.developer-tools
+    settings:
+      base:
+        # 应用图标：Kanso/Resources/Assets.xcassets/AppIcon.appiconset（来源见 docs/assets-provenance.md）。
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Run Script 要读整个仓库并调用 cargo（写 target/、读 ~/.cargo），沙盒会全部拒绝。
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        # libkanso_ffi.a 由下面的 Run Script 放进 TARGET_TEMP_DIR/rust。
+        LIBRARY_SEARCH_PATHS: $(TARGET_TEMP_DIR)/rust
+        OTHER_LDFLAGS: -lkanso_ffi
+    # 必须是第一个构建阶段：后面的编译与链接依赖它产出的静态库。
+    preBuildScripts:
+      - name: Build Rust core
+        basedOnDependencyAnalysis: false # 每次都跑，增量交给 cargo；xtask 内容不变时不覆盖产物。
+        script: |
+          set -euo pipefail
+          # Xcode 的构建环境不含用户 shell 的 PATH，找不到 cargo，这里手动补上 rustup 的目录。
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cd "$PROJECT_DIR/.."
+          cargo xtask apple-lib --channel "$KANSO_CHANNEL" --profile "$KANSO_RUST_PROFILE" --out "$TARGET_TEMP_DIR/rust"
+
+  # 单元测试与截图测试。由 App 托管（TEST_HOST）：测试需要链接 App 已经链接好的 Rust 静态库
+  # （FrameSnapshot.mock 走 FFI），自己再链接一份会重复定义符号。
+  # 参考截图放在 Tests/Snapshots，不属于任何 target 的源码。
+  KansoTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests/KansoTests
+    dependencies:
+      - target: Kanso
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.chhuax.kanso.tests
+
+# 每个 scheme 的 Run/Test/Profile/Analyze/Archive 都绑定到对应渠道的配置。
+schemes:
+  Kanso-Direct:
+    build:
+      targets:
+        Kanso: all
+        KansoTests: [test]
+    run:
+      config: Debug-Direct
+    test:
+      config: Debug-Direct
+      targets:
+        - KansoTests
+    profile:
+      config: Release-Direct
+    analyze:
+      config: Debug-Direct
+    archive:
+      config: Release-Direct
+
+  Kanso-MAS:
+    build:
+      targets:
+        Kanso: all
+        KansoTests: [test]
+    run:
+      config: Debug-MAS
+    test:
+      config: Debug-MAS
+      targets:
+        - KansoTests
+    profile:
+      config: Release-MAS
+    analyze:
+      config: Debug-MAS
+    archive:
+      config: Release-MAS
+
+  Kanso-Setapp:
+    build:
+      targets:
+        Kanso: all
+        KansoTests: [test]
+    run:
+      config: Debug-Setapp
+    test:
+      config: Debug-Setapp
+      targets:
+        - KansoTests
+    profile:
+      config: Release-Setapp
+    analyze:
+      config: Debug-Setapp
+    archive:
+      config: Release-Setapp

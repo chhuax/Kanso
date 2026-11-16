@@ -1,0 +1,5 @@
+// 显式声明模块，避免 SwiftPM 对 include 目录里只有一个符号链接头文件时的 umbrella 推断差异。
+module CKansoFFI {
+    header "kanso_frame.h"
+    export *
+}

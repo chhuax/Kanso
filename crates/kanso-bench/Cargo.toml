@@ -1,0 +1,23 @@
+[package]
+name = "kanso-bench"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+kanso-term.workspace = true
+kanso-frame.workspace = true
+kanso-encoding.workspace = true
+kanso-types.workspace = true
+alacritty_terminal.workspace = true
+vte.workspace = true
+
+[[bench]]
+name = "terminal"
+harness = false
+
+[lints]
+workspace = true

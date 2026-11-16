@@ -1,0 +1,25 @@
+[package]
+name = "kanso-session"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+kanso-types.workspace = true
+kanso-encoding.workspace = true
+kanso-xfer.workspace = true
+kanso-term.workspace = true
+kanso-pty.workspace = true
+kanso-ssh.workspace = true
+kanso-frame.workspace = true
+tracing.workspace = true
+# SSH 会话的读循环 / 写任务跑在 core 的运行时上：rt 取任务句柄，sync 做写通道，time 给收尾加超时。
+tokio = { workspace = true, features = ["rt", "sync", "time"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

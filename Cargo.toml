@@ -1,0 +1,113 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "xtask"]
+
+[workspace.package]
+version = "1.0.0"
+edition = "2024"
+# 与 rust-toolchain.toml 固定的版本一致：cargo 会按这个下限挑依赖版本，
+# 写得过低会让 cargo 退回到带已知漏洞的旧版本（曾因此选中 rusqlite 0.32）。
+rust-version = "1.94"
+license = "GPL-3.0-or-later"
+publish = false
+
+# 内部 crate 统一在此声明，各 crate 用 `kanso-xxx.workspace = true` 引用。
+# kanso-license / kanso-core 的发行版 feature 需要由上层精确转发，
+# 所以这里关闭默认 feature，由各依赖方按需启用，避免 `--no-default-features` 被悄悄绕过。
+[workspace.dependencies]
+kanso-types = { path = "crates/kanso-types" }
+kanso-encoding = { path = "crates/kanso-encoding" }
+kanso-xfer = { path = "crates/kanso-xfer" }
+kanso-sshconfig = { path = "crates/kanso-sshconfig" }
+kanso-term = { path = "crates/kanso-term" }
+kanso-pty = { path = "crates/kanso-pty" }
+kanso-ssh = { path = "crates/kanso-ssh" }
+kanso-secret = { path = "crates/kanso-secret" }
+kanso-store = { path = "crates/kanso-store" }
+kanso-complete = { path = "crates/kanso-complete" }
+kanso-license = { path = "crates/kanso-license", default-features = false }
+kanso-session = { path = "crates/kanso-session" }
+kanso-core = { path = "crates/kanso-core", default-features = false }
+kanso-ffi = { path = "crates/kanso-ffi" }
+kanso-frame = { path = "crates/kanso-frame" }
+kanso-bench = { path = "crates/kanso-bench" }
+kanso-l10n = { path = "crates/kanso-l10n" }
+
+# 外部依赖统一在此声明版本，仅限宽松许可证（MIT / Apache-2.0 等）。
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
+tempfile = "3"
+# 帧快照的结构体与字节互转，避免手写 unsafe（许可：Zlib / MIT / Apache-2.0）。
+bytemuck = { version = "1", features = ["derive"] }
+# FFI 控制面（仅 kanso-ffi 与 uniffi-bindgen 使用；MPL-2.0，已在 deny.toml 放行，见 architecture §15）。
+# 关闭默认 feature：cargo-metadata 只在 bindgen 工具里用到，库侧不需要。
+uniffi = { version = "0.32", default-features = false }
+# 仅 xtask 用于解析 .ftl 做多语言校验（Apache-2.0 / MIT）。
+fluent-syntax = "0.12"
+# core 消息的运行时渲染（kanso-l10n）。许可：Apache-2.0 / MIT；用其 `concurrent` 版本以便跨线程共享。
+fluent-bundle = "0.16"
+
+# 本地 PTY（kanso-pty）：portable-pty 为 MIT，libc 为 MIT / Apache-2.0，shell-words 为 MIT / Apache-2.0。
+portable-pty = "0.9"
+libc = "0.2"
+shell-words = "1"
+
+# 终端引擎（kanso-term）。两者都用 `=` 固定确切版本，不允许随 `cargo update` 漂移。
+# 升级 alacritty_terminal / vte 时必须逐项检查（kanso-term 的 `Core` 手写转发了 vte `ansi::Handler`
+# 的全部方法，漏转发的方法会被静默丢弃，没有任何编译错误）：
+#   1. 对照新版 `vte::ansi::Handler` trait，确认没有新增方法（`crates/kanso-term/src/handler.rs`
+#      的转发清单要同步）；跑 `cargo test -p kanso-term`，其中的“与裸 Term 对拍”测试会覆盖已知方法。
+#   2. 对照 `Term::scroll_up_relative / scroll_down_relative / clear_screen / resize / swap_alt`
+#      与 `Grid::scroll_up / scroll_down / clear_viewport / resize` 的行为：行元数据侧表
+#      （`table.rs`）镜像了这些行为，任何一处语义变化都会让侧表与网格错位。
+#   3. 确认 vte `Processor` 仍不读系统时钟（我们用自定义 `Timeout` 禁用了同步更新缓冲）、
+#      OSC 状态机（ESC ] … BEL/ESC/CAN/SUB）没变（`osc.rs` 的扫描器按它写成）。
+alacritty_terminal = { version = "=0.25.1", default-features = false }
+vte = { version = "=0.15.0", default-features = false, features = ["std", "ansi"] }
+# 字符宽度：与 alacritty_terminal 内部使用的同一个 crate（0.2.x），行元数据侧表需要用同样的宽度
+# 判断预测“这个字符会不会触发换行滚动”，宽度表不一致会让侧表与网格错位。
+unicode-width = "0.2"
+# OSC 扫描器用它在字节流里快速定位 ESC（已经是 vte 的间接依赖；Unlicense OR MIT）。
+memchr = "2"
+# 编码转换（kanso-encoding）。许可：(Apache-2.0 OR MIT) AND BSD-3-Clause。
+encoding_rs = "0.8"
+# 性能基准（Apache-2.0 OR MIT）；关闭绘图与 Rayon，避免基准后台工作干扰测量。
+criterion = { version = "0.7", default-features = false, features = ["cargo_bench_support"] }
+# 终端搜索（kanso-term）：按逻辑行匹配用户给的字面量或正则（MIT / Apache-2.0）。
+# 不用 alacritty 自带的逐单元格 DFA 搜索：它不支持“区分大小写”开关（固定智能大小写），
+# 且 10 万行回滚上要跑得够快，需要对整段文本做 memchr/prefilter 加速。
+regex = { version = "1", default-features = false, features = ["std", "perf", "unicode"] }
+
+# 异步运行时（kanso-core 持有；MIT）。只开多线程运行时：本地会话用 std 线程，运行时供 async 方法和以后的
+# SSH 使用，不需要 net / time / macros 等 feature，需要时再按用到的功能逐个加。
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread"] }
+# 日志门面（kanso-session 使用；MIT）。architecture §13 规定日志用 tracing；订阅者由宿主装配，没装配时是空操作。
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+
+# SSH 连接层（kanso-ssh）。russh 为 Apache-2.0，内含 keys / agent 模块；
+# hmac / sha1 用于 known_hosts 哈希主机名（HMAC-SHA1），base64 用于 known_hosts 的密钥字段（均为 MIT / Apache-2.0）。
+russh = "0.65"
+hmac = "0.13"
+sha1 = "0.11"
+base64 = "0.22"
+# 通道数据块类型（russh 的 ChannelMsg::Data 用它；MIT）。
+bytes = "1"
+# 仅 kanso-ssh 的测试使用：进程内 agent 的连接流适配、独立计算指纹做对照（MIT / Apache-2.0）。
+futures = { version = "0.3", default-features = false, features = ["std"] }
+sha2 = "0.11"
+
+[workspace.lints.rust]
+missing_docs = "warn"
+unsafe_op_in_unsafe_fn = "deny"
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+# 保留行号信息是为了崩溃报告的符号化，不要改成 false。
+debug = "line-tables-only"

@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "name": "Kanso Light",
+  "foreground": "#1F2226",
+  "background": "#FBFBF8",
+  "cursor": "#2A6A8A",
+  "cursorText": "#FBFBF8",
+  "selectionBackground": "#C9DDE8",
+  "ansi": [
+    "#2B2E33", "#C0392B", "#2E7D32", "#946500", "#2F5FBF", "#9B3FA6", "#00798C", "#D3D3CD",
+    "#6B7078", "#E04F3F", "#3E9B43", "#B8860B", "#4B7BE0", "#B85BC4", "#1B9AAE", "#F0F0EA"
+  ],
+  "semantic": [
+    "#0B6A8A", "#8A5A00", "#7A3FB0", "#A0346F", "#5C6B00", "#1D63B0",
+    "#82439C", "#465A70", "#346B5A", "#1A7A3A", "#B3261E", "#8C6000", "#8C6000"
+  ]
+}

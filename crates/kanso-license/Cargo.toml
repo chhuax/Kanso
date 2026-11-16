@@ -1,0 +1,19 @@
+[package]
+name = "kanso-license"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+kanso-types.workspace = true
+
+[features]
+default = ["direct"]
+direct = []
+mas = []
+setapp = []
+
+[lints]
+workspace = true

@@ -1,0 +1,205 @@
+import AppKit
+import TerminalKit
+
+/// 设置页（标签）。`rawValue` 无持久化含义，只用于菜单入口指定要打开哪一页。
+enum SettingsTab: Int, CaseIterable {
+    case general
+    case display
+    case keyboard
+
+    var title: String {
+        switch self {
+        case .general: String(localized: "General")
+        case .display: String(localized: "Display")
+        case .keyboard: String(localized: "Keyboard Shortcuts")
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .general: "gearshape"
+        case .display: "textformat.size"
+        case .keyboard: "keyboard"
+        }
+    }
+}
+
+/// 设置窗口：通用 / 显示 / 键盘快捷键三页。
+///
+/// 单例：通过 `show(...)` 打开，重复调用只前置（并可切到指定页）。窗口不可缩放，位置由 autosave 记忆，
+/// 标题随选中页变化；高度随当前页内容自适应，宽度固定。
+@MainActor
+final class SettingsWindowController: NSWindowController {
+    private static var shared: SettingsWindowController?
+
+    /// 语言与地区设置页（macOS 14+ 的系统设置扩展 URL）。
+    static let languageSettingsURL = URL(string: "x-apple.systempreferences:com.apple.Localization-Settings.extension")!
+
+    let generalViewController: GeneralSettingsViewController
+    let displayViewController: DisplaySettingsViewController
+    let keyboardViewController: KeyboardSettingsViewController
+    private let tabs = SettingsTabViewController()
+
+    /// 菜单的入口（⌘,、视图 → 显示设置… / 键盘快捷键…）。
+    static func show(
+        settings: SettingsStore, appearance: AppearanceController, keybindings: KeybindingController,
+        tab: SettingsTab = .general
+    ) {
+        let controller = shared ?? SettingsWindowController(
+            settings: settings, appearance: appearance, keybindings: keybindings
+        )
+        shared = controller
+        controller.select(tab)
+        controller.showWindow(nil)
+        controller.window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// - Parameters:
+    ///   - openURL: 打开外部 URL 的动作；测试注入记录闭包，不真的打开系统设置。
+    ///   - conflictPrompter: 快捷键冲突的询问方式；测试注入自动应答的实现，不弹窗。
+    ///   - autosaveName: 窗口位置记忆名；测试传 nil，避免写入用户真实的 `UserDefaults.standard`。
+    init(
+        settings: SettingsStore,
+        appearance: AppearanceController,
+        keybindings: KeybindingController,
+        openURL: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) },
+        conflictPrompter: KeybindingConflictPrompter = AlertKeybindingConflictPrompter(),
+        autosaveName: String? = "KansoSettingsWindow"
+    ) {
+        generalViewController = GeneralSettingsViewController(appearance: appearance, openURL: openURL)
+        displayViewController = DisplaySettingsViewController(settings: settings)
+        keyboardViewController = KeyboardSettingsViewController(keybindings: keybindings, prompter: conflictPrompter)
+
+        tabs.tabStyle = .toolbar
+        // 子页未设 title 时系统会把窗口标题推成「未命名」；关掉传播，由我们显式设标题。
+        tabs.canPropagateSelectedChildViewControllerTitle = false
+        let pages: [(SettingsTab, NSViewController)] = [
+            (.general, generalViewController), (.display, displayViewController),
+            (.keyboard, keyboardViewController),
+        ]
+        for (tab, controller) in pages {
+            controller.title = tab.title
+            let item = NSTabViewItem(viewController: controller)
+            item.label = tab.title
+            item.image = .symbol(tab.symbol, description: tab.title)
+            tabs.addTabViewItem(item)
+        }
+
+        // 没有 .resizable：设置页尺寸由内容决定。
+        let window = NSWindow(contentViewController: tabs)
+        window.styleMask = [.titled, .closable, .miniaturizable]
+        window.title = SettingsTab.general.title
+        super.init(window: window)
+
+        if let autosaveName {
+            // 没有已保存的位置时居中；setFrameAutosaveName 必须在这之后调用，否则会把居中前的位置存下来。
+            // 只恢复原点：高度随当前页内容，不能沿用上次别的页留下的高度。
+            var frame = window.frame
+            if window.setFrameUsingName(autosaveName) {
+                frame.origin = window.frame.origin
+            } else {
+                window.center()
+                frame.origin = window.frame.origin
+            }
+            window.setFrame(frame, display: false)
+            window.setFrameAutosaveName(autosaveName)
+        } else {
+            window.center()
+        }
+        resizeToFitCurrentPage()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) 不支持") }
+
+    /// 切到指定页、更新标题，并按该页内容调整窗口高度。
+    func select(_ tab: SettingsTab) {
+        tabs.selectedTabViewItemIndex = tab.rawValue
+        window?.title = tab.title
+        resizeToFitCurrentPage()
+    }
+
+    /// 当前选中的页。
+    var selectedTab: SettingsTab { SettingsTab(rawValue: tabs.selectedTabViewItemIndex) ?? .general }
+
+    /// 宽度保持不变，高度贴合当前页 `fittingSize`。
+    func resizeToFitCurrentPage() {
+        guard let window,
+              tabs.selectedTabViewItemIndex >= 0,
+              tabs.selectedTabViewItemIndex < tabs.tabViewItems.count,
+              let page = tabs.tabViewItems[tabs.selectedTabViewItemIndex].viewController
+        else { return }
+        let view = page.view
+        view.layoutSubtreeIfNeeded()
+        let fitted = view.fittingSize
+        guard fitted.width > 0, fitted.height > 0 else { return }
+        window.setContentSize(NSSize(width: SettingsPageViewController.pageWidth, height: fitted.height))
+    }
+}
+
+/// 让窗口标题与高度跟随选中页。
+///
+/// `.toolbar` 风格下系统通常会自动同步标题，但依赖该行为不可靠（首次显示与程序化切换时尤其如此），所以显式设置。
+final class SettingsTabViewController: NSTabViewController {
+    override func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
+        super.tabView(tabView, didSelect: tabViewItem)
+        if let label = tabViewItem?.label { view.window?.title = label }
+        (view.window?.windowController as? SettingsWindowController)?.resizeToFitCurrentPage()
+    }
+}
+
+/// "通用"页：外观模式、语言说明。
+@MainActor
+final class GeneralSettingsViewController: SettingsPageViewController {
+    private let appearance: AppearanceController
+    private let openURL: (URL) -> Void
+
+    /// 外观模式下拉框：自绘的 `KPopUpField`，与其它界面的下拉框同一套样式。
+    let appearancePopUp = KPopUpField()
+    let languageButton = KButton(title: String(localized: "Open Language & Region Settings"), style: .secondary)
+    let languageLabel = SettingsPageViewController.caption(String(
+        localized: "The interface language follows the system. To set a language for Kanso only, go to System Settings › General › Language & Region › Applications."
+    ))
+
+    init(appearance: AppearanceController, openURL: @escaping (URL) -> Void) {
+        self.appearance = appearance
+        self.openURL = openURL
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) 不支持") }
+
+    override func loadView() {
+        appearancePopUp.setItems(AppearanceMode.allCases.map(\.displayName))
+        appearancePopUp.onChange = { [weak self] index in self?.appearancePicked(at: index) }
+        appearancePopUp.setAccessibilityLabel(String(localized: "Appearance"))
+        let modeCard = KCard(title: String(localized: "Appearance"), symbol: "circle.lefthalf.filled")
+        modeCard.addRow(LabeledField(title: String(localized: "Mode"), control: appearancePopUp))
+
+        languageButton.onPress = { [weak self] in self?.openLanguageSettings(nil) }
+        languageButton.setContentHuggingPriority(.required, for: .horizontal)
+        let languageCard = KCard(title: String(localized: "Language"), symbol: "globe")
+        languageCard.addRow(languageLabel)
+        let buttonRow = NSStackView(views: [languageButton, NSView()])
+        buttonRow.orientation = .horizontal
+        languageCard.addRow(buttonRow)
+
+        view = makePageView([modeCard, languageCard])
+        reload()
+        appearance.observe(self) { [weak self] _ in self?.reload() }
+    }
+
+    private func reload() {
+        appearancePopUp.selectItem(at: AppearanceMode.allCases.firstIndex(of: appearance.mode) ?? 0)
+    }
+
+    private func appearancePicked(at index: Int) {
+        guard AppearanceMode.allCases.indices.contains(index) else { return }
+        appearance.mode = AppearanceMode.allCases[index]
+    }
+
+    @objc func openLanguageSettings(_ sender: Any?) {
+        openURL(SettingsWindowController.languageSettingsURL)
+    }
+}

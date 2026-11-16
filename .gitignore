@@ -1,0 +1,11 @@
+.DS_Store
+/target/
+*.xcuserstate
+xcuserdata/
+DerivedData/
+/build/
+/apple/Kanso/Generated/
+/apple/Kanso.xcodeproj/
+/apple/Kanso/Info.plist
+# 在包目录里直接 swift build 会产生 .build/
+.build/

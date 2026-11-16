@@ -1,0 +1,60 @@
+# cargo-deny 配置：许可证、依赖来源与重复版本检查。
+
+[advisories]
+version = 2
+ignore = [
+    # basic-toml（已停止维护）只经 uniffi_bindgen -> askama 进入依赖图，即只存在于绑定生成工具
+    # `crates/uniffi-bindgen`（由 `cargo xtask bindgen` 运行），不进入 kanso-ffi、静态库与任何发布产物。
+    # 上游（askama / uniffi）换掉它之后应删除本条。
+    { id = "RUSTSEC-2026-0374", reason = "仅构建期绑定生成工具使用，不随产品分发" },
+    # rsa（Marvin 计时侧信道）：advisory 正文写明 0.10 系列已迁到 crypto-bigint 并完成常量时间修复，
+    # 但 patched 范围写成 ">= 0.10.0"，预发布版 0.10.0-rc.* 仍被标记。russh 精确锁定了 rsa 0.10.0-rc.18，
+    # 无法单独升级；不启用 rsa 特性就不能使用 ssh-rsa 主机与用户密钥（大量网络设备只有 RSA）。
+    # 另外客户端每次认证只做一次签名，远程攻击者难以收集到足够的计时样本。
+    # 经用户确认（2026-11-14）。russh 升级到 rsa >= 0.10.0 后删除本条。
+    { id = "RUSTSEC-2023-0071", reason = "rsa 0.10 预发布版已含修复，被 russh 精确锁定；升级后删除" },
+]
+
+[licenses]
+version = 2
+# 不在 allow 列表内的许可证一律被拒，因此 GPL / LGPL / AGPL 天然被禁止，不要加入。
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+]
+confidence-threshold = 0.93
+exceptions = [
+    # MPL-2.0 是文件级 copyleft：不修改其源码即可闭源使用，
+    # 但需在第三方许可页写明源码获取方式（architecture.md §15）。
+    # 只放行 uniffi 家族，其他 crate 引入 MPL-2.0 仍会被拒。
+    { allow = ["MPL-2.0"], crate = "uniffi" },
+    { allow = ["MPL-2.0"], crate = "uniffi_bindgen" },
+    { allow = ["MPL-2.0"], crate = "uniffi_build" },
+    { allow = ["MPL-2.0"], crate = "uniffi_checksum_derive" },
+    { allow = ["MPL-2.0"], crate = "uniffi_core" },
+    { allow = ["MPL-2.0"], crate = "uniffi_internal_macros" },
+    { allow = ["MPL-2.0"], crate = "uniffi_macros" },
+    { allow = ["MPL-2.0"], crate = "uniffi_meta" },
+    { allow = ["MPL-2.0"], crate = "uniffi_pipeline" },
+    { allow = ["MPL-2.0"], crate = "uniffi_udl" },
+]
+
+[licenses.private]
+# workspace 内部 crate 都是 publish = false 的私有 crate，不参与许可证检查。
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# workspace 内部 path 依赖没有版本号，需要放行。
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

@@ -1,0 +1,40 @@
+[package]
+name = "kanso-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+kanso-types.workspace = true
+kanso-frame.workspace = true
+kanso-session.workspace = true
+kanso-store.workspace = true
+kanso-license = { workspace = true, default-features = false }
+kanso-complete.workspace = true
+kanso-secret.workspace = true
+kanso-ssh.workspace = true
+kanso-sshconfig.workspace = true
+# sync：提问表的 oneshot；time / net：运行时 `enable_all` 要驱动 SSH 的 TCP 与超时。
+tokio = { workspace = true, features = ["sync", "time", "net"] }
+tracing.workspace = true
+# mock 设置表校验 JSON，与真实存储行为一致。
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+# 进程内 russh 测试服务器（只在测试里启用 test-server）。
+kanso-ssh = { workspace = true, features = ["test-server"] }
+# 测试服务器的认证策略（`MethodKind`）用到。
+russh.workspace = true
+tokio = { workspace = true, features = ["sync", "time", "net", "macros"] }
+
+[features]
+default = ["direct"]
+direct = ["kanso-license/direct"]
+mas = ["kanso-license/mas"]
+setapp = ["kanso-license/setapp"]
+
+[lints]
+workspace = true

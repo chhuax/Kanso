@@ -1,0 +1,460 @@
+//! macOS 端构建命令：Rust 静态库、XCFramework、Xcode 工程生成与 xcodebuild 封装。
+//!
+//! 约定：所有命令都以仓库根目录为工作目录；Xcode 的 Run Script 也是先 `cd` 到仓库根再调用，
+//! 但这里仍会主动切换，避免从子目录手动运行时相对路径悄悄失效。
+
+use std::env;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::{Command, ExitCode};
+
+use crate::{cargo, run, tokens};
+
+/// 发行渠道，与 cargo feature、Xcode 配置后缀一一对应。
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Channel {
+    Direct,
+    Mas,
+    Setapp,
+}
+
+impl Channel {
+    pub const ALL: [Channel; 3] = [Channel::Direct, Channel::Mas, Channel::Setapp];
+
+    fn parse(s: &str) -> Option<Channel> {
+        match s {
+            "direct" => Some(Channel::Direct),
+            "mas" => Some(Channel::Mas),
+            "setapp" => Some(Channel::Setapp),
+            _ => None,
+        }
+    }
+
+    /// cargo feature 名，也是 `KANSO_CHANNEL` 的取值。
+    fn feature(self) -> &'static str {
+        match self {
+            Channel::Direct => "direct",
+            Channel::Mas => "mas",
+            Channel::Setapp => "setapp",
+        }
+    }
+
+    /// scheme 与 configuration 名里使用的写法。
+    fn display(self) -> &'static str {
+        match self {
+            Channel::Direct => "Direct",
+            Channel::Mas => "MAS",
+            Channel::Setapp => "Setapp",
+        }
+    }
+}
+
+fn repo_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("xtask 位于仓库根目录之下")
+        .to_path_buf()
+}
+
+/// 取 `--flag value` 形式参数的值；缺值时返回 Err。
+fn take_value<'a>(it: &mut std::slice::Iter<'a, String>, flag: &str) -> Result<&'a str, String> {
+    it.next()
+        .map(String::as_str)
+        .ok_or_else(|| format!("{flag} 需要一个参数"))
+}
+
+fn parse_channel(s: &str) -> Result<Channel, String> {
+    Channel::parse(s).ok_or_else(|| format!("未知渠道：{s}（可选 direct / mas / setapp）"))
+}
+
+fn fail(msg: &str) -> ExitCode {
+    eprintln!("{msg}");
+    ExitCode::FAILURE
+}
+
+/// 渠道独立的 cargo target 目录。
+///
+/// 三个渠道的 feature 不同，共用一个 target 目录时每次切换 scheme 都会让 cargo 重新编译
+/// kanso-core 等依赖并互相覆盖缓存；分开后切换 scheme 只做增量。
+fn channel_target_dir(channel: Channel) -> PathBuf {
+    PathBuf::from("target/apple").join(channel.feature())
+}
+
+/// 构建指定渠道与 profile 的 `libkanso_ffi.a`，返回其路径（相对仓库根）。
+fn build_static_lib(channel: Channel, release: bool) -> Result<PathBuf, String> {
+    let target_dir = channel_target_dir(channel);
+    let mut cmd = cargo();
+    cmd.args([
+        "build",
+        "-p",
+        "kanso-ffi",
+        "--target",
+        "aarch64-apple-darwin",
+        "--no-default-features",
+        "--features",
+        channel.feature(),
+        "--target-dir",
+    ])
+    .arg(&target_dir);
+    if release {
+        cmd.arg("--release");
+    }
+    if !run("构建 kanso-ffi 静态库", &mut cmd) {
+        return Err("kanso-ffi 构建失败".into());
+    }
+    let profile = if release { "release" } else { "debug" };
+    let lib = target_dir
+        .join("aarch64-apple-darwin")
+        .join(profile)
+        .join("libkanso_ffi.a");
+    if lib.exists() {
+        Ok(lib)
+    } else {
+        Err(format!("找不到构建产物 {}", lib.display()))
+    }
+}
+
+/// `cargo xtask apple-lib`：供 Xcode 的 Run Script 调用。
+pub fn apple_lib(args: &[String]) -> ExitCode {
+    let (mut channel, mut profile, mut out) = (None, None, None);
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let r = match a.as_str() {
+            "--channel" => take_value(&mut it, a)
+                .and_then(parse_channel)
+                .map(|c| channel = Some(c)),
+            "--profile" => take_value(&mut it, a).map(|p| profile = Some(p.to_string())),
+            "--out" => take_value(&mut it, a).map(|p| out = Some(PathBuf::from(p))),
+            other => Err(format!("未知参数：{other}")),
+        };
+        if let Err(e) = r {
+            return fail(&e);
+        }
+    }
+    let (Some(channel), Some(profile), Some(out)) = (channel, profile, out) else {
+        return fail(
+            "用法：cargo xtask apple-lib --channel <direct|mas|setapp> --profile <debug|release> --out <dir>",
+        );
+    };
+    let release = match profile.as_str() {
+        "release" => true,
+        "debug" => false,
+        other => return fail(&format!("未知 profile：{other}（可选 debug / release）")),
+    };
+
+    // 先把 --out 转成绝对路径再切换目录，保证相对路径按调用方的工作目录解释。
+    let out = match std::path::absolute(&out) {
+        Ok(p) => p,
+        Err(e) => return fail(&format!("无法解析 --out：{e}")),
+    };
+    if let Err(e) = env::set_current_dir(repo_root()) {
+        return fail(&format!("无法切换到仓库根目录：{e}"));
+    }
+
+    let lib = match build_static_lib(channel, release) {
+        Ok(l) => l,
+        Err(e) => return fail(&e),
+    };
+    match copy_if_changed(&lib, &out.join("libkanso_ffi.a")) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => fail(&format!("复制静态库失败：{e}")),
+    }
+}
+
+/// 内容相同则不覆盖：覆盖会更新修改时间，导致 Xcode 每次都重新链接。
+fn copy_if_changed(src: &Path, dst: &Path) -> std::io::Result<()> {
+    if let (Ok(a), Ok(b)) = (fs::read(src), fs::read(dst))
+        && a == b
+    {
+        return Ok(());
+    }
+    if let Some(dir) = dst.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    fs::copy(src, dst).map(|_| ())
+}
+
+/// `cargo xtask xcframework`：只给发布流水线（T12）用，Xcode 日常构建走 `apple-lib`。
+///
+/// 始终用 release 构建，产物为 `target/apple/<channel>/KansoCore.xcframework`。
+pub fn xcframework(args: &[String]) -> ExitCode {
+    let mut channel = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let r = match a.as_str() {
+            "--channel" => take_value(&mut it, a)
+                .and_then(parse_channel)
+                .map(|c| channel = Some(c)),
+            other => Err(format!("未知参数：{other}")),
+        };
+        if let Err(e) = r {
+            return fail(&e);
+        }
+    }
+    let Some(channel) = channel else {
+        return fail("用法：cargo xtask xcframework --channel <direct|mas|setapp>");
+    };
+    if let Err(e) = env::set_current_dir(repo_root()) {
+        return fail(&format!("无法切换到仓库根目录：{e}"));
+    }
+    let lib = match build_static_lib(channel, true) {
+        Ok(l) => l,
+        Err(e) => return fail(&e),
+    };
+    let output = channel_target_dir(channel).join("KansoCore.xcframework");
+    // xcodebuild 不会覆盖已存在的 xcframework，必须先删。
+    if output.exists()
+        && let Err(e) = fs::remove_dir_all(&output)
+    {
+        return fail(&format!("无法删除旧的 xcframework：{e}"));
+    }
+    let ok = run(
+        "创建 xcframework",
+        Command::new("xcodebuild")
+            .args(["-create-xcframework", "-library"])
+            .arg(&lib)
+            .arg("-headers")
+            .arg("crates/kanso-ffi/include")
+            .arg("-output")
+            .arg(&output),
+    );
+    if ok {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
+/// 工具是否可用。xcodebuild 不认识 `--version`（只有 `-version`），所以版本参数由调用方给。
+fn has_tool(name: &str, version_arg: &str) -> bool {
+    Command::new(name)
+        .arg(version_arg)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// `cargo xtask xcode`：生成 design token 的 Swift 产物，再用 XcodeGen 生成工程。
+pub fn xcode() -> ExitCode {
+    if let Err(e) = env::set_current_dir(repo_root()) {
+        return fail(&format!("无法切换到仓库根目录：{e}"));
+    }
+    if !has_tool("xcodegen", "--version") {
+        return fail("步骤失败：xcode（未找到 xcodegen，请运行 `brew install xcodegen`）");
+    }
+    // 必须先于 xcodegen：工程会把 Generated 目录里的文件加入 App target。
+    if tokens::generate(&["--out".into(), "apple/Kanso/Generated".into()]) != ExitCode::SUCCESS {
+        return ExitCode::FAILURE;
+    }
+    let ok = run(
+        "xcodegen",
+        Command::new("xcodegen").args(["generate", "--spec", "apple/project.yml"]),
+    );
+    if ok {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
+/// 把构建产物里的 App 从 LaunchServices 注销。
+///
+/// xcodebuild 每次构建都会把产物注册到 LaunchServices，久了"打开方式"、启动台和聚焦里会出现一堆同名 Kanso；
+/// `.noindex` 只挡得住聚焦的文件索引，挡不住这一步注册。构建、测试结束后统一注销，失败不影响结果。
+fn unregister_build_products() {
+    const LSREGISTER: &str = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
+    let Ok(configs) = std::fs::read_dir("target/apple/DerivedData.noindex/Build/Products") else {
+        return;
+    };
+    for config in configs.flatten() {
+        let Ok(items) = std::fs::read_dir(config.path()) else {
+            continue;
+        };
+        for item in items.flatten() {
+            let path = item.path();
+            if path.extension().is_some_and(|e| e == "app") {
+                let _ = Command::new(LSREGISTER).arg("-u").arg(&path).status();
+            }
+        }
+    }
+}
+
+/// 构建单个渠道的 App；`release` 决定 configuration。
+fn xcodebuild(channel: Channel, release: bool) -> bool {
+    let kind = if release { "Release" } else { "Debug" };
+    let name = channel.display();
+    run(
+        &format!("xcodebuild {name} ({kind})"),
+        Command::new("xcodebuild")
+            .args(["-project", "apple/Kanso.xcodeproj"])
+            .args(["-scheme", &format!("Kanso-{name}")])
+            .args(["-configuration", &format!("{kind}-{name}")])
+            // .noindex 后缀让聚焦不收录构建产物，避免搜索 Kanso 时出现多个同名 App。
+            .args(["-derivedDataPath", "target/apple/DerivedData.noindex"])
+            .arg("build"),
+    )
+}
+
+/// `cargo xtask apple-build`：先 `xcode` 再 xcodebuild。
+pub fn apple_build(args: &[String]) -> ExitCode {
+    let mut channels = vec![Channel::Direct];
+    let mut release = false;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let r = match a.as_str() {
+            "--all" => {
+                channels = Channel::ALL.to_vec();
+                Ok(())
+            }
+            "--channel" => take_value(&mut it, a)
+                .and_then(parse_channel)
+                .map(|c| channels = vec![c]),
+            "--configuration" => take_value(&mut it, a).and_then(|c| {
+                release = match c {
+                    "debug" => false,
+                    "release" => true,
+                    other => {
+                        return Err(format!(
+                            "未知 configuration：{other}（可选 debug / release）"
+                        ));
+                    }
+                };
+                Ok(())
+            }),
+            other => Err(format!("未知参数：{other}")),
+        };
+        if let Err(e) = r {
+            return fail(&e);
+        }
+    }
+    if !has_tool("xcodebuild", "-version") {
+        return fail("步骤失败：apple-build（未找到 xcodebuild，请安装 Xcode）");
+    }
+    if xcode() != ExitCode::SUCCESS {
+        return ExitCode::FAILURE;
+    }
+    let ok = channels.into_iter().all(|c| xcodebuild(c, release));
+    unregister_build_products();
+    if ok {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
+/// `cargo xtask apple-test [--only-testing <标识>]`：先 `xcode`，再在 Direct scheme 下跑 `xcodebuild test`
+/// （单元测试与截图测试，Debug 配置）。
+///
+/// 不提供 release 配置：Release 的 Hardened Runtime 会拒绝加载自签名的测试包（Team ID 不一致）。
+/// 环境变量 `KANSO_RECORD_SNAPSHOTS` 会以 `TEST_RUNNER_` 前缀转发：xcodebuild 只把带这个前缀的变量
+/// 传给测试进程，不转发的话录制开关到不了测试里。
+pub fn apple_test(args: &[String]) -> ExitCode {
+    let mut only: Option<String> = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let r = match a.as_str() {
+            "--only-testing" => take_value(&mut it, a).map(|v| only = Some(v.to_string())),
+            other => Err(format!("未知参数：{other}")),
+        };
+        if let Err(e) = r {
+            return fail(&e);
+        }
+    }
+    if !has_tool("xcodebuild", "-version") {
+        return fail("步骤失败：apple-test（未找到 xcodebuild，请安装 Xcode）");
+    }
+    if xcode() != ExitCode::SUCCESS {
+        return ExitCode::FAILURE;
+    }
+    let mut cmd = Command::new("xcodebuild");
+    cmd.args(["-project", "apple/Kanso.xcodeproj"])
+        .args(["-scheme", "Kanso-Direct"])
+        .args(["-configuration", "Debug-Direct"])
+        .args(["-derivedDataPath", "target/apple/DerivedData.noindex"])
+        .args(["-destination", "platform=macOS,arch=arm64"]);
+    if let Some(o) = &only {
+        cmd.arg(format!("-only-testing:{o}"));
+    }
+    cmd.arg("test");
+    if let Ok(v) = env::var("KANSO_RECORD_SNAPSHOTS") {
+        cmd.env("TEST_RUNNER_KANSO_RECORD_SNAPSHOTS", v);
+    }
+    let ok = run("xcodebuild test (Direct)", &mut cmd);
+    unregister_build_products();
+    if ok {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
+/// `ci` 使用：xcodebuild 是否可用。
+pub fn xcodebuild_available() -> bool {
+    has_tool("xcodebuild", "-version")
+}
+
+pub fn dmg() -> ExitCode {
+    if apple_build(&[
+        "--channel".into(),
+        "direct".into(),
+        "--configuration".into(),
+        "release".into(),
+    ]) != ExitCode::SUCCESS
+    {
+        return ExitCode::FAILURE;
+    }
+    match disk_image() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => fail(&format!("生成 DMG 失败：{error}")),
+    }
+}
+
+fn disk_image() -> Result<(), Box<dyn std::error::Error>> {
+    let contents = repo_root().join("target/dist/dmg-contents");
+    if contents.exists() {
+        fs::remove_dir_all(&contents)?;
+    }
+    fs::create_dir_all(&contents)?;
+    if !run(
+        "复制 Kanso.app",
+        Command::new("ditto")
+            .arg("target/apple/DerivedData.noindex/Build/Products/Release-Direct/Kanso.app")
+            .arg(contents.join("Kanso.app")),
+    ) {
+        return Err("复制 App 失败".into());
+    }
+    #[cfg(unix)]
+    std::os::unix::fs::symlink("/Applications", contents.join("Applications"))?;
+    for name in ["LICENSE", "THIRD_PARTY_NOTICES.md"] {
+        fs::copy(name, contents.join(name))?;
+    }
+    let image = repo_root().join(format!(
+        "target/dist/Kanso-{}-macOS-arm64.dmg",
+        env!("CARGO_PKG_VERSION")
+    ));
+    if !run(
+        "创建 DMG",
+        Command::new("hdiutil")
+            .args([
+                "create",
+                "-volname",
+                "Kanso",
+                "-format",
+                "UDZO",
+                "-srcfolder",
+            ])
+            .arg(&contents)
+            .arg("-ov")
+            .arg(&image),
+    ) {
+        return Err("hdiutil 失败".into());
+    }
+    if !run(
+        "DMG SHA-256",
+        Command::new("shasum").args(["-a", "256"]).arg(&image),
+    ) {
+        return Err("计算 SHA-256 失败".into());
+    }
+    fs::remove_dir_all(contents)?;
+    Ok(())
+}

@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "name": "Kanso Dark",
+  "foreground": "#EDEEF0",
+  "background": "#050505",
+  "cursor": "#62B0D2",
+  "cursorText": "#050505",
+  "selectionBackground": "#2E4756",
+  "ansi": [
+    "#3A3D42", "#E5645A", "#6CC070", "#D9B04A", "#6C9BEF", "#C586D0", "#55C0D0", "#C9CCD0",
+    "#6B7078", "#FF8A7E", "#8EDB92", "#F0CB6E", "#8FB5FF", "#DDA6E6", "#7DD8E6", "#F4F5F6"
+  ],
+  "semantic": [
+    "#6CC4E0", "#E0B070", "#C39BF0", "#E58FC0", "#B8CC6A", "#7DB4F0",
+    "#DDA6E6", "#A7BACD", "#8BC4B5", "#6FCF8A", "#FF8A80", "#F0CB6E", "#F0CB6E"
+  ]
+}

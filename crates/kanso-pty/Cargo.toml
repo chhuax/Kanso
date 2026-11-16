@@ -1,0 +1,26 @@
+[package]
+name = "kanso-pty"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+kanso-types.workspace = true
+portable-pty.workspace = true
+libc.workspace = true
+shell-words.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+# 本 crate 将来必须使用 unsafe（libc 系统调用），因此不继承 workspace lints，
+# 而是显式列出与 workspace 相同的规则，仅把 unsafe_code 放开为 allow。
+[lints.rust]
+missing_docs = "warn"
+unsafe_op_in_unsafe_fn = "deny"
+unsafe_code = "allow"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

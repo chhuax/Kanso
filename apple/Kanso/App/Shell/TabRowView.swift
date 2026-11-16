@@ -1,0 +1,235 @@
+import AppKit
+import KansoUI
+
+/// 竖向标签栏的一行（自绘，不用 SwiftUI）。
+///
+/// 鼠标事件只转发给 `SidebarListView`，拖拽状态不放在行里：列表刷新会重建行，状态放在行里会跟着丢。
+@MainActor
+final class TabRowView: NSView {
+    /// 行的展示数据。
+    struct Model: Equatable {
+        var item: TabItem
+        /// 在完整侧栏（未筛选）中的序号，决定快捷键提示。
+        var sidebarIndex: Int
+        var selection: TabRowSelection
+    }
+
+    weak var list: SidebarListView?
+    var model: Model { didSet { if model != oldValue { applyModel() } } }
+    var isHovered = false { didSet { if isHovered != oldValue { updateHoverState() } } }
+
+    private let iconView = NSImageView()
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let subtitleLabel = NSTextField(labelWithString: "")
+    private let shortcutLabel = NSTextField(labelWithString: "")
+    private let closeButton = NSButton()
+    private var trackingArea: NSTrackingArea?
+
+    override var isFlipped: Bool { true }
+
+    init(model: Model) {
+        self.model = model
+        super.init(frame: .zero)
+        iconView.imageScaling = .scaleProportionallyDown
+        titleLabel.lineBreakMode = .byTruncatingHead // 路径最有辨识度的是末尾几段，截断要保留末尾。
+        titleLabel.font = .systemFont(ofSize: DesignTokens.Font.uiTabTitle)
+        subtitleLabel.lineBreakMode = .byTruncatingTail
+        subtitleLabel.font = .systemFont(ofSize: DesignTokens.Font.uiTabSubtitle)
+        subtitleLabel.textColor = .token(DesignTokens.Color.textSecondary)
+        shortcutLabel.font = .systemFont(ofSize: DesignTokens.Font.uiCaption)
+        shortcutLabel.textColor = .token(DesignTokens.Color.textTertiary)
+        closeButton.isBordered = false
+        closeButton.image = .symbol("xmark", description: String(localized: "Close"))
+        closeButton.imagePosition = .imageOnly
+        closeButton.contentTintColor = .token(DesignTokens.Color.textSecondary)
+        closeButton.target = self
+        closeButton.action = #selector(closeClicked)
+        for v in [iconView, titleLabel, subtitleLabel, shortcutLabel, closeButton] { addSubview(v) }
+        applyModel()
+        updateHoverState()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("TabRowView 只支持代码创建") }
+
+    // MARK: - 内容
+
+    private var item: TabItem { model.item }
+
+    private var isDisconnected: Bool {
+        if case .closed = item.connection { return true }
+        return false
+    }
+
+    private var isConnecting: Bool { item.connection == .connecting }
+
+    private func applyModel() {
+        titleLabel.stringValue = TabPresentation.primaryTitle(item, homeDirectory: NSHomeDirectory())
+        let dim = isDisconnected || isConnecting
+        titleLabel.textColor = .token(dim ? DesignTokens.Color.textTertiary : DesignTokens.Color.textPrimary)
+        let subtitle = TabPresentation.subtitle(item)
+        subtitleLabel.stringValue = subtitle ?? ""
+        subtitleLabel.isHidden = subtitle == nil
+        shortcutLabel.stringValue = TabPresentation.shortcutLabel(sidebarIndex: model.sidebarIndex)
+        toolTip = TabDescriptions.tooltip(for: item)
+        updateIcon()
+        setAccessibilityLabel(titleLabel.stringValue)
+        needsLayout = true
+        needsDisplay = true
+    }
+
+    private func updateIcon() {
+        var symbol: String
+        var tint = NSColor.token(DesignTokens.Color.textSecondary)
+        switch item.kind {
+        case .local: symbol = "terminal"
+        case .ssh: symbol = "server.rack"
+        case .sftp: symbol = "folder"
+        }
+        // AI 活动时换成该工具的图标、用工具品牌色（无素材的类型仍用 sparkles）。
+        switch item.activity {
+        case .agentWorking(_, let iconAsset), .agentIdle(_, let iconAsset):
+            iconView.image = AgentIcon.image(assetName: iconAsset)
+            iconView.contentTintColor = AgentIcon.tint(assetName: iconAsset)
+            return
+        case .idle, .commandRunning: break
+        }
+        iconView.image = .symbol(symbol)
+        iconView.contentTintColor = tint
+    }
+
+    private func updateHoverState() {
+        shortcutLabel.isHidden = !isHovered
+        closeButton.isHidden = !isHovered
+        needsLayout = true
+        needsDisplay = true
+    }
+
+    /// 右侧状态标记：命令 / AI 运行中、未读完成、已断开。悬停时让位给快捷键与关闭按钮。
+    private var statusMarker: (color: NSColor, hollow: Bool)? {
+        if isDisconnected { return (.token(DesignTokens.Color.statusDisconnected), true) }
+        if item.unreadDone { return (.token(DesignTokens.Color.statusUnreadDone), false) }
+        switch item.activity {
+        case .commandRunning: return (.token(DesignTokens.Color.statusRunning), false)
+        case .agentWorking: return (.token(DesignTokens.Color.statusAgentRunning), false)
+        case .idle, .agentIdle: return nil
+        }
+    }
+
+    // MARK: - 布局与绘制
+
+    private static let iconSize: CGFloat = 16
+    private static let markerSize: CGFloat = 7
+    private static let closeSize: CGFloat = 18
+
+    override func layout() {
+        super.layout()
+        let pad = DesignTokens.Spacing.tabRowPaddingX
+        let h = bounds.height
+        iconView.frame = NSRect(x: pad + 4, y: (h - Self.iconSize) / 2, width: Self.iconSize, height: Self.iconSize)
+        let textX = iconView.frame.maxX + DesignTokens.Spacing.sm
+        var trailing = bounds.width - pad
+        if isHovered {
+            closeButton.frame = NSRect(x: trailing - Self.closeSize, y: (h - Self.closeSize) / 2, width: Self.closeSize, height: Self.closeSize)
+            shortcutLabel.sizeToFit()
+            let sw = shortcutLabel.frame.width
+            shortcutLabel.frame = NSRect(
+                x: closeButton.frame.minX - DesignTokens.Spacing.xs - sw, y: (h - shortcutLabel.frame.height) / 2,
+                width: sw, height: shortcutLabel.frame.height
+            )
+            trailing = shortcutLabel.frame.minX - DesignTokens.Spacing.xs
+        } else if statusMarker != nil {
+            trailing -= Self.markerSize + DesignTokens.Spacing.xs
+        }
+        let textW = max(0, trailing - textX)
+        let titleH = ceil(titleLabel.intrinsicContentSize.height)
+        if subtitleLabel.isHidden {
+            titleLabel.frame = NSRect(x: textX, y: (h - titleH) / 2, width: textW, height: titleH)
+        } else {
+            let subH = ceil(subtitleLabel.intrinsicContentSize.height)
+            let top = (h - titleH - subH) / 2
+            titleLabel.frame = NSRect(x: textX, y: top, width: textW, height: titleH)
+            subtitleLabel.frame = NSRect(x: textX, y: top + titleH, width: textW, height: subH)
+        }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let radius = DesignTokens.Radius.tabRow
+        let path = NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius)
+        switch model.selection {
+        case .windowActive:
+            NSColor.token(DesignTokens.Color.bgTabSelected).setFill()
+            path.fill()
+        case .paneActive:
+            NSColor.token(DesignTokens.Color.bgTabSelected).withAlphaComponent(0.5).setFill()
+            path.fill()
+        case .none:
+            if isHovered {
+                NSColor.token(DesignTokens.Color.bgTabHover).setFill()
+                path.fill()
+            }
+        }
+        // 左侧会话颜色细条。
+        SessionColor.color(for: item).setFill()
+        NSBezierPath(roundedRect: NSRect(x: 4, y: 9, width: 3, height: bounds.height - 18), xRadius: 1.5, yRadius: 1.5).fill()
+        // 状态标记。
+        if !isHovered, let marker = statusMarker {
+            let rect = NSRect(
+                x: bounds.width - DesignTokens.Spacing.tabRowPaddingX - Self.markerSize,
+                y: (bounds.height - Self.markerSize) / 2, width: Self.markerSize, height: Self.markerSize
+            )
+            marker.color.setFill()
+            marker.color.setStroke()
+            let dot = NSBezierPath(ovalIn: marker.hollow ? rect.insetBy(dx: 0.75, dy: 0.75) : rect)
+            if marker.hollow {
+                dot.lineWidth = 1.5
+                dot.stroke()
+            } else {
+                dot.fill()
+            }
+        }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+        updateIcon()
+    }
+
+    // MARK: - 鼠标
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea { removeTrackingArea(trackingArea) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) { isHovered = true }
+    override func mouseExited(with event: NSEvent) { isHovered = false }
+
+    /// 子视图（文字、图标）不接收鼠标，整行统一由自己响应；只有关闭按钮例外。
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard frame.contains(point) else { return nil }
+        let local = convert(point, from: superview)
+        if !closeButton.isHidden, closeButton.frame.contains(local) { return closeButton }
+        return self
+    }
+
+    // 按下即切换标签（不是松开）。
+    override func mouseDown(with event: NSEvent) { list?.rowMouseDown(self, event: event) }
+    override func mouseDragged(with event: NSEvent) { list?.rowMouseDragged(self, event: event) }
+    override func mouseUp(with event: NSEvent) { list?.rowMouseUp(self, event: event) }
+
+    override func rightMouseDown(with event: NSEvent) {
+        list?.rowRightMouseDown()
+        super.rightMouseDown(with: event) // 交给 AppKit 弹出 menu(for:)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        list?.rowMenuProvider?(item.id)
+    }
+
+    @objc private func closeClicked() { list?.rowCloseClicked(self) }
+}
