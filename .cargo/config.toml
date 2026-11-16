@@ -1,2 +1,7 @@
 [alias]
 xtask = "run --package xtask --"
+
+[env]
+# aws-lc-sys（russh 的加密后端）在 Windows x86_64 上默认要用 NASM 编译汇编；
+# 改用 crate 自带的预编译汇编目标文件，免装 NASM。其他平台不读这个变量。
+AWS_LC_SYS_PREBUILT_NASM = "1"

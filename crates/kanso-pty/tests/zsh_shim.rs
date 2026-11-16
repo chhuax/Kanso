@@ -26,6 +26,22 @@ fn zsh_path() -> Option<&'static str> {
     .find(|p| Path::new(p).exists())
 }
 
+/// macOS 一定带 `en_US.UTF-8`；Linux 不一定生成了它，按 local-shell.md §4 用 `C.UTF-8`。
+#[cfg(target_os = "macos")]
+const TEST_LANG: &str = "en_US.UTF-8";
+#[cfg(not(target_os = "macos"))]
+const TEST_LANG: &str = "C.UTF-8";
+
+/// 用户没设置 HISTFILE 时 zsh 启动后的值：macOS 的 /etc/zshrc 会设成 `${ZDOTDIR:-$HOME}/.zsh_history`，
+/// Linux 发行版的 zsh 一般不设（为空）。shim 只把前者改回原位置，不替用户新设 HISTFILE。
+fn default_histfile(home: &Path) -> String {
+    if cfg!(target_os = "macos") {
+        format!("{}/.zsh_history", home.display())
+    } else {
+        String::new()
+    }
+}
+
 struct Fixture {
     _tmp: tempfile::TempDir,
     home: PathBuf,
@@ -78,7 +94,7 @@ impl Run {
         let mut pairs: Vec<(String, String)> = vec![
             ("HOME".into(), fx.home.to_string_lossy().into_owned()),
             ("PATH".into(), "/usr/bin:/bin:/usr/sbin:/sbin".into()),
-            ("LANG".into(), "en_US.UTF-8".into()),
+            ("LANG".into(), TEST_LANG.into()),
         ];
         pairs.extend(
             extra_env
@@ -236,8 +252,8 @@ fn shim_loads_user_files_and_emits_osc_sequences() {
 
     // 用户文件都生效；HISTFILE 在临时 HOME 的原位置；用户的 ZDOTDIR 本来没设置，退回未设置。
     let want = format!(
-        "VARS:env_ok:profile_ok:rc_ok:{}/.zsh_history:unset",
-        fx.home.display()
+        "VARS:env_ok:profile_ok:rc_ok:{}:unset",
+        default_histfile(&fx.home)
     );
     assert!(out.contains(&want), "{out:?}");
 
@@ -274,9 +290,13 @@ fn shim_loads_user_files_and_emits_osc_sequences() {
     // shim 目录里没有生成历史文件；历史写在临时 HOME 的原位置。
     assert!(!fx.shim_dir().join(".zsh_history").exists());
     // 历史文件里含中文路径时 zsh 会写入元字符转义，不一定是合法 UTF-8，所以按字节读取。
-    let hist = String::from_utf8_lossy(&fs::read(fx.home.join(".zsh_history")).unwrap_or_default())
-        .into_owned();
-    assert!(hist.contains("false"), "历史没有写到原位置：{hist:?}");
+    // 只有 HISTFILE 默认有值的平台（macOS）才会写历史。
+    if !default_histfile(&fx.home).is_empty() {
+        let hist =
+            String::from_utf8_lossy(&fs::read(fx.home.join(".zsh_history")).unwrap_or_default())
+                .into_owned();
+        assert!(hist.contains("false"), "历史没有写到原位置：{hist:?}");
+    }
 }
 
 #[test]
@@ -329,10 +349,7 @@ fn integration_can_be_disabled() {
     );
     let out = Run::start(&fx, false, &[]).run(&["echo \"V:$KT_ENV:$KT_RC:$HISTFILE\""]);
     assert!(
-        out.contains(&format!(
-            "V:env_ok:rc_ok:{}/.zsh_history",
-            fx.home.display()
-        )),
+        out.contains(&format!("V:env_ok:rc_ok:{}\r", default_histfile(&fx.home))),
         "{out:?}"
     );
     // 关闭后没有任何 OSC 133 / OSC 7，提示符也保持用户原样。
