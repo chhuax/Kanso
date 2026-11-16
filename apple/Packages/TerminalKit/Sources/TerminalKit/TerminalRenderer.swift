@@ -615,7 +615,9 @@ public final class TerminalRenderer {
             case .underline:
                 decoInstances.append(rect(x, y + m.cellHeight - stroke, w, stroke, color))
             case .bar:
-                decoInstances.append(rect(x, y, stroke, m.cellHeight, color))
+                // 竖线只覆盖字形区、不含行距留白，否则行距大时又细又长；宽度约 2pt，1 像素太细看不清。
+                let barWidth = max(2 * stroke, m.cellWidth / 6)
+                decoInstances.append(rect(x, y + m.textTop, barWidth, m.textBottom - m.textTop, color))
             case .hollowBlock:
                 // 四条互不重叠的边，半透明主题色下重叠处不会变深。
                 decoInstances.append(rect(x, y, w, stroke, color))
