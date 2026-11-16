@@ -45,7 +45,7 @@ fn usage() {
          子命令：\n  \
          bench [Criterion 参数]      运行终端基准并打印摘要（不属于 ci）\n  \
          bench-startup [--runs N]     构建 Release，测量首帧可输入与空闲 RSS（不属于 ci）\n  \
-         ci [--skip-deny] [--skip-apple] [--only <步骤>]\n                                     依次运行 fmt、clippy、test、c-abi、check-tokens、check-locales、check-bindings、渠道矩阵、\n                                     apple-build --all、apple-test 与 cargo deny\n  \
+         ci [--skip-deny] [--skip-apple]\n                                     依次运行 fmt、clippy、test、c-abi、check-tokens、check-locales、check-bindings、渠道矩阵、\n                                     apple-build --all、apple-test 与 cargo deny\n  \
          check-tokens                校验 design/tokens.json 与终端配色（格式、对比度）\n  \
          gen-tokens [--out <dir>]    生成 Xcode 颜色集与 DesignTokens.swift（默认 apple/Kanso/Generated）\n  \
          check-locales               校验 locales/*.ftl 与 kanso-types 消息清单一致，并检查 Localizable.xcstrings 中英齐全\n  \
@@ -160,22 +160,10 @@ fn c_abi() -> bool {
 fn ci(flags: &[String]) -> ExitCode {
     let mut skip_deny = false;
     let mut skip_apple = false;
-    // `--only <步骤>`：只跑一个步骤，供 GitHub Actions 把每项检查拆成单独的步骤显示红绿；
-    // 检查参数仍只在这里定义一份。步骤名：fmt、clippy、test、c-abi、check-tokens、check-locales、
-    // check-bindings、channels、apple、deny。
-    let mut only: Option<String> = None;
-    let mut it = flags.iter();
-    while let Some(f) = it.next() {
+    for f in flags {
         match f.as_str() {
             "--skip-deny" => skip_deny = true,
             "--skip-apple" => skip_apple = true,
-            "--only" => match it.next() {
-                Some(name) => only = Some(name.clone()),
-                None => {
-                    eprintln!("--only 需要一个步骤名");
-                    return ExitCode::FAILURE;
-                }
-            },
             other => {
                 eprintln!("未知参数：{other}");
                 usage();
@@ -216,7 +204,7 @@ fn ci(flags: &[String]) -> ExitCode {
     // 防止平台抽象被默认的 direct 渠道绕过。
     for channel in ["mas", "setapp"] {
         steps.push((
-            format!("channels ({channel})"),
+            format!("渠道矩阵 ({channel})"),
             vec![
                 "clippy",
                 "-p",
@@ -231,35 +219,18 @@ fn ci(flags: &[String]) -> ExitCode {
         ));
     }
 
-    // 步骤 key：渠道矩阵的两项合称 channels。
-    let key = |name: &str| name.split(' ').next().unwrap_or(name).to_string();
-    if let Some(o) = &only {
-        let known = steps.iter().any(|(n, _)| &key(n) == o)
-            || ["c-abi", "apple", "deny"].contains(&o.as_str());
-        if !known {
-            eprintln!("未知步骤：{o}");
-            return ExitCode::FAILURE;
-        }
-    }
-    let wants = |k: &str| only.as_deref().is_none_or(|o| o == k);
-
     for (name, args) in &steps {
-        if wants(&key(name)) && !step(name, args) {
+        if !step(name, args) {
             return ExitCode::FAILURE;
         }
         // c-abi 夹在 test 与渠道矩阵之间，因此在 test 步骤后立即执行。
-        if name == "test" && only.is_none() && !c_abi() {
+        if name == "test" && !c_abi() {
             return ExitCode::FAILURE;
         }
     }
-    if only.as_deref() == Some("c-abi") && !c_abi() {
-        return ExitCode::FAILURE;
-    }
 
     // 放在渠道矩阵之后：Rust 侧先过 clippy，再花时间跑 Xcode 构建。
-    if !wants("apple") {
-        // --only 选了别的步骤，不跑 Apple 端。
-    } else if skip_apple {
+    if skip_apple {
         eprintln!(
             "\n!!!!!!!! 警告：已跳过 Apple 端构建与测试（--skip-apple），Xcode 工程与 Swift 代码未验证 !!!!!!!!"
         );
@@ -292,9 +263,7 @@ fn ci(flags: &[String]) -> ExitCode {
         }
     }
 
-    if !wants("deny") {
-        // --only 选了别的步骤。
-    } else if skip_deny {
+    if skip_deny {
         eprintln!(
             "\n!!!!!!!! 警告：已跳过 cargo deny（--skip-deny），许可证与依赖来源未检查 !!!!!!!!"
         );
@@ -316,10 +285,6 @@ fn ci(flags: &[String]) -> ExitCode {
         }
     }
 
-    if let Some(o) = &only {
-        eprintln!("\n步骤 {o} 通过");
-        return ExitCode::SUCCESS;
-    }
     eprintln!("\nCI 全部通过");
     ExitCode::SUCCESS
 }
