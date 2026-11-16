@@ -16,7 +16,7 @@ enum TerminalShaders {
         float2 viewport; // 渲染目标尺寸，设备像素
     };
 
-    // 背景色块与装饰共用：style 0 实心，1 波浪，2 点线，3 虚线。
+    // 背景色块与装饰共用：style 0 实心，1 波浪，2 点线，3 虚线，4 圆角矩形（y 为半径）。
     struct RectInstance {
         float4 rect;   // x, y, w, h（设备像素，原点左上）
         float4 color;  // sRGB 编码值，非预乘
@@ -75,6 +75,10 @@ enum TerminalShaders {
             // 点线 / 虚线：按整数像素列判断，保持边缘锐利。
             float x = floor(in.local.x);
             coverage = (fmod(x, in.params.w) < in.params.z) ? 1.0 : 0.0;
+        } else if (style == 4) {
+            float2 q = abs(in.local - in.size * 0.5) - (in.size * 0.5 - t);
+            float distance = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - t;
+            coverage = clamp(0.5 - distance, 0.0, 1.0);
         }
         float a = in.color.a * coverage;
         return float4(in.color.rgb * a, a);

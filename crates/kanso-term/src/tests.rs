@@ -31,6 +31,81 @@ fn snap(t: &mut Terminal) -> Frame {
     t.snapshot(None)
 }
 
+#[test]
+fn chip_markers_survive_sgr_and_chunk_boundaries() {
+    let bytes = "x\x1b]777;kanso-chip;start\x07a\x1b[0m中b\x1b]777;kanso-chip;end\x07y".as_bytes();
+    for split in 0..=bytes.len() {
+        let mut terminal = term(20, 3, 20);
+        terminal.feed(&bytes[..split], 0);
+        terminal.feed(&bytes[split..], 0);
+        let frame = snap(&mut terminal);
+        let view = frame.view().unwrap();
+        let flags: Vec<_> = view.row(0)[..6]
+            .iter()
+            .map(|cell| cell.flags & kanso_frame::CELL_CHIP != 0)
+            .collect();
+        assert_eq!(
+            flags,
+            [false, true, true, true, true, false],
+            "split={split}"
+        );
+    }
+}
+
+#[test]
+fn chip_ends_on_newline_or_next_prompt_and_ignores_unknown_commands() {
+    for ending in ["\r\n", "\x1bE", "\x1b]133;A\x07"] {
+        let mut terminal = term(20, 3, 20);
+        feed(
+            &mut terminal,
+            &format!("\x1b]777;kanso-chip;start\x07a{ending}b"),
+            0,
+        );
+        let frame = snap(&mut terminal);
+        let view = frame.view().unwrap();
+        for row in 0..3 {
+            for cell in view.row(row) {
+                if cell.ch == u32::from('a') {
+                    assert_ne!(cell.flags & kanso_frame::CELL_CHIP, 0);
+                } else {
+                    assert_eq!(cell.flags & kanso_frame::CELL_CHIP, 0);
+                }
+            }
+        }
+    }
+    let mut terminal = term(20, 3, 20);
+    feed(
+        &mut terminal,
+        "\x1b]777;unknown;start\x07x\x1b]777;kanso-chip;start\x07a\x1b]777;kanso-chip;unknown\x07b\x1b]777;kanso-chip;end\x07y",
+        0,
+    );
+    let frame = snap(&mut terminal);
+    let view = frame.view().unwrap();
+    assert_eq!(view.row(0)[0].flags & kanso_frame::CELL_CHIP, 0);
+    assert_ne!(view.row(0)[2].flags & kanso_frame::CELL_CHIP, 0);
+    assert_eq!(view.row(0)[3].flags & kanso_frame::CELL_CHIP, 0);
+}
+
+#[test]
+fn chip_cells_keep_attributes_through_reflow_and_scrollback() {
+    let mut terminal = term(20, 3, 20);
+    feed(
+        &mut terminal,
+        "\x1b]777;kanso-chip;start\x07abcdefghijk\x1b]777;kanso-chip;end\x07\r\nplain\r\nnext\r\nlast",
+        0,
+    );
+    terminal.resize(GridSize { cols: 6, rows: 3 });
+    terminal.scroll_display(20);
+    let frame = snap(&mut terminal);
+    let view = frame.view().unwrap();
+    let chips: String = (0..3)
+        .flat_map(|row| view.row(row))
+        .filter(|cell| cell.flags & kanso_frame::CELL_CHIP != 0)
+        .filter_map(|cell| char::from_u32(cell.ch))
+        .collect();
+    assert_eq!(chips, "abcdefghijk");
+}
+
 /// 一行的文本（空单元格当作空格，行尾空白去掉，宽字符占位格跳过，字形簇展开）。
 fn row_text(v: &FrameView<'_>, r: u16) -> String {
     let mut s = String::new();

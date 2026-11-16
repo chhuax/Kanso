@@ -581,6 +581,28 @@ public final class TerminalRenderer {
                 col += span
             }
             flushRun(upTo: cols)
+
+            // 标签在单元格背景之上、字形之下；两端向外留半格，描边宽度固定为一个设备像素。
+            var chipCol = 0
+            while chipCol < cols {
+                guard frame.cell(row: row, col: chipCol).flags.contains(.chip) else {
+                    chipCol += 1
+                    continue
+                }
+                let start = chipCol
+                repeat { chipCol += 1 } while chipCol < cols && frame.cell(row: row, col: chipCol).flags.contains(.chip)
+                let padding = m.cellWidth / 2
+                let inset = max(2, m.cellHeight / 10)
+                let x = max(l.originX, l.originX + start * m.cellWidth - padding)
+                let right = min(l.originX + cols * m.cellWidth, l.originX + chipCol * m.cellWidth + padding)
+                let y = rowY + inset
+                let height = m.cellHeight - inset * 2
+                let radius = Float(min(height / 2, max(3, m.cellWidth / 2)))
+                bgInstances.append(rect(x, y, right - x, height, Self.vec(palette.chipBorder), style: 4,
+                                        params: SIMD4(0, radius, 0, 0)))
+                bgInstances.append(rect(x + 1, y + 1, right - x - 2, height - 2, Self.vec(palette.chipBackground), style: 4,
+                                        params: SIMD4(0, radius - 1, 0, 0)))
+            }
         }
 
         // ---- 非块状光标 ----

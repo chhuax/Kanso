@@ -18,7 +18,7 @@ final class UISnapshotTests: XCTestCase {
     func testSemanticColorLight() throws { try verify(semanticCanvas(.light), .aqua, "semantic-color-light") }
 
     private func semanticCanvas(_ appearance: TerminalAppearance) throws -> NSView {
-        let size = NSSize(width: 900, height: 500)
+        let size = NSSize(width: 900, height: 540)
         let renderer = try XCTUnwrap(TerminalRenderer())
         renderer.timeZone = TimeZone(secondsFromGMT: 0)!
         let grid = renderer.gridSize(for: size, scale: Self.scale)
