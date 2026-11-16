@@ -4,19 +4,20 @@
 //! 键盘：↑↓ PageUp/PageDown Home/End 移动选中，Enter 进入目录，Backspace / Alt+↑ 返回上一级，
 //! F5 刷新，Ctrl+1/2/3 按名称 / 大小 / 时间排序（再按一次切换方向）。鼠标：单击选中，双击进入目录，点击列头排序。
 
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use futures::StreamExt as _;
 use futures::channel::mpsc::UnboundedReceiver;
 use gpui::{
-    ClickEvent, Context, FocusHandle, Focusable, KeyDownEvent, ScrollStrategy,
+    ClickEvent, Context, FocusHandle, Focusable, KeyDownEvent, ScrollStrategy, Task,
     UniformListScrollHandle, Window, div, point, prelude::*, px, rgb, uniform_list,
 };
 use kanso_core::Core;
 use kanso_gpui::filer::{
-    DirModel, FrameStats, Sort, SortKey, format_mtime, format_size, frame_stats, parent_path,
+    BatchBuffer, DirModel, FrameStats, ListEnd, Sort, SortKey, format_mtime, format_size,
+    frame_stats, parent_path,
 };
 use kanso_gpui::theme::Palette;
 use kanso_types::event::SessionState;
@@ -31,6 +32,9 @@ const ROW_H: f32 = 22.0;
 const SCROLL_ROWS_PER_FRAME: f32 = 100.0;
 /// 超过这个间隔的帧算卡顿（60 Hz 下一帧 16.7 ms，留一点余量）。
 const SLOW_FRAME_MS: f64 = 20.0;
+/// 界面两次并入读取缓冲之间至少隔这么久：软渲染一帧远长于它，所以实际是"每帧一次"；
+/// 快机器上它把并入频率限制在约 60 Hz。首批不受此限制（先取后等）。
+const APPLY_INTERVAL: Duration = Duration::from_millis(16);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Phase {
@@ -49,6 +53,10 @@ struct ListPerf {
     done: Option<u128>,
     done_painted: Option<u128>,
     batches: usize,
+    /// 界面并入缓冲的次数、累计耗时（微秒）、单次最多并入的批数。
+    applies: usize,
+    apply_us: u128,
+    max_per_apply: usize,
     first_painted_pending: bool,
     done_painted_pending: bool,
 }
@@ -94,6 +102,8 @@ pub(crate) struct FilerView {
     last_render: Option<Instant>,
     recording: bool,
     frame_ms: Vec<f64>,
+    /// 当前目录读取（后台读取任务 + 界面并入任务）；丢弃它即取消读取。
+    list_task: Option<Task<()>>,
     scrolltest: Option<ScrollTest>,
     row_build_us: (u64, u64, u64),
 
@@ -165,6 +175,7 @@ impl FilerView {
             last_render: None,
             recording: false,
             frame_ms: Vec::new(),
+            list_task: None,
             scrolltest: None,
             row_build_us: (0, 0, 0),
             test,
@@ -251,16 +262,113 @@ impl FilerView {
                 return;
             }
         };
+        if std::env::var_os("KANSO_SFTP_SERIAL").is_some() {
+            self.list_task = Some(Self::spawn_serial_reader(stream, generation, cx));
+            return;
+        }
+
+        // 后台线程持续读取，批次进共享缓冲；界面任务被唤醒后一次取走累计的全部批次。
+        let buffer = Arc::new(Mutex::new(BatchBuffer::new(generation)));
+        let (wake_tx, mut wake_rx) = futures::channel::mpsc::unbounded::<()>();
+        let reader = {
+            let buffer = buffer.clone();
+            cx.background_executor().spawn(async move {
+                let t0 = Instant::now();
+                let (mut waited, mut max_wait, mut n) = (Duration::ZERO, Duration::ZERO, 0usize);
+                loop {
+                    if buffer.lock().unwrap_or_else(|e| e.into_inner()).is_cancelled() {
+                        return;
+                    }
+                    let w = Instant::now();
+                    let r = stream.next_batch().await;
+                    let dw = w.elapsed();
+                    waited += dw;
+                    max_wait = max_wait.max(dw);
+                    let (wake, last) = {
+                        let mut b = buffer.lock().unwrap_or_else(|e| e.into_inner());
+                        match r {
+                            Ok(Some(batch)) => {
+                                n += 1;
+                                (b.push(batch), false)
+                            }
+                            Ok(None) => (b.finish(ListEnd::Done), true),
+                            Err(e) => (b.finish(ListEnd::Failed(e.to_string())), true),
+                        }
+                    };
+                    if wake {
+                        let _ = wake_tx.unbounded_send(());
+                    }
+                    if last {
+                        log(&format!(
+                            "PERF 读取线程：{n} 批，共 {} ms，其中等待服务器 {} ms（单批最长 {} ms）",
+                            t0.elapsed().as_millis(),
+                            waited.as_millis(),
+                            max_wait.as_millis()
+                        ));
+                        return;
+                    }
+                }
+            })
+        };
+        self.list_task = Some(cx.spawn(async move |this, cx| {
+            let _reader = reader; // 随本任务一起被丢弃（取消）
+            while wake_rx.next().await.is_some() {
+                let keep = this.update(cx, |t, cx| t.apply_buffer(generation, &buffer, cx));
+                if !keep.unwrap_or(false) {
+                    return; // 视图已销毁、请求已过期或读取已结束
+                }
+                cx.background_executor().timer(APPLY_INTERVAL).await;
+            }
+        }));
+    }
+
+    /// 旧的逐批方式（诊断开关 `KANSO_SFTP_SERIAL=1`，用来与缓冲方式对比）：
+    /// 在界面任务里取一批、并入、重绘，再取下一批，并记录每批的等待、并入耗时与批间间隔。
+    fn spawn_serial_reader(
+        mut stream: kanso_core::DirStream,
+        generation: u64,
+        cx: &mut Context<Self>,
+    ) -> Task<()> {
         cx.spawn(async move |this, cx| {
+            let (mut wait_tot, mut apply_tot, mut gap_tot) =
+                (Duration::ZERO, Duration::ZERO, Duration::ZERO);
+            let mut n = 0usize;
+            let mut last_end = Instant::now();
             loop {
-                match stream.next_batch().await {
+                let w = Instant::now();
+                let r = stream.next_batch().await;
+                let got = Instant::now();
+                let wait = got - w;
+                let gap = got - last_end; // 上一批并入结束到这一批到达
+                match r {
                     Ok(Some(batch)) => {
+                        let t = Instant::now();
                         let alive = this.update(cx, |t, cx| t.on_batch(generation, batch, cx));
+                        let apply = t.elapsed();
+                        last_end = Instant::now();
+                        n += 1;
+                        wait_tot += wait;
+                        apply_tot += apply;
+                        gap_tot += gap;
+                        if n <= 5 || n.is_multiple_of(50) {
+                            log(&format!(
+                                "PERF 逐批 #{n}：next_batch 等待 {:.1} ms，on_batch {:.1} ms，批间间隔 {:.1} ms",
+                                wait.as_secs_f64() * 1000.0,
+                                apply.as_secs_f64() * 1000.0,
+                                gap.as_secs_f64() * 1000.0
+                            ));
+                        }
                         if !alive.unwrap_or(false) {
-                            return; // 视图已销毁或已被新请求取代：丢弃流即取消后续读取
+                            return;
                         }
                     }
                     Ok(None) => {
+                        log(&format!(
+                            "PERF 逐批合计 {n} 批：等待 {} ms，on_batch {} ms，批间间隔 {} ms",
+                            wait_tot.as_millis(),
+                            apply_tot.as_millis(),
+                            gap_tot.as_millis()
+                        ));
                         let _ = this.update(cx, |t, cx| t.on_done(generation, cx));
                         return;
                     }
@@ -271,7 +379,55 @@ impl FilerView {
                 }
             }
         })
-        .detach();
+    }
+
+    /// 把缓冲里累计的批次一次并入并重绘一次。返回 `false` 表示不必再等（过期或已结束）。
+    fn apply_buffer(
+        &mut self,
+        generation: u64,
+        buffer: &Mutex<BatchBuffer>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let t0 = Instant::now();
+        let drained = buffer
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take(self.generation);
+        let Some(d) = drained else { return false };
+        if generation != self.generation {
+            return false;
+        }
+        if !d.entries.is_empty() {
+            let ms = self.perf.start.map_or(0, |s| s.elapsed().as_millis());
+            if self.perf.first_batch.is_none() {
+                self.perf.first_batch = Some(ms);
+                self.perf.first_painted_pending = true;
+                log(&format!("PERF 首批 {} 项到达，{ms} ms", d.entries.len()));
+            }
+            self.perf.batches += d.batches;
+            self.perf.max_per_apply = self.perf.max_per_apply.max(d.batches);
+            self.model.push_batch(d.entries);
+            cx.notify();
+        }
+        self.perf.applies += 1;
+        self.perf.apply_us += t0.elapsed().as_micros();
+        match d.end {
+            None => true,
+            Some(ListEnd::Done) => {
+                log(&format!(
+                    "PERF 并入 {} 次，累计 {} ms，单次最多 {} 批",
+                    self.perf.applies,
+                    self.perf.apply_us / 1000,
+                    self.perf.max_per_apply
+                ));
+                self.on_done(generation, cx);
+                false
+            }
+            Some(ListEnd::Failed(msg)) => {
+                self.on_error(generation, msg, cx);
+                false
+            }
+        }
     }
 
     /// 返回 `false` 表示这批属于过期请求。
