@@ -14,6 +14,12 @@
 //! - [`prompts`]：提示队列与状态机（主机密钥变更、密码 / 口令、keyboard-interactive）。
 //! - [`sessions`]：会话启动器模型与会话编辑模型。
 
+pub mod backend;
+pub mod controller;
+pub mod events;
 pub mod layout;
+pub mod prompts;
 pub mod tab;
+#[cfg(test)]
+mod testutil;
 pub mod workspace;
