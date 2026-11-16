@@ -288,7 +288,10 @@ mod tests {
         ime.replace_and_mark("a", None);
         ime.cancel();
         std::thread::sleep(Duration::from_millis(30));
-        assert!(!ime.take_cancel_escape(Duration::from_millis(5)), "超时不吞");
+        assert!(
+            !ime.take_cancel_escape(Duration::from_millis(5)),
+            "超时不吞"
+        );
     }
 
     #[test]

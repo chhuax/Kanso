@@ -330,10 +330,7 @@ impl TerminalView {
                 // 输入法用这个 Esc 取消了组字：键归输入法，不发给 shell。
                 // 只吞 Esc，且只在组字被取消（没有上屏）时；其他键一律正常发送。
                 let plain = !event.mods.ctrl && !event.mods.alt();
-                if plain
-                    && event.key == Key::Escape
-                    && self.ime.take_cancel_escape(IME_ESC_GRACE)
-                {
+                if plain && event.key == Key::Escape && self.ime.take_cancel_escape(IME_ESC_GRACE) {
                     if LOG_INPUT.load(Ordering::Relaxed) {
                         log("吞掉取消组字的 Esc");
                     }
