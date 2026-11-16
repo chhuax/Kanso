@@ -392,6 +392,104 @@ pub fn frame_stats(samples: &[f64], slow_ms: f64) -> Option<FrameStats> {
     })
 }
 
+/// 一次目录读取的结束方式。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ListEnd {
+    /// 正常列完。
+    Done,
+    /// 读取出错（附错误文字）。
+    Failed(String),
+}
+
+/// 读取线程与界面之间的共享缓冲：读取线程不停地把到达的批次放进来，
+/// 界面每次醒来一次取走这段时间累计的全部批次，再一次性并入模型、只重绘一次。
+///
+/// 读取速度因此不再受重绘帧率约束（软渲染下一帧 100 ms 以上，逐批重绘会把列表拖慢几十倍）。
+/// 缓冲带着请求代数：界面已切到新请求时，旧缓冲里的内容在 [`BatchBuffer::take`] 时被丢弃。
+pub struct BatchBuffer {
+    generation: u64,
+    pending: Vec<DirEntry>,
+    batches: usize,
+    end: Option<ListEnd>,
+    /// 已经通知过界面、界面还没来取：此时再到的批次不必重复唤醒。
+    wake_pending: bool,
+    cancelled: bool,
+}
+
+/// [`BatchBuffer::take`] 取走的内容。
+#[derive(Debug, PartialEq, Eq)]
+pub struct Drained {
+    /// 累计的全部条目（按到达顺序）。
+    pub entries: Vec<DirEntry>,
+    /// 这些条目来自几批。
+    pub batches: usize,
+    /// 读取是否已结束；`Some` 时这是最后一次取。
+    pub end: Option<ListEnd>,
+}
+
+impl BatchBuffer {
+    /// 新建属于某个请求代数的缓冲。
+    pub fn new(generation: u64) -> BatchBuffer {
+        BatchBuffer {
+            generation,
+            pending: Vec::new(),
+            batches: 0,
+            end: None,
+            wake_pending: false,
+            cancelled: false,
+        }
+    }
+
+    /// 放入一批；返回 `true` 表示调用方需要唤醒界面（之前没有未处理的唤醒）。
+    pub fn push(&mut self, batch: Vec<DirEntry>) -> bool {
+        if self.cancelled {
+            return false;
+        }
+        self.pending.extend(batch);
+        self.batches += 1;
+        self.arm_wake()
+    }
+
+    /// 标记读取结束；返回值含义同 [`BatchBuffer::push`]。
+    pub fn finish(&mut self, end: ListEnd) -> bool {
+        if self.cancelled {
+            return false;
+        }
+        self.end = Some(end);
+        self.arm_wake()
+    }
+
+    fn arm_wake(&mut self) -> bool {
+        !std::mem::replace(&mut self.wake_pending, true)
+    }
+
+    /// 取走累计内容。`current_generation` 与缓冲的代数不一致（请求已过期）时丢弃内容、取消缓冲并返回 `None`。
+    pub fn take(&mut self, current_generation: u64) -> Option<Drained> {
+        self.wake_pending = false;
+        if self.cancelled || current_generation != self.generation {
+            self.cancel();
+            return None;
+        }
+        Some(Drained {
+            entries: std::mem::take(&mut self.pending),
+            batches: std::mem::take(&mut self.batches),
+            end: self.end.clone(),
+        })
+    }
+
+    /// 取消：清空内容，之后的放入一律忽略。
+    pub fn cancel(&mut self) {
+        self.cancelled = true;
+        self.pending = Vec::new();
+        self.batches = 0;
+    }
+
+    /// 是否已取消（读取线程据此提前退出）。
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -575,5 +673,65 @@ mod tests {
         assert_eq!((s.count, s.max, s.slow), (100, 100.0, 10));
         assert_eq!(s.p50, 51.0);
         assert_eq!(s.p95, 95.0);
+    }
+
+    #[test]
+    fn buffer_wakes_once_until_taken() {
+        let mut b = BatchBuffer::new(1);
+        assert!(b.push(vec![entry("a", false, 1, None)]));
+        assert!(!b.push(vec![entry("b", false, 1, None)]));
+        assert!(!b.push(vec![entry("c", false, 1, None)]));
+        let d = b.take(1).unwrap();
+        assert_eq!(d.batches, 3);
+        assert_eq!(d.entries.len(), 3);
+        assert_eq!(d.end, None);
+        // 取走后下一批要重新唤醒；空取也不出错
+        assert!(b.push(vec![entry("d", false, 1, None)]));
+        assert_eq!(b.take(1).unwrap().entries.len(), 1);
+        assert_eq!(b.take(1).unwrap().entries.len(), 0);
+    }
+
+    #[test]
+    fn buffer_merges_accumulated_batches_into_model_once() {
+        let mut b = BatchBuffer::new(3);
+        b.push(vec![entry("z", false, 1, None), entry("d1", true, 0, None)]);
+        b.push(vec![entry("a", false, 1, None)]);
+        b.finish(ListEnd::Done);
+        let d = b.take(3).unwrap();
+        assert_eq!(d.end, Some(ListEnd::Done));
+        let mut m = DirModel::new(Sort::default());
+        m.push_batch(d.entries);
+        assert_eq!(names(&m), ["d1", "a", "z"]);
+    }
+
+    #[test]
+    fn buffer_stale_generation_is_dropped_and_cancelled() {
+        let mut b = BatchBuffer::new(1);
+        b.push(vec![entry("a", false, 1, None)]);
+        assert!(b.take(2).is_none());
+        assert!(b.is_cancelled());
+        // 取消后读取线程再放入的内容被忽略，也不再唤醒
+        assert!(!b.push(vec![entry("b", false, 1, None)]));
+        assert!(!b.finish(ListEnd::Done));
+        assert!(b.take(1).is_none());
+    }
+
+    #[test]
+    fn buffer_reports_error_after_partial_data() {
+        let mut b = BatchBuffer::new(1);
+        b.push(vec![entry("a", false, 1, None)]);
+        assert!(!b.finish(ListEnd::Failed("断开".into())));
+        let d = b.take(1).unwrap();
+        assert_eq!(d.entries.len(), 1);
+        assert_eq!(d.end, Some(ListEnd::Failed("断开".into())));
+    }
+
+    #[test]
+    fn buffer_finish_alone_wakes() {
+        let mut b = BatchBuffer::new(1);
+        assert!(b.finish(ListEnd::Done));
+        let d = b.take(1).unwrap();
+        assert!(d.entries.is_empty());
+        assert_eq!(d.end, Some(ListEnd::Done));
     }
 }
