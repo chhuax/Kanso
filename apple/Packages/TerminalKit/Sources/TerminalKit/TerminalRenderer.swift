@@ -168,8 +168,10 @@ public final class TerminalRenderer {
         let gutterCharWidth: Int
         /// 栏总宽（含左侧留白与右侧与正文的间隔）；栏关闭时为 0。
         let gutterWidth: Int
-        /// 正文区四周的留白。
+        /// 正文区上下的留白。
         let padding: Int
+        /// 正文区左右的留白：比上下宽，文字不贴着窗口边或时间栏（2026-11-16 用户反馈"左边一点边距都没有"）。
+        let paddingX: Int
         let originX: Int
         let originY: Int
     }
@@ -194,10 +196,11 @@ public final class TerminalRenderer {
         // 左侧 1 个字符的留白，右侧 2 个字符的间隔，把栏与正文隔开。
         let gutterWidth = chars == 0 ? 0 : (chars + 3) * gcw
         let padding = Int((4 * scale).rounded())
+        let paddingX = Int((12 * scale).rounded())
         return Layout(
             metrics: fonts.terminal.metrics, gutterMetrics: fonts.gutter.metrics,
-            gutterCharWidth: gcw, gutterWidth: gutterWidth, padding: padding,
-            originX: gutterWidth + padding,
+            gutterCharWidth: gcw, gutterWidth: gutterWidth, padding: padding, paddingX: paddingX,
+            originX: gutterWidth + paddingX,
             originY: Int((topInset * scale).rounded()) + padding
         )
     }
@@ -208,7 +211,7 @@ public final class TerminalRenderer {
         let widthPx = Int((size.width * scale).rounded())
         let heightPx = Int((size.height * scale).rounded())
         return TerminalGridSize(
-            cols: max(1, (widthPx - l.originX - l.padding) / l.metrics.cellWidth),
+            cols: max(1, (widthPx - l.originX - l.paddingX) / l.metrics.cellWidth),
             rows: max(1, (heightPx - l.originY - l.padding) / l.metrics.cellHeight),
             cellWidthPx: l.metrics.cellWidth,
             cellHeightPx: l.metrics.cellHeight
@@ -457,7 +460,7 @@ public final class TerminalRenderer {
             let end = Int(min(block.endLine, first + UInt64(rows - 1)) - first)
             if end >= start {
                 let color = block.running ? palette.cursor : palette.ansi[1]
-                decoInstances.append(rect(l.originX - l.padding / 2, l.originY + start * m.cellHeight,
+                decoInstances.append(rect(l.originX - l.paddingX / 2, l.originY + start * m.cellHeight,
                     2, (end - start + 1) * m.cellHeight, Self.vec(color)))
             }
         }

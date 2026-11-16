@@ -174,7 +174,13 @@ impl Run {
 }
 
 /// 去掉 CSI 与 OSC 序列，只留可见文本，便于断言提示符内容。
+/// 去掉转义序列后的可见文字。分支图标（U+E0A0 加一个空格）也去掉，断言只关心目录与分支名；
+/// 图标本身由 `git_branch_display_and_injection_safety` 单独断言。
 fn visible(s: &str) -> String {
+    visible_raw(s).replace("\u{e0a0} ", "")
+}
+
+fn visible_raw(s: &str) -> String {
     let b: Vec<char> = s.chars().collect();
     let mut out = String::new();
     let mut i = 0;
@@ -432,6 +438,7 @@ fn branch_scenario(promptsubst: bool) {
     let vis = visible(&out);
 
     assert!(vis.contains("~/plain main % "), "{vis:?}");
+    assert!(visible_raw(&out).contains("~/plain \u{e0a0} main % "), "{out:?}");
     assert!(vis.contains("~/plain/src/deep main % "), "{vis:?}");
     assert!(vis.contains("~/wt/sub feature/x % "), "{vis:?}");
     assert!(vis.contains("~/sm sm-branch % "), "{vis:?}");

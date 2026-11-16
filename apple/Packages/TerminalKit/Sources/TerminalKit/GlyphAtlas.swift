@@ -136,8 +136,13 @@ final class GlyphAtlas {
     private func entrySlow(scalar: UInt32, bold: Bool, italic: Bool, wide: Bool, face: GlyphFace) -> GlyphEntry {
         let key = ScalarGlyphKey(scalar: scalar, bold: bold, italic: italic, wide: wide, face: face)
         if let hit = scalarCache[key] { return hit }
-        let text = Unicode.Scalar(scalar).map { String(Character($0)) } ?? ""
-        let made = rasterize(text: text, bold: bold, italic: italic, wide: wide, face: face)
+        let made: GlyphEntry
+        if scalar == Self.branchIconScalar {
+            made = rasterizeBranchIcon(face: face)
+        } else {
+            let text = Unicode.Scalar(scalar).map { String(Character($0)) } ?? ""
+            made = rasterize(text: text, bold: bold, italic: italic, wide: wide, face: face)
+        }
         scalarCache[key] = made
         logIfNeeded()
         return made
@@ -233,6 +238,60 @@ final class GlyphAtlas {
             offsetX: Int32(dx + left),
             // 位图顶边在基线上方 top 像素，基线在单元格顶部下方 baseline 像素。
             offsetY: Int32(metrics.baseline - top),
+            width: Int32(w), height: Int32(h)
+        )
+    }
+
+    // MARK: 内置图标
+
+    /// Powerline 的分支符号（私有区 U+E0A0）。内置 zsh 提示符在分支名前输出它；
+    /// 系统字体都没有这个字，所以不依赖 Nerd Font，由渲染器自己画（Lucide git-branch，ISC）。
+    /// 装了 Nerd Font 也用内置图形，保证不同字体下观感一致。
+    static let branchIconScalar: UInt32 = 0xE0A0
+
+    /// 在一个单元格内画分支图标：边长取单元格宽，按 24×24 的 Lucide 坐标缩放，竖直方向居中在小写字母中线附近。
+    private func rasterizeBranchIcon(face: GlyphFace) -> GlyphEntry {
+        let metrics = (face == .terminal ? fonts.terminal : fonts.gutter).metrics
+        let side = max(8, metrics.cellWidth)
+        let w = side, h = side
+        if scratch.count < w * h { scratch = [UInt8](repeating: 0, count: w * h) }
+        for i in 0..<(w * h) { scratch[i] = 0 }
+        let drew: Bool = scratch.withUnsafeMutableBytes { raw in
+            guard let ctx = CGContext(
+                data: raw.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w,
+                space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue
+            ) else { return false }
+            // 转成与 SVG 相同的 y 向下坐标，再把 24 单位映射到位图边长。
+            let k = CGFloat(side) / 24
+            ctx.translateBy(x: 0, y: CGFloat(h))
+            ctx.scaleBy(x: k, y: -k)
+            ctx.setShouldAntialias(true)
+            ctx.setStrokeColor(gray: 1, alpha: 1)
+            // 线宽至少 1.2 像素：Lucide 原稿 2/24，小字号时会细到发虚。
+            ctx.setLineWidth(max(2, 1.2 / k))
+            ctx.setLineCap(.round)
+            ctx.setLineJoin(.round)
+            // M15 6 a9 9 0 0 0 -9 9 V3：圆心 (15,15) 的左上四分之一圆弧接主干竖线。
+            ctx.move(to: CGPoint(x: 15, y: 6))
+            ctx.addArc(center: CGPoint(x: 15, y: 15), radius: 9, startAngle: -.pi / 2, endAngle: .pi, clockwise: true)
+            ctx.addLine(to: CGPoint(x: 6, y: 3))
+            ctx.strokePath()
+            ctx.strokeEllipse(in: CGRect(x: 15, y: 3, width: 6, height: 6))
+            ctx.strokeEllipse(in: CGRect(x: 3, y: 15, width: 6, height: 6))
+            return true
+        }
+        guard drew, let (page, x, y) = allocate(width: w, height: h, isColor: false) else { return .empty }
+        let texture = grayPages[page].texture
+        scratch.withUnsafeBytes { raw in
+            texture.replace(region: MTLRegionMake2D(x, y, w, h), mipmapLevel: 0, withBytes: raw.baseAddress!, bytesPerRow: w)
+        }
+        let size = Float(texture.width)
+        // 图标中心对齐小写字母高度的中线：大约基线上方 0.35 个单元格高。
+        let centerY = metrics.baseline - Int((Double(metrics.cellHeight) * 0.3).rounded())
+        return GlyphEntry(
+            page: page, isColor: false, isEmpty: false,
+            uv: SIMD4(Float(x) / size, Float(y) / size, Float(x + w) / size, Float(y + h) / size),
+            offsetX: 0, offsetY: Int32(centerY - h / 2),
             width: Int32(w), height: Int32(h)
         )
     }

@@ -15,7 +15,7 @@ final class CommandBlockTests: XCTestCase {
         for mode: GutterMode in [.off, .both] {
             renderer.gutterMode = mode
             let layout = renderer.layout(scale: 2)
-            let stripeX = layout.originX - layout.padding / 2
+            let stripeX = layout.originX - layout.paddingX / 2
             XCTAssertGreaterThan(stripeX, layout.gutterWidth)
             XCTAssertLessThan(stripeX + 2, layout.originX)
             for appearance: TerminalAppearance in [.dark, .light] {

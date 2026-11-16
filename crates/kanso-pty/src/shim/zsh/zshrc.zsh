@@ -199,7 +199,8 @@ if [[ ${KANSO_SHELL_INTEGRATION:-1} != 0 ]]; then
       pre=$__kanso_ins_dir
     fi
     if [[ -n $branch_txt ]]; then
-      __kanso_ins_branch="%F{2}${branch_ins}%f"
+      # U+E0A0 是 Powerline 分支符号，Kanso 渲染器内置画成分支图标（GlyphAtlas.branchIconScalar）。
+      __kanso_ins_branch="%F{2}"$'\ue0a0'" ${branch_ins}%f"
     fi
     # 只给第一个 `%#` 上色；替换文本放进变量，避免 `${…/…/…}` 里的花括号被当成参数展开的边界。
     local red_mark='%F{1}%#%f'
