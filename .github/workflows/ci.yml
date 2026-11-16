@@ -1,19 +1,30 @@
 name: CI
 
 on:
+  # push 只跑 main：分支上的改动由 PR 触发，避免同一提交跑两遍。
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# 同一分支有新推送时，进行中的旧运行已无意义，直接取消。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# 任务名 rust / apple 是分支保护要求的检查名，不要改。
 jobs:
   rust:
     runs-on: macos-15
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust toolchain
         run: rustup show
+      - uses: Swatinem/rust-cache@v2
       - name: Install cargo-deny
         run: cargo install cargo-deny --locked
       - name: Check Rust, bindings, tokens and locales
@@ -21,11 +32,13 @@ jobs:
 
   apple:
     runs-on: macos-15
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust toolchain
         run: rustup show
+      - uses: Swatinem/rust-cache@v2
       - name: Install XcodeGen
         run: brew install xcodegen
-      - name: Build Direct channel
-        run: cargo xtask apple-build --channel direct
+      - name: Build all channels
+        run: cargo xtask apple-build --all
