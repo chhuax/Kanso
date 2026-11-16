@@ -5,18 +5,24 @@
 
 use std::sync::Arc;
 
+// 只有本地 shell 相关的测试（仅 Unix）用到。
+#[cfg(unix)]
+use kanso_core::OpenTarget;
 use kanso_core::{
-    CollectingEventSink, Core, CoreConfig, CoreError, OpenTarget, Platform, SecretKind, SecretStore,
+    CollectingEventSink, Core, CoreConfig, CoreError, Platform, SecretKind, SecretStore,
 };
 use kanso_secret::{MemorySecretStore, SecretError, SecretRef};
 use kanso_types::geometry::Rgb;
 use kanso_types::profile::{
-    AuthMethod, EncodingLabel, Group, LineEnding, LocalProfile, Profile, ProfileKind, Snippet,
-    SnippetScope, SshProfile, SshTarget,
+    AuthMethod, EncodingLabel, Group, LineEnding, Profile, ProfileKind, Snippet, SnippetScope,
+    SshProfile, SshTarget,
 };
 use kanso_types::secret::SecretString;
-use kanso_types::{GridSize, GroupId, Message, ProfileId, SnippetId};
+#[cfg(unix)]
+use kanso_types::{GridSize, profile::LocalProfile};
+use kanso_types::{GroupId, Message, ProfileId, SnippetId};
 
+#[cfg(unix)]
 const GRID: GridSize = GridSize { cols: 80, rows: 24 };
 
 struct Fx {
@@ -89,6 +95,7 @@ fn ssh_profile(name: &str, group: Option<GroupId>) -> Profile {
     }
 }
 
+#[cfg(unix)]
 fn local_profile(name: &str, shell: &str, start_dir: Option<String>) -> Profile {
     Profile {
         id: ProfileId::new(),

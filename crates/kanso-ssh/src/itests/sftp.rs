@@ -197,6 +197,8 @@ async fn list_streams_first_batch_before_directory_is_fully_read() {
     assert_eq!(e.server.sftp_stats.open_handles(), 0);
 }
 
+// 测试服务器的目录在本机文件系统上，Windows 建符号链接需要特权，只在 Unix 上运行。
+#[cfg(unix)]
 #[tokio::test]
 async fn completion_directory_limit_does_not_stat_excess_links() {
     let e = env_with(|config| config.readdir_batch = 2500).await;
@@ -969,7 +971,15 @@ fn walk(root: &Path) -> Vec<String> {
             .collect();
         es.sort_by_key(|e| e.file_name());
         for e in es {
-            let rel = e.path().strip_prefix(base).unwrap().display().to_string();
+            // 统一用 `/` 拼接，期望值在各平台一致（Windows 的分隔符是 `\`）。
+            let rel = e
+                .path()
+                .strip_prefix(base)
+                .unwrap()
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+                .join("/");
             if e.file_type().unwrap().is_dir() {
                 out.push(format!("{rel}/"));
                 rec(base, &e.path(), out);

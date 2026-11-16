@@ -62,7 +62,7 @@ Windows / Linux（M6）：kanso-gpui 直接依赖 kanso-core，不经过 FFI。
 | IO | `kanso-pty` | 启动本地 PTY、调整大小、查询前台进程与 cwd、shell 集成 shim、locale 环境 | portable-pty、libc | ❌ |
 | IO | `kanso-ssh` | 算法表、主机密钥策略（存储通过 trait 注入）、认证（向用户提问走 `CoreEvent::Prompt`）、跳板链、共享 transport、SFTP 操作、**流水线传输引擎**、远端 cwd 查询 | russh、russh-sftp | ❌ |
 | 数据 | `kanso-store` | SQLite 表结构与迁移、各类数据的读写、`.kanso` 导入导出、ssh_config 导入（调用 `kanso-sshconfig`） | rusqlite | ❌ |
-| 数据 | `kanso-secret` | SecretStore trait，以及 Keychain、Credential Manager、Secret Service 三种实现 | security-framework 等 | ❌ |
+| 数据 | `kanso-secret` | SecretStore trait，以及 Credential Manager（`windows-sys`）、Secret Service（`secret-service`）两种系统实现和内存实现；macOS 的 Keychain 实现在 Swift 宿主里，经 FFI 注入 | windows-sys、secret-service | ❌ |
 | 业务 | `kanso-complete` | 补全引擎：历史、命令表、路径（通过 provider trait 获取）、git/kubectl | — | ✅ |
 | 业务 | `kanso-license` | Entitlement 模型、License Key（Ed25519）离线校验；StoreKit、Setapp 来源通过平台 trait 接入 | ed25519-dalek | ✅ |
 | 编排 | `kanso-session` | 会话管理器和每个会话的 actor：把 PTY/SSH、编码、传输哨兵、终端状态串起来；Sender 的发送与定时；传输队列 | tokio，以及以上各 crate | ❌ |

@@ -9,5 +9,12 @@ publish.workspace = true
 [dependencies]
 kanso-types.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+secret-service.workspace = true
+zbus.workspace = true
+
 [lints]
 workspace = true

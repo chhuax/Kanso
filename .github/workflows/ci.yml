@@ -37,6 +37,38 @@ jobs:
       - name: Check Rust, bindings, tokens and locales
         run: cargo xtask ci --skip-apple
 
+  # Rust 核心三平台共享：Windows / Linux 只跑平台无关的检查。
+  # 绑定校验、Apple 构建、渠道矩阵、c-abi 与 cargo deny 仅在 macOS job 中执行。
+  rust-portable:
+    name: rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        run: rustup show
+      - name: Install zsh (kanso-pty zsh shim tests)
+        if: runner.os == 'Linux'
+        # Ubuntu 的 /etc/zsh/zshrc 会运行 compinit；runner 上部分补全目录可被组或其他人写入，
+        # zsh 会停下来询问 "Ignore insecure directories"，测试等不到提示符。收紧这些目录的权限。
+        run: |
+          sudo apt-get update && sudo apt-get install -y zsh
+          zsh -fc 'autoload -U compaudit; compaudit' | xargs -r sudo chmod go-w
+      - uses: Swatinem/rust-cache@v2.7.8
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --workspace
+      - name: Check design tokens
+        run: cargo run --quiet -p xtask -- check-tokens
+      - name: Check locales
+        run: cargo run --quiet -p xtask -- check-locales
+
   apple:
     runs-on: macos-15
     timeout-minutes: 45
