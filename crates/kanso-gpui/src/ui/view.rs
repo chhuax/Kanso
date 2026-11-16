@@ -33,6 +33,9 @@ use super::{EXIT_CODE, LOG_INPUT, log, memory};
 /// 终端区域四周的内边距（逻辑像素）。
 pub(crate) const PAD: f32 = 6.0;
 
+/// 组字结束后多长时间内的无修饰按键视为“结束组字的那个键”。
+const IME_KEY_GRACE: Duration = Duration::from_millis(100);
+
 /// 字体度量（逻辑像素）。
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Metrics {
@@ -324,7 +327,15 @@ impl TerminalView {
         };
         match classify_key(&input) {
             KeyAction::Send(event) => {
-                self.send_key(event);
+                // 输入法用这个键结束了组字（Esc 取消等）：键归输入法，不发给 shell。
+                let plain = !event.mods.ctrl && !event.mods.alt();
+                if plain && self.ime.ended_within(IME_KEY_GRACE) {
+                    if LOG_INPUT.load(Ordering::Relaxed) {
+                        log(&format!("吞掉结束组字的按键 {:?}", event.key));
+                    }
+                } else {
+                    self.send_key(event);
+                }
                 cx.stop_propagation();
             }
             KeyAction::Copy => {

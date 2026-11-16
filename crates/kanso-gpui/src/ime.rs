@@ -12,6 +12,7 @@
 //! 所有偏移都是 UTF-16 码元（GPUI / Windows 的约定）。
 
 use std::ops::Range;
+use std::time::{Duration, Instant};
 
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
@@ -21,6 +22,8 @@ pub struct ImeState {
     marked: Option<String>,
     /// 预编辑串内的光标位置（UTF-16 码元）。
     caret: usize,
+    /// 最近一次组字结束（上屏 / 取消 / 清空）的时刻，用来识别“结束组字的那个按键”。
+    ended_at: Option<Instant>,
 }
 
 fn utf16_len(s: &str) -> usize {
@@ -74,8 +77,7 @@ impl ImeState {
     /// 空串等于结束组字。
     pub fn replace_and_mark(&mut self, text: &str, caret: Option<Range<usize>>) {
         if text.is_empty() {
-            self.marked = None;
-            self.caret = 0;
+            self.end();
             return;
         }
         let len = utf16_len(text);
@@ -85,15 +87,29 @@ impl ImeState {
 
     /// 上屏。结束组字，返回需要发给会话的文字；上屏空串（输入法取消组字）返回 `None`。
     pub fn commit(&mut self, text: &str) -> Option<String> {
-        self.marked = None;
-        self.caret = 0;
+        self.end();
         (!text.is_empty()).then(|| text.to_owned())
     }
 
     /// 丢弃组字（窗口失焦等）。**不**上屏：避免输入法随后又上屏一次造成重复（checklist 场景 5）。
     pub fn cancel(&mut self) {
-        self.marked = None;
+        self.end();
+    }
+
+    fn end(&mut self) {
+        if self.marked.take().is_some() {
+            self.ended_at = Some(Instant::now());
+        }
         self.caret = 0;
+    }
+
+    /// 组字是否刚刚结束（`within` 以内）。
+    ///
+    /// 用途：Windows 输入法处理 Esc 取消组字时，会**先**发出“组字清空”，**然后**才把这个 Esc 的
+    /// `KeyDown` 交给应用；此时 `marked_text_range` 已经是空，应用无法再靠“正在组字”识别，
+    /// 结果 Esc 漏给 shell（实测）。按键处理里用本函数把“紧跟在组字结束之后的无修饰按键”吞掉。
+    pub fn ended_within(&self, within: Duration) -> bool {
+        self.ended_at.is_some_and(|t| t.elapsed() <= within)
     }
 
     /// 预编辑串的显示宽度（列数）。
@@ -223,6 +239,21 @@ mod tests {
         ime.replace_and_mark("", None);
         assert!(!ime.is_composing());
         assert_eq!(ime.selected_range(), 0..0);
+    }
+
+    #[test]
+    fn ended_within_tracks_only_real_compositions() {
+        let mut ime = ImeState::default();
+        assert!(!ime.ended_within(Duration::from_secs(10)));
+        ime.commit(""); // 没有组字：不算结束
+        assert!(!ime.ended_within(Duration::from_secs(10)));
+        ime.replace_and_mark("zhong", None);
+        assert!(
+            !ime.ended_within(Duration::from_secs(10)),
+            "组字中不算已结束"
+        );
+        ime.replace_and_mark("", None); // Esc 取消
+        assert!(ime.ended_within(Duration::from_secs(10)));
     }
 
     #[test]
