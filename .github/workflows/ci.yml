@@ -79,5 +79,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Install XcodeGen
         run: brew install xcodegen
-      - name: Build all channels
-        run: cargo xtask apple-build --all
+      # 只编 Direct：MAS / Setapp 的 Rust 部分已在 rust 任务的渠道矩阵里检查，Swift 里按渠道区分的代码很少；
+      # 三个渠道都编要多花约 3 分钟。本地 `cargo xtask ci` 仍编三个渠道兜底。
+      - name: Build Direct channel
+        run: cargo xtask apple-build --channel direct
