@@ -564,6 +564,7 @@ impl Render for FilerView {
                     rows.push(
                         div()
                             .id(("row", pos))
+                            .w_full()
                             .h(px(ROW_H))
                             .px_2()
                             .flex()

@@ -11,9 +11,9 @@ pub(crate) fn local_offset_minutes() -> i32 {
     let mut info: TIME_ZONE_INFORMATION = unsafe { std::mem::zeroed() };
     // SAFETY: `info` 是有效的输出缓冲区。
     let kind = unsafe { GetTimeZoneInformation(&mut info) };
-    // 返回值：0 未知、1 标准时间、2 夏令时、0xFFFFFFFF 失败。
+    // 返回值：0 未知（没有夏令时的时区也返回它，如中国）、1 标准时间、2 夏令时、0xFFFFFFFF 失败。
     let extra = match kind {
-        1 => info.StandardBias,
+        0 | 1 => info.StandardBias,
         2 => info.DaylightBias,
         _ => return 0,
     };
