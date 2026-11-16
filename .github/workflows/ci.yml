@@ -1,21 +1,31 @@
 name: CI
 
 on:
+  # push 只跑 main：分支上的改动由 PR 触发，避免同一提交跑两遍。
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+# 同一分支有新推送时，进行中的旧运行已无意义，直接取消。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 # 每项检查单独一个步骤，失败时在页面上直接看到是哪一项；检查参数统一定义在 `cargo xtask ci`。
 # 任务名 rust / apple 是分支保护要求的检查名，不要改。
 jobs:
   rust:
     runs-on: macos-15
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust toolchain
         run: rustup show
+      - uses: Swatinem/rust-cache@v2
       - name: Install cargo-deny
         run: cargo install cargo-deny --locked
       - name: 格式（fmt）
@@ -39,10 +49,12 @@ jobs:
 
   apple:
     runs-on: macos-15
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust toolchain
         run: rustup show
+      - uses: Swatinem/rust-cache@v2
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: 构建 Direct 渠道
