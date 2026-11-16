@@ -32,6 +32,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private var senderHeight: CGFloat
     private var restoringSenderHeight = true
     private let sidebarItem: NSSplitViewItem
+    /// 普通（非系统样式）侧栏 item：`toggleSidebar` 对它无效，折叠要直接切 `isCollapsed`。
+    private let usesPlainSidebar: Bool
     /// 辅助 Filer（位于标签栏与分屏区之间，可收起；filer.md §1.1）。
     private let filerItem: NSSplitViewItem
     let filer: FilerCoordinator
@@ -127,9 +129,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         filerController.view = NSView()
 
         let sidebarController = TabSidebarViewController(controller: controller)
-        sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarController)
+        // macOS 26 的系统侧栏是悬浮的 Liquid Glass 面板，在非 Apple Silicon 显卡上显示成带缝的实心圆角块；
+        // 27 起系统侧栏贴边，与设计一致。因此只有 26.x 用普通 item（贴边、直角、无缝），其余版本保持系统侧栏。
+        usesPlainSidebar = ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 26
+        sidebarItem = usesPlainSidebar
+            ? NSSplitViewItem(viewController: sidebarController)
+            : NSSplitViewItem(sidebarWithViewController: sidebarController)
         sidebarItem.minimumThickness = DesignTokens.Spacing.sidebarMinWidth
         sidebarItem.canCollapse = true
+        // 系统侧栏 item 默认 holdingPriority 为 260（窗口变宽时保持宽度）；普通 item 只有 251，会被拉伸，需显式对齐并高于内容区。
+        if usesPlainSidebar { sidebarItem.holdingPriority = NSLayoutConstraint.Priority(261) }
         splitController.addSplitViewItem(sidebarItem)
         filerItem = NSSplitViewItem(viewController: filerController)
         filerItem.minimumThickness = Self.filerMinWidth
@@ -646,7 +655,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     @objc func kansoToggleTabBar(_ sender: Any?) {
         // 收起动画结束前 isCollapsed 还是旧值，提示文字按切换后的状态预先算好。
         let willCollapse = !sidebarItem.isCollapsed
-        splitController.toggleSidebar(sender)
+        if usesPlainSidebar {
+            sidebarItem.animator().isCollapsed = willCollapse
+        } else {
+            splitController.toggleSidebar(sender)
+        }
         sidebarButton.toolTip = willCollapse ? String(localized: "Show Tab Bar") : String(localized: "Hide Tab Bar")
     }
 
