@@ -18,7 +18,8 @@ final class DirectoryPickerTests: XCTestCase {
             let cells = try XCTUnwrap(UnsafeMutablePointer(mutating: kanso_frame_row(header, row)))
             for col in 2..<10 {
                 cells[col].flags |= CellFlags.chip.rawValue
-                cells[col].ch = col == 3 ? icon : 32
+                // 与真实终端一致：标签开头的空白格字符码是 0（不是 32），其后的空格是 32。
+                cells[col].ch = col == 3 ? icon : (col == 2 ? 0 : 32)
             }
         }
         return try XCTUnwrap(FrameSnapshot(coreFrame: handle))

@@ -35,7 +35,8 @@ extension TerminalView {
         var end = col + 1
         while start > 0, frame.cell(row: row, col: start - 1).flags.contains(.chip) { start -= 1 }
         while end < frame.cols, frame.cell(row: row, col: end).flags.contains(.chip) { end += 1 }
-        let first = (start..<end).first { frame.cell(row: row, col: $0).ch != 32 }
+        // 空白格在帧里是 0（从未写过或被清除），也可能是 32（shim 输出的空格），两种都要跳过。
+        let first = (start..<end).first { ![0, 32].contains(frame.cell(row: row, col: $0).ch) }
         guard let first, frame.cell(row: row, col: first).ch == 0xf07b else { return nil }
         return start..<end
     }
