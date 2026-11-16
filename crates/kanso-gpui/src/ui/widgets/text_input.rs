@@ -218,11 +218,13 @@ impl TextInput {
     // ---- 运行时接口 ----
 
     /// 当前内容。
+    #[allow(dead_code)] // 控件公开接口，演示窗口暂未用到
     pub fn text(&self) -> &str {
         self.state.text()
     }
 
     /// 整体设置内容（光标到末尾，清空撤销历史）。
+    #[allow(dead_code)]
     pub fn set_text(&mut self, text: &str, cx: &mut Context<Self>) {
         let before = self.state.text().to_owned();
         self.state.set_text(text);
@@ -234,6 +236,7 @@ impl TextInput {
     }
 
     /// 切换禁用状态。
+    #[allow(dead_code)]
     pub fn set_disabled(&mut self, disabled: bool, cx: &mut Context<Self>) {
         self.disabled = disabled;
         self.focus = self.focus.clone().tab_stop(!disabled);
@@ -709,13 +712,19 @@ impl Element for TextElement {
         } else {
             line.x_for_index(line.len())
         };
-        let scroll = follow_cursor(
-            input.scroll_x,
-            f32::from(cursor_x),
-            f32::from(text_w),
-            f32::from(bounds.size.width),
-            CARET_W,
-        );
+        // 没有焦点时从头显示（和多数输入框一致）；获得焦点后再跟随光标。
+        let focused = input.focus.is_focused(window);
+        let scroll = if focused {
+            follow_cursor(
+                input.scroll_x,
+                f32::from(cursor_x),
+                f32::from(text_w),
+                f32::from(bounds.size.width),
+                CARET_W,
+            )
+        } else {
+            0.0
+        };
 
         let left = bounds.left() - px(scroll);
         let selection = (input.state.has_selection() && !input.state.is_composing()).then(|| {
@@ -734,7 +743,6 @@ impl Element for TextElement {
                 hsla(fs.selection),
             )
         });
-        let focused = input.focus.is_focused(window);
         let caret = (focused
             && !input.disabled
             && input.blink.visible()
