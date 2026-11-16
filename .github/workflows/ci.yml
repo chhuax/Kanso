@@ -7,6 +7,8 @@ on:
 permissions:
   contents: read
 
+# 每项检查单独一个步骤，失败时在页面上直接看到是哪一项；检查参数统一定义在 `cargo xtask ci`。
+# 任务名 rust / apple 是分支保护要求的检查名，不要改。
 jobs:
   rust:
     runs-on: macos-15
@@ -16,8 +18,24 @@ jobs:
         run: rustup show
       - name: Install cargo-deny
         run: cargo install cargo-deny --locked
-      - name: Check Rust, bindings, tokens and locales
-        run: cargo xtask ci --skip-apple
+      - name: 格式（fmt）
+        run: cargo xtask ci --only fmt
+      - name: 静态检查（clippy）
+        run: cargo xtask ci --only clippy
+      - name: 单元测试（test）
+        run: cargo xtask ci --only test
+      - name: C 接口（c-abi）
+        run: cargo xtask ci --only c-abi
+      - name: 设计令牌（check-tokens）
+        run: cargo xtask ci --only check-tokens
+      - name: 本地化（check-locales）
+        run: cargo xtask ci --only check-locales
+      - name: Swift 绑定（check-bindings）
+        run: cargo xtask ci --only check-bindings
+      - name: 渠道矩阵（MAS / Setapp）
+        run: cargo xtask ci --only channels
+      - name: 依赖许可证（cargo deny）
+        run: cargo xtask ci --only deny
 
   apple:
     runs-on: macos-15
@@ -27,5 +45,9 @@ jobs:
         run: rustup show
       - name: Install XcodeGen
         run: brew install xcodegen
-      - name: Build Direct channel
+      - name: 构建 Direct 渠道
         run: cargo xtask apple-build --channel direct
+      - name: 构建 MAS 渠道
+        run: cargo xtask apple-build --channel mas
+      - name: 构建 Setapp 渠道
+        run: cargo xtask apple-build --channel setapp
