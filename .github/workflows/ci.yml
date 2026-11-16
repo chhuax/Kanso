@@ -15,6 +15,11 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# 与 App 的最低系统版本一致。不设时 cc 编译的 C 依赖（ring、aws-lc 等）按机器 SDK 版本编译，
+# 链接时会对每个目标文件刷一行 "built for newer macOS version" 警告。
+env:
+  MACOSX_DEPLOYMENT_TARGET: "14.0"
+
 # 任务名 rust / apple 是分支保护要求的检查名，不要改。
 jobs:
   rust:
@@ -25,8 +30,10 @@ jobs:
       - name: Install Rust toolchain
         run: rustup show
       - uses: Swatinem/rust-cache@v2
-      - name: Install cargo-deny
-        run: cargo install cargo-deny --locked
+      # 直接下载编好的 cargo-deny，比 cargo install 从源码编译快约 90 秒。
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
       - name: Check Rust, bindings, tokens and locales
         run: cargo xtask ci --skip-apple
 
