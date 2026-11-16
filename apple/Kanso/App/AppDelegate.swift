@@ -59,6 +59,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showSettings(tab: .general)
     }
 
+    @objc func kansoShowAbout(_ sender: Any?) {
+        NSApp.orderFrontStandardAboutPanel(options: [.credits: Self.aboutCredits])
+    }
+
+    static var aboutCredits: NSAttributedString {
+        let source = URL(string: "https://github.com/chhuax/Kanso")!
+        let credits = NSMutableAttributedString(
+            string: String(localized: "Licensed under GPL-3.0-or-later") + "\n\n" + source.absoluteString + "\n\n"
+                + String(localized: "Open Source Licenses: Choose Open Source Licenses… in the Kanso menu to read third-party licenses and notices."),
+            attributes: [.font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)]
+        )
+        credits.addAttribute(.link, value: source, range: (credits.string as NSString).range(of: source.absoluteString))
+        return credits
+    }
+
+    @objc func kansoShowOpenSourceLicenses(_ sender: Any?) {
+        NSWorkspace.shared.open(Bundle.main.url(forResource: "THIRD_PARTY_NOTICES", withExtension: "md")!)
+    }
+
     /// 视图 → 显示设置…
     @objc func kansoShowDisplaySettings(_ sender: Any?) {
         showSettings(tab: .display)
@@ -124,7 +143,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Kanso
         let appMenu = submenu("")
-        add(appMenu, String(localized: "About Kanso"), #selector(NSApplication.orderFrontStandardAboutPanel(_:)))
+        add(appMenu, String(localized: "About Kanso"), #selector(AppDelegate.kansoShowAbout(_:))).target = NSApp.delegate
+        add(appMenu, String(localized: "Open Source Licenses…"), #selector(AppDelegate.kansoShowOpenSourceLicenses(_:))).target = NSApp.delegate
         appMenu.addItem(.separator())
         // 设置窗口不依赖主窗口（没有窗口时也能打开），所以 target 直接是 AppDelegate。
         add(appMenu, String(localized: "Settings…"), #selector(AppDelegate.kansoShowSettings(_:)), ",").target = NSApp.delegate

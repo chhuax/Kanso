@@ -425,8 +425,11 @@ fn disk_image() -> Result<(), Box<dyn std::error::Error>> {
     }
     #[cfg(unix)]
     std::os::unix::fs::symlink("/Applications", contents.join("Applications"))?;
-    for name in ["LICENSE", "THIRD_PARTY_NOTICES.md"] {
-        fs::copy(name, contents.join(name))?;
+    for (source, destination) in [
+        ("LICENSE", "LICENSE.txt"),
+        ("THIRD_PARTY_NOTICES.md", "THIRD_PARTY_NOTICES.md"),
+    ] {
+        fs::copy(source, contents.join(destination))?;
     }
     let image = repo_root().join(format!(
         "target/dist/Kanso-{}-macOS-arm64.dmg",

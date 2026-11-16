@@ -589,6 +589,24 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "关于 Kanso" } }
       }
     },
+    "Licensed under GPL-3.0-or-later" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Licensed under GPL-3.0-or-later" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "基于 GPL-3.0-or-later 许可发布" } }
+      }
+    },
+    "Open Source Licenses…" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Open Source Licenses…" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "开源许可…" } }
+      }
+    },
+    "Open Source Licenses: Choose Open Source Licenses… in the Kanso menu to read third-party licenses and notices." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Open Source Licenses: Choose Open Source Licenses… in the Kanso menu to read third-party licenses and notices." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "开源许可：在 Kanso 菜单中选择“开源许可…”，查看第三方许可证与声明。" } }
+      }
+    },
     "Copy" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Copy" } },

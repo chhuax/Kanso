@@ -94,6 +94,10 @@ targets:
       # optional 让单独运行 xcodegen 时不因目录缺失而报错。
       - path: Kanso/Generated
         optional: true
+      - path: ../LICENSE
+        buildPhase: resources
+      - path: ../THIRD_PARTY_NOTICES.md
+        buildPhase: resources
     dependencies:
       - package: KansoBridge
       - package: TerminalKit
