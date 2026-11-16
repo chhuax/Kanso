@@ -15,13 +15,13 @@
 ```sh
 cargo xtask ci                 # 本地 CI：fmt、clippy、test、渠道矩阵、cargo deny
 cargo xtask notices            # 重新生成第三方依赖与素材声明
-cargo xtask dmg                # Release 构建 Direct 并生成 arm64 DMG 与 SHA-256
+cargo xtask dmg                # Release 构建 Direct 并生成 arm64 DMG 与 SHA-256；Intel 包另加 --arch x86_64
 cargo xtask ci --skip-deny     # 本地没装 cargo-deny 时跳过许可证检查
 cargo xtask ci --skip-apple    # 没装 Xcode 时跳过 apple-build（ci 默认会构建三个渠道的 Debug）
 cargo xtask bindgen            # 重新生成 UniFFI Swift 绑定（改了 kanso-ffi 导出接口后必须运行并提交）
 cargo xtask check-bindings     # 校验入库的 Swift 绑定未过期（ci 已包含）
 cargo xtask xcode              # 生成 token 产物与 apple/Kanso.xcodeproj（需要 xcodegen）
-cargo xtask apple-build [--channel direct|mas|setapp | --all] [--configuration debug|release]
+cargo xtask apple-build [--channel direct|mas|setapp | --all] [--configuration debug|release] [--arch arm64|x86_64]（默认本机架构）
 cargo build -p kanso-ffi       # 默认 direct 渠道
 cargo build -p kanso-ffi --no-default-features --features mas      # MAS 渠道
 cargo build -p kanso-ffi --no-default-features --features setapp   # Setapp 渠道

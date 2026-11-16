@@ -1,5 +1,5 @@
 [toolchain]
 channel = "1.94.1"
 components = ["rustfmt", "clippy"]
-# mac 版只支持 Apple Silicon。
-targets = ["aarch64-apple-darwin"]
+# mac 版：Apple Silicon 为主，x86_64 供 Intel 机器开发与官网版 Intel 包使用。
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]

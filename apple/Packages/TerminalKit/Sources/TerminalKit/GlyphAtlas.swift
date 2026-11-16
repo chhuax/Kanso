@@ -383,8 +383,9 @@ final class GlyphAtlas {
     private func makePage(size: Int, format: MTLPixelFormat, bytesPerPixel: Int, name: String) -> ShelfPage {
         let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: format, width: size, height: size, mipmapped: false)
         desc.usage = .shaderRead
-        // Apple Silicon 统一内存：shared 存储下 CPU 的 replace 对 GPU 直接可见，无需 managed 同步。
-        desc.storageMode = .shared
+        // 统一内存用 shared；独显用 managed。managed 纹理经 CPU 的 `replace(region:)` 写入后，
+        // Metal 会自动把改动同步给 GPU，无需手动 didModify（Apple 文档 "Synchronizing a managed resource"）。
+        desc.storageMode = device.cpuAccessTextureStorageMode
         guard let texture = device.makeTexture(descriptor: desc) else {
             fatalError("无法创建 \(size)x\(size) 的图集纹理")
         }

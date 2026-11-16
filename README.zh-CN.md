@@ -60,9 +60,9 @@
 
 ## 安装
 
-需要 **macOS 14 或更高版本**，**Apple 芯片**的 Mac。
+需要 **macOS 14 或更高版本**，Apple 芯片或 Intel 的 Mac。
 
-从 [Releases](https://github.com/chhuax/Kanso/releases) 下载 `Kanso-<版本>-macOS-arm64.dmg`，打开后把 Kanso 拖进"应用程序"。
+从 [Releases](https://github.com/chhuax/Kanso/releases) 按芯片下载 `Kanso-<版本>-macOS-arm64.dmg`（Apple 芯片）或 `Kanso-<版本>-macOS-x86_64.dmg`（Intel），打开后把 Kanso 拖进"应用程序"。
 
 目前还**没有经过苹果公证**。第一次打开时，右键点 Kanso 选"打开"；如果仍被拦截：
 
@@ -74,16 +74,16 @@ xattr -dr com.apple.quarantine /Applications/Kanso.app
 
 ## 从源码构建
 
-安装 Xcode 16 或更高版本、[rustup](https://rustup.rs/) 和 XcodeGen。Rust **1.94.1** 和 `aarch64-apple-darwin` 目标已在 `rust-toolchain.toml` 中固定，会自动安装。
+安装 Xcode 16 或更高版本、[rustup](https://rustup.rs/) 和 XcodeGen。Rust **1.94.1** 和 `aarch64-apple-darwin`、`x86_64-apple-darwin` 两个目标已在 `rust-toolchain.toml` 中固定，会自动安装。
 
 ```sh
 brew install xcodegen
 cargo xtask apple-build --channel direct              # Debug 构建
-cargo xtask dmg                                       # Release 构建并在 target/dist/ 生成 dmg
+cargo xtask dmg                                       # Release 构建并在 target/dist/ 生成 arm64 dmg（Intel 包加 --arch x86_64）
 cargo install cargo-deny --locked && cargo xtask ci   # 全部检查、构建与测试
 ```
 
-Debug 版在 `target/apple/DerivedData.noindex/Build/Products/Debug-Direct/Kanso.app`。依赖变化后运行 `cargo xtask notices` 重新生成 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。更多细节见 [docs/apple-build.md](docs/apple-build.md)。
+Debug 版在 `target/apple/DerivedData.noindex/Build/Products/Debug-Direct/Kanso.app`（Intel 机器上是 `DerivedData-x86_64.noindex`；默认按本机架构构建）。依赖变化后运行 `cargo xtask notices` 重新生成 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。更多细节见 [docs/apple-build.md](docs/apple-build.md)。
 
 ## 路线图
 

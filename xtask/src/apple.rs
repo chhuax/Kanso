@@ -49,6 +49,72 @@ impl Channel {
     }
 }
 
+/// 目标架构。官网版按架构分别出包，不做 Universal 合并。
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Arch {
+    Arm64,
+    X86_64,
+}
+
+impl Arch {
+    fn parse(s: &str) -> Option<Arch> {
+        match s {
+            "arm64" => Some(Arch::Arm64),
+            "x86_64" => Some(Arch::X86_64),
+            _ => None,
+        }
+    }
+
+    /// 本机架构；非 x86_64 一律按 arm64 处理。
+    fn native() -> Arch {
+        if env::consts::ARCH == "x86_64" {
+            Arch::X86_64
+        } else {
+            Arch::Arm64
+        }
+    }
+
+    /// Xcode `ARCHS` 与 DMG 文件名里的写法。
+    fn name(self) -> &'static str {
+        match self {
+            Arch::Arm64 => "arm64",
+            Arch::X86_64 => "x86_64",
+        }
+    }
+
+    fn rust_target(self) -> &'static str {
+        match self {
+            Arch::Arm64 => "aarch64-apple-darwin",
+            Arch::X86_64 => "x86_64-apple-darwin",
+        }
+    }
+
+    /// DerivedData 目录。arm64 保持原路径不变，x86_64 单独一个目录，两者产物互不覆盖。
+    /// 目录名都带 `.noindex`，聚焦不收录。
+    fn derived_data(self) -> &'static str {
+        match self {
+            Arch::Arm64 => "target/apple/DerivedData.noindex",
+            Arch::X86_64 => "target/apple/DerivedData-x86_64.noindex",
+        }
+    }
+}
+
+fn parse_arch(s: &str) -> Result<Arch, String> {
+    Arch::parse(s).ok_or_else(|| format!("未知架构：{s}（可选 arm64 / x86_64）"))
+}
+
+/// 解析 Xcode 传入的 `ARCHS`：只接受单个架构，不出 Universal 合并包。
+fn parse_archs(s: &str) -> Result<Arch, String> {
+    let mut parts = s.split_whitespace();
+    let first = parts.next().ok_or("ARCHS 为空")?;
+    if parts.next().is_some() {
+        return Err(format!(
+            "ARCHS=\"{s}\" 含多个架构：Kanso 按架构分别出包，不支持 Universal 合并包，请只指定一个架构"
+        ));
+    }
+    parse_arch(first)
+}
+
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -80,8 +146,8 @@ fn channel_target_dir(channel: Channel) -> PathBuf {
     PathBuf::from("target/apple").join(channel.feature())
 }
 
-/// 构建指定渠道与 profile 的 `libkanso_ffi.a`，返回其路径（相对仓库根）。
-fn build_static_lib(channel: Channel, release: bool) -> Result<PathBuf, String> {
+/// 构建指定渠道、profile 与架构的 `libkanso_ffi.a`，返回其路径（相对仓库根）。
+fn build_static_lib(channel: Channel, release: bool, arch: Arch) -> Result<PathBuf, String> {
     let target_dir = channel_target_dir(channel);
     let mut cmd = cargo();
     cmd.args([
@@ -89,7 +155,7 @@ fn build_static_lib(channel: Channel, release: bool) -> Result<PathBuf, String> 
         "-p",
         "kanso-ffi",
         "--target",
-        "aarch64-apple-darwin",
+        arch.rust_target(),
         "--no-default-features",
         "--features",
         channel.feature(),
@@ -104,7 +170,7 @@ fn build_static_lib(channel: Channel, release: bool) -> Result<PathBuf, String> 
     }
     let profile = if release { "release" } else { "debug" };
     let lib = target_dir
-        .join("aarch64-apple-darwin")
+        .join(arch.rust_target())
         .join(profile)
         .join("libkanso_ffi.a");
     if lib.exists() {
@@ -116,7 +182,7 @@ fn build_static_lib(channel: Channel, release: bool) -> Result<PathBuf, String> 
 
 /// `cargo xtask apple-lib`：供 Xcode 的 Run Script 调用。
 pub fn apple_lib(args: &[String]) -> ExitCode {
-    let (mut channel, mut profile, mut out) = (None, None, None);
+    let (mut channel, mut profile, mut out, mut arch) = (None, None, None, None);
     let mut it = args.iter();
     while let Some(a) = it.next() {
         let r = match a.as_str() {
@@ -125,15 +191,20 @@ pub fn apple_lib(args: &[String]) -> ExitCode {
                 .map(|c| channel = Some(c)),
             "--profile" => take_value(&mut it, a).map(|p| profile = Some(p.to_string())),
             "--out" => take_value(&mut it, a).map(|p| out = Some(PathBuf::from(p))),
+            // Run Script 传 "$ARCHS"；含多个架构时报错。
+            "--arch" => take_value(&mut it, a)
+                .and_then(parse_archs)
+                .map(|x| arch = Some(x)),
             other => Err(format!("未知参数：{other}")),
         };
         if let Err(e) = r {
             return fail(&e);
         }
     }
+    let arch = arch.unwrap_or_else(Arch::native);
     let (Some(channel), Some(profile), Some(out)) = (channel, profile, out) else {
         return fail(
-            "用法：cargo xtask apple-lib --channel <direct|mas|setapp> --profile <debug|release> --out <dir>",
+            "用法：cargo xtask apple-lib --channel <direct|mas|setapp> --profile <debug|release> --out <dir> [--arch <arm64|x86_64>]",
         );
     };
     let release = match profile.as_str() {
@@ -151,7 +222,7 @@ pub fn apple_lib(args: &[String]) -> ExitCode {
         return fail(&format!("无法切换到仓库根目录：{e}"));
     }
 
-    let lib = match build_static_lib(channel, release) {
+    let lib = match build_static_lib(channel, release, arch) {
         Ok(l) => l,
         Err(e) => return fail(&e),
     };
@@ -176,7 +247,7 @@ fn copy_if_changed(src: &Path, dst: &Path) -> std::io::Result<()> {
 
 /// `cargo xtask xcframework`：只给发布流水线（T12）用，Xcode 日常构建走 `apple-lib`。
 ///
-/// 始终用 release 构建，产物为 `target/apple/<channel>/KansoCore.xcframework`。
+/// 始终用 release 构建（仅 arm64），产物为 `target/apple/<channel>/KansoCore.xcframework`。
 pub fn xcframework(args: &[String]) -> ExitCode {
     let mut channel = None;
     let mut it = args.iter();
@@ -197,7 +268,7 @@ pub fn xcframework(args: &[String]) -> ExitCode {
     if let Err(e) = env::set_current_dir(repo_root()) {
         return fail(&format!("无法切换到仓库根目录：{e}"));
     }
-    let lib = match build_static_lib(channel, true) {
+    let lib = match build_static_lib(channel, true, Arch::Arm64) {
         Ok(l) => l,
         Err(e) => return fail(&e),
     };
@@ -261,9 +332,10 @@ pub fn xcode() -> ExitCode {
 ///
 /// xcodebuild 每次构建都会把产物注册到 LaunchServices，久了"打开方式"、启动台和聚焦里会出现一堆同名 Kanso；
 /// `.noindex` 只挡得住聚焦的文件索引，挡不住这一步注册。构建、测试结束后统一注销，失败不影响结果。
-fn unregister_build_products() {
+fn unregister_build_products(arch: Arch) {
     const LSREGISTER: &str = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
-    let Ok(configs) = std::fs::read_dir("target/apple/DerivedData.noindex/Build/Products") else {
+    let Ok(configs) = std::fs::read_dir(Path::new(arch.derived_data()).join("Build/Products"))
+    else {
         return;
     };
     for config in configs.flatten() {
@@ -280,7 +352,7 @@ fn unregister_build_products() {
 }
 
 /// 构建单个渠道的 App；`release` 决定 configuration。
-fn xcodebuild(channel: Channel, release: bool) -> bool {
+fn xcodebuild(channel: Channel, release: bool, arch: Arch) -> bool {
     let kind = if release { "Release" } else { "Debug" };
     let name = channel.display();
     run(
@@ -290,18 +362,26 @@ fn xcodebuild(channel: Channel, release: bool) -> bool {
             .args(["-scheme", &format!("Kanso-{name}")])
             .args(["-configuration", &format!("{kind}-{name}")])
             // .noindex 后缀让聚焦不收录构建产物，避免搜索 Kanso 时出现多个同名 App。
-            .args(["-derivedDataPath", "target/apple/DerivedData.noindex"])
+            .args(["-derivedDataPath", arch.derived_data()])
+            // 覆盖工程里的 ARCHS，保证产物就是请求的架构。
+            .arg(format!("ARCHS={}", arch.name()))
             .arg("build"),
     )
 }
 
-/// `cargo xtask apple-build`：先 `xcode` 再 xcodebuild。
+/// `cargo xtask apple-build [--arch arm64|x86_64]`：先 `xcode` 再 xcodebuild，架构默认取本机。
+///
+/// x86_64 只支持 Direct 渠道的 Release（MAS / Setapp 的 Release 只出 arm64），Debug 三个渠道都可以。
 pub fn apple_build(args: &[String]) -> ExitCode {
     let mut channels = vec![Channel::Direct];
     let mut release = false;
+    let mut arch = Arch::native();
     let mut it = args.iter();
     while let Some(a) = it.next() {
         let r = match a.as_str() {
+            "--arch" => take_value(&mut it, a)
+                .and_then(parse_arch)
+                .map(|x| arch = x),
             "--all" => {
                 channels = Channel::ALL.to_vec();
                 Ok(())
@@ -327,14 +407,17 @@ pub fn apple_build(args: &[String]) -> ExitCode {
             return fail(&e);
         }
     }
+    if release && arch == Arch::X86_64 && channels.iter().any(|&c| c != Channel::Direct) {
+        return fail("x86_64 的 Release 只支持 direct 渠道（MAS / Setapp 只出 arm64）");
+    }
     if !has_tool("xcodebuild", "-version") {
         return fail("步骤失败：apple-build（未找到 xcodebuild，请安装 Xcode）");
     }
     if xcode() != ExitCode::SUCCESS {
         return ExitCode::FAILURE;
     }
-    let ok = channels.into_iter().all(|c| xcodebuild(c, release));
-    unregister_build_products();
+    let ok = channels.into_iter().all(|c| xcodebuild(c, release, arch));
+    unregister_build_products(arch);
     if ok {
         ExitCode::SUCCESS
     } else {
@@ -350,6 +433,7 @@ pub fn apple_build(args: &[String]) -> ExitCode {
 /// 传给测试进程，不转发的话录制开关到不了测试里。
 pub fn apple_test(args: &[String]) -> ExitCode {
     let mut only: Option<String> = None;
+    let arch = Arch::native();
     let mut it = args.iter();
     while let Some(a) = it.next() {
         let r = match a.as_str() {
@@ -370,8 +454,12 @@ pub fn apple_test(args: &[String]) -> ExitCode {
     cmd.args(["-project", "apple/Kanso.xcodeproj"])
         .args(["-scheme", "Kanso-Direct"])
         .args(["-configuration", "Debug-Direct"])
-        .args(["-derivedDataPath", "target/apple/DerivedData.noindex"])
-        .args(["-destination", "platform=macOS,arch=arm64"]);
+        .args(["-derivedDataPath", arch.derived_data()])
+        .args([
+            "-destination",
+            &format!("platform=macOS,arch={}", arch.name()),
+        ])
+        .arg(format!("ARCHS={}", arch.name()));
     if let Some(o) = &only {
         cmd.arg(format!("-only-testing:{o}"));
     }
@@ -380,7 +468,7 @@ pub fn apple_test(args: &[String]) -> ExitCode {
         cmd.env("TEST_RUNNER_KANSO_RECORD_SNAPSHOTS", v);
     }
     let ok = run("xcodebuild test (Direct)", &mut cmd);
-    unregister_build_products();
+    unregister_build_products(arch);
     if ok {
         ExitCode::SUCCESS
     } else {
@@ -393,32 +481,54 @@ pub fn xcodebuild_available() -> bool {
     has_tool("xcodebuild", "-version")
 }
 
-pub fn dmg() -> ExitCode {
+/// `cargo xtask dmg [--arch arm64|x86_64]`：默认 arm64，与原流程一致；Intel 包需显式 `--arch x86_64`。
+pub fn dmg(args: &[String]) -> ExitCode {
+    let mut arch = Arch::Arm64;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let r = match a.as_str() {
+            "--arch" => take_value(&mut it, a)
+                .and_then(parse_arch)
+                .map(|x| arch = x),
+            other => Err(format!("未知参数：{other}")),
+        };
+        if let Err(e) = r {
+            return fail(&e);
+        }
+    }
     if apple_build(&[
         "--channel".into(),
         "direct".into(),
         "--configuration".into(),
         "release".into(),
+        "--arch".into(),
+        arch.name().into(),
     ]) != ExitCode::SUCCESS
     {
         return ExitCode::FAILURE;
     }
-    match disk_image() {
+    match disk_image(arch) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => fail(&format!("生成 DMG 失败：{error}")),
     }
 }
 
-fn disk_image() -> Result<(), Box<dyn std::error::Error>> {
-    let contents = repo_root().join("target/dist/dmg-contents");
+fn disk_image(arch: Arch) -> Result<(), Box<dyn std::error::Error>> {
+    // arm64 沿用原目录名；x86_64 另用一个，避免互相冲突。
+    let contents_name = match arch {
+        Arch::Arm64 => "dmg-contents",
+        Arch::X86_64 => "dmg-contents-x86_64",
+    };
+    let contents = repo_root().join("target/dist").join(contents_name);
     if contents.exists() {
         fs::remove_dir_all(&contents)?;
     }
     fs::create_dir_all(&contents)?;
+    let app = Path::new(arch.derived_data()).join("Build/Products/Release-Direct/Kanso.app");
     if !run(
         "复制 Kanso.app",
         Command::new("ditto")
-            .arg("target/apple/DerivedData.noindex/Build/Products/Release-Direct/Kanso.app")
+            .arg(&app)
             .arg(contents.join("Kanso.app")),
     ) {
         return Err("复制 App 失败".into());
@@ -432,8 +542,9 @@ fn disk_image() -> Result<(), Box<dyn std::error::Error>> {
         fs::copy(source, contents.join(destination))?;
     }
     let image = repo_root().join(format!(
-        "target/dist/Kanso-{}-macOS-arm64.dmg",
-        env!("CARGO_PKG_VERSION")
+        "target/dist/Kanso-{}-macOS-{}.dmg",
+        env!("CARGO_PKG_VERSION"),
+        arch.name()
     ));
     if !run(
         "创建 DMG",

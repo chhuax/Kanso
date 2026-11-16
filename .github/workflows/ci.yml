@@ -83,3 +83,6 @@ jobs:
       # 三个渠道都编要多花约 3 分钟。本地 `cargo xtask ci` 仍编三个渠道兜底。
       - name: Build Direct channel
         run: cargo xtask apple-build --channel direct
+      # runner 是 arm64；这里只做 Direct 的 x86_64 交叉编译检查，防止 Intel 包悄悄编不过。
+      - name: Cross-check x86_64 (Direct)
+        run: cargo build -p kanso-ffi --target x86_64-apple-darwin
