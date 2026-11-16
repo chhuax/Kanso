@@ -192,6 +192,7 @@ extension TerminalView {
     private func pointerDown(_ event: NSEvent, button: TerminalMouseButton) {
         if button == .left {
             clickedCommandBlock = nil
+            clickedDirectoryChip = event.clickCount == 1 ? directoryChip(at: event) : nil
             if event.clickCount == 1, currentFrame?.flags.contains(.mouseReporting) != true {
                 let block = commandBlock(at: event)
                 if block?.canCopyOutput == true { clickedCommandBlock = block?.id }
@@ -218,6 +219,7 @@ extension TerminalView {
     private func pointerDragged(_ event: NSEvent, button: TerminalMouseButton) {
         if button == .left {
             clickedCommandBlock = nil
+            clickedDirectoryChip = nil
             selectedCommandBlock = nil
         }
         guard let point = viewportPoint(for: event) else { return }
@@ -231,14 +233,21 @@ extension TerminalView {
     }
 
     private func pointerUp(_ event: NSEvent, button: TerminalMouseButton) {
+        var directoryAnchor: NSRect?
         if button == .left {
             if activeButtons[button]?.kind == .down, event.clickCount == 1,
                currentFrame?.flags.contains(.mouseReporting) != true {
-                let block = commandBlock(at: event)
-                let id = block?.canCopyOutput == true ? block?.id : nil
-                selectedCommandBlock = id == clickedCommandBlock && id != selectedCommandBlock ? id : nil
+                if let anchor = directoryChip(at: event), anchor == clickedDirectoryChip {
+                    directoryAnchor = anchor
+                    selectedCommandBlock = nil
+                } else {
+                    let block = commandBlock(at: event)
+                    let id = block?.canCopyOutput == true ? block?.id : nil
+                    selectedCommandBlock = id == clickedCommandBlock && id != selectedCommandBlock ? id : nil
+                }
             }
             clickedCommandBlock = nil
+            clickedDirectoryChip = nil
         }
         activeButtons[button] = nil
         guard let point = viewportPoint(for: event) else { return }
@@ -246,6 +255,7 @@ extension TerminalView {
             kind: .up, button: button, point: point, mods: KeyModifiers(event.modifierFlags),
             clickCount: UInt8(clamping: max(1, event.clickCount))
         ))
+        if let directoryAnchor { onDirectoryChipClick?(directoryAnchor) }
     }
 
     /// 结束所有进行中的拖动：对每个未松开的按键补发 Up。失去 first responder、窗口失去 key 状态、

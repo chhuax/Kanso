@@ -1,6 +1,18 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Search directories…" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Search directories…" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "搜索目录…" } }
+      }
+    },
+    ".. (Parent Directory)" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : ".. (Parent Directory)" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : ".. (上级目录)" } }
+      }
+    },
     "%lld unchanged lines" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "%lld unchanged lines" } },

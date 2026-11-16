@@ -20,13 +20,15 @@ final class FloatingPanel: NSPanel {
     /// 大于 0 时忽略「点外部 / 失焦」：面板里弹出系统菜单期间，焦点与鼠标事件的归属不稳定，不能因此关闭面板。
     private var suspendCount = 0
     private let passive: Bool
+    private let flipsAbove: Bool
 
     override var canBecomeKey: Bool { !passive }
     override var canBecomeMain: Bool { false }
 
     /// `content` 填满面板（圆角底板内）；`size` 是面板的初始尺寸。
-    init(content: NSView, size: NSSize, passive: Bool = false) {
+    init(content: NSView, size: NSSize, passive: Bool = false, flipsAbove: Bool = false) {
         self.passive = passive
+        self.flipsAbove = flipsAbove
         super.init(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
         isReleasedWhenClosed = false
         isOpaque = false
@@ -70,7 +72,7 @@ final class FloatingPanel: NSPanel {
         let gap: CGFloat = 6
         var origin = NSPoint(x: anchorRect.minX, y: anchorRect.minY - gap - frame.height)
         if let visible = bounds {
-            if passive, origin.y < visible.minY { origin.y = anchorRect.maxY + gap }
+            if passive || flipsAbove, origin.y < visible.minY { origin.y = anchorRect.maxY + gap }
             origin.x = min(max(origin.x, visible.minX + 8), visible.maxX - frame.width - 8)
             origin.y = min(max(origin.y, visible.minY + 8), visible.maxY - frame.height - 8)
         }

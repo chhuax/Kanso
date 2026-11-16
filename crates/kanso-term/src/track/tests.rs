@@ -359,9 +359,26 @@ fn input_classification() {
         vec![InputKind::PasteMultiline]
     );
     assert_eq!(InputKind::of_text("a\nb"), vec![InputKind::PasteMultiline]);
+    assert!(InputKind::of_text("\x1b[9001~2f746d70\n").is_empty());
     assert_eq!(InputKind::of_paste("ls -la"), InputKind::Typing);
     assert_eq!(InputKind::of_paste("a\nb"), InputKind::PasteMultiline);
     assert_eq!(InputKind::of_paste("ls\n"), InputKind::PasteMultiline);
+}
+
+#[test]
+fn directory_widget_does_not_submit_partial_input() {
+    let mut h = H::new();
+    h.out(PROMPT);
+    h.type_text("echo partial");
+    h.take();
+    for kind in InputKind::of_text("\x1b[9001~2f746d70\n") {
+        h.input(kind);
+    }
+    h.advance(READ_DELAY_MS);
+    assert!(h.take().is_empty());
+    h.enter();
+    h.advance(READ_DELAY_MS);
+    assert!(h.take().contains(&submitted("echo partial", true)));
 }
 
 #[test]

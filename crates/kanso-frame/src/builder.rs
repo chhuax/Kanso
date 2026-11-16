@@ -32,6 +32,8 @@ pub struct Frame {
 pub struct CommandBlock {
     /// 会话内稳定的块标识。
     pub id: u64,
+    /// 是否为整个会话的最新块，与当前回滚位置无关。
+    pub latest: bool,
     /// 仍保留的块起始绝对行。
     pub start_line: u64,
     /// 块末尾绝对行（包含）。

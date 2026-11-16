@@ -111,6 +111,7 @@ public final class TerminalView: NSView {
     public var onInputActivity: (@MainActor () -> Void)?
     /// 补全专用按键拦截；组字期间不会调用。
     public var completionKeyInterceptor: (@MainActor (NSEvent) -> Bool)?
+    public var onDirectoryChipClick: (@MainActor (NSRect) -> Void)?
 
     /// 时间戳显示用的时区，默认本地时区。
     public var timeZone: TimeZone {
@@ -167,6 +168,7 @@ public final class TerminalView: NSView {
         }
     }
     var clickedCommandBlock: UInt64?
+    var clickedDirectoryChip: NSRect?
     private var needsFrame = false
     private var needsRedraw = false
     private var displayLink: CADisplayLink?
@@ -332,6 +334,7 @@ public final class TerminalView: NSView {
             updateBlinking()
             // 光标可能移动了：组字覆盖层与候选框都跟随光标（terminal.md §16 场景 7）。
             updateMarkedOverlay()
+            window?.invalidateCursorRects(for: self)
             onFrameChanged?()
         }
     }
