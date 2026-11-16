@@ -54,6 +54,9 @@ enum KeyCommand: String, CaseIterable {
     case commandPalette
     case splitRight
     case splitDown
+    case increaseFontSize
+    case decreaseFontSize
+    case resetFontSize
 
     var section: KeyCommandSection {
         switch self {
@@ -61,7 +64,8 @@ enum KeyCommand: String, CaseIterable {
             .session
         case .copy, .paste, .selectAll, .clearBuffer, .previousCommandBlock, .nextCommandBlock, .find, .findNext, .findPrevious, .commandSuggestions, .clearCommandHistory:
             .edit
-        case .toggleTabBar, .toggleFiler, .toggleSender, .locateWorkingDirectory, .commandPalette, .splitRight, .splitDown:
+        case .toggleTabBar, .toggleFiler, .toggleSender, .locateWorkingDirectory, .commandPalette, .splitRight, .splitDown,
+             .increaseFontSize, .decreaseFontSize, .resetFontSize:
             .view
         }
     }
@@ -93,6 +97,9 @@ enum KeyCommand: String, CaseIterable {
         case .commandPalette: String(localized: "Command Palette")
         case .splitRight: String(localized: "Split Right")
         case .splitDown: String(localized: "Split Down")
+        case .increaseFontSize: String(localized: "Bigger Text")
+        case .decreaseFontSize: String(localized: "Smaller Text")
+        case .resetFontSize: String(localized: "Default Text Size")
         }
     }
 
@@ -124,6 +131,9 @@ enum KeyCommand: String, CaseIterable {
         case .commandPalette: #selector(MainWindowController.kansoCommandPalette(_:))
         case .splitRight: #selector(MainWindowController.kansoSplitRight(_:))
         case .splitDown: #selector(MainWindowController.kansoSplitDown(_:))
+        case .increaseFontSize: #selector(MainWindowController.kansoIncreaseFontSize(_:))
+        case .decreaseFontSize: #selector(MainWindowController.kansoDecreaseFontSize(_:))
+        case .resetFontSize: #selector(MainWindowController.kansoResetFontSize(_:))
         }
     }
 
@@ -155,6 +165,9 @@ enum KeyCommand: String, CaseIterable {
         case .commandPalette: return KeyChord(key: "p", modifiers: [.command, .shift])
         case .splitRight: return KeyChord(key: "\\", modifiers: cmd)
         case .splitDown: return KeyChord(key: "\\", modifiers: [.command, .shift])
+        case .increaseFontSize: return KeyChord(key: "=", modifiers: cmd)
+        case .decreaseFontSize: return KeyChord(key: "-", modifiers: cmd)
+        case .resetFontSize: return KeyChord(key: "0", modifiers: cmd)
         }
     }
 

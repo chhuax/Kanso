@@ -158,6 +158,7 @@ Windows / Linux 版的菜单放在应用内的菜单栏里，并提供窗口控�
 | ⌘C / ⌘V | Ctrl+Shift+C / Ctrl+Shift+V | 终端内复制 / 粘贴 |
 | ⌘A | Ctrl+Shift+A | 全选终端缓冲区 |
 | ⌘⇧P | Ctrl+Shift+P | 命令面板（新版新增） |
+| ⌘= / ⌘- / ⌘0 | Ctrl+= / Ctrl+- / Ctrl+0 | 放大 / 缩小终端文字、恢复默认字号（直接改"显示"设置里的终端字号，所有终端一起变，步长 1，范围同设置） |
 
 - 复制、粘贴、全选也在这张表里，所以喜欢 Ctrl+Insert / Shift+Insert 或者普通 Ctrl+C / Ctrl+V 的用户可以改。普通 Ctrl+字母被设为复制键时的特殊规则，见 `terminal.md` §8.2。
 - 用户把某个命令改绑到其他键之后，原来的系统默认按键（例如 macOS 上的 ⌘C、⌘V、⌘A）必须失效，不能新旧两组键同时生效。

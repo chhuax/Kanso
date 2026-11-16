@@ -877,6 +877,24 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "显示标签栏" } }
       }
     },
+    "Bigger Text" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Bigger Text" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "放大文本" } }
+      }
+    },
+    "Smaller Text" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Smaller Text" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "缩小文本" } }
+      }
+    },
+    "Default Text Size" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Default Text Size" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "默认文本大小" } }
+      }
+    },
     "Split Down" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Split Down" } },
