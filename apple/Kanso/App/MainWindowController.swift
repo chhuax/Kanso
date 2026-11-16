@@ -639,6 +639,21 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     @objc func kansoToggleSender(_ sender: Any?) { setSenderVisible(senderItem.isCollapsed) }
 
+    // 文本缩放直接改"显示"设置里的终端字号：所有窗口的终端一起变，并且记住。
+    // 不做按标签的临时缩放，免得同一个字号有设置值和缩放值两套来源。
+    @objc func kansoIncreaseFontSize(_ sender: Any?) { stepFontSize(by: 1) }
+    @objc func kansoDecreaseFontSize(_ sender: Any?) { stepFontSize(by: -1) }
+    @objc func kansoResetFontSize(_ sender: Any?) {
+        controller.settings.updateDisplay { $0.fontSize = DisplaySettings().fontSize }
+    }
+
+    private func stepFontSize(by delta: Double) {
+        controller.settings.updateDisplay {
+            let range = DisplaySettings.fontSizeRange
+            $0.fontSize = min(max($0.fontSize.rounded() + delta, range.lowerBound), range.upperBound)
+        }
+    }
+
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         let workspace = controller.workspace
         switch menuItem.action {

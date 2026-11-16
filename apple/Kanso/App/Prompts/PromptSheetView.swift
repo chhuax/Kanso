@@ -9,6 +9,8 @@ final class WindowPromptSheetHost: PromptSheetHost {
 
     /// 对话框宽度；卡片内文字宽度由它推出，超出自动换行。
     private static let dialogWidth: CGFloat = 480
+    /// 二次验证只有服务器提示和输入框，用窄一些的对话框。
+    private static let compactDialogWidth: CGFloat = 380
 
     private var sheet: NSWindow?
     private var filePanel: NSSavePanel?
@@ -25,7 +27,9 @@ final class WindowPromptSheetHost: PromptSheetHost {
             presentTransfer(request, window: window)
             return
         }
-        let builder = PromptSheetBuilder(model: model, width: Self.dialogWidth) { [weak self] response in
+        let width: CGFloat
+        if case .keyboardInteractive = model { width = Self.compactDialogWidth } else { width = Self.dialogWidth }
+        let builder = PromptSheetBuilder(model: model, width: width) { [weak self] response in
             self?.finish(response)
         }
         let sheet = DialogSheetWindow(shell: builder.shell)
@@ -119,8 +123,12 @@ private final class PromptSheetBuilder: NSObject {
         self.model = model
         self.onResponse = onResponse
         self.width = width
-        // 卡片内文字宽度 = 对话框宽 - 主体左右边距 - 卡片左右内边距。
-        self.textWidth = width - DialogShellView.bodyInset * 2 - KCard.padding * 2
+        // 卡片内文字宽度 = 对话框宽 - 主体左右边距 - 卡片左右内边距；二次验证不用卡片，直接放在主体里。
+        if case .keyboardInteractive = model {
+            self.textWidth = width - DialogShellView.bodyInset * 2
+        } else {
+            self.textWidth = width - DialogShellView.bodyInset * 2 - KCard.padding * 2
+        }
         let (title, symbol): (String, String) = switch model {
         case .hostKeyChanged: (String(localized: "Host Key Changed"), "exclamationmark.triangle")
         case .keyboardInteractive: (String(localized: "Verification Required"), "lock.shield")
@@ -158,12 +166,17 @@ private final class PromptSheetBuilder: NSObject {
     /// 普通文字行。`selectable` 用于服务器原文与指纹，方便复制。
     @discardableResult
     private func text(_ text: String, to card: KCard, mono: Bool = false, secondary: Bool = false) -> NSTextField {
+        self.text(text, to: card.contentStack, mono: mono, secondary: secondary)
+    }
+
+    @discardableResult
+    private func text(_ text: String, to stack: NSStackView, mono: Bool = false, secondary: Bool = false) -> NSTextField {
         let label = NSTextField(wrappingLabelWithString: text)
         label.font = mono ? .monospacedSystemFont(ofSize: 12, weight: .regular) : .systemFont(ofSize: DesignTokens.Font.uiBody)
         label.textColor = .token(secondary ? DesignTokens.Color.textSecondary : DesignTokens.Color.textPrimary)
         label.isSelectable = true
         label.preferredMaxLayoutWidth = textWidth
-        card.contentStack.addArrangedSubview(label)
+        stack.addArrangedSubview(label)
         return label
     }
 
@@ -189,20 +202,22 @@ private final class PromptSheetBuilder: NSObject {
         text(m.knownHostsLocation, to: key, mono: true)
     }
 
+    /// 产品决定（2026-11-16）：只显示服务器提示和输入框，不显示服务器信息卡——
+    /// 对话框挂在发起连接的窗口上，是哪台机器用户心里有数，多一张卡只让对话框变大。
     private func addKeyboardInteractive(_ m: KeyboardInteractivePromptModel) {
-        let server = addCard(String(localized: "Server"), symbol: "server.rack")
-        addTarget(m.target, to: server)
-        text(String(localized: "User: \(m.user)"), to: server, secondary: true)
-        let card = addCard(String(localized: "Verification"), symbol: "lock.shield")
+        let body = shell.bodyStack
+        body.spacing = DesignTokens.Spacing.sm
         // 以下均为服务器原文，不本地化。
-        if let name = m.name { text(name, to: card) }
-        if let instruction = m.instruction { text(instruction, to: card) }
-        for line in m.preamble { text(line, to: card) }
+        if let name = m.name { text(name, to: body) }
+        if let instruction = m.instruction { text(instruction, to: body) }
+        for line in m.preamble { text(line, to: body) }
         for (index, field) in m.fields.enumerated() {
-            text(field.prompt, to: card)
+            text(field.prompt, to: body, secondary: true)
             let input = makeInput(secure: field.isSecure)
             input.textField.tag = index
-            card.addRow(input)
+            input.translatesAutoresizingMaskIntoConstraints = false
+            body.addArrangedSubview(input)
+            input.widthAnchor.constraint(equalTo: body.widthAnchor).isActive = true
             fields.append(input)
         }
         initialFirstResponder = fields.first?.textField

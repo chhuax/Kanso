@@ -89,7 +89,8 @@ final class DisplaySettingsViewController: SettingsPageViewController, NSTextFie
 
     override func loadView() {
         // 字体
-        fontField.placeholder = "Menlo"
+        // 留空即用系统等宽字体（SF Mono），占位提示写明实际字体，避免误以为默认是别的字体。
+        fontField.placeholder = String(localized: "System Monospaced (SF Mono)")
         fontField.textField.delegate = self
         fontField.textField.target = self
         fontField.textField.action = #selector(fontCommitted(_:))

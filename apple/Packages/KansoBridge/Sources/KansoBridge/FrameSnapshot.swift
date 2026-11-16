@@ -77,6 +77,7 @@ public struct CellFlags: OptionSet, Sendable {
     /// 当前搜索匹配项（同时带 `match`）。
     public static let matchCurrent = CellFlags(rawValue: UInt16(KANSO_CELL_MATCH_CURRENT))
     public static let blink = CellFlags(rawValue: UInt16(KANSO_CELL_BLINK))
+    public static let chip = CellFlags(rawValue: UInt16(KANSO_CELL_CHIP))
 }
 
 /// 光标形状（`KansoFrameHeader.cursor_shape`）。

@@ -73,6 +73,8 @@ pub const CELL_MATCH: u16 = 1 << 12;
 pub const CELL_MATCH_CURRENT: u16 = 1 << 13;
 /// 闪烁文字。
 pub const CELL_BLINK: u16 = 1 << 14;
+/// 提示符上下文标签。
+pub const CELL_CHIP: u16 = 1 << 15;
 
 /// 无下划线。
 pub const UNDERLINE_NONE: u16 = 0;

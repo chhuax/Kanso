@@ -877,6 +877,30 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "显示标签栏" } }
       }
     },
+    "Bigger Text" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Bigger Text" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "放大文本" } }
+      }
+    },
+    "Smaller Text" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Smaller Text" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "缩小文本" } }
+      }
+    },
+    "Default Text Size" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Default Text Size" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "默认文本大小" } }
+      }
+    },
+    "System Monospaced (SF Mono)" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "System Monospaced (SF Mono)" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "系统等宽字体（SF Mono）" } }
+      }
+    },
     "Split Down" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Split Down" } },
@@ -1571,12 +1595,6 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Host Key" } },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "主机密钥" } }
-      }
-    },
-    "Verification" : {
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Verification" } },
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "验证" } }
       }
     },
     "Credential" : {

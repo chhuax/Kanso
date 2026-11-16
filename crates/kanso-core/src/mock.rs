@@ -794,8 +794,12 @@ impl MockCore {
         None
     }
 
-    pub(crate) fn jump_command_block(&self, session: SessionId, _forward: bool) -> Result<()> {
-        terminal(&mut self.lock(), session).map(|_| ())
+    pub(crate) fn jump_command_block(
+        &self,
+        session: SessionId,
+        _forward: bool,
+    ) -> Result<Option<u64>> {
+        terminal(&mut self.lock(), session).map(|_| None)
     }
 
     pub(crate) fn selection_text(&self, session: SessionId) -> Option<String> {
@@ -1300,12 +1304,12 @@ mod tests {
             .unwrap()
     }
 
-    /// 轮询收集事件直到 `done` 成立，最多 2 秒。
+    /// 轮询收集事件直到 `done` 成立，最多 10 秒（GitHub 的 macOS 机器较慢，2 秒不够完成模拟传输）。
     fn collect_until(
         sink: &CollectingEventSink,
         done: impl Fn(&[CoreEvent]) -> bool,
     ) -> Vec<CoreEvent> {
-        let deadline = Instant::now() + Duration::from_secs(2);
+        let deadline = Instant::now() + Duration::from_secs(10);
         let mut all = Vec::new();
         while Instant::now() < deadline {
             all.extend(sink.take());

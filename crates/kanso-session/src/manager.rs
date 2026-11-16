@@ -162,7 +162,7 @@ forward! {
     /// 提取命令块文本。
     fn command_block_text(&self, id: u64, part: u8) -> Option<String>;
     /// 滚动到相邻命令块。
-    fn jump_command_block(&self, forward: bool);
+    fn jump_command_block(&self, forward: bool) -> Option<u64>;
     /// 选中单词。
     fn select_word_at(&self, at: ViewportPoint);
     /// 全选。

@@ -58,6 +58,7 @@ extern "C" {
 #define KANSO_CELL_MATCH (1u << 12)
 #define KANSO_CELL_MATCH_CURRENT (1u << 13)
 #define KANSO_CELL_BLINK (1u << 14)
+#define KANSO_CELL_CHIP (1u << 15)
 
 /* 下划线样式（取 flags & KANSO_CELL_UNDERLINE_MASK 右移 SHIFT 位） */
 #define KANSO_UNDERLINE_NONE 0u

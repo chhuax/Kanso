@@ -371,7 +371,11 @@ impl KansoCore {
     }
 
     /// 将相邻块的提示符滚动到视口顶部附近。
-    pub fn jump_command_block(&self, session_id: u64, forward: bool) -> Result<(), FfiCoreError> {
+    pub fn jump_command_block(
+        &self,
+        session_id: u64,
+        forward: bool,
+    ) -> Result<Option<u64>, FfiCoreError> {
         Ok(self
             .inner
             .jump_command_block(session(session_id), forward)?)

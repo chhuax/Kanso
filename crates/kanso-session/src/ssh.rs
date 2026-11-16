@@ -762,9 +762,9 @@ impl SshSession {
     }
 
     /// 滚动到相邻命令块，不改变选区。
-    pub fn jump_command_block(&self, forward: bool) {
+    pub fn jump_command_block(&self, forward: bool) -> Option<u64> {
         self.shared
-            .with_term(|term| term.jump_command_block(forward));
+            .with_term(|term| term.jump_command_block(forward))
     }
 
     /// 选区文本。

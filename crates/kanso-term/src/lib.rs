@@ -9,7 +9,7 @@
 //! # 数据流
 //!
 //! ```text
-//! 输出字节 ──feed(bytes, now_ms)──▶ OscScanner（切出 OSC 133/7/1337/9 的边界）
+//! 输出字节 ──feed(bytes, now_ms)──▶ OscScanner（切出 OSC 133/777/7/1337/9 的边界）
 //!                                     │ 按边界分段
 //!                                     ▼
 //!                      vte::ansi::Processor ──▶ Core（Handler：转发给 Term，并维护侧表）

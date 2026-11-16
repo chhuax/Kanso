@@ -1,7 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import KansoBridge
-import TerminalKit
+@testable import TerminalKit
 import XCTest
 @testable import Kanso
 
@@ -152,7 +152,9 @@ final class KeybindingTests: XCTestCase {
         let up = String(UnicodeScalar(UInt32(NSUpArrowFunctionKey))!)
         let down = String(UnicodeScalar(UInt32(NSDownArrowFunctionKey))!)
         XCTAssertTrue(fixture.controller.interceptTerminalKey(event(up, flags: .command), in: view))
+        XCTAssertEqual(view.selectedCommandBlock, 1)
         XCTAssertTrue(fixture.controller.interceptTerminalKey(event(down, flags: .command), in: view))
+        XCTAssertEqual(view.selectedCommandBlock, 2)
         XCTAssertEqual(actions.jumps, [false, true])
         XCTAssertEqual(fixture.controller.assign(KeyChord(key: "u", modifiers: [.command, .shift]), to: .previousCommandBlock), .assigned)
         XCTAssertNil(fixture.controller.match(event(up, flags: .command)))

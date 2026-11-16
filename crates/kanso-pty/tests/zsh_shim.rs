@@ -189,8 +189,15 @@ impl Run {
     }
 }
 
-/// 去掉 CSI 与 OSC 序列，只留可见文本，便于断言提示符内容。
+/// 去掉 CSI、OSC 和图标，只留可见文本与两行布局；图标单独断言。
 fn visible(s: &str) -> String {
+    visible_raw(s)
+        .replace("\u{e0a0} ", "")
+        .replace("\u{f07b} ", "")
+        .replace("\u{e718} ", "")
+}
+
+fn visible_raw(s: &str) -> String {
     let b: Vec<char> = s.chars().collect();
     let mut out = String::new();
     let mut i = 0;
@@ -283,8 +290,12 @@ fn shim_loads_user_files_and_emits_osc_sequences() {
     assert!(d < seven && seven < a);
     // 提示符：目录用 ~ 缩写，用户名与主机名被去掉，`%#` 保留。
     let vis = visible(&out);
-    assert!(vis.contains("~ % "), "{vis:?}");
-    assert!(vis.contains("~/proj/中 文 % "), "{vis:?}");
+    assert!(vis.contains("~ \r\n"), "{vis:?}");
+    assert!(vis.contains("~/proj/中 文 \r\n"), "{vis:?}");
+    // 默认提示符只剩 `%#` 时，普通用户的输入行不显示 `%`，命令紧跟在换行后。
+    assert!(vis.contains("~/proj/中 文 \r\nt"), "{vis:?}");
+    assert!(out.contains("\x1b]777;kanso-chip;start\x07"));
+    assert!(out.contains("\x1b]777;kanso-chip;end\x07"));
     assert!(!vis.contains('@'), "用户名@主机名没有去掉：{vis:?}");
 
     // shim 目录里没有生成历史文件；历史写在临时 HOME 的原位置。
@@ -448,18 +459,25 @@ fn branch_scenario(promptsubst: bool) {
     let out = Run::start(&fx, true, &[]).run(&refs);
     let vis = visible(&out);
 
-    assert!(vis.contains("~/plain main % "), "{vis:?}");
-    assert!(vis.contains("~/plain/src/deep main % "), "{vis:?}");
-    assert!(vis.contains("~/wt/sub feature/x % "), "{vis:?}");
-    assert!(vis.contains("~/sm sm-branch % "), "{vis:?}");
-    assert!(vis.contains("~/detached 0123456 % "), "{vis:?}");
-    assert!(vis.contains("~/garbage % "), "{vis:?}");
+    assert!(vis.contains("~/plain   main \r\n"), "{vis:?}");
     assert!(
-        vis.contains(&format!("~/evil evil%b%d$(touch {}) % ", flag.display())),
+        visible_raw(&out).contains("\u{f07b} ~/plain   \u{e0a0} main \r\n"),
+        "{out:?}"
+    );
+    assert!(vis.contains("~/plain/src/deep   main \r\n"), "{vis:?}");
+    assert!(vis.contains("~/wt/sub   feature/x \r\n"), "{vis:?}");
+    assert!(vis.contains("~/sm   sm-branch \r\n"), "{vis:?}");
+    assert!(vis.contains("~/detached   0123456 \r\n"), "{vis:?}");
+    assert!(vis.contains("~/garbage \r\n"), "{vis:?}");
+    assert!(
+        vis.contains(&format!(
+            "~/evil   evil%b%d$(touch {}) \r\n",
+            flag.display()
+        )),
         "{vis:?}"
     );
     // 分支名里的 ESC 被丢弃，红色 SGR 不会出现在输出里（视觉文本里 "a[31mb" 被当成普通字符）。
-    assert!(vis.contains("~/esc a[31mb % "), "{vis:?}");
+    assert!(vis.contains("~/esc   a[31mb \r\n"), "{vis:?}");
     assert!(!out.contains("a\x1b[31mb"));
     assert!(
         !flag.exists(),
@@ -480,16 +498,70 @@ fn git_branch_injection_safety_with_promptsubst() {
 }
 
 #[test]
+fn node_chip_requires_project_and_command_and_caches_directory_and_path() {
+    use std::os::unix::fs::PermissionsExt;
+
+    require_zsh!();
+    let fx = Fixture::new();
+    fx.write(".zshrc", "setopt promptsubst\nPS1='%~ %# '\nHISTSIZE=0\n");
+    fx.write("project/package.json", "{}");
+    fx.write("project/sub/keep", "");
+    fx.write("plain/keep", "");
+    fx.write("empty-bin/keep", "");
+    git_head(&fx.home, "project/nested/.git", "ref: refs/heads/nested\n");
+    fx.write("project/nested/sub/keep", "");
+    fs::write(fx.home.parent().unwrap().join("package.json"), "{}").unwrap();
+    for (bin, version) in [("bin1", "v26.13.0"), ("bin2", "v26.14.0")] {
+        let file = format!("{bin}/node");
+        fx.write(
+            &file,
+            &format!(
+                "#!/bin/sh\nprintf 'call\\n' >> \"$HOME/node-calls\"\nprintf '{version}\\n'\n"
+            ),
+        );
+        fs::set_permissions(fx.home.join(file), fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    // PATH 要在 shell 启动后再设：macOS 的 /etc/zprofile 会用 path_helper 把系统目录排到前面，
+    // 机器上装了真 node（如 GitHub CI 的 /usr/local/bin/node）时会盖住测试用的假 node。
+    // 第一条命令在 $HOME 执行，没有 package.json，不会触发 node 查询。
+    let out = Run::start(&fx, true, &[]).run(&[
+        "PATH=$HOME/bin1:/usr/bin:/bin",
+        "cd project/sub",
+        ":",
+        "PATH=\"$HOME/bin2:$PATH\"",
+        ":",
+        "cd ../../plain",
+        "cd ../project/nested/sub",
+        "cd ~",
+        "PATH=$HOME/empty-bin; cd project",
+    ]);
+    let prompts: Vec<_> = out.split("\x1b]133;B\x07").take(10).collect();
+    for (index, prompt) in prompts.iter().enumerate() {
+        assert_eq!(
+            prompt.contains('\u{e718}'),
+            (2..=5).contains(&index),
+            "prompt {index}: {prompt:?}"
+        );
+    }
+    assert!(out.contains("v26.13.0"));
+    assert!(out.contains("v26.14.0"));
+    assert_eq!(
+        fs::read_to_string(fx.home.join("node-calls")).unwrap(),
+        "call\ncall\n"
+    );
+}
+
+#[test]
 fn prompt_merging_rules() {
     require_zsh!();
     let fx = Fixture::new();
     fx.write(".zshrc", "PS1='%n@%m %~ %# '\nHISTSIZE=0\n");
     let out = Run::start(&fx, true, &[]).run(&[]);
     let vis = visible(&out);
-    assert!(vis.contains("~ % "), "{vis:?}");
+    assert!(vis.contains("~ \r\n"), "{vis:?}");
     assert!(!vis.contains('@'), "用户名与主机名没有去掉：{vis:?}");
 
-    // 用户用 $PWD 自己显示目录：不重复显示，也不改写。
+    // 用户用 $PWD 的原表达式保留在输入行，分支只放在标签行。
     let fx = Fixture::new();
     fx.write(
         ".zshrc",
@@ -503,7 +575,7 @@ fn prompt_merging_rules() {
         "{vis:?}"
     );
     assert!(
-        vis.contains(&format!("[{}/r] dev % ", fx.home.display())),
+        vis.contains(&format!("~/r   dev \r\n[{}/r] % ", fx.home.display())),
         "{vis:?}"
     );
 
@@ -513,7 +585,7 @@ fn prompt_merging_rules() {
     fs::create_dir_all(fx.home.join("repo")).unwrap();
     let out = Run::start(&fx, true, &[]).run(&["cd repo"]);
     let vis = visible(&out);
-    assert!(vis.contains("~/repo ➜ "), "{vis:?}");
+    assert!(vis.contains("~/repo \r\n➜ "), "{vis:?}");
     assert!(!vis.contains("repo repo"), "目录重复显示：{vis:?}");
 }
 
@@ -527,11 +599,11 @@ fn long_directory_is_truncated_to_whole_segments() {
     let out = Run::start(&fx, true, &[]).run(&[&format!("cd '{}'", deep.display())]);
     let vis = visible(&out);
     assert!(
-        vis.contains(".../dddddddddd/eeeeeeeeeeeeeeee % "),
+        vis.contains(".../cccccccccccccccccccc/dddddddddd/eeeeeeeeeeeeeeee \r\n"),
         "{vis:?}"
     );
-    // 只保留尾部完整的路径段：不会出现被截断一半的段，也不会保留 ccc 段。
-    assert!(!vis.contains(".../cccccccccccccccccccc/"), "{vis:?}");
+    // 120 列终端阈值 60 字符：只保留尾部完整的路径段，不会出现被截断一半的段，也不会保留 bbb 段。
+    assert!(!vis.contains("bbbbbbbbbbbbbbbbbbbb/cccc"), "{vis:?}");
 }
 
 #[test]
@@ -546,7 +618,7 @@ fn ps1_rewritten_by_hooks_is_recomputed_without_duplication() {
     git_head(&fx.home, "r/.git", "ref: refs/heads/dev\n");
     let out = Run::start(&fx, true, &[]).run(&["false", "cd r", "true"]);
     let vis = visible(&out);
-    assert!(vis.contains("~/r THEME dev % "), "{vis:?}");
+    assert!(vis.contains("~/r   dev \r\nTHEME % "), "{vis:?}");
     assert_eq!(vis.matches("~/r ~/r").count(), 0, "目录重复叠加：{vis:?}");
     assert!(
         out.contains("\x1b]133;D;1\x07"),
@@ -559,6 +631,6 @@ fn ps1_rewritten_by_hooks_is_recomputed_without_duplication() {
     git_head(&fx.home, "r/.git", "ref: refs/heads/dev\n");
     let out = Run::start(&fx, true, &[]).run(&["cd r", "PS1=\"(venv) $PS1\"", "cd .."]);
     let vis = visible(&out);
-    assert!(vis.contains("~ (venv) % "), "{vis:?}");
+    assert!(vis.contains("~ \r\n(venv) e"), "{vis:?}");
     assert!(!vis.contains("(venv) ~"), "{vis:?}");
 }

@@ -473,7 +473,7 @@ uint64_t uniffi_kanso_ffi_fn_method_kansocore_import_ssh_config(uint64_t ptr, Ru
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_JUMP_COMMAND_BLOCK
 #define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_JUMP_COMMAND_BLOCK
-void uniffi_kanso_ffi_fn_method_kansocore_jump_command_block(uint64_t ptr, uint64_t session_id, int8_t forward, RustCallStatus *_Nonnull out_status
+RustBuffer uniffi_kanso_ffi_fn_method_kansocore_jump_command_block(uint64_t ptr, uint64_t session_id, int8_t forward, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_KEY

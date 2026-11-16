@@ -1683,7 +1683,7 @@ public protocol KansoCoreProtocol: AnyObject, Sendable {
     /**
      * 将相邻块的提示符滚动到视口顶部附近。
      */
-    func jumpCommandBlock(sessionId: UInt64, forward: Bool) throws 
+    func jumpCommandBlock(sessionId: UInt64, forward: Bool) throws  -> UInt64?
     
     /**
      * 一次按键；core 负责编码成终端字节序列。IME 组字期间的按键不要发。
@@ -2388,14 +2388,15 @@ open func importSshConfig(path: String?, aliases: [String], group: String?)async
     /**
      * 将相邻块的提示符滚动到视口顶部附近。
      */
-open func jumpCommandBlock(sessionId: UInt64, forward: Bool)throws   {try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
+open func jumpCommandBlock(sessionId: UInt64, forward: Bool)throws  -> UInt64?  {
+    return try  FfiConverterOptionUInt64.lift(try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
         uniffiCallStatus in
     uniffi_kanso_ffi_fn_method_kansocore_jump_command_block(
             self.uniffiCloneHandle(),
         FfiConverterUInt64.lower(sessionId),
         FfiConverterBool.lower(forward),uniffiCallStatus
     )
-}
+})
 }
     
     /**
@@ -12247,7 +12248,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_kanso_ffi_checksum_method_kansocore_import_ssh_config() != 58412) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_kanso_ffi_checksum_method_kansocore_jump_command_block() != 32276) {
+    if (uniffi_kanso_ffi_checksum_method_kansocore_jump_command_block() != 30826) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_kanso_ffi_checksum_method_kansocore_key() != 16167) {
