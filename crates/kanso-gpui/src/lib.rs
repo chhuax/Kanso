@@ -10,6 +10,7 @@
 //! - [`ime`]：输入法预编辑状态机与预编辑的网格布局。
 //! - [`filer`]：远程文件列表的条目模型（分批归并排序）、`--sftp` 参数解析、大小与时间格式。
 //! - [`metrics`]：像素 ↔ 行列换算。
+//! - [`widgets`]：可复用控件的纯逻辑（单行输入框的编辑状态、撤销、滚动、配色）。
 //! - [`app`]：与 UI 框架无关的应用模型（标签 / 分屏、事件分发、提示队列、会话列表）。
 
 pub mod app;
@@ -19,3 +20,4 @@ pub mod keys;
 pub mod metrics;
 pub mod render;
 pub mod theme;
+pub mod widgets;

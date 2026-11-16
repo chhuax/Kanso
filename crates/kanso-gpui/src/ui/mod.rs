@@ -7,6 +7,7 @@
 //! - `selftest`：`--selftest` 自检；
 //! - `memory`：进程内存读数（日志用）。
 
+mod demo_input;
 mod element;
 mod filer;
 mod memory;
@@ -14,6 +15,7 @@ mod selftest;
 mod sftp_bench;
 mod tz;
 mod view;
+mod widgets;
 
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -68,6 +70,8 @@ pub(crate) struct Args {
     pub expect_count: Option<usize>,
     /// `--sftp-bench`：不开窗口，只在核心层测量连接与列目录。
     pub sftp_bench: bool,
+    /// `--demo-input`：只打开输入框演示窗口（不启动核心）。
+    pub demo_input: bool,
 }
 
 fn parse_args() -> Args {
@@ -84,6 +88,7 @@ fn parse_args() -> Args {
         key: None,
         expect_count: None,
         sftp_bench: false,
+        demo_input: false,
     };
     let mut explicit_log = false;
     let mut it = std::env::args().skip(1);
@@ -102,6 +107,7 @@ fn parse_args() -> Args {
             "--key" => args.key = it.next(),
             "--expect-count" => args.expect_count = it.next().and_then(|v| v.parse().ok()),
             "--sftp-bench" => args.sftp_bench = true,
+            "--demo-input" => args.demo_input = true,
             "--timeout" => {
                 if let Some(v) = it.next().and_then(|v| v.parse().ok()) {
                     args.timeout_secs = v;
@@ -298,6 +304,10 @@ pub fn run() -> i32 {
         env!("CARGO_PKG_VERSION"),
         args.data_dir.display()
     ));
+
+    if args.demo_input {
+        return demo_input::run();
+    }
 
     let (tx, rx) = unbounded::<CoreEvent>();
     let core = match build_core(&args, tx) {
