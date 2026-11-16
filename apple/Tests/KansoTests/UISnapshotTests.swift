@@ -54,6 +54,21 @@ final class UISnapshotTests: XCTestCase {
     func testPaletteLight() throws { try verify(paletteCanvas(), .aqua, "palette-light") }
     func testCompletionDark() throws { try verify(completionCanvas(), .darkAqua, "completion-popup-dark") }
     func testCompletionLight() throws { try verify(completionCanvas(), .aqua, "completion-popup-light") }
+
+    func testDirectoryPickerDark() throws { try verify(directoryPickerCanvas(), .darkAqua, "directory-picker-dark") }
+    func testDirectoryPickerLight() throws { try verify(directoryPickerCanvas(), .aqua, "directory-picker-light") }
+
+    private func directoryPickerCanvas() -> NSView {
+        let controller = DirectoryPickerViewController(directory: "/tmp/project")
+        let root = controller.view
+        controller.model.candidates = CommandPaletteFuzzy.prepare(["Sources", "Tests", "apple", "crates", "docs"].map {
+            DirectoryPickerModel.Entry(name: $0, path: "/tmp/project/" + $0)
+        }, text: { $0.name })
+        controller.reload()
+        let size = DirectoryPickerViewController.size
+        return canvas(size: NSSize(width: size.width + 80, height: size.height + 80),
+                      content: root, contentSize: size, retaining: controller)
+    }
     func testSenderDark() throws { try verify(senderCanvas(), .darkAqua, "sender-dark") }
     func testSenderLight() throws { try verify(senderCanvas(), .aqua, "sender-light") }
 

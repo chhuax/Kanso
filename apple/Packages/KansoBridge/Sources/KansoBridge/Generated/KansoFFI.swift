@@ -3414,6 +3414,10 @@ public struct FfiCommandBlock: Equatable, Hashable {
      */
     public var id: UInt64
     /**
+     * 是否为整个会话的最新块，与当前回滚位置无关。
+     */
+    public var latest: Bool
+    /**
      * 仍保留的块起始绝对行。
      */
     public var startLine: UInt64
@@ -3453,6 +3457,9 @@ public struct FfiCommandBlock: Equatable, Hashable {
          * 会话内稳定的块标识。
          */id: UInt64, 
         /**
+         * 是否为整个会话的最新块，与当前回滚位置无关。
+         */latest: Bool, 
+        /**
          * 仍保留的块起始绝对行。
          */startLine: UInt64, 
         /**
@@ -3477,6 +3484,7 @@ public struct FfiCommandBlock: Equatable, Hashable {
          * 是否存在输出范围。
          */canCopyOutput: Bool) {
         self.id = id
+        self.latest = latest
         self.startLine = startLine
         self.endLine = endLine
         self.commandLine = commandLine
@@ -3504,6 +3512,7 @@ public struct FfiConverterTypeFfiCommandBlock: FfiConverterRustBuffer {
         return
             try FfiCommandBlock(
                 id: FfiConverterUInt64.read(from: &buf), 
+                latest: FfiConverterBool.read(from: &buf), 
                 startLine: FfiConverterUInt64.read(from: &buf), 
                 endLine: FfiConverterUInt64.read(from: &buf), 
                 commandLine: FfiConverterOptionUInt64.read(from: &buf), 
@@ -3517,6 +3526,7 @@ public struct FfiConverterTypeFfiCommandBlock: FfiConverterRustBuffer {
 
     public static func write(_ value: FfiCommandBlock, into buf: inout [UInt8]) {
         FfiConverterUInt64.write(value.id, into: &buf)
+        FfiConverterBool.write(value.latest, into: &buf)
         FfiConverterUInt64.write(value.startLine, into: &buf)
         FfiConverterUInt64.write(value.endLine, into: &buf)
         FfiConverterOptionUInt64.write(value.commandLine, into: &buf)

@@ -370,6 +370,7 @@ impl Core {
                 }
                 Some(CommandBlock {
                     id: block.id,
+                    latest: block.id == self.blocks.next_id,
                     start_line: block.start.line.0,
                     end_line: end_line.max(block.start.line.0),
                     command_line,
@@ -571,6 +572,21 @@ mod tests {
             assert!(!block.can_copy_command);
             assert!(!block.can_copy_output);
         }
+    }
+
+    #[test]
+    fn scrolled_empty_prompt_is_not_the_latest_block() {
+        let mut term = terminal(40, 4, 100);
+        for time in 0..12 {
+            feed(&mut term, PROMPT, time);
+            feed(&mut term, "\r\n\r\n", time);
+        }
+        let current = term.snapshot(None);
+        assert!(current.command_blocks.last().unwrap().latest);
+        term.scroll_display(100);
+        let scrolled = term.snapshot(None);
+        assert!(!scrolled.command_blocks.is_empty());
+        assert!(scrolled.command_blocks.iter().all(|block| !block.latest));
     }
 
     #[test]

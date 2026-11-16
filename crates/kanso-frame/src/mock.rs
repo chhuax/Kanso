@@ -355,6 +355,7 @@ pub fn mock_command_blocks_frame(cols: u16, rows: u16) -> Frame {
         .filter(|(_, start, _, _)| *start < u64::from(rows))
         .map(|(id, start, end, exit_code)| crate::CommandBlock {
             id,
+            latest: id == 3,
             start_line: start,
             end_line: end.min(u64::from(rows - 1)),
             command_line: exit_code.map(|_| start),
