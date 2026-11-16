@@ -94,7 +94,7 @@ struct KillOnDrop {
 struct ProxyStream {
     stdin: ChildStdin,
     stdout: ChildStdout,
-    /// stdout 已读到 EOF：握手失败时据此判断"是命令先退出了"，而不是服务器先断开。
+    /// stdout 已读到 EOF（或写 stdin 遇到断管）：握手失败时据此判断"是命令先退出了"，而不是服务器先断开。
     stdout_eof: Arc<AtomicBool>,
     _guard: KillOnDrop,
 }
@@ -120,7 +120,12 @@ impl AsyncWrite for ProxyStream {
         cx: &mut Context<'_>,
         data: &[u8],
     ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.stdin).poll_write(cx, data)
+        let r = Pin::new(&mut self.stdin).poll_write(cx, data);
+        // 命令已退出时，写 stdin 可能先于读到 stdout EOF 报 EPIPE；同样视为"命令先结束"。
+        if matches!(&r, Poll::Ready(Err(e)) if e.kind() == io::ErrorKind::BrokenPipe) {
+            self.stdout_eof.store(true, Ordering::SeqCst);
+        }
+        r
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
