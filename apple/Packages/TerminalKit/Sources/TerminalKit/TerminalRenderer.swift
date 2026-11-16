@@ -532,7 +532,10 @@ public final class TerminalRenderer {
                     bg = palette.cursor
                     fg = palette.cursorText
                 } else if isMinimumContrastEnabled {
-                    fg = contrast.adjusted(foreground: fg, background: bg)
+                    // 提示符标签里的字实际画在标签底色上（默认背景时），按标签底色算对比度。
+                    let chipBg = RGB8(palette.chipBackground.r, palette.chipBackground.g, palette.chipBackground.b)
+                    let shown = cell.flags.contains(.chip) && bg == palette.background ? chipBg : bg
+                    fg = contrast.adjusted(foreground: fg, background: shown)
                 }
                 // dim 在对比度保护之后应用：SGR 2 的本意就是降低强调度，不应被保护逻辑抵消。
                 var glyphFg = fg
@@ -592,7 +595,8 @@ public final class TerminalRenderer {
                 let start = chipCol
                 repeat { chipCol += 1 } while chipCol < cols && frame.cell(row: row, col: chipCol).flags.contains(.chip)
                 // 内边距由 shim 在标签首尾放的空格提供，这里按单元格原样画、不外扩，框左边与光标列对齐。
-                let inset = max(2, m.cellHeight / 10)
+                // 上下只收 1 像素：标签尽量高，文字与边框之间留出上下边距，又不与相邻行的框贴死。
+                let inset = max(1, stroke)
                 let x = l.originX + start * m.cellWidth
                 let right = l.originX + chipCol * m.cellWidth
                 let y = rowY + inset

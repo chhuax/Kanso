@@ -895,6 +895,12 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "默认文本大小" } }
       }
     },
+    "System Monospaced (SF Mono)" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "System Monospaced (SF Mono)" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "系统等宽字体（SF Mono）" } }
+      }
+    },
     "Split Down" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Split Down" } },

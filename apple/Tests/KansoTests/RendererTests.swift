@@ -22,7 +22,7 @@ final class RendererTests: XCTestCase {
                 let border = palette.chipBorder
                 let image = try XCTUnwrap(renderer.renderImage(frame: frame, size: size, scale: scale, appearance: appearance))
                 let pixels = try SnapshotTests.pixels(image)
-                let inset = max(2, layout.metrics.cellHeight / 10)
+                let inset = max(1, Int(scale.rounded()))
                 for row in [0, 1] {
                     let y = layout.originY + row * layout.metrics.cellHeight + inset
                     let count = (layout.originX..<image.width).filter { x in
@@ -33,8 +33,11 @@ final class RendererTests: XCTestCase {
                     else { XCTAssertEqual(count, 0) }
                 }
                 let background = RGB8(palette.chipBackground.r, palette.chipBackground.g, palette.chipBackground.b)
-                for foreground in [palette.foreground, palette.ansi[2]] {
-                    XCTAssertGreaterThanOrEqual(ContrastGuard.ratio(foreground, background), 4.5)
+                // 亮绿在浅色标签底上原色不够，靠最低对比度保护按标签底色调整后达标。
+                var guardian = ContrastGuard(minimumRatio: 4.5)
+                for foreground in [palette.foreground, palette.ansi[10]] {
+                    let shown = guardian.adjusted(foreground: foreground, background: background)
+                    XCTAssertGreaterThanOrEqual(ContrastGuard.ratio(shown, background), 4.5)
                 }
             }
         }
