@@ -45,10 +45,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private let gitButton = GitTitlebarButton()
     private let sidebarButton = KButton(symbol: "sidebar.left", style: .icon)
     private let gitReadsEnabled: Bool
-    static let gitDefaultWidth: CGFloat = 420
+    static let gitDefaultWidth: CGFloat = 480
     static let gitMinWidth: CGFloat = 280
     static let gitMaxWidth: CGFloat = 760
-    private static let gitWidthInitializedKey = "kanso.git.widthInitialized"
+    /// 用户上次使用的 Git 面板宽度；收起时记录，展开时恢复。
+    private static let gitWidthKey = "kanso.git.width"
     private(set) var commandPalette: CommandPalettePresenter!
     private var filerCollapsedObservation: NSKeyValueObservation?
     private var filerCollapsedBeforeSftp: Bool?
@@ -356,12 +357,24 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     var isGitCollapsed: Bool { gitItem.isCollapsed }
 
+    /// 展开时每次都显式恢复宽度：Git 面板的 holdingPriority 最低，交给分栏自己分配时
+    /// 它总是先被压缩，常常只剩最小宽度（2026-11-16 用户反馈"每次打开都太窄"）。
     func setGitCollapsed(_ collapsed: Bool) {
+        let split = splitController.splitView
+        if collapsed, !gitItem.isCollapsed, gitItem.viewController.view.frame.width >= Self.gitMinWidth {
+            defaults.set(Double(gitItem.viewController.view.frame.width), forKey: Self.gitWidthKey)
+        }
         gitItem.isCollapsed = collapsed
         loadVisiblePanels()
-        if !collapsed, !defaults.bool(forKey: Self.gitWidthInitializedKey) {
-            defaults.set(true, forKey: Self.gitWidthInitializedKey)
-            splitController.splitView.setPosition(splitController.splitView.bounds.width - Self.gitDefaultWidth, ofDividerAt: 2)
+        if !collapsed {
+            split.layoutSubtreeIfNeeded()
+            let stored = defaults.double(forKey: Self.gitWidthKey)
+            // 给分屏区留出最小宽度，侧栏与 Filer 按当前实际宽度计算。
+            let others = 244 + (sidebarItem.isCollapsed ? 0 : sidebarItem.viewController.view.frame.width)
+                + (filerItem.isCollapsed ? 0 : filerItem.viewController.view.frame.width)
+            let available = split.bounds.width - others
+            let target = min(stored > 0 ? stored : Self.gitDefaultWidth, Self.gitMaxWidth, max(Self.gitMinWidth, available))
+            split.setPosition(split.bounds.width - target - split.dividerThickness, ofDividerAt: 2)
         }
         fitAuxiliaryPanels()
     }
