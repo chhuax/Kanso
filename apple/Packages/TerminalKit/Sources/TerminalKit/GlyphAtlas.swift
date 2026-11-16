@@ -346,6 +346,10 @@ final class GlyphAtlas {
     /// Powerline / Powerline Extra 分隔符（U+E0B0–E0BF）。由渲染器按单元格几何自己画，
     /// 不依赖任何字体：回退到 Nerd Font 时它按字体自己的度量栅格化，高度与行距无关、宽度也不一定是一格，
     /// 色块之间会出现台阶和缝隙。
+    static func isContextIcon(_ scalar: UInt32) -> Bool {
+        scalar == branchIconScalar || scalar == folderIconScalar || scalar == nodeIconScalar
+    }
+
     static func isPowerlineGeometric(_ scalar: UInt32) -> Bool { (0xE0B0...0xE0BF).contains(scalar) }
 
     /// 位图恰好是整个单元格（宽 1 格；wide 为 true 时 2 格，高 = 单元格高，含行距），原点对齐单元格左上角，

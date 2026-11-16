@@ -633,10 +633,11 @@ fn render_terminal_themes(t: &Tokens, light: &TerminalTheme, dark: &TerminalThem
             swift_rgba(token("terminal.commandSeparator", a))
         ));
         s.push_str(&format!(
-            "        blockSelection: {},\n        chipBackground: {},\n        chipBorder: {}\n",
+            "        blockSelection: {},\n        chipBackground: {},\n        chipBorder: {},\n        chipIcon: {}\n",
             swift_rgba(token("terminal.blockSelection", a)),
             swift_rgba(token("terminal.chipBackground", a)),
-            swift_rgba(token("terminal.chipBorder", a))
+            swift_rgba(token("terminal.chipBorder", a)),
+            swift_rgba(token("terminal.chipIcon", a))
         ));
         s.push_str("    )\n");
         if ident == "kansoLight" {
@@ -709,6 +710,7 @@ pub fn generate(args: &[String]) -> ExitCode {
         "terminal.blockSelection",
         "terminal.chipBackground",
         "terminal.chipBorder",
+        "terminal.chipIcon",
     ] {
         if !tokens.colors.contains_key(key) {
             errors.push(format!("design/tokens.json 缺少 color token `{key}`"));
