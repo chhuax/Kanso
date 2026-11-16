@@ -794,8 +794,12 @@ impl MockCore {
         None
     }
 
-    pub(crate) fn jump_command_block(&self, session: SessionId, _forward: bool) -> Result<()> {
-        terminal(&mut self.lock(), session).map(|_| ())
+    pub(crate) fn jump_command_block(
+        &self,
+        session: SessionId,
+        _forward: bool,
+    ) -> Result<Option<u64>> {
+        terminal(&mut self.lock(), session).map(|_| None)
     }
 
     pub(crate) fn selection_text(&self, session: SessionId) -> Option<String> {

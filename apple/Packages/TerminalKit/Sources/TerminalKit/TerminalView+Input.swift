@@ -76,6 +76,7 @@ extension TerminalView {
     func emitKey(_ event: NSEvent) -> Bool {
         let kind: KeyEventKind = event.isARepeat ? .repeat : .press
         guard let key = TerminalKeyEvent(event: event, kind: kind) else { return false }
+        selectedCommandBlock = nil
         pressedKeyCodes.insert(event.keyCode)
         inputSink?.key(key)
         return true
@@ -189,6 +190,15 @@ extension TerminalView {
     }
 
     private func pointerDown(_ event: NSEvent, button: TerminalMouseButton) {
+        if button == .left {
+            clickedCommandBlock = nil
+            if event.clickCount == 1, currentFrame?.flags.contains(.mouseReporting) != true {
+                let block = commandBlock(at: event)
+                if block?.canCopyOutput == true { clickedCommandBlock = block?.id }
+            } else {
+                selectedCommandBlock = nil
+            }
+        }
         guard let point = viewportPoint(for: event) else { return }
         // 拖动不能"粘住"（terminal.md §8.1）：如果上一次按下没有等到松开（松开事件被别的窗口、菜单或
         // 系统手势收走），先补发一个 Up 结束它，core 才不会把新的 Down 当成拖动的延续。
@@ -206,6 +216,10 @@ extension TerminalView {
     }
 
     private func pointerDragged(_ event: NSEvent, button: TerminalMouseButton) {
+        if button == .left {
+            clickedCommandBlock = nil
+            selectedCommandBlock = nil
+        }
         guard let point = viewportPoint(for: event) else { return }
         let drag = TerminalMouseEvent(
             kind: .drag, button: button, point: point, mods: KeyModifiers(event.modifierFlags),
@@ -217,6 +231,15 @@ extension TerminalView {
     }
 
     private func pointerUp(_ event: NSEvent, button: TerminalMouseButton) {
+        if button == .left {
+            if activeButtons[button]?.kind == .down, event.clickCount == 1,
+               currentFrame?.flags.contains(.mouseReporting) != true {
+                let block = commandBlock(at: event)
+                let id = block?.canCopyOutput == true ? block?.id : nil
+                selectedCommandBlock = id == clickedCommandBlock && id != selectedCommandBlock ? id : nil
+            }
+            clickedCommandBlock = nil
+        }
         activeButtons[button] = nil
         guard let point = viewportPoint(for: event) else { return }
         inputSink?.mouse(TerminalMouseEvent(
@@ -228,6 +251,7 @@ extension TerminalView {
     /// 结束所有进行中的拖动：对每个未松开的按键补发 Up。失去 first responder、窗口失去 key 状态、
     /// 视图离开窗口时调用。
     func endAllDrags() {
+        clickedCommandBlock = nil
         guard !activeButtons.isEmpty else { return }
         let pending = activeButtons
         activeButtons.removeAll()

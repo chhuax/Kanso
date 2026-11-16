@@ -9,7 +9,10 @@ extension TerminalView {
     func commandBlock(at event: NSEvent) -> FfiCommandBlock? {
         guard let frame = currentFrame, !frame.flags.contains(.altScreen), let geometry = hitGeometry() else { return nil }
         let location = convert(event.locationInWindow, from: nil)
-        guard let point = geometry.viewportPoint(x: location.x, y: bounds.height - location.y),
+        let top = bounds.height - location.y
+        guard bounds.contains(location), top >= geometry.originY,
+              top < geometry.originY + Double(frame.rows) * geometry.cellHeight,
+              let point = geometry.viewportPoint(x: location.x, y: top),
               Int(point.row) < frame.rows else { return nil }
         let line = frame.lineMeta(row: Int(point.row)).absLine
         return frame.commandBlocks.first { $0.startLine <= line && line <= $0.endLine }
@@ -41,6 +44,10 @@ extension TerminalView {
         else { presentEditFailure(String(localized: "Couldn’t copy to the clipboard.")) }
     }
 
-    @objc public func previousCommandBlock(_ sender: Any?) { editActions?.jumpCommandBlock(forward: false) }
-    @objc public func nextCommandBlock(_ sender: Any?) { editActions?.jumpCommandBlock(forward: true) }
+    @objc public func previousCommandBlock(_ sender: Any?) {
+        if let id = editActions?.jumpCommandBlock(forward: false) { selectedCommandBlock = id }
+    }
+    @objc public func nextCommandBlock(_ sender: Any?) {
+        if let id = editActions?.jumpCommandBlock(forward: true) { selectedCommandBlock = id }
+    }
 }

@@ -855,7 +855,7 @@ impl Core {
     }
 
     /// 滚动到相邻命令块，不改变选区或 shell 输入。
-    pub fn jump_command_block(&self, session: SessionId, forward: bool) -> Result<()> {
+    pub fn jump_command_block(&self, session: SessionId, forward: bool) -> Result<Option<u64>> {
         dispatch!(self, jump_command_block(session, forward))
     }
 

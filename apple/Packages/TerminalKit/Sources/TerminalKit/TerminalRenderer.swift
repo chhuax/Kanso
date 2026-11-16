@@ -91,6 +91,7 @@ public final class TerminalRenderer {
     /// 光标当前是否处于"显示"相位。闪烁由视图的计时器翻转它；帧里光标不可见时无论如何不画。
     /// 只影响绘制，不改帧：闪烁不需要向 core 取新帧。
     public var isCursorPhaseVisible = true
+    var selectedCommandBlock: UInt64?
 
     /// 顶部让出的高度（pt）。全尺寸内容视图下标题栏会盖住顶部，由视图按 `safeAreaInsets.top` 设置。
     public var topInset: CGFloat = 0
@@ -446,6 +447,17 @@ public final class TerminalRenderer {
         let background = palette.background.packed
         let stroke = max(1, Int(scale.rounded()))
         var cursorWide = false
+
+        if !altScreen, let block = frame.commandBlocks.first(where: { $0.id == selectedCommandBlock }),
+           block.canCopyOutput {
+            for row in 0..<rows {
+                let line = frame.lineMeta(row: row).absLine
+                if block.startLine <= line && line <= block.endLine {
+                    bgInstances.append(rect(l.gutterWidth, l.originY + row * m.cellHeight,
+                        target.width - l.gutterWidth, m.cellHeight, Self.vec(palette.blockSelection)))
+                }
+            }
+        }
 
         // 时间戳栏与正文之间的竖线：贯穿整个视图高度，而不是只画到有内容的行——
         // 栏下方大片空白时，没有这条线就看不出栏的边界。全屏程序期间栏留空，线照样保留，
