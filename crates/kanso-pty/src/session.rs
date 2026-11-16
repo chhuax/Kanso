@@ -233,6 +233,8 @@ impl PtySession {
     /// 读组长进程的 cwd。组长可能已经退出（管道的第一段通常最先退出），此时读不到，
     /// 退回查 shell 进程本身。Windows 没有对应的系统查询，返回 `None`。
     pub fn foreground_cwd(&self) -> Option<PathBuf> {
+        // `process_group_leader` 只在 portable-pty 的 Unix 实现里存在。
+        #[cfg(unix)]
         if let Some(leader) = self.master.process_group_leader()
             && let Ok(pid) = u32::try_from(leader)
             && let Some(p) = process_cwd(pid)
