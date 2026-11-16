@@ -20,7 +20,9 @@ extension TerminalPalette {
         ],
         gutterText: RGBA8(r: 106, g: 111, b: 118, a: 255),
         gutterCursorLine: RGBA8(r: 42, g: 106, b: 138, a: 31),
-        commandSeparator: RGBA8(r: 27, g: 29, b: 32, a: 38)
+        commandSeparator: RGBA8(r: 27, g: 29, b: 32, a: 38),
+        chipBackground: RGBA8(r: 245, g: 245, b: 240, a: 255),
+        chipBorder: RGBA8(r: 201, g: 205, b: 197, a: 255)
     )
 
     /// 数值来自 design/terminal-themes/kanso-dark.json。
@@ -40,6 +42,8 @@ extension TerminalPalette {
         ],
         gutterText: RGBA8(r: 142, g: 148, b: 155, a: 255),
         gutterCursorLine: RGBA8(r: 98, g: 176, b: 210, a: 38),
-        commandSeparator: RGBA8(r: 236, g: 237, b: 239, a: 38)
+        commandSeparator: RGBA8(r: 236, g: 237, b: 239, a: 38),
+        chipBackground: RGBA8(r: 37, g: 40, b: 44, a: 255),
+        chipBorder: RGBA8(r: 75, g: 81, b: 88, a: 255)
     )
 }

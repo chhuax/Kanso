@@ -7,6 +7,53 @@ import XCTest
 /// 渲染器的行为测试（不依赖参考图）。
 @MainActor
 final class RendererTests: XCTestCase {
+    func testPromptChipBordersStayInsideTaggedRow() throws {
+        let renderer = try XCTUnwrap(TerminalRenderer())
+        renderer.gutterMode = .off
+        let size = CGSize(width: 900, height: 720)
+        for scale: CGFloat in [1, 2] {
+            let layout = renderer.layout(scale: scale)
+            let grid = renderer.gridSize(for: size, scale: scale)
+            let frame = try XCTUnwrap(FrameSnapshot(coreFrame: FrameHandle.mockSemanticColors(cols: UInt16(grid.cols), rows: UInt16(grid.rows))))
+            XCTAssertTrue(frame.cell(row: 0, col: 1).flags.contains(.chip))
+            XCTAssertFalse(frame.cell(row: 1, col: 0).flags.contains(.chip))
+            for appearance: TerminalAppearance in [.light, .dark] {
+                let palette = appearance.palette
+                let border = palette.chipBorder
+                let image = try XCTUnwrap(renderer.renderImage(frame: frame, size: size, scale: scale, appearance: appearance))
+                let pixels = try SnapshotTests.pixels(image)
+                let inset = max(2, layout.metrics.cellHeight / 10)
+                for row in [0, 1] {
+                    let y = layout.originY + row * layout.metrics.cellHeight + inset
+                    let count = (layout.originX..<image.width).filter { x in
+                        let offset = (y * image.width + x) * 4
+                        return pixels[offset] == border.r && pixels[offset + 1] == border.g && pixels[offset + 2] == border.b
+                    }.count
+                    if row == 0 { XCTAssertGreaterThan(count, layout.metrics.cellWidth * 10) }
+                    else { XCTAssertEqual(count, 0) }
+                }
+                let background = RGB8(palette.chipBackground.r, palette.chipBackground.g, palette.chipBackground.b)
+                for foreground in [palette.foreground, palette.ansi[2]] {
+                    XCTAssertGreaterThanOrEqual(ContrastGuard.ratio(foreground, background), 4.5)
+                }
+            }
+        }
+    }
+
+    func testContextIconsFitOneCellAndUseMonochromeAtlas() throws {
+        let device = try XCTUnwrap(MTLCreateSystemDefaultDevice())
+        for scale: CGFloat in [1, 2] {
+            let fonts = TerminalFonts(base: .monospacedSystemFont(ofSize: 13, weight: .regular), scale: scale)
+            let atlas = GlyphAtlas(device: device, fonts: fonts)
+            for scalar in [GlyphAtlas.branchIconScalar, GlyphAtlas.folderIconScalar, GlyphAtlas.nodeIconScalar] {
+                let entry = atlas.entry(scalar: scalar, bold: false, italic: false, wide: false, face: .terminal)
+                XCTAssertFalse(entry.isEmpty)
+                XCTAssertFalse(entry.isColor)
+                XCTAssertLessThanOrEqual(Int(entry.width), fonts.terminal.metrics.cellWidth)
+            }
+        }
+    }
+
     func testAtlasGrowsByPageAndKeepsExistingGlyphCoordinates() throws {
         let device = try XCTUnwrap(MTLCreateSystemDefaultDevice())
         let fonts = TerminalFonts(base: .monospacedSystemFont(ofSize: 13, weight: .regular), scale: 2)

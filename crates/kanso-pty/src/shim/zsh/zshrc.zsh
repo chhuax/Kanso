@@ -20,19 +20,23 @@ if [[ ${KANSO_SHELL_INTEGRATION:-1} != 0 ]]; then
   # 用 preexec 置位而不是看 $?：空回车不会触发 preexec，也就不会发出没有对应命令的 D。
   typeset -g __kanso_first=1 __kanso_cmd_ran=0
   # __kanso_have：是否已经捕获过用户 PS1；__kanso_last_ps1：我们上次写入的 PS1，
-  # 用来判断 PS1 是否被用户或主题改写过；__kanso_ins_*：上次插入的目录 / 分支文本，
+  # 用来判断 PS1 是否被用户或主题改写过；__kanso_ins_chips：上次插入的标签行，
   # 用来在别的脚本基于我们的 PS1 二次改写时把我们的部分准确摘掉，避免叠加。
-  typeset -g __kanso_have=0 __kanso_last_ps1= __kanso_ins_dir= __kanso_ins_branch=
-  # 对用户 PS1 的分析结果：__kanso_core 是去掉目录 / 用户名后的正文（`%#` 前有占位符 \x1f），
-  # __kanso_trail 表示原提示符末尾有空格，__kanso_show_dir 表示是否由我们显示目录。
-  typeset -g __kanso_core= __kanso_trail=0 __kanso_show_dir=1
+  typeset -g __kanso_have=0 __kanso_last_ps1= __kanso_ins_chips=
+  # 对用户 PS1 的分析结果：__kanso_core 是去掉目录转义 / 用户名后的正文，
+  # __kanso_trail 表示原提示符末尾有空格。
+  typeset -g __kanso_core= __kanso_trail=0
   # 提示符里展示的目录 / 分支（已转义 %），promptsubst 开启时通过变量引用插入，见 __kanso_build_ps1。
-  typeset -g __kanso_p_dir= __kanso_p_branch=
+  typeset -g __kanso_p_dir= __kanso_p_branch= __kanso_p_node=
+  # Node 版本只在目录或 PATH 变化后重新查询。
+  typeset -g __kanso_node_dir= __kanso_node_path= __kanso_node_version=
   # OSC 7 编码结果缓存：PWD 没变时不重复编码。
   typeset -g __kanso_enc_src= __kanso_enc_out=
   # 提示符末尾的 OSC 133 B。放进 %{ %} 告诉 zsh 这段是零宽度，否则 zsh 会把转义序列的字符
   # 算进提示符宽度，导致光标位置和换行计算出错。
   typeset -g __kanso_bmark=$'%{\e]133;B\a%}'
+  typeset -g __kanso_chip_start=$'%{\e]777;kanso-chip;start\a%}'
+  typeset -g __kanso_chip_end=$'%{\e]777;kanso-chip;end\a%}'
 
   # 百分号编码（RFC 3986 的 unreserved 字符与 / 不编码），结果放在 REPLY。
   # 逐字节编码以得到合法的 UTF-8 百分号序列，所以关掉 multibyte；用 $(( #ch )) 取字节值，
@@ -123,19 +127,39 @@ if [[ ${KANSO_SHELL_INTEGRATION:-1} != 0 ]]; then
     REPLY=$d
   }
 
-  # 分析用户 PS1，更新 __kanso_core / __kanso_trail / __kanso_show_dir。
+  # 只在当前项目范围内存在 package.json 时查询 Node，结果放在 REPLY。
+  __kanso_node() {
+    emulate -L zsh
+    setopt extended_glob
+    REPLY=
+    local dir=$PWD
+    while [[ ! -f $dir/package.json ]]; do
+      [[ -e $dir/.git || $dir == $HOME || $dir == / ]] && return 0
+      dir=${dir:h}
+    done
+    if [[ $__kanso_node_dir != $PWD || $__kanso_node_path != $PATH ]]; then
+      __kanso_node_dir=$PWD
+      __kanso_node_path=$PATH
+      __kanso_node_version=
+      if (( $+commands[node] )); then
+        __kanso_node_version=$(command node --version 2>/dev/null)
+        __kanso_node_version=${__kanso_node_version//[[:cntrl:]]/}
+      fi
+    fi
+    REPLY=$__kanso_node_version
+  }
+
+  # 分析用户 PS1，更新 __kanso_core / __kanso_trail。
   # 逐个 token 扫描（而不是整串做替换），这样 `%%~`（字面的 % 加 ~）不会被误当成 `%~`。
   __kanso_analyze_ps1() {
     emulate -L zsh
     setopt extended_glob
     local src=$1 out= tok c
-    local strip_dir=1 hash_done=0
-    __kanso_show_dir=1
+    local strip_dir=1
     __kanso_trail=0
     [[ $src == *' ' ]] && __kanso_trail=1
-    # 用户自己用 $PWD 之类表达式显示目录：不改写它，也不再重复显示目录。
+    # 用户自己用 $PWD 之类表达式显示目录：保留原表达式。
     if [[ $src == *'$PWD'* || $src == *'${PWD'* || $src == *'$(pwd'* || $src == *'`pwd'* ]]; then
-      __kanso_show_dir=0
       strip_dir=0
     fi
     while (( ${#src} )); do
@@ -152,11 +176,6 @@ if [[ ${KANSO_SHELL_INTEGRATION:-1} != 0 ]]; then
           # oh-my-zsh 默认主题 robbyrussell 就用 %c，不去掉会出现 `~ ➜ repo` 这样的重复。
           '~'|d|'/'|c|C|'.') (( strip_dir )) || out+=$tok ;;
           n|N) ;;                                       # 用户名
-          '#')
-            # 第一个 %# 前放占位符，分支稍后插在这里。
-            if (( ! hash_done )); then out+=$'\x1f'; hash_done=1; fi
-            out+=$tok
-            ;;
           *) out+=$tok ;;
         esac
       else
@@ -177,51 +196,38 @@ if [[ ${KANSO_SHELL_INTEGRATION:-1} != 0 ]]; then
   __kanso_build_ps1() {
     emulate -L zsh
     setopt extended_glob
-    local dir_txt branch_txt dir_ins branch_ins pre= core=$__kanso_core out
+    local dir_txt branch_txt node_txt dir_ins branch_ins node_ins pre=' ' core=$__kanso_core out
     __kanso_git_branch
     branch_txt=${REPLY//\%/%%}
     __kanso_fmt_dir
     dir_txt=${REPLY//\%/%%}
+    __kanso_node
+    node_txt=${REPLY//\%/%%}
     if [[ -o promptsubst ]]; then
       __kanso_p_dir=$dir_txt
       __kanso_p_branch=$branch_txt
+      __kanso_p_node=$node_txt
       dir_ins='${__kanso_p_dir}'
       branch_ins='${__kanso_p_branch}'
+      node_ins='${__kanso_p_node}'
     else
       dir_ins=$dir_txt
       branch_ins=$branch_txt
+      node_ins=$node_txt
     fi
-    # 目录用默认前景色；分支 2 绿；`%#` 1 红。用 ANSI 调色板索引，跟随浅色 / 深色主题，不写死 RGB。
-    __kanso_ins_dir=
-    __kanso_ins_branch=
-    if (( __kanso_show_dir )); then
-      __kanso_ins_dir=$dir_ins
-      pre=$__kanso_ins_dir
+    # 图标由渲染器内置绘制；标签之间的空格不带 chip 属性。
+    if [[ -n $node_txt ]]; then
+      pre+="$__kanso_chip_start%F{2}"$'\ue718'" ${node_ins}%f$__kanso_chip_end  "
     fi
+    pre+="$__kanso_chip_start%B%f"$'\uf07b'" ${dir_ins}%b$__kanso_chip_end"
     if [[ -n $branch_txt ]]; then
-      # U+E0A0 是 Powerline 分支符号，Kanso 渲染器内置画成分支图标（GlyphAtlas.branchIconScalar）。
-      __kanso_ins_branch="%F{2}"$'\ue0a0'" ${branch_ins}%f"
+      pre+="  $__kanso_chip_start%F{2}"$'\ue0a0'" ${branch_ins}%f$__kanso_chip_end"
     fi
     # 只给第一个 `%#` 上色；替换文本放进变量，避免 `${…/…/…}` 里的花括号被当成参数展开的边界。
     local red_mark='%F{1}%#%f'
     core=${core/\%\#/$red_mark}
-    if [[ $core == *$'\x1f'* ]]; then
-      # 有 %#：分支插在它前面；占位符紧贴在非空格字符后面时（如 `$PWD%#`）先补一个空格，避免粘连。
-      if [[ -n $__kanso_ins_branch ]]; then
-        if [[ $core == *[^\ ]$'\x1f'* ]]; then
-          core=${core/$'\x1f'/ $__kanso_ins_branch }
-        else
-          core=${core/$'\x1f'/$__kanso_ins_branch }
-        fi
-      else
-        core=${core/$'\x1f'/}
-      fi
-    elif [[ -n $__kanso_ins_branch ]]; then
-      pre+=${pre:+ }$__kanso_ins_branch
-    fi
-    out=$pre
-    [[ -n $out && -n $core ]] && out+=' '
-    out+=$core
+    __kanso_ins_chips=$pre$'\n'
+    out=$__kanso_ins_chips$core
     # 原提示符末尾的空格是光标与提示符的间距，保留；正文被全部去掉时也至少补一个。
     if (( __kanso_trail )) || [[ -z $core ]]; then
       out+=' '
@@ -232,7 +238,7 @@ if [[ ${KANSO_SHELL_INTEGRATION:-1} != 0 ]]; then
   # 更新 PS1。「用户原始 PS1」靠 __kanso_last_ps1 识别：当前 PS1 与我们上次写入的不同，
   # 说明用户 / 主题（如 oh-my-zsh 在 precmd 里重设 PS1）或某个脚本改过它，重新捕获并分析；
   # 相同则沿用上次的分析结果。若改写是基于我们的 PS1 叠加的（带有我们的 B 标记，
-  # 例如 virtualenv activate 在 PS1 前面加 `(venv) `），先把我们插入的目录 / 分支 / B 标记
+  # 例如 virtualenv activate 在 PS1 前面加 `(venv) `），先把我们插入的标签行 / B 标记
   # 摘掉再分析，避免目录与分支重复叠加。
   __kanso_update_ps1() {
     emulate -L zsh
@@ -242,8 +248,7 @@ if [[ ${KANSO_SHELL_INTEGRATION:-1} != 0 ]]; then
       p=$PS1
       if [[ $p == *"$__kanso_bmark"* ]]; then
         p=${p//"$__kanso_bmark"/}
-        [[ -n $__kanso_ins_dir ]] && p=${p/"$__kanso_ins_dir"/}
-        [[ -n $__kanso_ins_branch ]] && p=${p/"$__kanso_ins_branch"/}
+        [[ -n $__kanso_ins_chips ]] && p=${p/"$__kanso_ins_chips"/}
       fi
       __kanso_analyze_ps1 $p
       __kanso_have=1

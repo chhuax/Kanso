@@ -70,6 +70,11 @@ impl FrameHandle {
         });
         terminal.feed(
             concat!(
+                "\x1b]133;A;kanso=first\x07 ",
+                "\x1b]777;kanso-chip;start\x07\x1b[32m\u{e718} v26.13.0\x1b[0m\x1b]777;kanso-chip;end\x07  ",
+                "\x1b]777;kanso-chip;start\x07\x1b[1m\u{f07b} ~/workspace/kanso\x1b[0m\x1b]777;kanso-chip;end\x07  ",
+                "\x1b]777;kanso-chip;start\x07\x1b[32m\u{e0a0} wp/prompt-chips\x1b[0m\x1b]777;kanso-chip;end\x07\r\n",
+                "\x1b[31m%\x1b[0m cargo test\x1b]133;B\x07\r\n\x1b]133;C\x07",
                 "/srv/日志/app.log  ./main.rs  restart-yoncode.py\r\n",
                 "mr657-阶段复核收缩说明.md  claude-import  iuap-zx-dsh-usage-host\r\n",
                 "\"quoted text\"  '中文字符串'\r\n",
