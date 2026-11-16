@@ -438,7 +438,10 @@ fn branch_scenario(promptsubst: bool) {
     let vis = visible(&out);
 
     assert!(vis.contains("~/plain main % "), "{vis:?}");
-    assert!(visible_raw(&out).contains("~/plain \u{e0a0} main % "), "{out:?}");
+    assert!(
+        visible_raw(&out).contains("~/plain \u{e0a0} main % "),
+        "{out:?}"
+    );
     assert!(vis.contains("~/plain/src/deep main % "), "{vis:?}");
     assert!(vis.contains("~/wt/sub feature/x % "), "{vis:?}");
     assert!(vis.contains("~/sm sm-branch % "), "{vis:?}");
