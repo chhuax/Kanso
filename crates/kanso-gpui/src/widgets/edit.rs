@@ -632,6 +632,10 @@ impl EditState {
             self.marked = None;
             return true;
         }
+        if !text.is_empty() {
+            // 输入法有时先发一个空的组字更新、再发上屏结果：那个“取消”其实是上屏的前奏，不是真取消。
+            self.cancelled_at = None;
+        }
         let range = self.target_range(range_utf16);
         let kind = if range.is_empty() {
             EditKind::Insert
@@ -1035,6 +1039,17 @@ mod tests {
         let mut s = st("");
         s.ime_mark(None, "ni", None);
         s.ime_replace(None, "你");
+        assert!(!s.take_cancel_escape(Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn empty_mark_before_result_is_not_a_real_cancel() {
+        // Windows 上屏时可能先 mark(\"\") 再 replace(\"你\")。
+        let mut s = st("");
+        s.ime_mark(None, "ni", None);
+        s.ime_mark(None, "", None);
+        s.ime_replace(None, "你");
+        assert_eq!(s.text(), "你");
         assert!(!s.take_cancel_escape(Duration::from_secs(1)));
     }
 
