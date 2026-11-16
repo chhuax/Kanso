@@ -16,6 +16,7 @@ extension TerminalView: @preconcurrency NSTextInputClient {
         let hadMarkedText = !markedString.isEmpty
         clearMarkedText()
         guard !text.isEmpty else { return }
+        selectedCommandBlock = nil
         onInputActivity?()
 
         let dispatch = currentDispatch
@@ -64,6 +65,7 @@ extension TerminalView: @preconcurrency NSTextInputClient {
         let pending = markedString
         clearMarkedText()
         if !pending.isEmpty {
+            selectedCommandBlock = nil
             onInputActivity?()
             inputSink?.textInput(pending)
         }

@@ -615,8 +615,12 @@ fn render_terminal_themes(t: &Tokens, light: &TerminalTheme, dark: &TerminalThem
             swift_rgba(token("terminal.gutterCursorLine", a))
         ));
         s.push_str(&format!(
-            "        commandSeparator: {}\n",
+            "        commandSeparator: {},\n",
             swift_rgba(token("terminal.commandSeparator", a))
+        ));
+        s.push_str(&format!(
+            "        blockSelection: {}\n",
+            swift_rgba(token("terminal.blockSelection", a))
         ));
         s.push_str("    )\n");
         if ident == "kansoLight" {
@@ -686,6 +690,7 @@ pub fn generate(args: &[String]) -> ExitCode {
         "terminal.gutterText",
         "terminal.gutterCursorLine",
         "terminal.commandSeparator",
+        "terminal.blockSelection",
     ] {
         if !tokens.colors.contains_key(key) {
             errors.push(format!("design/tokens.json 缺少 color token `{key}`"));
