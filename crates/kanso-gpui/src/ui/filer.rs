@@ -465,7 +465,18 @@ impl FilerView {
             }
             st.last_y = y;
             let at_end = max > 0.0 && -y >= max - 1.0;
-            if at_end || st.stalled >= 5 || st.frames > 4000 {
+            if st.frames % 30 == 1 {
+                log(&format!(
+                    "滚动测试：第 {} 帧，offset.y={y:.0}，max_offset={max:.0}，已用 {:.1} s",
+                    st.frames,
+                    st.started.elapsed().as_secs_f64()
+                ));
+            }
+            if at_end
+                || st.stalled >= 5
+                || st.frames > 4000
+                || st.started.elapsed() > Duration::from_secs(25)
+            {
                 let secs = st.started.elapsed().as_secs_f64();
                 let frames = st.frames;
                 self.scrolltest = None;

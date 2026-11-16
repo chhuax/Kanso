@@ -144,7 +144,14 @@ fn build_core(args: &Args, tx: UnboundedSender<CoreEvent>) -> Result<Arc<Core>, 
     platform.secrets = Arc::new(kanso_secret::PlatformSecretStore::new(BUNDLE_ID));
     // 主机密钥用核心内置的 ~/.ssh/known_hosts（与 mac 前端一致）。
     platform.host_keys = None;
-    Core::new(config, platform)
+    // 交互式桌面会话里通常没有 HOME，而核心按 `$HOME/.ssh/known_hosts` 找主机密钥：用 USERPROFILE 补上。
+    let mut env: Vec<(String, String)> = std::env::vars().collect();
+    if !env.iter().any(|(k, _)| k == "HOME")
+        && let Some(profile) = std::env::var_os("USERPROFILE")
+    {
+        env.push(("HOME".into(), profile.to_string_lossy().into_owned()));
+    }
+    Core::new_with_base_env(config, platform, env)
         .map(Arc::new)
         .map_err(|e| e.to_string())
 }
