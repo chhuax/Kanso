@@ -1,0 +1,37 @@
+[package]
+name = "kanso-gpui"
+description = "Kanso 的 Windows / Linux 前端原型（GPUI）。纯逻辑部分三平台可编译，窗口只在 Windows 构建。"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "kanso-gpui"
+path = "src/main.rs"
+
+[dependencies]
+kanso-core = { workspace = true, default-features = false }
+kanso-frame.workspace = true
+kanso-types.workspace = true
+kanso-secret.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+unicode-width.workspace = true
+
+# GPUI 与其配套依赖只在 Windows 引入：macOS / Linux 的 `cargo build --workspace` 不需要图形系统库。
+# 用 crates.io 的发布版（Apache-2.0），不用 git 依赖；`=` 固定版本，升级要重新评估许可证与体积。
+[target.'cfg(windows)'.dependencies]
+gpui = "=0.2.2"
+# 核心事件从工作线程投递到 UI 线程的无界通道（MIT / Apache-2.0）。
+futures.workspace = true
+# 读取进程工作集内存做启动日志，只用 psapi / 进程句柄两个特性（MIT / Apache-2.0；与 kanso-secret 同一个 crate）。
+windows-sys = { workspace = true, features = ["Win32_System_ProcessStatus", "Win32_System_Threading"] }
+
+[features]
+default = ["direct"]
+direct = ["kanso-core/direct"]
+
+[lints]
+workspace = true
