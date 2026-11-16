@@ -4,8 +4,8 @@
 //! 键盘：↑↓ PageUp/PageDown Home/End 移动选中，Enter 进入目录，Backspace / Alt+↑ 返回上一级，
 //! F5 刷新，Ctrl+1/2/3 按名称 / 大小 / 时间排序（再按一次切换方向）。鼠标：单击选中，双击进入目录，点击列头排序。
 
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use futures::StreamExt as _;
