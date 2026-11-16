@@ -52,6 +52,10 @@ exceptions = [
     { allow = ["MPL-2.0"], crate = "uniffi_meta" },
     { allow = ["MPL-2.0"], crate = "uniffi_pipeline" },
     { allow = ["MPL-2.0"], crate = "uniffi_udl" },
+    # CC0-1.0 是公有领域贡献声明，比 MIT 更宽松，FSF 认定与 GPL 兼容；不授予专利权，
+    # 对解析十六进制浮点数的小库影响可忽略。经 gpui → blade-graphics → naga 引入（Windows/Linux 前端）。
+    # 只放行这一个 crate，其他 crate 引入 CC0 仍会被拒。经用户确认（2026-11-16）。
+    { allow = ["CC0-1.0"], crate = "hexf-parse" },
 ]
 
 [licenses.private]
