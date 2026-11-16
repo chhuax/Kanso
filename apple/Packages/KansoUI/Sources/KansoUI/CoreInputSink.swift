@@ -49,7 +49,7 @@ extension CoreInputSink: TerminalEditActions {
         core.commandBlockText(sessionId: session, id: id, part: part)
     }
 
-    public func jumpCommandBlock(forward: Bool) {
+    public func jumpCommandBlock(forward: Bool) -> UInt64? {
         try? core.jumpCommandBlock(sessionId: session, forward: forward)
     }
     public var hasSelection: Bool {

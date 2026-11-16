@@ -39,6 +39,9 @@ use crate::osc::{self, Osc133};
 use crate::table::{LineTable, ROW_FIRST, ROW_PROMPT, ROW_WRITTEN};
 use crate::types::{CwdReport, MouseMode, TermConfig, TermEvent, TermModes, ThemeColors, kitty};
 
+// alacritty_terminal 0.25.1 的最高位未使用；随网格单元格一起滚动和重排。
+pub(crate) const CHIP: Flags = Flags::from_bits_retain(1 << 15);
+
 /// 禁用 vte 的“同步更新（DECSET 2026）”缓冲。
 ///
 /// vte 默认的 `StdSyncHandler` 用 `Instant::now()` 计时，违反 sans-IO（内核不读系统时钟）。
@@ -365,6 +368,7 @@ pub(crate) fn alacritty_config_with(scrollback: usize, separators: &str) -> Conf
 }
 
 pub(crate) struct Core {
+    chip_active: bool,
     pub semantic: crate::semantic::SemanticColors,
     pub semantic_enabled: bool,
     pub blocks: crate::blocks::Blocks,
@@ -428,6 +432,7 @@ impl Core {
         );
         Self {
             semantic: crate::semantic::SemanticColors::default(),
+            chip_active: false,
             semantic_enabled: true,
             blocks: crate::blocks::Blocks::default(),
             term,
@@ -613,6 +618,11 @@ impl Core {
 
     pub fn on_osc(&mut self, ps: u32, body: &[u8]) {
         match ps {
+            777 => match body {
+                b"kanso-chip;start" => self.chip_active = true,
+                b"kanso-chip;end" => self.end_chip(),
+                _ => {}
+            },
             // 全屏程序里的 OSC 133 不属于我们的 shell 集成，忽略（侧表此时也冻结着）。
             133 if !self.alt => {
                 if let Some(o) = osc::parse_133(body) {
@@ -626,6 +636,11 @@ impl Core {
         }
     }
 
+    fn end_chip(&mut self) {
+        self.chip_active = false;
+        self.term.grid_mut().cursor.template.flags.remove(CHIP);
+    }
+
     fn report_cwd(&mut self, r: Option<CwdReport>) {
         if let Some(r) = r {
             self.cwd = Some(r.clone());
@@ -634,6 +649,9 @@ impl Core {
     }
 
     fn on_133(&mut self, o: Osc133) {
+        if matches!(o, Osc133::PromptStart { .. }) {
+            self.end_chip();
+        }
         if self.alt {
             return;
         }
@@ -1146,6 +1164,12 @@ impl Handler for Core {
 
     #[inline]
     fn input(&mut self, c: char) {
+        self.term
+            .grid_mut()
+            .cursor
+            .template
+            .flags
+            .set(CHIP, self.chip_active);
         // 热路径：普通 ASCII 且上一个字符没写满最后一列——不可能换行，也就不可能滚动，
         // 转发后只需要记一下写入时间。其余情形（行尾、宽字符、非 ASCII）走慢路径做精确预测。
         if self.alt || self.term.grid().cursor.input_needs_wrap || !c.is_ascii() {
@@ -1156,6 +1180,7 @@ impl Handler for Core {
     }
 
     fn linefeed(&mut self) {
+        self.end_chip();
         if !self.alt && self.cursor_line() + 1 == self.region.end {
             self.table_scroll_up(self.region.start, 1);
         }
@@ -1163,6 +1188,7 @@ impl Handler for Core {
     }
 
     fn newline(&mut self) {
+        self.end_chip();
         // `Term::newline` 在内部直接调自己的 `linefeed`，不会经过本类型的 `linefeed`，必须单独镜像。
         if !self.alt && self.cursor_line() + 1 == self.region.end {
             self.table_scroll_up(self.region.start, 1);
@@ -1227,6 +1253,7 @@ impl Handler for Core {
     }
 
     fn reset_state(&mut self) {
+        self.end_chip();
         self.blocks.clear();
         Handler::reset_state(&mut self.term);
         self.epoch += 1;

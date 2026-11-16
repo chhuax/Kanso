@@ -89,7 +89,7 @@ C 的 `_Static_assert`）和 `cargo xtask ci` 的 `c-abi` 步骤兜底。
 `CELL_*`：`BOLD` 1<<0、`DIM` 1<<1、`ITALIC` 1<<2、下划线样式 bits 3..=5
 （`UNDERLINE_SHIFT`=3，`UNDERLINE_MASK`=0b111<<3；0 无、1 单线、2 双线、3 波浪、4 点线、5 虚线）、
 `STRIKE` 1<<6、`INVERSE` 1<<7、`HIDDEN` 1<<8、`WIDE` 1<<9（宽字符前半）、`WIDE_SPACER` 1<<10（后半占位）、
-`SELECTED` 1<<11、`MATCH` 1<<12、`MATCH_CURRENT` 1<<13（当前匹配项，同时带 `MATCH`）、`BLINK` 1<<14、bit 15 保留。
+`SELECTED` 1<<11、`MATCH` 1<<12、`MATCH_CURRENT` 1<<13（当前匹配项，同时带 `MATCH`）、`BLINK` 1<<14、`CHIP` 1<<15（提示符上下文标签）。
 
 ### CellExtra（16 字节，对齐 4）
 

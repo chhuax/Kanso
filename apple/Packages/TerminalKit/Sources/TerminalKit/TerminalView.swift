@@ -151,7 +151,22 @@ public final class TerminalView: NSView {
 
     // MARK: 内部状态
 
-    var currentFrame: FrameSnapshot?
+    var currentFrame: FrameSnapshot? {
+        didSet {
+            if let frame = currentFrame, let id = selectedCommandBlock,
+               frame.flags.contains(.altScreen) || frame.flags.contains(.mouseReporting)
+                || !frame.commandBlocks.contains(where: { $0.id == id && $0.canCopyCommand }) {
+                selectedCommandBlock = nil
+            }
+        }
+    }
+    var selectedCommandBlock: UInt64? {
+        didSet {
+            renderer?.selectedCommandBlock = selectedCommandBlock
+            requestRedraw()
+        }
+    }
+    var clickedCommandBlock: UInt64?
     private var needsFrame = false
     private var needsRedraw = false
     private var displayLink: CADisplayLink?

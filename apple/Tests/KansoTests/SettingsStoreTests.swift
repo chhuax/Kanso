@@ -50,7 +50,7 @@ final class SettingsStoreTests: XCTestCase {
             DisplaySettings.self, #"{"fontSize":"big","cursorShape":42,"scrollbackLines":3000,"cursorBlink":true}"#
         ))
         XCTAssertEqual(display.fontSize, DisplaySettings().fontSize)
-        XCTAssertEqual(display.cursorShape, .block)
+        XCTAssertEqual(display.cursorShape, DisplaySettings().cursorShape)
         XCTAssertEqual(display.scrollbackLines, 3000)
         XCTAssertTrue(display.cursorBlink)
     }

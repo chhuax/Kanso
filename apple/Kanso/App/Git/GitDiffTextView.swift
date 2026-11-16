@@ -61,7 +61,8 @@ private let diffKind = NSAttributedString.Key("GitDiffKind")
 private final class GitDiffLayoutManager: NSLayoutManager {
     override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         guard let textStorage, let textView = textContainers.first?.textView else { return }
-        let width = textView.bounds.width
+        // NSLayoutManager 的绘制回调在 Xcode 16 的 SDK 里没有标注主线程隔离，但 AppKit 总在主线程绘制。
+        let width = MainActor.assumeIsolated { textView.bounds.width }
         enumerateLineFragments(forGlyphRange: glyphsToShow) { rect, _, _, range, _ in
             let character = self.characterIndexForGlyph(at: range.location)
             let kind = textStorage.attribute(diffKind, at: character, effectiveRange: nil) as? String

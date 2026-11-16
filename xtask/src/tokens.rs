@@ -368,6 +368,20 @@ fn check_tokens(
         }
     }
 
+    if let Some(chip) = t.colors.get("terminal.chipBackground") {
+        for (appearance, theme_file, theme) in themes {
+            let background = chip.get(*appearance).over(theme.background);
+            for foreground in [theme.foreground, theme.ansi[2]] {
+                let ratio = contrast_ratio(foreground, background);
+                if ratio < 4.5 {
+                    errors.push(format!(
+                        "{file}：{theme_file} 的标签文字对 `terminal.chipBackground` 对比度 {ratio:.2}，要求 >= 4.5"
+                    ));
+                }
+            }
+        }
+    }
+
     // 时间戳栏文字显示在终端背景上，所以要对终端配色的背景而不是 chrome 的 bg token 检查。
     match t.colors.get("terminal.gutterText") {
         None => errors.push(format!("{file}：缺少 color token `terminal.gutterText`")),
@@ -615,8 +629,14 @@ fn render_terminal_themes(t: &Tokens, light: &TerminalTheme, dark: &TerminalThem
             swift_rgba(token("terminal.gutterCursorLine", a))
         ));
         s.push_str(&format!(
-            "        commandSeparator: {}\n",
+            "        commandSeparator: {},\n",
             swift_rgba(token("terminal.commandSeparator", a))
+        ));
+        s.push_str(&format!(
+            "        blockSelection: {},\n        chipBackground: {},\n        chipBorder: {}\n",
+            swift_rgba(token("terminal.blockSelection", a)),
+            swift_rgba(token("terminal.chipBackground", a)),
+            swift_rgba(token("terminal.chipBorder", a))
         ));
         s.push_str("    )\n");
         if ident == "kansoLight" {
@@ -686,6 +706,9 @@ pub fn generate(args: &[String]) -> ExitCode {
         "terminal.gutterText",
         "terminal.gutterCursorLine",
         "terminal.commandSeparator",
+        "terminal.blockSelection",
+        "terminal.chipBackground",
+        "terminal.chipBorder",
     ] {
         if !tokens.colors.contains_key(key) {
             errors.push(format!("design/tokens.json 缺少 color token `{key}`"));

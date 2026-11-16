@@ -32,8 +32,9 @@ final class DisplaySettingsTests: XCTestCase {
         XCTAssertEqual(page.sizeField.value, 14)
         XCTAssertEqual(page.lineHeightField.value, 1.2)
         XCTAssertEqual(page.scrollbackField.value, 10_000)
-        XCTAssertEqual(page.cursorShapeCards.selectedIndex, 0)
-        XCTAssertFalse(page.blinkRow.isChecked)
+        // 默认闪动竖线。
+        XCTAssertEqual(page.cursorShapeCards.selectedIndex, 2)
+        XCTAssertTrue(page.blinkRow.isChecked)
         XCTAssertTrue(page.contrastRow.isChecked)
         XCTAssertEqual(page.contrastField.value, 4.5)
 
@@ -41,10 +42,10 @@ final class DisplaySettingsTests: XCTestCase {
         XCTAssertEqual(settings.display.fontSize, 15)
         page.lineHeightField.nudge(1)
         XCTAssertEqual(settings.display.lineHeight, 1.25, accuracy: 0.0001)
-        page.cursorShapeCards.select(2)
-        XCTAssertEqual(settings.display.cursorShape, .bar)
+        page.cursorShapeCards.select(0)
+        XCTAssertEqual(settings.display.cursorShape, .block)
         page.blinkRow.toggle()
-        XCTAssertTrue(settings.display.cursorBlink)
+        XCTAssertFalse(settings.display.cursorBlink)
         page.scrollbackField.nudge(1)
         XCTAssertEqual(settings.display.scrollbackLines, 11_000)
         page.contrastRow.toggle()
@@ -65,7 +66,7 @@ final class DisplaySettingsTests: XCTestCase {
         try? settings.resetToDefaults()
         XCTAssertEqual(page.sizeField.value, 14)
         XCTAssertEqual(page.lineHeightField.value, 1.2)
-        XCTAssertEqual(page.cursorShapeCards.selectedIndex, 0)
+        XCTAssertEqual(page.cursorShapeCards.selectedIndex, 2)
     }
 
     func testSemanticColoringPersistsAndReachesCore() throws {

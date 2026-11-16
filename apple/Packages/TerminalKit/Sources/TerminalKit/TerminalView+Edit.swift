@@ -31,17 +31,21 @@ public protocol TerminalEditActions: AnyObject {
     /// 全选终端缓冲区（回滚 + 屏幕）。
     func selectAll()
     func commandBlockText(id: UInt64, part: FfiBlockText) -> String?
-    func jumpCommandBlock(forward: Bool)
+    func jumpCommandBlock(forward: Bool) -> UInt64?
 }
 
 extension TerminalEditActions {
     public func commandBlockText(id: UInt64, part: FfiBlockText) -> String? { nil }
-    public func jumpCommandBlock(forward: Bool) {}
+    public func jumpCommandBlock(forward: Bool) -> UInt64? { nil }
 }
 
 extension TerminalView: NSMenuItemValidation {
     /// 编辑菜单的"复制"（⌘C）。菜单项用标准 selector，first responder 是终端视图时自动路由到这里。
     @objc public func copy(_ sender: Any?) {
+        if editActions?.hasSelection != true, let id = selectedCommandBlock {
+            copyCommandBlock(id, part: .all)
+            return
+        }
         guard let text = editActions?.selectionText(), !text.isEmpty else { return }
         // 写剪贴板失败必须提示（terminal.md §8.2）：否则用户看到选区还在，会以为已经复制成功。
         if !writeCopiedText(text) {
@@ -71,7 +75,7 @@ extension TerminalView: NSMenuItemValidation {
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.action {
         case #selector(copy(_:)):
-            return editActions?.hasSelection ?? false
+            return editActions?.hasSelection == true || selectedCommandBlock != nil
         case #selector(paste(_:)), #selector(selectAll(_:)):
             return editActions != nil
         case #selector(copyBlockCommand(_:)):

@@ -91,6 +91,7 @@ public final class TerminalRenderer {
     /// 光标当前是否处于"显示"相位。闪烁由视图的计时器翻转它；帧里光标不可见时无论如何不画。
     /// 只影响绘制，不改帧：闪烁不需要向 core 取新帧。
     public var isCursorPhaseVisible = true
+    var selectedCommandBlock: UInt64?
 
     /// 顶部让出的高度（pt）。全尺寸内容视图下标题栏会盖住顶部，由视图按 `safeAreaInsets.top` 设置。
     public var topInset: CGFloat = 0
@@ -168,8 +169,10 @@ public final class TerminalRenderer {
         let gutterCharWidth: Int
         /// 栏总宽（含左侧留白与右侧与正文的间隔）；栏关闭时为 0。
         let gutterWidth: Int
-        /// 正文区四周的留白。
+        /// 正文区上下的留白。
         let padding: Int
+        /// 正文区左右的留白：比上下宽，文字不贴着窗口边或时间栏（2026-11-16 用户反馈"左边一点边距都没有"）。
+        let paddingX: Int
         let originX: Int
         let originY: Int
     }
@@ -194,10 +197,11 @@ public final class TerminalRenderer {
         // 左侧 1 个字符的留白，右侧 2 个字符的间隔，把栏与正文隔开。
         let gutterWidth = chars == 0 ? 0 : (chars + 3) * gcw
         let padding = Int((4 * scale).rounded())
+        let paddingX = Int((12 * scale).rounded())
         return Layout(
             metrics: fonts.terminal.metrics, gutterMetrics: fonts.gutter.metrics,
-            gutterCharWidth: gcw, gutterWidth: gutterWidth, padding: padding,
-            originX: gutterWidth + padding,
+            gutterCharWidth: gcw, gutterWidth: gutterWidth, padding: padding, paddingX: paddingX,
+            originX: gutterWidth + paddingX,
             originY: Int((topInset * scale).rounded()) + padding
         )
     }
@@ -208,7 +212,7 @@ public final class TerminalRenderer {
         let widthPx = Int((size.width * scale).rounded())
         let heightPx = Int((size.height * scale).rounded())
         return TerminalGridSize(
-            cols: max(1, (widthPx - l.originX - l.padding) / l.metrics.cellWidth),
+            cols: max(1, (widthPx - l.originX - l.paddingX) / l.metrics.cellWidth),
             rows: max(1, (heightPx - l.originY - l.padding) / l.metrics.cellHeight),
             cellWidthPx: l.metrics.cellWidth,
             cellHeightPx: l.metrics.cellHeight
@@ -444,6 +448,17 @@ public final class TerminalRenderer {
         let stroke = max(1, Int(scale.rounded()))
         var cursorWide = false
 
+        if !altScreen, let block = frame.commandBlocks.first(where: { $0.id == selectedCommandBlock }),
+           block.canCopyOutput {
+            for row in 0..<rows {
+                let line = frame.lineMeta(row: row).absLine
+                if block.startLine <= line && line <= block.endLine {
+                    bgInstances.append(rect(l.gutterWidth, l.originY + row * m.cellHeight,
+                        target.width - l.gutterWidth, m.cellHeight, Self.vec(palette.blockSelection)))
+                }
+            }
+        }
+
         // 时间戳栏与正文之间的竖线：贯穿整个视图高度，而不是只画到有内容的行——
         // 栏下方大片空白时，没有这条线就看不出栏的边界。全屏程序期间栏留空，线照样保留，
         // 让版面不跳动。线宽与命令分隔线一致，取同一个低对比度颜色。
@@ -457,7 +472,7 @@ public final class TerminalRenderer {
             let end = Int(min(block.endLine, first + UInt64(rows - 1)) - first)
             if end >= start {
                 let color = block.running ? palette.cursor : palette.ansi[1]
-                decoInstances.append(rect(l.originX - l.padding / 2, l.originY + start * m.cellHeight,
+                decoInstances.append(rect(l.originX - l.paddingX / 2, l.originY + start * m.cellHeight,
                     2, (end - start + 1) * m.cellHeight, Self.vec(color)))
             }
         }
@@ -517,7 +532,10 @@ public final class TerminalRenderer {
                     bg = palette.cursor
                     fg = palette.cursorText
                 } else if isMinimumContrastEnabled {
-                    fg = contrast.adjusted(foreground: fg, background: bg)
+                    // 提示符标签里的字实际画在标签底色上（默认背景时），按标签底色算对比度。
+                    let chipBg = RGB8(palette.chipBackground.r, palette.chipBackground.g, palette.chipBackground.b)
+                    let shown = cell.flags.contains(.chip) && bg == palette.background ? chipBg : bg
+                    fg = contrast.adjusted(foreground: fg, background: shown)
                 }
                 // dim 在对比度保护之后应用：SGR 2 的本意就是降低强调度，不应被保护逻辑抵消。
                 var glyphFg = fg
@@ -566,6 +584,29 @@ public final class TerminalRenderer {
                 col += span
             }
             flushRun(upTo: cols)
+
+            // 标签在单元格背景之上、字形之下；不外扩，描边宽度固定为一个设备像素。
+            var chipCol = 0
+            while chipCol < cols {
+                guard frame.cell(row: row, col: chipCol).flags.contains(.chip) else {
+                    chipCol += 1
+                    continue
+                }
+                let start = chipCol
+                repeat { chipCol += 1 } while chipCol < cols && frame.cell(row: row, col: chipCol).flags.contains(.chip)
+                // 内边距由 shim 在标签首尾放的空格提供，这里按单元格原样画、不外扩，框左边与光标列对齐。
+                // 上下只收 1 像素：标签尽量高，文字与边框之间留出上下边距，又不与相邻行的框贴死。
+                let inset = max(1, stroke)
+                let x = l.originX + start * m.cellWidth
+                let right = l.originX + chipCol * m.cellWidth
+                let y = rowY + inset
+                let height = m.cellHeight - inset * 2
+                let radius = Float(min(height / 2, max(3, m.cellWidth / 2)))
+                bgInstances.append(rect(x, y, right - x, height, Self.vec(palette.chipBorder), style: 4,
+                                        params: SIMD4(0, radius, 0, 0)))
+                bgInstances.append(rect(x + 1, y + 1, right - x - 2, height - 2, Self.vec(palette.chipBackground), style: 4,
+                                        params: SIMD4(0, radius - 1, 0, 0)))
+            }
         }
 
         // ---- 非块状光标 ----
@@ -578,7 +619,10 @@ public final class TerminalRenderer {
             case .underline:
                 decoInstances.append(rect(x, y + m.cellHeight - stroke, w, stroke, color))
             case .bar:
-                decoInstances.append(rect(x, y, stroke, m.cellHeight, color))
+                // 竖线约一个字母高、宽约 1/4 格，两端圆角（style 4 圆角矩形，半径取半宽）。
+                let barWidth = max(2 * stroke, (m.cellWidth + 2) / 4)
+                decoInstances.append(rect(x, y + m.barTop, barWidth, m.barBottom - m.barTop, color, style: 4,
+                                          params: SIMD4(0, Float(barWidth) / 2, 0, 0)))
             case .hollowBlock:
                 // 四条互不重叠的边，半透明主题色下重叠处不会变深。
                 decoInstances.append(rect(x, y, w, stroke, color))

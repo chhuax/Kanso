@@ -1250,9 +1250,12 @@ impl RealCore {
         self.sessions.session(session)?.command_block_text(id, part)
     }
 
-    pub(crate) fn jump_command_block(&self, session: SessionId, forward: bool) -> Result<()> {
-        self.terminal_session(session)?.jump_command_block(forward);
-        Ok(())
+    pub(crate) fn jump_command_block(
+        &self,
+        session: SessionId,
+        forward: bool,
+    ) -> Result<Option<u64>> {
+        Ok(self.terminal_session(session)?.jump_command_block(forward))
     }
 
     pub(crate) fn selection_text(&self, session: SessionId) -> Option<String> {

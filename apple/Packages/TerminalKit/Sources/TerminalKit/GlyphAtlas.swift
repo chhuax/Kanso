@@ -136,8 +136,13 @@ final class GlyphAtlas {
     private func entrySlow(scalar: UInt32, bold: Bool, italic: Bool, wide: Bool, face: GlyphFace) -> GlyphEntry {
         let key = ScalarGlyphKey(scalar: scalar, bold: bold, italic: italic, wide: wide, face: face)
         if let hit = scalarCache[key] { return hit }
-        let text = Unicode.Scalar(scalar).map { String(Character($0)) } ?? ""
-        let made = rasterize(text: text, bold: bold, italic: italic, wide: wide, face: face)
+        let made: GlyphEntry
+        if [Self.branchIconScalar, Self.folderIconScalar, Self.nodeIconScalar].contains(scalar) {
+            made = rasterizeContextIcon(scalar: scalar, face: face)
+        } else {
+            let text = Unicode.Scalar(scalar).map { String(Character($0)) } ?? ""
+            made = rasterize(text: text, bold: bold, italic: italic, wide: wide, face: face)
+        }
         scalarCache[key] = made
         logIfNeeded()
         return made
@@ -233,6 +238,101 @@ final class GlyphAtlas {
             offsetX: Int32(dx + left),
             // 位图顶边在基线上方 top 像素，基线在单元格顶部下方 baseline 像素。
             offsetY: Int32(metrics.baseline - top),
+            width: Int32(w), height: Int32(h)
+        )
+    }
+
+    // MARK: 内置图标
+
+    /// Powerline 的分支符号（私有区 U+E0A0）。内置 zsh 提示符在分支名前输出它；
+    /// 系统字体都没有这个字，所以不依赖 Nerd Font，由渲染器自己画（Lucide git-branch，ISC）。
+    /// 装了 Nerd Font 也用内置图形，保证不同字体下观感一致。
+    static let branchIconScalar: UInt32 = 0xE0A0
+    static let folderIconScalar: UInt32 = 0xF07B
+    static let nodeIconScalar: UInt32 = 0xE718
+
+    /// 画上下文图标：按 24×24 的 Lucide 坐标缩放。
+    /// 边长取大写字母高的 1.4 倍（Lucide 四周各留 2/24 空白，墨迹约等于大写字母高），
+    /// 比单元格宽，向两侧溢出——shim 总在图标后输出一个空格、标签左边有半格内边距，所以不会盖住文字。
+    /// 竖直方向与大写字母中线对齐，和后面的文字视觉居中。
+    private func rasterizeContextIcon(scalar: UInt32, face: GlyphFace) -> GlyphEntry {
+        let set = face == .terminal ? fonts.terminal : fonts.gutter
+        let metrics = set.metrics
+        let capHeight = CTFontGetCapHeight(set.regular)
+        let side = max(8, Int((capHeight * 1.4).rounded()))
+        let w = side, h = side
+        if scratch.count < w * h { scratch = [UInt8](repeating: 0, count: w * h) }
+        for i in 0..<(w * h) { scratch[i] = 0 }
+        let drew: Bool = scratch.withUnsafeMutableBytes { raw in
+            guard let ctx = CGContext(
+                data: raw.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w,
+                space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue
+            ) else { return false }
+            // 转成与 SVG 相同的 y 向下坐标，再把 24 单位映射到位图边长。
+            let k = CGFloat(side) / 24
+            ctx.translateBy(x: 0, y: CGFloat(h))
+            ctx.scaleBy(x: k, y: -k)
+            ctx.setShouldAntialias(true)
+            ctx.setStrokeColor(gray: 1, alpha: 1)
+            // 线宽至少 1.2 像素：Lucide 原稿 2/24，小字号时会细到发虚。
+            ctx.setLineWidth(max(2, 1.2 / k))
+            ctx.setLineCap(.round)
+            ctx.setLineJoin(.round)
+            switch scalar {
+            case Self.folderIconScalar:
+                // Lucide folder：圆角文件夹轮廓与顶部折线。
+                ctx.move(to: CGPoint(x: 20, y: 20))
+                ctx.addQuadCurve(to: CGPoint(x: 22, y: 18), control: CGPoint(x: 22, y: 20))
+                ctx.addLine(to: CGPoint(x: 22, y: 8))
+                ctx.addQuadCurve(to: CGPoint(x: 20, y: 6), control: CGPoint(x: 22, y: 6))
+                ctx.addLine(to: CGPoint(x: 12.1, y: 6))
+                ctx.addQuadCurve(to: CGPoint(x: 10.41, y: 5.1), control: CGPoint(x: 11.1, y: 6))
+                ctx.addLine(to: CGPoint(x: 9.6, y: 3.9))
+                ctx.addQuadCurve(to: CGPoint(x: 7.93, y: 3), control: CGPoint(x: 8.93, y: 3))
+                ctx.addLine(to: CGPoint(x: 4, y: 3))
+                ctx.addQuadCurve(to: CGPoint(x: 2, y: 5), control: CGPoint(x: 2, y: 3))
+                ctx.addLine(to: CGPoint(x: 2, y: 18))
+                ctx.addQuadCurve(to: CGPoint(x: 4, y: 20), control: CGPoint(x: 2, y: 20))
+                ctx.closePath()
+                ctx.strokePath()
+            case Self.nodeIconScalar:
+                // Lucide hexagon：六条边与圆角连接，坐标来自官方 SVG。
+                ctx.move(to: CGPoint(x: 21, y: 16))
+                ctx.addLine(to: CGPoint(x: 21, y: 8))
+                ctx.addQuadCurve(to: CGPoint(x: 20, y: 6.27), control: CGPoint(x: 21, y: 6.85))
+                ctx.addLine(to: CGPoint(x: 13, y: 2.27))
+                ctx.addQuadCurve(to: CGPoint(x: 11, y: 2.27), control: CGPoint(x: 12, y: 1.69))
+                ctx.addLine(to: CGPoint(x: 4, y: 6.27))
+                ctx.addQuadCurve(to: CGPoint(x: 3, y: 8), control: CGPoint(x: 3, y: 6.85))
+                ctx.addLine(to: CGPoint(x: 3, y: 16))
+                ctx.addQuadCurve(to: CGPoint(x: 4, y: 17.73), control: CGPoint(x: 3, y: 17.15))
+                ctx.addLine(to: CGPoint(x: 11, y: 21.73))
+                ctx.addQuadCurve(to: CGPoint(x: 13, y: 21.73), control: CGPoint(x: 12, y: 22.31))
+                ctx.addLine(to: CGPoint(x: 20, y: 17.73))
+                ctx.addQuadCurve(to: CGPoint(x: 21, y: 16), control: CGPoint(x: 21, y: 17.15))
+                ctx.strokePath()
+            default:
+                ctx.move(to: CGPoint(x: 15, y: 6))
+                ctx.addArc(center: CGPoint(x: 15, y: 15), radius: 9, startAngle: -.pi / 2, endAngle: .pi, clockwise: true)
+                ctx.addLine(to: CGPoint(x: 6, y: 3))
+                ctx.strokePath()
+                ctx.strokeEllipse(in: CGRect(x: 15, y: 3, width: 6, height: 6))
+                ctx.strokeEllipse(in: CGRect(x: 3, y: 15, width: 6, height: 6))
+            }
+            return true
+        }
+        guard drew, let (page, x, y) = allocate(width: w, height: h, isColor: false) else { return .empty }
+        let texture = grayPages[page].texture
+        scratch.withUnsafeBytes { raw in
+            texture.replace(region: MTLRegionMake2D(x, y, w, h), mipmapLevel: 0, withBytes: raw.baseAddress!, bytesPerRow: w)
+        }
+        let size = Float(texture.width)
+        let centerY = metrics.baseline - Int((capHeight / 2).rounded())
+        return GlyphEntry(
+            page: page, isColor: false, isEmpty: false,
+            uv: SIMD4(Float(x) / size, Float(y) / size, Float(x + w) / size, Float(y + h) / size),
+            // 以本格中心为中心，左右平均溢出：左边是标签的内边距，右边是图标后的空格，都不会盖住文字。
+            offsetX: Int32((metrics.cellWidth - w) / 2), offsetY: Int32(centerY - h / 2),
             width: Int32(w), height: Int32(h)
         )
     }

@@ -444,9 +444,9 @@ impl Terminal {
     }
 
     /// 将上一个或下一个完整块的提示符滚动到视口顶部附近。
-    pub fn jump_command_block(&mut self, forward: bool) {
+    pub fn jump_command_block(&mut self, forward: bool) -> Option<u64> {
         if self.core.alt {
-            return;
+            return None;
         }
         let top = self.core.table.screen_top_abs() - self.core.term.grid().display_offset() as u64;
         let entries = &self.core.blocks.entries;
@@ -461,6 +461,7 @@ impl Terminal {
                 .find(|block| !block.clipped && block.start.line.0 < top)
         };
         if let Some(target) = target {
+            let id = target.id;
             let offset = self
                 .core
                 .table
@@ -469,7 +470,9 @@ impl Terminal {
             self.dirty |= self.core.scroll_display(Scroll::Delta(
                 offset as i32 - self.core.term.grid().display_offset() as i32,
             ));
+            return Some(id);
         }
+        None
     }
 }
 
@@ -715,17 +718,29 @@ mod tests {
         term.select_all();
         let selection = term.selection_text();
         let input = term.core.term.grid().cursor.point;
-        term.jump_command_block(false);
+        let target = term.jump_command_block(false).expect("存在上一个块");
+        assert!(
+            term.snapshot(None)
+                .command_blocks
+                .iter()
+                .any(|block| block.id == target)
+        );
         let first = term.snapshot(None).header().first_abs_line;
-        term.jump_command_block(false);
+        assert!(term.jump_command_block(false).is_some());
         assert!(term.snapshot(None).header().first_abs_line < first);
         for _ in 0..12 {
-            term.jump_command_block(false);
+            let _ = term.jump_command_block(false);
         }
         let top = term.snapshot(None).header().first_abs_line;
-        term.jump_command_block(false);
+        assert_eq!(term.jump_command_block(false), None);
         assert_eq!(term.snapshot(None).header().first_abs_line, top);
-        term.jump_command_block(true);
+        let target = term.jump_command_block(true).expect("存在下一个块");
+        assert!(
+            term.snapshot(None)
+                .command_blocks
+                .iter()
+                .any(|block| block.id == target)
+        );
         assert!(term.snapshot(None).header().first_abs_line > top);
         assert_eq!(term.selection_text(), selection);
         assert_eq!(term.core.term.grid().cursor.point, input);
