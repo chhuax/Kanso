@@ -8,8 +8,10 @@
 //! - [`render`]：核心帧快照 → 渲染数据（背景矩形、文字片段、光标）。
 //! - [`keys`]：GPUI 按键事件 → 核心 `KeyEvent` 的分流（哪些键编码、哪些交给文本路径）。
 //! - [`ime`]：输入法预编辑状态机与预编辑的网格布局。
+//! - [`filer`]：远程文件列表的条目模型（分批归并排序）、`--sftp` 参数解析、大小与时间格式。
 //! - [`metrics`]：像素 ↔ 行列换算。
 
+pub mod filer;
 pub mod ime;
 pub mod keys;
 pub mod metrics;
