@@ -166,8 +166,9 @@ final class SessionLauncherViewController: NSViewController, NSTextFieldDelegate
     /// 面板高度 = 固定头部 + 列表内容（有上限，超出滚动）+ 底部留白。
     private func updatePreferredSize() {
         let list = items.isEmpty ? Self.emptyListHeight : items.reduce(CGFloat(0)) { $0 + height(of: $1) }
-        let height = min(Self.maxHeight, Self.headHeight + list + Self.bottomPadding)
-        let size = NSSize(width: Self.width, height: height)
+        // 不能叫 height：同一函数里用到了 height(of:)，Swift 6.1（Xcode 16）会报循环引用。
+        let total = min(Self.maxHeight, Self.headHeight + list + Self.bottomPadding)
+        let size = NSSize(width: Self.width, height: total)
         guard size != preferredContentSize else { return }
         preferredContentSize = size
         view.setFrameSize(size)
