@@ -1573,12 +1573,6 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "主机密钥" } }
       }
     },
-    "Verification" : {
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Verification" } },
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "验证" } }
-      }
-    },
     "Credential" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Credential" } },
