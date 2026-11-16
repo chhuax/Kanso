@@ -22,8 +22,8 @@ configs:
 settings:
   base:
     MACOSX_DEPLOYMENT_TARGET: "14.0"
-    # 只支持 Apple Silicon（design.md §7）。
-    ARCHS: arm64
+    # ARCHS 按配置设置（design.md §7）：Debug 用本机架构，Release 默认 arm64；
+    # Intel 官网包由 `cargo xtask dmg --arch x86_64` 以命令行 ARCHS=x86_64 覆盖 Release-Direct。
     ONLY_ACTIVE_ARCH: NO
     ENABLE_HARDENED_RUNTIME: YES
     # Swift 6 语言模式，开启严格并发检查。
@@ -38,32 +38,38 @@ settings:
     PRODUCT_BUNDLE_IDENTIFIER: com.chhuax.kanso
   configs:
     Debug-Direct:
+      ARCHS: $(NATIVE_ARCH_ACTUAL)
       KANSO_CHANNEL: direct
       KANSO_RUST_PROFILE: debug
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) DEBUG"
       CODE_SIGN_ENTITLEMENTS: Kanso/Entitlements/Kanso-Direct.entitlements
     Release-Direct:
+      ARCHS: arm64
       KANSO_CHANNEL: direct
       KANSO_RUST_PROFILE: release
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited)"
       CODE_SIGN_ENTITLEMENTS: Kanso/Entitlements/Kanso-Direct.entitlements
     Debug-MAS:
+      ARCHS: $(NATIVE_ARCH_ACTUAL)
       KANSO_CHANNEL: mas
       KANSO_RUST_PROFILE: debug
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) DEBUG MAS"
       CODE_SIGN_ENTITLEMENTS: Kanso/Entitlements/Kanso-MAS.entitlements
     Release-MAS:
+      ARCHS: arm64
       KANSO_CHANNEL: mas
       KANSO_RUST_PROFILE: release
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) MAS"
       CODE_SIGN_ENTITLEMENTS: Kanso/Entitlements/Kanso-MAS.entitlements
     Debug-Setapp:
+      ARCHS: $(NATIVE_ARCH_ACTUAL)
       KANSO_CHANNEL: setapp
       PRODUCT_BUNDLE_IDENTIFIER: com.chhuax.kanso-setapp
       KANSO_RUST_PROFILE: debug
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) DEBUG SETAPP"
       CODE_SIGN_ENTITLEMENTS: Kanso/Entitlements/Kanso-Setapp.entitlements
     Release-Setapp:
+      ARCHS: arm64
       KANSO_CHANNEL: setapp
       PRODUCT_BUNDLE_IDENTIFIER: com.chhuax.kanso-setapp
       KANSO_RUST_PROFILE: release
@@ -130,7 +136,7 @@ targets:
           # Xcode 的构建环境不含用户 shell 的 PATH，找不到 cargo，这里手动补上 rustup 的目录。
           export PATH="$HOME/.cargo/bin:$PATH"
           cd "$PROJECT_DIR/.."
-          cargo xtask apple-lib --channel "$KANSO_CHANNEL" --profile "$KANSO_RUST_PROFILE" --out "$TARGET_TEMP_DIR/rust"
+          cargo xtask apple-lib --channel "$KANSO_CHANNEL" --profile "$KANSO_RUST_PROFILE" --arch "$ARCHS" --out "$TARGET_TEMP_DIR/rust"
 
   # 单元测试与截图测试。由 App 托管（TEST_HOST）：测试需要链接 App 已经链接好的 Rust 静态库
   # （FrameSnapshot.mock 走 FFI），自己再链接一份会重复定义符号。

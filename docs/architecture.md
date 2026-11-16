@@ -121,7 +121,7 @@ kanso/
   docs/
 ```
 
-构建流程：`cargo build` 只编译 `aarch64-apple-darwin` 一个目标（不支持 Intel），打包成 XCFramework，同时生成 UniFFI 的 Swift 绑定；Xcode 通过 Run Script 调用这一步，再用 SwiftPM 引用生成结果。
+构建流程：`cargo build` 按架构编译 `aarch64-apple-darwin`（发行默认）或 `x86_64-apple-darwin`（Intel 开发机与官网 Intel 包，可选；不做 Universal 合并），打包成 XCFramework，同时生成 UniFFI 的 Swift 绑定；Xcode 通过 Run Script 调用这一步，再用 SwiftPM 引用生成结果。
 
 ## 4. 线程与并发模型
 

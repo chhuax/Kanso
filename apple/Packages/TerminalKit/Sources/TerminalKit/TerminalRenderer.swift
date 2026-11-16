@@ -241,9 +241,13 @@ public final class TerminalRenderer {
             pixelFormat: MetalResources.colorPixelFormat, width: width, height: height, mipmapped: false
         )
         desc.usage = .renderTarget
-        desc.storageMode = .shared
+        // 统一内存用 shared；独显用 managed，渲染后需 blit synchronize 才能让 CPU 读到。
+        desc.storageMode = device.cpuAccessTextureStorageMode
         guard let texture = device.makeTexture(descriptor: desc) else { return nil }
-        guard draw(frame: frame, target: texture, scale: scale, appearance: appearance, present: nil, wait: true) else {
+        guard draw(
+            frame: frame, target: texture, scale: scale, appearance: appearance, present: nil, wait: true,
+            readback: desc.storageMode == .managed
+        ) else {
             return nil
         }
 
@@ -267,7 +271,7 @@ public final class TerminalRenderer {
     @discardableResult
     private func draw(
         frame: FrameSnapshot?, target: MTLTexture, scale: CGFloat, appearance: TerminalAppearance,
-        present drawable: CAMetalDrawable?, wait: Bool
+        present drawable: CAMetalDrawable?, wait: Bool, readback: Bool = false
     ) -> Bool {
         let (_, atlas) = prepare(scale: scale)
         let palette = appearance == .light ? lightPalette : darkPalette
@@ -327,6 +331,12 @@ public final class TerminalRenderer {
         drawGlyphs(layoutBuffers.color, color: true)
         drawRects(layoutBuffers.decoration)
         encoder.endEncoding()
+
+        if readback, let blit = commandBuffer.makeBlitCommandEncoder() {
+            // managed 纹理：把 GPU 渲染结果同步回 CPU 副本，之后 getBytes 才读得到。
+            blit.synchronize(resource: target)
+            blit.endEncoding()
+        }
 
         if let drawable { commandBuffer.present(drawable) }
         let semaphore = inFlight

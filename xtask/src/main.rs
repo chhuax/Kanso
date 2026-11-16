@@ -24,7 +24,7 @@ fn main() -> ExitCode {
         Some("gen-tokens") => tokens::generate(&args[1..]),
         Some("check-locales") => locales::check(),
         Some("notices") => notices::generate(),
-        Some("dmg") => apple::dmg(),
+        Some("dmg") => apple::dmg(&args[1..]),
         Some("bindgen") => bindings::generate(),
         Some("check-bindings") => bindings::check(),
         Some("apple-lib") => apple::apple_lib(&args[1..]),
@@ -50,13 +50,13 @@ fn usage() {
          gen-tokens [--out <dir>]    生成 Xcode 颜色集与 DesignTokens.swift（默认 apple/Kanso/Generated）\n  \
          check-locales               校验 locales/*.ftl 与 kanso-types 消息清单一致，并检查 Localizable.xcstrings 中英齐全\n  \
          notices                     重新生成产品依赖与素材的 THIRD_PARTY_NOTICES.md\n  \
-         dmg                         Release 构建 Direct 渠道并生成 arm64 DMG，输出 SHA-256\n  \
+         dmg [--arch <arm64|x86_64>]  Release 构建 Direct 渠道并生成 DMG，输出 SHA-256（默认 arm64；Intel 包显式传 --arch x86_64）\n  \
          bindgen                     用 UniFFI library mode 重新生成 Swift 绑定（入库于 apple/Packages/KansoBridge）\n  \
          check-bindings              重新生成到临时目录并与入库绑定逐字节比较，不一致即失败\n  \
          xcode                       生成 design token 产物并用 XcodeGen 生成 apple/Kanso.xcodeproj\n  \
-         apple-build [--channel <direct|mas|setapp>|--all] [--configuration debug|release]\n                                     先运行 xcode，再用 xcodebuild 构建（默认 direct / debug；--all 构建三个渠道）\n  \
+         apple-build [--channel <direct|mas|setapp>|--all] [--configuration debug|release] [--arch <arm64|x86_64>]\n                                     先运行 xcode，再用 xcodebuild 构建（默认 direct / debug / 本机架构；--all 构建三个渠道；x86_64 的 Release 只支持 direct）\n  \
          apple-test [--only-testing <标识>]\n                                     先运行 xcode，再在 Direct scheme 下跑 xcodebuild test（KANSO_RECORD_SNAPSHOTS=1 重录参考截图）\n  \
-         apple-lib --channel <c> --profile <debug|release> --out <dir>\n                                     构建 libkanso_ffi.a 并复制到 <dir>（Xcode 的 Run Script 调用）\n  \
+         apple-lib --channel <c> --profile <debug|release> --out <dir> [--arch <arm64|x86_64>]\n                                     构建 libkanso_ffi.a 并复制到 <dir>（Xcode 的 Run Script 调用）\n  \
          xcframework --channel <c>   release 构建并打包 KansoCore.xcframework（仅供发布流水线，Xcode 日常构建不用）"
     );
 }

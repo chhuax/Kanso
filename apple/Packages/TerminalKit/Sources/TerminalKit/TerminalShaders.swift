@@ -132,6 +132,12 @@ struct GlyphInstance {
     var color: SIMD4<Float>
 }
 
+extension MTLDevice {
+    /// CPU 要读写的纹理（图集、离屏读回）所用的存储模式。
+    /// 统一内存（Apple Silicon）用 `.shared`；独显（Intel Mac）上 shared 纹理不能这样用，改用 `.managed`。
+    var cpuAccessTextureStorageMode: MTLStorageMode { hasUnifiedMemory ? .shared : .managed }
+}
+
 /// 每个 `MTLDevice` 一份的 Metal 资源：着色器库与渲染管线。
 ///
 /// 多个终端视图（多标签）共用，所以着色器只在进程内编译一次。只在主线程使用。
