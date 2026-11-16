@@ -582,7 +582,7 @@ public final class TerminalRenderer {
             }
             flushRun(upTo: cols)
 
-            // 标签在单元格背景之上、字形之下；两端向外留半格，描边宽度固定为一个设备像素。
+            // 标签在单元格背景之上、字形之下；不外扩，描边宽度固定为一个设备像素。
             var chipCol = 0
             while chipCol < cols {
                 guard frame.cell(row: row, col: chipCol).flags.contains(.chip) else {
@@ -591,10 +591,10 @@ public final class TerminalRenderer {
                 }
                 let start = chipCol
                 repeat { chipCol += 1 } while chipCol < cols && frame.cell(row: row, col: chipCol).flags.contains(.chip)
-                let padding = m.cellWidth / 2
+                // 内边距由 shim 在标签首尾放的空格提供，这里按单元格原样画、不外扩，框左边与光标列对齐。
                 let inset = max(2, m.cellHeight / 10)
-                let x = max(l.originX, l.originX + start * m.cellWidth - padding)
-                let right = min(l.originX + cols * m.cellWidth, l.originX + chipCol * m.cellWidth + padding)
+                let x = l.originX + start * m.cellWidth
+                let right = l.originX + chipCol * m.cellWidth
                 let y = rowY + inset
                 let height = m.cellHeight - inset * 2
                 let radius = Float(min(height / 2, max(3, m.cellWidth / 2)))

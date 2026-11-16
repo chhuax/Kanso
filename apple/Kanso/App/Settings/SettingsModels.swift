@@ -99,8 +99,8 @@ struct DisplaySettings: Equatable, Codable {
     var fontFamily = ""
     var fontSize: Double = 14
     var lineHeight: Double = 1.2
-    var cursorShape: CursorShapeSetting = .block
-    var cursorBlink = false
+    var cursorShape: CursorShapeSetting = .bar
+    var cursorBlink = true
     /// 默认值与 core 创建会话时的初始回滚行数一致（`TerminalOptions::DEFAULT_SCROLLBACK_LINES`）。
     var scrollbackLines = 10_000
     var minimumContrastEnabled = true

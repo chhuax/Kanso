@@ -115,11 +115,14 @@ if [[ ${KANSO_SHELL_INTEGRATION:-1} != 0 ]]; then
     fi
     # 目录名是数据，且可能含控制字符；替换成 ?，避免终端把它当转义序列。
     d=${d//[[:cntrl:]]/\?}
-    if (( ${#d} > 36 )); then
+    # 只有超过终端宽度一半才按整段截断，平时显示完整路径（标签行有整行空间）。
+    local max=$(( ${COLUMNS:-80} / 2 ))
+    (( max < 20 )) && max=20
+    if (( ${#d} > max )); then
       local -a segs=( ${(s:/:)d} )
       local tail=${segs[-1]} i
       for (( i = ${#segs} - 1; i >= 1; --i )); do
-        (( ${#tail} + ${#segs[i]} + 5 > 36 )) && break
+        (( ${#tail} + ${#segs[i]} + 5 > max )) && break
         tail=${segs[i]}/$tail
       done
       d=.../$tail
@@ -196,7 +199,7 @@ if [[ ${KANSO_SHELL_INTEGRATION:-1} != 0 ]]; then
   __kanso_build_ps1() {
     emulate -L zsh
     setopt extended_glob
-    local dir_txt branch_txt node_txt dir_ins branch_ins node_ins pre=' ' core=$__kanso_core out
+    local dir_txt branch_txt node_txt dir_ins branch_ins node_ins pre= core=$__kanso_core out
     __kanso_git_branch
     branch_txt=${REPLY//\%/%%}
     __kanso_fmt_dir
@@ -216,12 +219,14 @@ if [[ ${KANSO_SHELL_INTEGRATION:-1} != 0 ]]; then
       node_ins=$node_txt
     fi
     # 图标由渲染器内置绘制；标签之间的空格不带 chip 属性。
+    # 标签首尾各带一个空格作为内边距，这两个空格也在 chip 范围内：渲染器按 chip 单元格原样画框、不外扩，
+    # 标签框左边因此与第二行的光标对齐。标签之间隔一个不带 chip 属性的空格。亮绿 = ANSI 10。
     if [[ -n $node_txt ]]; then
-      pre+="$__kanso_chip_start%F{2}"$'\ue718'" ${node_ins}%f$__kanso_chip_end  "
+      pre+="$__kanso_chip_start %F{10}"$'\ue718'" ${node_ins}%f $__kanso_chip_end "
     fi
-    pre+="$__kanso_chip_start%B%f"$'\uf07b'" ${dir_ins}%b$__kanso_chip_end"
+    pre+="$__kanso_chip_start %B%f"$'\uf07b'" ${dir_ins}%b $__kanso_chip_end"
     if [[ -n $branch_txt ]]; then
-      pre+="  $__kanso_chip_start%F{2}"$'\ue0a0'" ${branch_ins}%f$__kanso_chip_end"
+      pre+=" $__kanso_chip_start %F{10}"$'\ue0a0'" ${branch_ins}%f $__kanso_chip_end"
     fi
     __kanso_ins_chips=$pre$'\n'
     if [[ ${core//[[:space:]]/} == '%#' ]]; then
