@@ -1,0 +1,5 @@
+# 仓库内文本文件统一用 LF。Windows 版 Git 默认把换行转成 CRLF，会让生成文件的校验
+# （xtask check-tokens 等按字节比对）和读取测试夹具的测试在 Windows 上失败。
+* text=auto eol=lf
+# 由 `cargo xtask notices` 原样生成，内含部分许可证原文自带的 CRLF，不做换行转换。
+THIRD_PARTY_NOTICES.md -text

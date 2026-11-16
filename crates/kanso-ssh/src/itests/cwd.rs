@@ -6,7 +6,9 @@ use std::time::Duration;
 
 use super::server::{Policy, ServerConfig, TestServer};
 use super::support::{Scripted, connect_ok};
-use crate::cwd::{PROBE_SCRIPT, parse_probe_output};
+use crate::cwd::PROBE_SCRIPT;
+#[cfg(unix)]
+use crate::cwd::parse_probe_output;
 use crate::{AuthMethod, CwdError, PtyRequest, query_working_directory};
 
 #[cfg(unix)]

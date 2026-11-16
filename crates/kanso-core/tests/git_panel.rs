@@ -6,6 +6,29 @@ use std::process::Command;
 use kanso_core::git::{GitPanel, GitSummary};
 use tempfile::TempDir;
 
+// 文件名里的控制字符用来覆盖 Git 的路径转义（`core.quotePath`、NUL 分隔输出）。
+// Windows 文件名不允许控制字符，改用空格，仍保留中文、空格和方括号。
+#[cfg(unix)]
+const SPECIAL: &str = "空 格\t换\n行[ab].txt";
+#[cfg(windows)]
+const SPECIAL: &str = "空 格 换 行[ab].txt";
+#[cfg(unix)]
+const COPIED: &str = "copy [源]\n.txt";
+#[cfg(windows)]
+const COPIED: &str = "copy [源] .txt";
+#[cfg(unix)]
+const RENAMED: &str = "new [file]\n名字.txt";
+#[cfg(windows)]
+const RENAMED: &str = "new [file] 名字.txt";
+#[cfg(unix)]
+const UNTRACKED: &str = "new [file]\n新\t.txt";
+#[cfg(windows)]
+const UNTRACKED: &str = "new [file] 新 .txt";
+#[cfg(unix)]
+const MOVED: &str = "renamed [ab]\n中文.txt";
+#[cfg(windows)]
+const MOVED: &str = "renamed [ab] 中文.txt";
+
 fn isolated(name: &str, body: impl FnOnce()) {
     if std::env::var("KANSO_GIT_TEST").as_deref() == Ok(name) {
         body();
@@ -164,19 +187,18 @@ fn paths_net_changes_rename_binary_and_ignored() {
     isolated("paths_net_changes_rename_binary_and_ignored", || {
         let repo = Repo::new();
         repo.initial();
-        let special = "空 格\t换\n行[ab].txt";
-        repo.write(special, "old\n");
+        repo.write(SPECIAL, "old\n");
         repo.write("a.txt", "unchanged\n");
         repo.write("b.txt", "unchanged\n");
         repo.write("binary", b"old\0data");
         repo.git(&["add", "--all"]);
         repo.git(&["commit", "-m", "路径"]);
-        repo.write(special, "new\n");
+        repo.write(SPECIAL, "new\n");
         repo.write("binary", b"new\0data");
         repo.write("file.txt", "staged\n");
         repo.git(&["add", "file.txt"]);
         repo.write("file.txt", "one\ntwo\nthree\n");
-        repo.git(&["mv", "a.txt", "renamed [ab]\n中文.txt"]);
+        repo.git(&["mv", "a.txt", MOVED]);
         repo.write(".gitignore", "ignored\n");
         repo.write("ignored", "ignored\n");
         let panel = GitPanel::default();
@@ -189,7 +211,7 @@ fn paths_net_changes_rename_binary_and_ignored() {
         let special_file = summary
             .files
             .iter()
-            .find(|file| file.path == special)
+            .find(|file| file.path == SPECIAL)
             .unwrap();
         assert_eq!(
             (special_file.added, special_file.deleted),
@@ -197,7 +219,7 @@ fn paths_net_changes_rename_binary_and_ignored() {
         );
         assert!(
             panel
-                .diff(request, special)
+                .diff(request, SPECIAL)
                 .unwrap()
                 .unwrap()
                 .lines
@@ -247,30 +269,30 @@ fn paths_net_changes_rename_binary_and_ignored() {
                 .notice
                 .is_some_and(|message| message.key() == "git-diff-binary")
         );
-        repo.write(special, "same\n");
+        repo.write(SPECIAL, "same\n");
         let (request, refreshed) = repo.read(&panel);
         assert_eq!(
             refreshed
                 .files
                 .iter()
-                .find(|file| file.path == special)
+                .find(|file| file.path == SPECIAL)
                 .unwrap()
                 .added,
             Some(1)
         );
         assert!(
             panel
-                .diff(request, special)
+                .diff(request, SPECIAL)
                 .unwrap()
                 .unwrap()
                 .lines
                 .iter()
                 .any(|line| line.text == "same")
         );
-        repo.git(&["restore", "--worktree", "--", special]);
+        repo.git(&["restore", "--worktree", "--", SPECIAL]);
         assert!(
             panel
-                .diff(request, special)
+                .diff(request, SPECIAL)
                 .unwrap()
                 .unwrap()
                 .notice
@@ -373,7 +395,7 @@ fn copied_file_discard_preserves_modified_source() {
         repo.git(&["add", "--all"]);
         repo.git(&["commit", "-m", "原文件"]);
         repo.git(&["config", "status.renames", "copies"]);
-        repo.write("copy [源]\n.txt", &original);
+        repo.write(COPIED, &original);
         let modified = format!("{original}changed source\n");
         repo.write("source.txt", &modified);
         repo.git(&["add", "--all"]);
@@ -405,16 +427,14 @@ fn discard_single_rename_and_all_including_unborn() {
         repo.write("other", "original\n");
         repo.git(&["add", "--all"]);
         repo.git(&["commit", "-m", "其他"]);
-        repo.git(&["mv", "file.txt", "new [file]\n名字.txt"]);
-        repo.write("new [file]\n名字.txt", "one\ntwo\nthree\nfour\n");
+        repo.git(&["mv", "file.txt", RENAMED]);
+        repo.write(RENAMED, "one\ntwo\nthree\nfour\n");
         repo.write("other", "keep\n");
         let panel = GitPanel::default();
         let (request, _) = repo.read(&panel);
-        panel
-            .discard(request, Some("new [file]\n名字.txt"))
-            .unwrap();
+        panel.discard(request, Some(RENAMED)).unwrap();
         assert!(repo.0.path().join("file.txt").exists());
-        assert!(!repo.0.path().join("new [file]\n名字.txt").exists());
+        assert!(!repo.0.path().join(RENAMED).exists());
         assert_eq!(
             std::fs::read_to_string(repo.0.path().join("other")).unwrap(),
             "keep\n"
@@ -500,27 +520,31 @@ fn conflicts_deletions_type_changes_and_untracked_newlines() {
             let (request, summary) = repo.read(&panel);
             assert_eq!(summary.files[0].status, "D");
             panel.discard(request, Some("file.txt")).unwrap();
-            std::fs::remove_file(repo.0.path().join("file.txt")).unwrap();
-            std::os::unix::fs::symlink("missing", repo.0.path().join("file.txt")).unwrap();
-            let (request, summary) = repo.read(&panel);
-            assert_eq!(summary.files[0].status, "T");
-            panel.discard(request, Some("file.txt")).unwrap();
-            assert!(
-                !repo
-                    .0
-                    .path()
-                    .join("file.txt")
-                    .symlink_metadata()
-                    .unwrap()
-                    .is_symlink()
-            );
-            repo.write("new [file]\n新\t.txt", "first\nlast");
+            // 类型变更（普通文件 → 符号链接）：Windows 建符号链接需要特权，只在 Unix 上验证。
+            #[cfg(unix)]
+            {
+                std::fs::remove_file(repo.0.path().join("file.txt")).unwrap();
+                std::os::unix::fs::symlink("missing", repo.0.path().join("file.txt")).unwrap();
+                let (request, summary) = repo.read(&panel);
+                assert_eq!(summary.files[0].status, "T");
+                panel.discard(request, Some("file.txt")).unwrap();
+                assert!(
+                    !repo
+                        .0
+                        .path()
+                        .join("file.txt")
+                        .symlink_metadata()
+                        .unwrap()
+                        .is_symlink()
+                );
+            }
+            repo.write(UNTRACKED, "first\nlast");
             repo.write("new binary", b"binary\0content");
             let (request, summary) = repo.read(&panel);
             let file = summary
                 .files
                 .iter()
-                .find(|file| file.path == "new [file]\n新\t.txt")
+                .find(|file| file.path == UNTRACKED)
                 .unwrap();
             assert_eq!((file.status.as_str(), file.added), ("U", Some(2)));
             assert_eq!(
@@ -534,6 +558,8 @@ fn conflicts_deletions_type_changes_and_untracked_newlines() {
     );
 }
 
+// 用 `/bin/sh` 写的 git 包装脚本控制读取时序，只在 Unix 上运行。
+#[cfg(unix)]
 #[test]
 fn in_flight_read_is_dropped_and_missing_git_is_an_error() {
     isolated(

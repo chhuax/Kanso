@@ -98,6 +98,15 @@ bytes = "1"
 futures = { version = "0.3", default-features = false, features = ["std"] }
 sha2 = "0.11"
 
+# 系统凭据库后端（kanso-secret，仅在对应 target 下引入）。
+# Windows 凭据管理器：直接调 Cred* API（windows-sys，MIT OR Apache-2.0）；
+# Linux Secret Service：纯 Rust 的 D-Bus 实现（secret-service，MIT OR Apache-2.0，基于 zbus），
+# 不依赖系统 libdbus。用同步 API（blocking）：core 本来就在 spawn_blocking 线程上调用。
+windows-sys = { version = "0.61", default-features = false, features = ["Win32_Foundation", "Win32_Security_Credentials"] }
+# 只用来匹配 D-Bus 错误类型（secret-service 不重新导出 zbus）；运行时 feature 由 secret-service 开启。
+zbus = { version = "5", default-features = false }
+secret-service = { version = "5", default-features = false, features = ["rt-async-io-crypto-rust"] }
+
 [workspace.lints.rust]
 missing_docs = "warn"
 unsafe_op_in_unsafe_fn = "deny"
