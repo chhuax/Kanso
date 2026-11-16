@@ -220,6 +220,12 @@ fn visible_raw(s: &str) -> String {
                     i += 1;
                     continue;
                 }
+                // 两字符的 ESC 序列，如 zle 按 terminfo 的 smkx/rmkx 输出的 `ESC =` / `ESC >`
+                // （Linux 的 xterm-256color 带有，macOS 上一般不出现）。
+                '=' | '>' => {
+                    i += 2;
+                    continue;
+                }
                 _ => {}
             }
         }
@@ -603,7 +609,11 @@ fn long_directory_is_truncated_to_whole_segments() {
         "{vis:?}"
     );
     // 120 列终端阈值 60 字符：只保留尾部完整的路径段，不会出现被截断一半的段，也不会保留 bbb 段。
-    assert!(!vis.contains("bbbbbbbbbbbbbbbbbbbb/cccc"), "{vis:?}");
+    // 只检查提示符标签行（以 ` \r\n` 结尾）；zsh 回显的 `cd '…'` 命令本身含完整路径，不能拿来断言。
+    assert!(
+        !vis.contains("bbbbbbbbbbbbbbbbbbbb/cccccccccccccccccccc/dddddddddd/eeeeeeeeeeeeeeee \r\n"),
+        "{vis:?}"
+    );
 }
 
 #[test]
