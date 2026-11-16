@@ -18,7 +18,7 @@ ignore = [
     # 且仅在 Linux 目标（kanso-secret 的 Secret Service 后端）下编译，不进入 macOS 产物。
     # 升级方案 secret-service 6.0.0（基于 zbus 6）目前只有 rc 版（2026-11 发布），暂不采用；
     # oo7 0.7 需要 Rust 1.95，高于本仓库固定的 1.94.1。secret-service 6 正式发布后升级并删除这三条。
-    # 待用户确认。
+    # 经用户确认（2026-11-16）。
     { id = "RUSTSEC-2026-0370", reason = "zvariant 维护状态告警，仅 Linux 的 Secret Service 后端使用；等 secret-service 6 正式版" },
     { id = "RUSTSEC-2026-0371", reason = "zbus_names 维护状态告警，同上" },
     { id = "RUSTSEC-2026-0372", reason = "zvariant_derive 维护状态告警，同上" },
