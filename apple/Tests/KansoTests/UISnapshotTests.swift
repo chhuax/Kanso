@@ -41,14 +41,6 @@ final class UISnapshotTests: XCTestCase {
         let image = try XCTUnwrap(renderer.renderImage(frame: frame, size: size, scale: Self.scale, appearance: appearance))
         let root = NSImageView(frame: NSRect(origin: .zero, size: size))
         root.image = NSImage(cgImage: image, size: size)
-        let overlay = CommandBlockOverlayView(frame: root.bounds)
-        let layout = renderer.layout(scale: Self.scale)
-        let geometry = TerminalHitGeometry(originX: Double(layout.originX) / 2, originY: Double(layout.originY) / 2,
-            cellWidth: Double(layout.metrics.cellWidth) / 2, cellHeight: Double(layout.metrics.cellHeight) / 2,
-            cols: grid.cols, rows: grid.rows)
-        overlay.update(snapshot: frame, geometry: geometry, palette: appearance == .dark ? .kansoDark : .kansoLight,
-                       hoveredID: 2, selecting: false)
-        root.addSubview(overlay)
         return root
     }
 

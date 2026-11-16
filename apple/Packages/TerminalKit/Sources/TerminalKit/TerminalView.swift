@@ -174,9 +174,6 @@ public final class TerminalView: NSView {
     var scrollAccumulator = ScrollAccumulator()
     var reportedFocus = false
     var mouseTrackingArea: NSTrackingArea?
-    let commandOverlay = CommandBlockOverlayView()
-    var hoveredCommandBlock: UInt64?
-    var commandHoverLocation: NSPoint?
     var menuCommandBlock: UInt64?
     let markedOverlay = MarkedTextOverlayView()
     private var reportedGrid: (Int, Int, Int, Int)?
@@ -204,10 +201,6 @@ public final class TerminalView: NSView {
         registerForDraggedTypes([.fileURL])
         markedOverlay.isHidden = true
         addSubview(markedOverlay)
-        commandOverlay.autoresizingMask = [.width, .height]
-        commandOverlay.frame = bounds
-        commandOverlay.onCopy = { [weak self] id, part in self?.copyCommandBlock(id, part: part) }
-        addSubview(commandOverlay, positioned: .below, relativeTo: markedOverlay)
     }
 
     @available(*, unavailable)
@@ -324,7 +317,6 @@ public final class TerminalView: NSView {
             updateBlinking()
             // 光标可能移动了：组字覆盖层与候选框都跟随光标（terminal.md §16 场景 7）。
             updateMarkedOverlay()
-            updateCommandBlocks()
             onFrameChanged?()
         }
     }
@@ -353,7 +345,6 @@ public final class TerminalView: NSView {
     }
 
     private func renderCurrent() {
-        updateCommandBlocks()
         guard let renderer, let layer = metalLayer, layer.drawableSize.width > 0, layer.drawableSize.height > 0,
               let drawable = layer.nextDrawable()
         else { return }

@@ -10,7 +10,7 @@ Local shells, SSH with jump hosts, an SFTP file browser, a Git changes panel and
 - **Truly native and light.** Swift/AppKit UI with a Metal renderer and a Rust core. About an 11 MB download, a usable prompt in roughly 0.3 s and around 50 MB of memory at idle (measured on Apple Silicon).
 - **Knows when an AI agent is running.** Tabs recognize Claude Code, Codex, Gemini CLI, Cursor Agent, Copilot CLI, Amp, OpenCode, Goose, Qwen Code, OpenHands, Grok and more — showing the tool's icon, whether it is working, and when it has finished in a background tab.
 - **SSH and files in the same window.** Open the SFTP browser next to any SSH session, drag files in and out of Finder, or edit a remote file in your local editor and have it saved back automatically.
-- **Output you can work with.** Every command becomes a block with its exit status and duration; copy the command, the output or both with one click, and jump between blocks with ⌘↑ / ⌘↓.
+- **Output you can work with.** Every command becomes a block: failed commands are marked in the margin, right-click copies just the command or just its output, and ⌘↑ / ⌘↓ jump between blocks.
 - **Built for real servers.** Jump-host chains, host-key change warnings, keyboard-interactive / MFA logins, ssh-agent, legacy-algorithm hosts, GBK / Shift-JIS encodings, and `rz` / `sz` (ZMODEM) transfers inside the terminal.
 
 ## Highlights
@@ -25,7 +25,7 @@ Kanso detects AI command-line tools running in a tab and shows the tool's own ic
 
 ![Command blocks](apple/Tests/Snapshots/command-blocks-dark.png)
 
-Each command, its output, exit code and duration form a block (via OSC 133; zsh integration is built in). Hover a block to copy the command, the output or everything; failed commands get a red bar in the margin.
+Each command and its output form a block (via OSC 133; zsh integration is built in). Failed commands get a red bar in the margin, right-click copies the command or its output, and ⌘↑ / ⌘↓ jump from block to block.
 
 ### SFTP file browser, side by side
 

@@ -182,7 +182,6 @@ extension TerminalView {
     }
 
     public override func mouseMoved(with event: NSEvent) {
-        updateCommandHover(event)
         guard let point = viewportPoint(for: event) else { return }
         inputSink?.mouse(TerminalMouseEvent(
             kind: .move, button: .none, point: point, mods: KeyModifiers(event.modifierFlags), clickCount: 0
@@ -204,7 +203,6 @@ extension TerminalView {
         )
         activeButtons[button] = down
         inputSink?.mouse(down)
-        updateCommandBlocks()
     }
 
     private func pointerDragged(_ event: NSEvent, button: TerminalMouseButton) {
@@ -220,7 +218,6 @@ extension TerminalView {
 
     private func pointerUp(_ event: NSEvent, button: TerminalMouseButton) {
         activeButtons[button] = nil
-        updateCommandHover(event)
         guard let point = viewportPoint(for: event) else { return }
         inputSink?.mouse(TerminalMouseEvent(
             kind: .up, button: button, point: point, mods: KeyModifiers(event.modifierFlags),

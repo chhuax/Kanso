@@ -19,12 +19,6 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "复制输出" } }
       }
     },
-    "Copy All" : {
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Copy All" } },
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "复制全部" } }
-      }
-    },
     "Copied" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Copied" } },
@@ -41,18 +35,6 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Next Command Block" } },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "下一个命令块" } }
-      }
-    },
-    "✓ %@" : {
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "✓ %@" } },
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "✓ %@" } }
-      }
-    },
-    "✗ %d · %@" : {
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "✗ %d · %@" } },
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "✗ %d · %@" } }
       }
     },
     "Directory" : {
