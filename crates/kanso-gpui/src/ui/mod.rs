@@ -8,8 +8,11 @@
 //! - `memory`：进程内存读数（日志用）。
 
 mod element;
+mod filer;
 mod memory;
 mod selftest;
+mod sftp_bench;
+mod tz;
 mod view;
 
 use std::io::Write as _;
@@ -57,6 +60,14 @@ pub(crate) struct Args {
     pub timeout_secs: u64,
     pub data_dir: PathBuf,
     pub log_path: PathBuf,
+    /// `--sftp user@host[:port][:/path]`：打开远程文件列表而不是本地终端。
+    pub sftp: Option<kanso_gpui::filer::SftpSpec>,
+    /// `--key`：私钥文件路径（缺省 `%USERPROFILE%\.ssh\id_ed25519`）。
+    pub key: Option<String>,
+    /// `--expect-count`：自检要求目录条目数恰好等于它。
+    pub expect_count: Option<usize>,
+    /// `--sftp-bench`：不开窗口，只在核心层测量连接与列目录。
+    pub sftp_bench: bool,
 }
 
 fn parse_args() -> Args {
@@ -69,6 +80,10 @@ fn parse_args() -> Args {
         timeout_secs: 30,
         data_dir: default_dir.clone(),
         log_path: default_dir.join("kanso-gpui.log"),
+        sftp: None,
+        key: None,
+        expect_count: None,
+        sftp_bench: false,
     };
     let mut explicit_log = false;
     let mut it = std::env::args().skip(1);
@@ -77,6 +92,16 @@ fn parse_args() -> Args {
             "--selftest" => args.selftest = true,
             "--log-input" => LOG_INPUT.store(true, Ordering::Relaxed),
             "--keep" => KEEP_OPEN.store(true, Ordering::Relaxed),
+            "--sftp" => match it
+                .next()
+                .and_then(|v| kanso_gpui::filer::SftpSpec::parse(&v))
+            {
+                Some(spec) => args.sftp = Some(spec),
+                None => eprintln!("--sftp 需要 user@host[:port][:/path]"),
+            },
+            "--key" => args.key = it.next(),
+            "--expect-count" => args.expect_count = it.next().and_then(|v| v.parse().ok()),
+            "--sftp-bench" => args.sftp_bench = true,
             "--timeout" => {
                 if let Some(v) = it.next().and_then(|v| v.parse().ok()) {
                     args.timeout_secs = v;
@@ -124,6 +149,131 @@ fn build_core(args: &Args, tx: UnboundedSender<CoreEvent>) -> Result<Arc<Core>, 
         .map_err(|e| e.to_string())
 }
 
+/// 为 `--sftp` 目标保存一条临时的纯 SFTP Profile 并打开会话，返回会话 id。
+///
+/// 原型取舍：认证只做私钥文件（没有口令提问界面）；未知主机由核心自动记录到 `~/.ssh/known_hosts`
+/// （ssh.md §3），主机密钥变更会收到提问，原型一律拒绝。
+pub(crate) fn open_sftp_session(
+    core: &Core,
+    spec: &kanso_gpui::filer::SftpSpec,
+    args: &Args,
+) -> Result<kanso_types::SessionId, String> {
+    use kanso_types::profile::{AuthMethod, Profile, ProfileKind, SshTarget};
+    let key = args.key.clone().or_else(|| {
+        std::env::var_os("USERPROFILE").map(|h| {
+            PathBuf::from(h)
+                .join(".ssh")
+                .join("id_ed25519")
+                .to_string_lossy()
+                .into_owned()
+        })
+    });
+    let id = kanso_types::ProfileId::new();
+    let profile = Profile {
+        id,
+        name: format!("{}@{}", spec.user, spec.host),
+        color: None,
+        group: None,
+        kind: ProfileKind::Sftp(SshTarget {
+            host: spec.host.clone(),
+            port: spec.port,
+            user: spec.user.clone(),
+            auth: AuthMethod::PrivateKey,
+            private_key_path: key,
+            jump: None,
+            proxy_command: None,
+        }),
+    };
+    core.save_profile(profile).map_err(|e| e.to_string())?;
+    core.open_session(
+        kanso_core::OpenTarget::Profile(id),
+        kanso_types::GridSize { cols: 80, rows: 24 },
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// `--sftp`：打开远程文件列表窗口。
+fn run_sftp(
+    core: Arc<Core>,
+    rx: futures::channel::mpsc::UnboundedReceiver<CoreEvent>,
+    spec: &kanso_gpui::filer::SftpSpec,
+    args: &Args,
+) -> i32 {
+    let connect_start = Instant::now();
+    let session = match open_sftp_session(&core, spec, args) {
+        Ok(s) => s,
+        Err(e) => {
+            log(&format!("打开 SFTP 会话失败：{e}"));
+            return 1;
+        }
+    };
+    log(&format!(
+        "SFTP 会话已发起（{session:?}）：{}@{}:{}",
+        spec.user, spec.host, spec.port
+    ));
+    let label = format!("{}@{}:{}", spec.user, spec.host, spec.port);
+    let initial = spec.path.clone();
+    let selftest = args.selftest.then(|| {
+        (
+            std::time::Duration::from_secs(args.timeout_secs),
+            args.expect_count,
+        )
+    });
+    let core_for_ui = core.clone();
+    let mut rx = Some(rx);
+    Application::new().run(move |cx: &mut App| {
+        log("GPUI 应用循环已启动");
+        let bounds = Bounds::centered(None, size(px(900.0), px(640.0)), cx);
+        cx.on_window_closed(|cx| {
+            if cx.windows().is_empty() {
+                cx.quit();
+            }
+        })
+        .detach();
+        let opened = cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                titlebar: Some(TitlebarOptions {
+                    title: Some("Kanso 文件".into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            move |window, cx| {
+                let rx = rx.take().expect("窗口只创建一次");
+                cx.new(|cx| {
+                    filer::FilerView::new(
+                        core_for_ui,
+                        session,
+                        rx,
+                        label,
+                        initial,
+                        connect_start,
+                        selftest,
+                        window,
+                        cx,
+                    )
+                })
+            },
+        );
+        match opened {
+            Ok(_) => {
+                log("窗口已创建");
+                cx.activate(true);
+            }
+            Err(e) => {
+                log(&format!("创建窗口失败：{e}"));
+                EXIT_CODE.store(1, Ordering::SeqCst);
+                cx.quit();
+            }
+        }
+    });
+    core.close_session(session);
+    core.shutdown();
+    log(&format!("退出，进程内存 {}", memory::describe()));
+    EXIT_CODE.load(Ordering::SeqCst)
+}
+
 /// 进程入口，返回退出码。
 pub fn run() -> i32 {
     let t0 = Instant::now();
@@ -151,6 +301,14 @@ pub fn run() -> i32 {
         }
     };
     log("核心已就绪");
+
+    if let Some(spec) = args.sftp.clone() {
+        return if args.sftp_bench {
+            sftp_bench::run(&core, rx, &spec, &args)
+        } else {
+            run_sftp(core, rx, &spec, &args)
+        };
+    }
 
     let session = match core.open_session(
         kanso_core::OpenTarget::DefaultLocalShell,
