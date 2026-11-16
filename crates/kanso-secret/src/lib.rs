@@ -1,7 +1,15 @@
 //! SecretStore trait 及各平台实现。
 //!
-//! 本 crate 只定义凭据存取的接口与测试用的内存实现；真实的 Keychain 实现由 Swift 宿主提供
-//! （T8 负责），启动时以 `Arc<dyn SecretStore>` 注入 core。
+//! 本 crate 定义凭据存取的接口、测试用的内存实现，以及 Windows / Linux 的系统凭据库实现：
+//!
+//! - macOS：Keychain 实现由 Swift 宿主提供（T8 负责），启动时以 `Arc<dyn SecretStore>` 注入 core；
+//! - Windows：[`CredentialManagerStore`]（凭据管理器，仅在 `cfg(windows)` 下编译）；
+//! - Linux：[`SecretServiceStore`]（freedesktop Secret Service，仅在 `cfg(target_os = "linux")` 下编译）；
+//! - [`PlatformSecretStore`] 是当前平台系统实现的别名，GPUI 前端构造后以
+//!   `Arc<dyn SecretStore>` 放进 core 的平台依赖（`Platform::secrets`）。
+//!
+//! 各后端共用同一套语义，与 macOS 的 Keychain 实现保持一致：`service` 由宿主决定（使用 bundle id），
+//! `account` 用 [`SecretRef::account`] 生成的不透明键；`get` 不存在返回 `Ok(None)`，`delete` 不存在视为成功。
 
 use std::collections::HashMap;
 use std::fmt;
@@ -9,6 +17,23 @@ use std::sync::Mutex;
 
 use kanso_types::ProfileId;
 use kanso_types::secret::SecretString;
+
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(windows)]
+mod windows;
+
+#[cfg(target_os = "linux")]
+pub use linux::SecretServiceStore;
+#[cfg(windows)]
+pub use windows::CredentialManagerStore;
+
+/// 当前平台的系统凭据库实现（Windows：凭据管理器）。
+#[cfg(windows)]
+pub type PlatformSecretStore = CredentialManagerStore;
+/// 当前平台的系统凭据库实现（Linux：Secret Service）。
+#[cfg(target_os = "linux")]
+pub type PlatformSecretStore = SecretServiceStore;
 
 /// 凭据种类。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

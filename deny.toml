@@ -13,6 +13,15 @@ ignore = [
     # 另外客户端每次认证只做一次签名，远程攻击者难以收集到足够的计时样本。
     # 经用户确认（2026-11-14）。russh 升级到 rsa >= 0.10.0 后删除本条。
     { id = "RUSTSEC-2023-0071", reason = "rsa 0.10 预发布版已含修复，被 russh 精确锁定；升级后删除" },
+    # zbus 5.x 的 zvariant / zvariant_derive / zbus_names 被标记为“不再作为独立 crate 维护”（zbus 6 起合并），
+    # 这是维护状态告警而不是漏洞。它们只经 secret-service 5.2.0 -> zbus 5 进入依赖图，
+    # 且仅在 Linux 目标（kanso-secret 的 Secret Service 后端）下编译，不进入 macOS 产物。
+    # 升级方案 secret-service 6.0.0（基于 zbus 6）目前只有 rc 版（2026-11 发布），暂不采用；
+    # oo7 0.7 需要 Rust 1.95，高于本仓库固定的 1.94.1。secret-service 6 正式发布后升级并删除这三条。
+    # 待用户确认。
+    { id = "RUSTSEC-2026-0370", reason = "zvariant 维护状态告警，仅 Linux 的 Secret Service 后端使用；等 secret-service 6 正式版" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names 维护状态告警，同上" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive 维护状态告警，同上" },
 ]
 
 [licenses]
