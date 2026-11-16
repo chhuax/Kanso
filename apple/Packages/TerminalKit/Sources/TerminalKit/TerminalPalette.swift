@@ -82,6 +82,8 @@ public struct TerminalPalette: Sendable {
     public let blockSelection: RGBA8
     public let chipBackground: RGBA8
     public let chipBorder: RGBA8
+    /// token `terminal.chipIcon`：标签内置图标（目录、Node、Git 分支）的颜色。
+    public let chipIcon: RGBA8
 
     /// 256 色调色板：0–15 取自主题，16–231 为 6×6×6 色立方，232–255 为 24 级灰阶（xterm 标准公式）。
     private let table: [RGB8]
@@ -90,7 +92,7 @@ public struct TerminalPalette: Sendable {
         foreground: RGB8, background: RGB8, cursor: RGB8, cursorText: RGB8,
         selectionBackground: RGB8, ansi: [RGB8], semantic: [RGB8],
         gutterText: RGBA8, gutterCursorLine: RGBA8, commandSeparator: RGBA8, blockSelection: RGBA8,
-        chipBackground: RGBA8, chipBorder: RGBA8
+        chipBackground: RGBA8, chipBorder: RGBA8, chipIcon: RGBA8
     ) {
         precondition(ansi.count == 16 && semantic.count == 13, "调色板尺寸错误")
         self.foreground = foreground
@@ -106,6 +108,7 @@ public struct TerminalPalette: Sendable {
         self.blockSelection = blockSelection
         self.chipBackground = chipBackground
         self.chipBorder = chipBorder
+        self.chipIcon = chipIcon
 
         var table = ansi
         // 色立方每个分量只有 6 级：0 与 95、135、175、215、255，不是均匀分布，不能改成线性插值。
