@@ -21,6 +21,7 @@ final class TerminalHost {
     /// 所以会随视图一起切换标签、跨分屏移动，不需要另外管理显隐。
     let findBar: FindBarController
     let completion: CompletionController
+    let directoryPicker: DirectoryPickerController
 
     /// - Parameter keybindings: 快捷键改绑；传入后接到视图的按键拦截点（用户绑定的组合键不漏给 shell，
     ///   普通 Ctrl+字母绑定为复制键时的特殊规则也在那里，terminal.md §8.2）。
@@ -47,9 +48,20 @@ final class TerminalHost {
             compute: { core.complete(sessionId: session, input: $0, sources: $1) },
             plan: { core.completionPlan(sessionId: session, input: $0, sources: $1) })
         PerformanceProbe.mark("completion")
+        directoryPicker = DirectoryPickerController(terminal: view, sink: inputSink,
+            workingDirectory: { try await core.workingDirectory(sessionId: session) })
+        if !remote {
+            view.onDirectoryChipClick = { [weak directoryPicker, weak completion] anchor in
+                completion?.invalidate()
+                directoryPicker?.present(anchor: anchor)
+            }
+        }
         view.completionKeyInterceptor = { [weak completion] in completion?.intercept($0) ?? false }
         view.onInputActivity = { [weak completion] in completion?.inputChanged() }
-        view.onFrameChanged = { [weak completion] in completion?.refresh() }
+        view.onFrameChanged = { [weak completion, weak directoryPicker] in
+            completion?.refresh()
+            directoryPicker?.refresh()
+        }
         PerformanceProbe.observe(terminal: view)
         if let keybindings {
             // 弱引用：视图不该延长改绑控制器（与应用同寿命）的使用范围，也避免测试里的循环引用。

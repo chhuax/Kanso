@@ -298,6 +298,31 @@ if [[ ${KANSO_SHELL_INTEGRATION:-1} != 0 ]]; then
     __kanso_cmd_ran=1
     print -rn -- $'\e]133;C\a'
   }
+
+  __kanso_change_directory() {
+    emulate -L zsh
+    local encoded= key= escaped= target= i
+    local saved_buffer=$BUFFER saved_cursor=$CURSOR
+    while read -rk 1 key; do
+      [[ $key == $'\n' ]] && break
+      encoded+=$key
+    done
+    [[ -n $encoded && $encoded != *[^0-9a-fA-F]* ]] || return 0
+    (( ${#encoded} % 2 == 0 )) || return 0
+    for (( i = 1; i <= ${#encoded}; i += 2 )); do
+      escaped+="\\x${encoded[i,i+1]}"
+    done
+    printf -v target '%b' "$escaped"
+    builtin cd -- "$target" >/dev/null 2>&1 || return 0
+    BUFFER=$saved_buffer
+    CURSOR=$saved_cursor
+    __kanso_update_ps1
+    __kanso_urlencode $HOST
+    local host=$REPLY
+    __kanso_urlencode $PWD
+    print -rn -- $'\e]7;file://'${host}${REPLY}$'\a'
+    zle reset-prompt
+  }
 fi
 
 # macOS 的 /etc/zshrc 会把 HISTFILE 设成 ${ZDOTDIR:-$HOME}/.zsh_history；那时 ZDOTDIR 指向 shim 目录，
@@ -338,6 +363,10 @@ if [[ ${KANSO_SHELL_INTEGRATION:-1} != 0 ]]; then
   autoload -Uz add-zsh-hook
   add-zsh-hook precmd __kanso_precmd
   add-zsh-hook preexec __kanso_preexec
+  zle -N __kanso_change_directory
+  bindkey -M emacs $'\e[9001~' __kanso_change_directory
+  bindkey -M viins $'\e[9001~' __kanso_change_directory
+  bindkey -M vicmd $'\e[9001~' __kanso_change_directory
 fi
 
 # 非 login 的交互式 shell 之后不会再读 .zlogin，在这里还原 ZDOTDIR（原因见 .zlogin shim）；
