@@ -223,14 +223,18 @@ if [[ ${KANSO_SHELL_INTEGRATION:-1} != 0 ]]; then
     if [[ -n $branch_txt ]]; then
       pre+="  $__kanso_chip_start%F{2}"$'\ue0a0'" ${branch_ins}%f$__kanso_chip_end"
     fi
-    # 只给第一个 `%#` 上色；替换文本放进变量，避免 `${…/…/…}` 里的花括号被当成参数展开的边界。
-    local red_mark='%F{1}%#%f'
-    core=${core/\%\#/$red_mark}
     __kanso_ins_chips=$pre$'\n'
-    out=$__kanso_ins_chips$core
-    # 原提示符末尾的空格是光标与提示符的间距，保留；正文被全部去掉时也至少补一个。
-    if (( __kanso_trail )) || [[ -z $core ]]; then
-      out+=' '
+    if [[ ${core//[[:space:]]/} == '%#' ]]; then
+      # 去掉目录 / 用户名后只剩 `%#`（zsh 默认提示符就是这样）：目录已在标签行，普通用户的 `%` 没有信息量，
+      # 输入行留空让光标顶格；root 仍显示红色 `#` 提醒权限。用户自己写了别的内容时走下面的分支原样保留。
+      out=$__kanso_ins_chips'%(!.%F{1}#%f .)'
+    else
+      # 只给第一个 `%#` 上色；替换文本放进变量，避免 `${…/…/…}` 里的花括号被当成参数展开的边界。
+      local red_mark='%F{1}%#%f'
+      core=${core/\%\#/$red_mark}
+      out=$__kanso_ins_chips$core
+      # 原提示符末尾的空格是光标与提示符的间距，保留；正文被全部去掉时不补，光标顶格。
+      (( __kanso_trail )) && [[ -n $core ]] && out+=' '
     fi
     REPLY=$out$__kanso_bmark
   }
