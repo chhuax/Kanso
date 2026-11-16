@@ -16,7 +16,8 @@ use gpui::{
 };
 use kanso_core::Core;
 use kanso_gpui::filer::{
-    BatchBuffer, DirModel, ListEnd, FrameStats, Sort, SortKey, format_mtime, format_size, frame_stats, parent_path,
+    BatchBuffer, DirModel, FrameStats, ListEnd, Sort, SortKey, format_mtime, format_size,
+    frame_stats, parent_path,
 };
 use kanso_gpui::theme::Palette;
 use kanso_types::event::SessionState;
@@ -349,7 +350,7 @@ impl FilerView {
                         wait_tot += wait;
                         apply_tot += apply;
                         gap_tot += gap;
-                        if n <= 5 || n % 50 == 0 {
+                        if n <= 5 || n.is_multiple_of(50) {
                             log(&format!(
                                 "PERF 逐批 #{n}：next_batch 等待 {:.1} ms，on_batch {:.1} ms，批间间隔 {:.1} ms",
                                 wait.as_secs_f64() * 1000.0,
