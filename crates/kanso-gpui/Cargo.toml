@@ -19,6 +19,8 @@ kanso-secret.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 unicode-width.workspace = true
+# 输入框按字素簇移动光标、按词边界移动（MIT / Apache-2.0；gpui 本身也依赖它，已在 Cargo.lock 里）。
+unicode-segmentation = "1"
 
 # GPUI 与其配套依赖只在 Windows 引入：macOS / Linux 的 `cargo build --workspace` 不需要图形系统库。
 # 用 crates.io 的发布版（Apache-2.0），不用 git 依赖；`=` 固定版本，升级要重新评估许可证与体积。
