@@ -504,9 +504,11 @@ fn node_chip_requires_project_and_command_and_caches_directory_and_path() {
         );
         fs::set_permissions(fx.home.join(file), fs::Permissions::from_mode(0o755)).unwrap();
     }
-    let path = format!("{}:/usr/bin:/bin", fx.home.join("bin1").display());
-    let out = Run::start(&fx, true, &[("PATH", &path)]).run(&[
-        ":",
+    // PATH 要在 shell 启动后再设：macOS 的 /etc/zprofile 会用 path_helper 把系统目录排到前面，
+    // 机器上装了真 node（如 GitHub CI 的 /usr/local/bin/node）时会盖住测试用的假 node。
+    // 第一条命令在 $HOME 执行，没有 package.json，不会触发 node 查询。
+    let out = Run::start(&fx, true, &[]).run(&[
+        "PATH=$HOME/bin1:/usr/bin:/bin",
         "cd project/sub",
         ":",
         "PATH=\"$HOME/bin2:$PATH\"",
