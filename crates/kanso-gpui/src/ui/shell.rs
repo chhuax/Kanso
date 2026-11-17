@@ -78,6 +78,8 @@ pub(crate) struct ShellView {
     /// 最近一次通知核心“有输入焦点”的会话。
     focused: Option<SessionId>,
     last_title: String,
+    /// `--log-input` 下上一次写进日志的布局（变化才再写）。
+    last_layout_log: String,
     /// `--selftest`：终端阶段的超时；由第一个终端取走。
     pending_terminal_selftest: Option<Duration>,
     pub(super) selftest_timeout: Option<Duration>,
@@ -110,6 +112,7 @@ impl ShellView {
             window_active: true,
             focused: None,
             last_title: String::new(),
+            last_layout_log: String::new(),
             pending_terminal_selftest: selftest,
             selftest_timeout: selftest,
             shell_selftest: None,
@@ -532,6 +535,42 @@ impl ShellView {
         true
     }
 
+    /// 自动化验证用：把窗格与分隔条的几何（逻辑像素，窗口坐标）写进日志。
+    fn log_layout(&mut self, area: Rect, scale: f32) {
+        let ws = self.ctl.workspace();
+        let mut frames: Vec<_> = ws
+            .layout()
+            .frames(area, DIVIDER_THICKNESS)
+            .into_iter()
+            .collect();
+        frames.sort_by_key(|(p, _)| *p);
+        let text = format!(
+            "scale={scale} sidebar={} active_pane={:?} tabs={} panes={:?} dividers={:?}",
+            self.sidebar_visible,
+            ws.active_pane(),
+            ws.tab_count(),
+            frames
+                .iter()
+                .map(|(p, r)| format!(
+                    "{}:{:.0},{:.0},{:.0},{:.0}",
+                    p.0, r.x, r.y, r.width, r.height
+                ))
+                .collect::<Vec<_>>(),
+            ws.layout()
+                .dividers(area, DIVIDER_THICKNESS)
+                .iter()
+                .map(|d| format!(
+                    "{:.0},{:.0},{:.0},{:.0}",
+                    d.rect.x, d.rect.y, d.rect.width, d.rect.height
+                ))
+                .collect::<Vec<_>>(),
+        );
+        if text != self.last_layout_log {
+            log(&format!("layout {text}"));
+            self.last_layout_log = text;
+        }
+    }
+
     // ---- 绘制 ----
 
     fn theme(&self) -> Theme {
@@ -720,6 +759,9 @@ impl Render for ShellView {
             self.last_title = title;
         }
 
+        if super::LOG_INPUT.load(Ordering::Relaxed) {
+            self.log_layout(area, window.scale_factor());
+        }
         let panes = self.render_panes(area, th, cx);
         let sidebar = self.sidebar_visible.then(|| self.render_sidebar(th, cx));
         let notice = self
