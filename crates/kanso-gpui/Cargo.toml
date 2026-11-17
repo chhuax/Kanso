@@ -16,6 +16,8 @@ kanso-core = { workspace = true, default-features = false }
 kanso-frame.workspace = true
 kanso-types.workspace = true
 kanso-secret.workspace = true
+# 核心消息（错误、警告）渲染成界面文字（Apache-2.0 / MIT 的 fluent 系列，已在 Cargo.lock 里）。
+kanso-l10n.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 unicode-width.workspace = true

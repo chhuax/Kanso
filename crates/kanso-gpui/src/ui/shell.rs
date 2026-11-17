@@ -44,13 +44,14 @@ use kanso_gpui::keys::KeyInput;
 use kanso_gpui::widgets::dialog::DialogResult;
 use kanso_gpui::widgets::menu::MenuItem;
 use kanso_gpui::widgets::style::{Appearance, color, number};
-use kanso_types::{CoreEvent, SessionId};
+use kanso_types::{CoreEvent, PromptId, SessionId};
 
+use super::launcher::LauncherView;
+use super::session_editor::SessionEditorView;
 use super::shell_selftest::ShellSelfTest;
 use super::view::{TerminalEvent, TerminalView};
 use super::widgets::dialog::{Dialog, DialogEvent};
 use super::widgets::menu::{ContextMenu, MenuEvent};
-use super::widgets::text_input;
 use super::{EXIT_CODE, log, tz};
 
 /// 界面字体。
@@ -121,6 +122,15 @@ pub(crate) struct ShellView {
     pending_terminal_selftest: Option<Duration>,
     pub(super) selftest_timeout: Option<Duration>,
     pub(super) shell_selftest: Option<ShellSelfTest>,
+    /// 会话启动器浮层（`ui/shell_launcher.rs`）。
+    pub(super) launcher: Option<Entity<LauncherView>>,
+    pub(super) launcher_sub: Option<Subscription>,
+    /// 会话编辑对话框。
+    pub(super) editor: Option<Entity<SessionEditorView>>,
+    pub(super) editor_sub: Option<Subscription>,
+    /// 正在显示的连接提示框（主机密钥 / 密码 / 二次验证）。
+    pub(super) prompt: Option<(PromptId, Entity<Dialog>)>,
+    pub(super) prompt_sub: Option<Subscription>,
 }
 
 impl ShellView {
@@ -159,10 +169,13 @@ impl ShellView {
             pending_terminal_selftest: selftest,
             selftest_timeout: selftest,
             shell_selftest: None,
+            launcher: None,
+            launcher_sub: None,
+            editor: None,
+            editor_sub: None,
+            prompt: None,
+            prompt_sub: None,
         };
-
-        // 对话框里的输入框用到的快捷键（只需注册一次）。
-        text_input::bind_keys(cx);
 
         // 点窗口关闭按钮：有仍在连接的会话先确认（spec §8）。
         let weak = cx.weak_entity();
@@ -252,7 +265,12 @@ impl ShellView {
 
     // ---- 终端实体 ----
 
-    fn attach_terminal(&mut self, id: SessionId, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn attach_terminal(
+        &mut self,
+        id: SessionId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let core = self.core.clone();
         let selftest = self.pending_terminal_selftest.take();
         let track = self.selftest_timeout.is_some();
@@ -308,9 +326,7 @@ impl ShellView {
             }
         }
         if fx.prompt {
-            // TODO(prompts-ui)：主机密钥变更 / 密码提问的对话框由控件组提供；对话框接入前，
-            // 提问留在 `ctl.prompts()` 队列里（本地 shell 不会产生提问）。
-            log("收到核心提问（提示框 UI 尚未接入）");
+            self.sync_prompt(window, cx);
         }
         if fx.notice {
             for n in self.ctl.take_notices() {
@@ -339,11 +355,13 @@ impl ShellView {
         cx: &mut Context<Self>,
     ) {
         // 菜单或对话框打开时是模态的：快捷键不穿透。
-        if self.dialog.is_some() || self.menu.is_some() {
+        if self.dialog.is_some() || self.menu.is_some() || self.modal_open() {
             return;
         }
         match command {
             AppCommand::NewLocalTab => self.open_tab(window, cx),
+            AppCommand::OpenLauncher => self.open_launcher(window, cx),
+            AppCommand::NewSession => self.open_editor(None, window, cx),
             AppCommand::CloseSession => {
                 if let Some(id) = self.ctl.workspace().active_session() {
                     self.request_close(id, window, cx);
@@ -377,11 +395,7 @@ impl ShellView {
                 cx.notify();
             }
             AppCommand::Quit => self.request_quit(window, cx),
-            // 下面三个的界面由别的模块提供：这里先只记日志。
-            AppCommand::EditSession(id) => {
-                log(&format!("编辑已保存的会话（{id:?}）：会话编辑器尚未接入"));
-            }
-            AppCommand::OpenLauncher => log("打开会话启动器：启动器尚未接入"),
+            AppCommand::EditSession(id) => self.open_editor(Some(id), window, cx),
             AppCommand::OpenSettings => log("打开设置：设置界面尚未接入"),
         }
     }
@@ -493,7 +507,7 @@ impl ShellView {
         cx.notify();
     }
 
-    fn open_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn open_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match self.ctl.open_local_shell(None, FALLBACK_GRID) {
             Ok(id) => {
                 self.attach_terminal(id, window, cx);
@@ -648,7 +662,7 @@ impl ShellView {
     }
 
     /// 工作区结构变化后的收尾：空了就退出，否则把焦点交给活动终端并重绘。
-    fn after_change(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn after_change(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.ctl.workspace().is_empty() {
             log("最后一个标签已关闭，退出应用");
             cx.quit();
@@ -696,7 +710,8 @@ impl ShellView {
     }
 
     pub(super) fn new_tab_clicked(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.run_command(AppCommand::NewLocalTab, window, cx);
+        // ui-shell.md §2.1：＋ 按钮打开会话启动器（里面有「本地 Shell」）。
+        self.run_command(AppCommand::OpenLauncher, window, cx);
     }
 
     /// 键盘焦点与核心的“有焦点”状态都跟随活动会话。
@@ -721,7 +736,12 @@ impl ShellView {
         }
     }
 
-    fn show_notice(&mut self, text: String, cx: &mut Context<Self>) {
+    /// 同 [`show_notice`](Self::show_notice)，接受 `&str`。
+    pub(super) fn show_notice_str(&mut self, text: &str, cx: &mut Context<Self>) {
+        self.show_notice(text.to_owned(), cx);
+    }
+
+    pub(super) fn show_notice(&mut self, text: String, cx: &mut Context<Self>) {
         log(&format!("提示：{text}"));
         self.notice = Some((text, Instant::now() + Duration::from_secs(3)));
         cx.notify();
@@ -738,6 +758,10 @@ impl ShellView {
 
     /// 捕获阶段：命中应用级快捷键就执行并吞掉按键，终端收不到。
     fn on_capture_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        // 浮层（启动器、编辑对话框、提示框）打开时键盘归浮层。
+        if self.modal_open() {
+            return;
+        }
         let ks = &ev.keystroke;
         let input = KeyInput {
             key: &ks.key,
@@ -1117,5 +1141,8 @@ impl Render for ShellView {
             // 最上层：菜单与模态对话框（根元素铺满窗口，遮罩按窗口坐标定位）。
             .children(self.menu.clone())
             .children(self.dialog.clone())
+            .children(self.launcher.clone())
+            .children(self.editor.clone())
+            .children(self.prompt.as_ref().map(|(_, d)| d.clone()))
     }
 }

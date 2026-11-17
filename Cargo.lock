@@ -3772,6 +3772,7 @@ dependencies = [
  "gpui",
  "kanso-core",
  "kanso-frame",
+ "kanso-l10n",
  "kanso-secret",
  "kanso-types",
  "serde",

@@ -18,6 +18,10 @@ use crate::keys::KeyInput;
 pub enum AppCommand {
     /// 在当前分屏新开一个本地 shell 标签。
     NewLocalTab,
+    /// 打开会话启动器浮层（＋ 按钮同款）。
+    OpenLauncher,
+    /// 打开新建会话对话框（ui-shell.md §7：Alt+N）。
+    NewSession,
     /// 关闭当前会话（本地 shell 有前台命令时需要确认）。
     CloseSession,
     /// 当前分屏的下一个标签（循环）。
@@ -48,14 +52,12 @@ pub enum AppCommand {
     CloseTab(SessionId),
     /// 在指定标签所在分屏组内批量关闭（只确认一次）。
     CloseGroup(CloseScope, SessionId),
-    /// 编辑指定标签来源的已保存会话（会话编辑器由别的模块提供，暂时只记日志）。
+    /// 编辑指定标签来源的已保存会话（打开会话编辑对话框）。
     EditSession(SessionId),
     /// 切换右键行为：弹出菜单 / 复制或粘贴（terminal.md §8.1）。
     ToggleRightClickMenu,
     /// 退出应用（有仍在连接的会话时先确认）。
     Quit,
-    /// 打开会话启动器（新建会话…；界面由启动器模块提供，暂时只记日志）。
-    OpenLauncher,
     /// 打开设置（界面由设置模块提供，暂时只记日志）。
     OpenSettings,
 }
@@ -99,6 +101,9 @@ const fn b(ctrl: bool, alt: bool, shift: bool, key: &'static str, command: AppCo
 pub const DEFAULT_BINDINGS: &[Binding] = &[
     // 标签
     b(true, false, true, "t", AppCommand::NewLocalTab),
+    // 规格没有给启动器单独的键；Ctrl+Shift+O 与 Ctrl+Shift+T / W 同属「会话」组。
+    b(true, false, true, "o", AppCommand::OpenLauncher),
+    b(false, true, false, "n", AppCommand::NewSession),
     b(true, false, true, "w", AppCommand::CloseSession),
     b(false, true, false, "]", AppCommand::NextTab),
     b(false, true, false, "[", AppCommand::PrevTab),
@@ -206,6 +211,11 @@ mod tests {
         assert_eq!(
             press("9", false, true, false),
             Some(AppCommand::SelectTab(8))
+        );
+        assert_eq!(press("n", false, true, false), Some(AppCommand::NewSession));
+        assert_eq!(
+            press("o", true, false, true),
+            Some(AppCommand::OpenLauncher)
         );
         assert_eq!(press("tab", true, false, false), Some(AppCommand::NextTab));
         assert_eq!(press("tab", true, false, true), Some(AppCommand::PrevTab));
