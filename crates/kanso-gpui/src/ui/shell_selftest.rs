@@ -441,7 +441,7 @@ impl ShellView {
                 if self.menu.is_some() {
                     return self.st_fail("Esc 没有关闭应用菜单".into(), cx);
                 }
-                self.st_pass("应用菜单弹出，Esc 关闭");
+                self.st_note("PASS 应用菜单弹出，Esc 关闭".to_owned());
                 self.run_command(AppCommand::NewLocalTab, window, cx);
                 let Some(b) = self.ctl.workspace().active_session() else {
                     return self.st_fail("没有活动会话".into(), cx);
@@ -464,7 +464,7 @@ impl ShellView {
                 if self.menu.is_some() {
                     return self.st_fail("Esc 没有关闭终端右键菜单".into(), cx);
                 }
-                self.st_pass("终端右键菜单弹出，Esc 关闭");
+                self.st_note("PASS 终端右键菜单弹出，Esc 关闭".to_owned());
                 let b = ids[0];
                 self.open_tab_menu(b, point(px(60.0), px(80.0)), window, cx);
                 self.st_next();
@@ -484,7 +484,7 @@ impl ShellView {
                 if self.menu.is_some() || self.terminals.contains_key(&b) {
                     return self.st_fail("标签菜单的“关闭”没有关掉标签".into(), cx);
                 }
-                self.st_pass("标签右键菜单：关闭 经 AppCommand 关掉标签");
+                self.st_note("PASS 标签右键菜单：关闭 经 AppCommand 关掉标签".to_owned());
                 self.run_command(AppCommand::NewLocalTab, window, cx);
                 let Some(c) = self.ctl.workspace().active_session() else {
                     return self.st_fail("没有活动会话".into(), cx);
@@ -509,7 +509,7 @@ impl ShellView {
                 if self.dialog.is_some() || !self.terminals.contains_key(&c) {
                     return self.st_fail("取消后标签应保留且对话框关闭".into(), cx);
                 }
-                self.st_pass("关闭确认：取消（Esc）保留标签");
+                self.st_note("PASS 关闭确认：取消（Esc）保留标签".to_owned());
                 self.show_forced_close_dialog(c, window, cx);
                 self.st_next();
             }
