@@ -280,7 +280,13 @@ final class WorkspaceController {
     }
 
     /// 把 core 已打开的会话登记进工作区并创建终端视图。
-    private func adopt(_ id: SessionID, in pane: PaneID?, splitAxis: SplitAxis?) {
+    /// MCP 打开的标签：放进当前分屏，不激活，因此不切换标签、也不抢焦点。
+    func placeMcpSession(_ id: SessionID) {
+        guard hosts[id] == nil else { return }
+        adopt(id, in: workspace.activePane, splitAxis: nil, activate: false)
+    }
+
+    private func adopt(_ id: SessionID, in pane: PaneID?, splitAxis: SplitAxis?, activate: Bool = true) {
         let info = core.sessionInfo(sessionId: id)
         let item = TabItem(
             id: id,
@@ -303,7 +309,7 @@ final class WorkspaceController {
         if let splitAxis {
             workspace.splitActivePane(axis: splitAxis, with: item)
         } else {
-            workspace.addTab(item, in: pane, activate: true)
+            workspace.addTab(item, in: pane, activate: activate)
         }
         refresh()
     }

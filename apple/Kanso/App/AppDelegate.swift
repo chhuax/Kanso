@@ -1,4 +1,5 @@
 import AppKit
+import KansoBridge
 import KansoUI
 
 @MainActor
@@ -26,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // 设置在窗口创建过程中载入（core 此时才创建），并立即应用外观与时间轴模式，窗口第一次绘制就是正确的外观。
             let controller = try MainWindowController(defaults: PerformanceProbe.defaults ?? .standard, gutter: gutter, settings: settings, keybindings: keybindings)
             mainWindowController = controller
+            controller.onOpenMcpSettings = { [weak self] in self?.showSettings(tab: .mcp) }
             controller.showWindow(nil)
             controller.filer.cleanPreviousEditsAfterWindowShown()
             NSApp.activate()
@@ -89,7 +91,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showSettings(tab: SettingsTab) {
-        SettingsWindowController.show(settings: settings, appearance: appearance, keybindings: keybindings, tab: tab)
+        SettingsWindowController.show(
+            settings: settings, appearance: appearance, keybindings: keybindings, tab: tab,
+            mcp: mainWindowController?.mcp, mcpSupported: mcpSupported()
+        )
     }
 
     /// 帮助 → 恢复默认设置…：确认后清空设置与快捷键，不动会话、分组、Sender 命令和历史。

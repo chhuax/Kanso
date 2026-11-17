@@ -121,7 +121,10 @@ final class SessionPresenter {
     /// 以 sheet 打开编辑对话框；`profile` 为 nil 表示新建。已有 sheet 时忽略（避免叠多个）。
     func presentEditor(editing profile: FfiProfile?) {
         guard editorSheet == nil, let window else { return }
-        let model = SessionEditorModel(store: store, editing: profile)
+        let model = SessionEditorModel(
+            store: store, editing: profile,
+            showsMcpAccess: mcpSupported(), mcpAccessStore: controller.core
+        )
         let editor = SessionEditorViewController(model: model)
         // 先加载视图再量尺寸；主体放不下时滚动，所以按主窗口高度留出上下边距。
         editor.maxHeight = max(360, window.frame.height - 120)

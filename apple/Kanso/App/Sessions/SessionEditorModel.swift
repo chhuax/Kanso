@@ -30,8 +30,16 @@ enum SessionColorPresets {
 }
 
 /// 编辑对话框里可显隐的字段行。
+/// 会话的 MCP 访问级别。与设置页读写同一份 `mcpAccess`。
+protocol McpAccessStoring: AnyObject, Sendable {
+    func mcpAccess(profileId: String) throws -> FfiMcpAccess
+    func setMcpAccess(profileId: String, level: FfiMcpAccess) throws
+}
+
+extension KansoCore: McpAccessStoring {}
+
 enum SessionEditorField: CaseIterable {
-    case name, kind, color, group
+    case name, kind, color, group, mcpAccess
     case shellCommand, startDir
     case host, port, user, auth, password, keyPath, keyPassphrase, jump, proxyCommand
     case encoding, locale
@@ -83,6 +91,10 @@ final class SessionEditorModel {
 
     var encoding = ""
     var locale = ""
+    /// 新建会话默认关闭。`showsMcpAccess` 为假时界面不显示，保存也不写。
+    var mcpAccess: FfiMcpAccess = .off
+    let showsMcpAccess: Bool
+    private let mcpAccessStore: (any McpAccessStoring)?
 
     /// 最近一次保存失败的错误文字（显示在对话框底部）。
     private(set) var errorText: String?
@@ -93,12 +105,19 @@ final class SessionEditorModel {
         store: SessionStore,
         editing profile: FfiProfile? = nil,
         channel: String = KansoChannel.current,
-        makeID: () -> String = { UUID().uuidString.lowercased() }
+        makeID: () -> String = { UUID().uuidString.lowercased() },
+        showsMcpAccess: Bool = false,
+        mcpAccessStore: (any McpAccessStoring)? = nil
     ) {
         self.store = store
         self.original = profile
         self.channel = channel
+        self.showsMcpAccess = showsMcpAccess
+        self.mcpAccessStore = mcpAccessStore
         self.profileID = profile?.id ?? makeID()
+        if showsMcpAccess, let mcpAccessStore, original != nil {
+            self.mcpAccess = (try? mcpAccessStore.mcpAccess(profileId: profileID)) ?? .off
+        }
         guard let profile else { return }
         name = profile.name
         color = profile.color
@@ -164,6 +183,8 @@ final class SessionEditorModel {
         switch field {
         case .name, .kind, .color, .group:
             true
+        case .mcpAccess:
+            showsMcpAccess
         case .shellCommand, .startDir:
             kind == .local
         case .host, .port, .user, .auth, .jump:
@@ -264,6 +285,9 @@ final class SessionEditorModel {
         }
         do {
             try store.saveProfile(profile: profile)
+            if showsMcpAccess, let mcpAccessStore {
+                try mcpAccessStore.setMcpAccess(profileId: profileID, level: mcpAccess)
+            }
             store.notifyLibraryChanged()
         } catch {
             errorText = CoreMessageText.text(for: error)
