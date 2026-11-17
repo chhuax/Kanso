@@ -41,6 +41,11 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
     private(set) var levelErrorLabels: [String: NSTextField] = [:]
     private var auditRecords: [FfiMcpAuditRecord] = []
     private var auditSessionIDs: [String?] = []
+    /// 上次提交（reset）时的筛选条件。翻页必须沿用它：用户可能在输入框里改了字但还没提交，
+    /// 此时「更多」读输入框会让后一页和已显示的前几页来自不同条件。
+    private var committedFilter: (client: String?, profileId: String?, errorsOnly: Bool) = (nil, nil, false)
+    /// 读取或清空审计失败的原因；非 nil 时审计区显示它而不是记录列表。
+    private var auditError: String?
     private let auditPageSize: UInt32 = 20
 
     private var deminiaturizeObserver: NSObjectProtocol?
@@ -133,7 +138,7 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
 
         view = makeScrollingPage(makePageView([switchCard, serviceCard, configCard, clientsCard, grantsCard, auditCard]))
         // MCP 事件只更新状态和客户端列表，且只在页面可见时做；重新显示时 `viewWillAppear` 会补一次。
-        mcp.addChangeHandler { [weak self] in
+        mcp.addChangeHandler { [weak self] _ in
             guard let self, view.window?.isVisible == true else { return }
             refreshLive()
         }
@@ -434,20 +439,31 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
         if reset {
             auditRecords = []
             refillAuditSessionPopup()
+            let client = auditClientField.stringValue.trimmingCharacters(in: .whitespaces)
+            let index = auditSessionPopup.indexOfSelectedItem
+            committedFilter = (
+                client.isEmpty ? nil : client,
+                auditSessionIDs.indices.contains(index) ? auditSessionIDs[index] : nil,
+                errorsOnlyRow.isChecked
+            )
         }
-        let client = auditClientField.stringValue.trimmingCharacters(in: .whitespaces)
-        let index = auditSessionPopup.indexOfSelectedItem
-        let profileId = auditSessionIDs.indices.contains(index) ? auditSessionIDs[index] : nil
         let filter = FfiMcpAuditFilter(
-            client: client.isEmpty ? nil : client,
-            profileId: profileId,
-            errorsOnly: errorsOnlyRow.isChecked,
+            client: committedFilter.client,
+            profileId: committedFilter.profileId,
+            errorsOnly: committedFilter.errorsOnly,
             beforeId: reset ? nil : auditRecords.last?.id,
             limit: auditPageSize
         )
-        let page = (try? mcp.core.mcpAudit(filter: filter)) ?? []
-        if reset { auditRecords = page } else { auditRecords.append(contentsOf: page) }
-        auditMoreButton.isHidden = page.count < Int(auditPageSize)
+        do {
+            let page = try mcp.core.mcpAudit(filter: filter)
+            auditError = nil
+            if reset { auditRecords = page } else { auditRecords.append(contentsOf: page) }
+            auditMoreButton.isHidden = page.count < Int(auditPageSize)
+        } catch {
+            // 读取失败不能当作「没有记录」；保留已显示的记录用于翻页失败的情况，但错误说明优先显示。
+            auditError = String(localized: "Could not read the audit log: \(CoreMessageText.text(for: error))")
+            auditMoreButton.isHidden = true
+        }
         renderAudit()
     }
 
@@ -459,11 +475,23 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
         auditSessionPopup.setItems([String(localized: "All sessions")] + profiles.map(\.name))
         if let selected, let index = auditSessionIDs.firstIndex(of: selected) {
             auditSessionPopup.selectItem(at: index)
+        } else {
+            // 原选中的会话已被删除：setItems 之后选中项不保证回到第 0 项，显式回到「全部会话」。
+            auditSessionPopup.selectItem(at: 0)
         }
     }
 
     private func renderAudit() {
         for view in auditStack.arrangedSubviews { view.removeFromSuperview() }
+        if let auditError {
+            let label = NSTextField(wrappingLabelWithString: auditError)
+            label.font = .systemFont(ofSize: DesignTokens.Font.uiCaption)
+            label.textColor = .token(DesignTokens.Color.statusError)
+            label.preferredMaxLayoutWidth = SettingsPageViewController.pageWidth - 80
+            auditStack.addArrangedSubview(label)
+            relayout()
+            return
+        }
         if auditRecords.isEmpty {
             auditStack.addArrangedSubview(SettingsPageViewController.caption(String(localized: "No audit records.")))
             relayout()
@@ -497,8 +525,13 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
     }
 
     private func clearAudit() {
-        try? mcp.core.mcpAuditClear()
-        reloadAudit(reset: true)
+        do {
+            try mcp.core.mcpAuditClear()
+            reloadAudit(reset: true)
+        } catch {
+            auditError = String(localized: "Could not clear the audit log: \(CoreMessageText.text(for: error))")
+            renderAudit()
+        }
     }
 
     private func buttonRow(_ buttons: [NSView]) -> NSStackView {

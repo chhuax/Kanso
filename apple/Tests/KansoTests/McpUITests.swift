@@ -349,7 +349,8 @@ final class McpUITests: XCTestCase {
         await flush()
 
         XCTAssertNil(coordinator.mark(for: session)?.openedByClient)
-        XCTAssertEqual(coordinator.mark(for: session)?.activityTool, "kanso_terminal_read")
+        // 客户端断开后它的活动标记也随客户端列表更新一并清掉。
+        XCTAssertNil(coordinator.mark(for: session)?.activityTool)
 
         let row = TabRowView(model: tabModel(session: session, mark: coordinator.mark(for: session)))
         XCTAssertFalse(row.showsMcpOpenedMark)
@@ -682,7 +683,7 @@ final class McpUITests: XCTestCase {
         XCTAssertNotNil(real.startError)
     }
 
-    func testUserActionDuringStartupInvalidatesTheBackgroundResult() async throws {
+    func testRegenerateDuringStartupKeepsStartupAndUsesTheNewToken() async throws {
         let keychain = MemoryKeychain()
         keychain.items[McpClientToken.account] = Data("old-token".utf8)
         let (coordinator, _, _) = makeCoordinator(keychain: keychain)
@@ -695,9 +696,76 @@ final class McpUITests: XCTestCase {
         await flush()
         XCTAssertEqual(coordinator.cachedToken, regenerated)
         XCTAssertNotEqual(regenerated, "old-token")
-        guard case .stopped = coordinator.status else {
-            return XCTFail("作废的启动不应再 start，实际 \(coordinator.status)")
+        XCTAssertEqual(keychain.items[McpClientToken.account], Data(regenerated.utf8))
+        guard case .running = coordinator.status else {
+            return XCTFail("重新生成令牌不应作废启动，实际 \(coordinator.status)")
         }
+    }
+
+    func testToggleDuringStartupWithEmptyKeychainGeneratesOnlyOneToken() async throws {
+        let keychain = MemoryKeychain()
+        let (coordinator, _, _) = makeCoordinator(keychain: keychain)
+        try coordinator.core.setMcpEnabled(enabled: true)
+        coordinator.startIfEnabled()
+        // 启动任务还在后台取令牌时关了又开。
+        try coordinator.setEnabled(false)
+        try coordinator.setEnabled(true)
+        await coordinator.startupTask?.value
+        await flush()
+        let token = try XCTUnwrap(coordinator.cachedToken)
+        XCTAssertEqual(keychain.items.count, 1)
+        XCTAssertEqual(keychain.items[McpClientToken.account], Data(token.utf8))
+        guard case .running = coordinator.status else {
+            return XCTFail("应由启动任务启动服务，实际 \(coordinator.status)")
+        }
+    }
+
+    func testLeavingRunningClearsActivitiesAndTheirTimers() async throws {
+        let clock = TestClock()
+        let (coordinator, _, _) = makeCoordinator(schedule: clock)
+        try coordinator.setEnabled(true)
+        await flush()
+        let local = try profile(coordinator.core, named: "Local")
+        let session = try await coordinator.server.debugOpenTab(profileId: local.id)
+        await flush()
+        try coordinator.server.debugActivity(sessionId: session, tool: "t")
+        await flush()
+        try coordinator.server.debugActivity(sessionId: session, tool: nil)
+        await flush()
+        XCTAssertEqual(clock.delays, [2])
+
+        var batch = McpDelegateBridge.Batch()
+        batch.status = .stopped
+        coordinator.apply(batch)
+        XCTAssertNil(coordinator.mark(for: session)?.activityTool)
+        XCTAssertTrue(clock.delays.isEmpty)
+    }
+
+    func testClientListUpdateDropsActivitiesOfDisconnectedClients() async throws {
+        let (coordinator, _, _) = makeCoordinator()
+        try coordinator.setEnabled(true)
+        await flush()
+        let local = try profile(coordinator.core, named: "Local")
+        let session = try await coordinator.server.debugOpenTab(profileId: local.id)
+        await flush()
+        try coordinator.server.debugActivity(sessionId: session, tool: "t")
+        await flush()
+        XCTAssertNotNil(coordinator.mark(for: session)?.activityTool)
+
+        var batch = McpDelegateBridge.Batch()
+        batch.clients = []
+        coordinator.apply(batch)
+        XCTAssertNil(coordinator.mark(for: session)?.activityTool)
+    }
+
+    func testClientsOnlyBatchDoesNotReportMarkChange() async throws {
+        let (coordinator, _, _) = makeCoordinator()
+        var changes: [McpChange] = []
+        coordinator.addChangeHandler { changes.append($0) }
+        var batch = McpDelegateBridge.Batch()
+        batch.clients = []
+        coordinator.apply(batch)
+        XCTAssertEqual(changes, [.clients])
     }
 
     func testGrantRowWithUnreadableLevelIsDisabledAndDoesNotRaiseTheNotice() throws {
@@ -728,7 +796,7 @@ final class McpUITests: XCTestCase {
     func testForgettingAnUnmarkedSessionDoesNotEmitChange() async throws {
         let (coordinator, _, _) = makeCoordinator()
         var changes = 0
-        coordinator.addChangeHandler { changes += 1 }
+        coordinator.addChangeHandler { _ in changes += 1 }
         coordinator.forget(session: 42)
         XCTAssertEqual(changes, 0)
     }

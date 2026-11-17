@@ -203,9 +203,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         controller.sessions.mcpSupported = { [weak self] in self?.mcp.supported ?? false }
         controller.onSessionClosed = { [weak self] id in self?.mcp.forget(session: id) }
         // 只刷新侧栏标签行与状态栏指示器；`controller.refresh()` 会刷新整个工作区，MCP 事件用不着。
-        mcp.addChangeHandler { [weak self, weak sidebarController] in
+        // 只有标签标记或服务状态变化才刷新侧栏；clients 变化只影响状态栏指示器。
+        mcp.addChangeHandler { [weak self, weak sidebarController] change in
             self?.updateMcpIndicator()
-            sidebarController?.refresh()
+            if !change.isDisjoint(with: [.marks, .status]) { sidebarController?.refresh() }
         }
         mcp.startIfEnabled()
         senderModel.isVisible = !senderItem.isCollapsed

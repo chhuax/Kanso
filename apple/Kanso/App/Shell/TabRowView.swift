@@ -47,7 +47,7 @@ final class TabRowView: NSView {
         closeButton.contentTintColor = .token(DesignTokens.Color.textSecondary)
         closeButton.target = self
         closeButton.action = #selector(closeClicked)
-        mcpOpenedMark.image = .symbol("sparkles", description: String(localized: "Opened by MCP"))
+        mcpOpenedMark.image = .symbol("point.3.connected.trianglepath.dotted", description: String(localized: "Opened by MCP"))
         mcpOpenedMark.imageScaling = .scaleProportionallyDown
         mcpOpenedMark.contentTintColor = .token(DesignTokens.Color.accent)
         mcpOpenedMark.isHidden = true

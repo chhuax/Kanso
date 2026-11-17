@@ -75,6 +75,17 @@ enum McpText {
     }
 }
 
+/// 一次回调批次造成的变化类型。侧栏只关心标签标记和服务状态；客户端列表变化只影响设置页与状态栏，
+/// 区分开是为了避免每次 clients 变化都整栏刷新侧栏。
+struct McpChange: OptionSet {
+    let rawValue: Int
+    static let marks = McpChange(rawValue: 1 << 0)
+    static let clients = McpChange(rawValue: 1 << 1)
+    static let status = McpChange(rawValue: 1 << 2)
+    /// 令牌缓存或启动错误等只影响设置页的变化。
+    static let other = McpChange(rawValue: 1 << 3)
+}
+
 /// App 包内 `kanso-mcp` 的路径。文件还没打进包时也照样返回这个路径。
 func mcpHelperPath(bundle: Bundle = .main) -> String {
     bundle.bundleURL.appendingPathComponent("Contents/MacOS/kanso-mcp").path
@@ -99,13 +110,13 @@ final class McpCoordinator {
     private(set) var startError: String?
     /// 启动时的后台取令牌与 `start` 任务；只为让测试能等待完成。
     private(set) var startupTask: Task<Void, Never>?
-    /// 用户操作（`setEnabled` / `regenerateToken`）的代号。后台取令牌期间代号变了，说明用户已经接管，
-    /// 启动结果整体作废；不能用 `status` 判断，它只靠异步回调更新，会滞后。
-    private var userActionGeneration = 0
+    /// 启动时的后台取令牌是否还没回到主线程。为 true 期间令牌只能由启动任务生成：钥匙串为空时
+    /// 主线程再生成一次会得到两个不同令牌，最后存进钥匙串的可能不是服务在用的。
+    private var startupInFlight = false
     private var openedBy: [UInt64: String] = [:]
     private var activities: [UInt64: FfiMcpActivity] = [:]
     private var activityClears: [UInt64: () -> Void] = [:]
-    private var changeHandlers: [() -> Void] = []
+    private var changeHandlers: [(McpChange) -> Void] = []
 
     /// 把 MCP 打开的标签放进窗口。由主窗口设置。
     var onPlaceSession: ((UInt64) -> Void)?
@@ -134,7 +145,7 @@ final class McpCoordinator {
         bridge.owner = self
     }
 
-    func addChangeHandler(_ handler: @escaping () -> Void) {
+    func addChangeHandler(_ handler: @escaping (McpChange) -> Void) {
         changeHandlers.append(handler)
     }
 
@@ -156,19 +167,20 @@ final class McpCoordinator {
     func startIfEnabled() {
         guard supported, core.mcpEnabled() else { return }
         let tokens = tokens
-        let generation = userActionGeneration
+        startupInFlight = true
         startupTask = Task { [weak self] in
             let result = await Task.detached { Result { try Self.ensureToken(in: tokens) } }.value
-            self?.finishStartup(result, generation: generation)
+            self?.finishStartup(result)
         }
     }
 
-    private func finishStartup(_ result: Result<String, Error>, generation: Int) {
-        // 等待钥匙串期间用户操作过开关或令牌：以用户操作的结果为准，这次启动整体作废，
-        // 也不能用读到的旧令牌覆盖缓存。
-        guard generation == userActionGeneration, core.mcpEnabled() else { return }
+    private func finishStartup(_ result: Result<String, Error>) {
+        startupInFlight = false
+        // 等待钥匙串期间开关被用户关掉：不再启动。开关关了又开的情况由 `setEnabled(true)` 交给这里处理。
+        guard core.mcpEnabled() else { return }
         do {
             let fetched = try result.get()
+            // 等待期间用户重新生成过令牌时缓存已是新令牌，必须用它，不能被读到的旧令牌覆盖。
             if cachedToken == nil { cachedToken = fetched }
             try server.start(bundleId: bundleId, token: cachedToken ?? fetched)
             startError = nil
@@ -176,7 +188,7 @@ final class McpCoordinator {
             mcpLog.error("MCP startup failed: \(String(describing: error), privacy: .public)")
             startError = CoreMessageText.text(for: error)
         }
-        emitChange()
+        emitChange(.other)
     }
 
     /// 在后台读取令牌填充缓存（不生成）。设置页打开时调用；读失败时缓存保持不变。
@@ -187,14 +199,19 @@ final class McpCoordinator {
             let token = await Task.detached { try? McpClientToken.load(from: tokens) }.value
             guard let self, cachedToken == nil, let token else { return }
             cachedToken = token
-            emitChange()
+            emitChange(.other)
         }
     }
 
     /// 打开总开关时 start，关闭时 stop。start 失败不把开关拨回去，页面要留着让用户能关掉。
     func setEnabled(_ enabled: Bool) throws {
         startError = nil
-        userActionGeneration += 1
+        if enabled, startupInFlight, cachedToken == nil {
+            // 启动任务正在后台取或生成令牌：这里不能再取一次，否则钥匙串为空时会生成两个令牌。
+            // 只记下开关，启动任务回来后看到开关已开就会用它的令牌 start（失败也由它写入 startError）。
+            try core.setMcpEnabled(enabled: true)
+            return
+        }
         if enabled {
             // 用户主动操作，缓存没有时在这里同步取（可能弹授权框，但用户正在等这个结果）。
             let token = try cachedToken ?? Self.ensureToken(in: tokens)
@@ -206,7 +223,7 @@ final class McpCoordinator {
                 // 状态由回调变成 Unavailable；这里再记日志并留下原因，让页面能说明服务没有启动。
                 mcpLog.error("MCP start failed: \(String(describing: error), privacy: .public)")
                 startError = CoreMessageText.text(for: error)
-                emitChange()
+                emitChange(.other)
             }
         } else {
             try core.setMcpEnabled(enabled: false)
@@ -222,7 +239,8 @@ final class McpCoordinator {
     func regenerateToken() throws {
         let token = McpClientToken.generate()
         try McpClientToken.save(token, to: tokens)
-        userActionGeneration += 1
+        // 不作废进行中的启动：它自己不会 start，作废会让开关开着而服务没起来。
+        // `finishStartup` 优先用缓存里的令牌，所以启动完成后服务用的就是这里的新令牌。
         cachedToken = token
         server.setToken(token: token)
     }
@@ -234,12 +252,19 @@ final class McpCoordinator {
         activities[session] = nil
         activityClears.removeValue(forKey: session)?()
         // 关闭普通标签不该触发 MCP 刷新。
-        if had { emitChange() }
+        if had { emitChange(.marks) }
     }
 
     func apply(_ batch: McpDelegateBridge.Batch) {
+        var change: McpChange = []
         if let status = batch.status {
+            change.insert(.status)
             self.status = status
+            if case .running = status {} else {
+                // 服务不在运行时不会再有活动结束事件，残留的活动标记和清除计时要一并清掉。
+                if !activities.isEmpty { change.insert(.marks) }
+                clearActivities { _ in true }
+            }
             if case .unavailable(.failed(let detail)) = status {
                 mcpLog.error("MCP start failed: \(detail, privacy: .public)")
             }
@@ -248,20 +273,38 @@ final class McpCoordinator {
             // 回调到达时会话可能已被关掉；这时放置标签会留下没人能关的标签。
             guard core.sessionInfo(sessionId: session) != nil else { continue }
             openedBy[session] = client.name
+            change.insert(.marks)
             onPlaceSession?(session)
         }
         for (session, activity) in batch.activities {
             // 与 opened 同样：会话已关闭后迟到的活动事件不能把状态塞回去，否则没人会再清理它。
             guard core.sessionInfo(sessionId: session) != nil else { continue }
             noteActivity(session: session, activity: activity)
+            change.insert(.marks)
         }
         for session in batch.released {
             openedBy[session] = nil
+            change.insert(.marks)
         }
         if let clients = batch.clients {
             self.clients = clients
+            change.insert(.clients)
+            // 客户端断开后不会再发该客户端的活动结束事件；按客户端编号清掉已不在列表里的活动。
+            let alive = Set(clients.map(\.id))
+            if activities.values.contains(where: { !alive.contains($0.clientId) }) {
+                change.insert(.marks)
+                clearActivities { !alive.contains($0.clientId) }
+            }
         }
-        emitChange()
+        emitChange(change)
+    }
+
+    /// 清掉满足条件的活动标记，并取消它们待执行的清除计时。
+    private func clearActivities(where shouldClear: (FfiMcpActivity) -> Bool) {
+        for (session, activity) in activities where shouldClear(activity) {
+            activities[session] = nil
+            activityClears.removeValue(forKey: session)?()
+        }
     }
 
     private func noteActivity(session: UInt64, activity: FfiMcpActivity?) {
@@ -275,13 +318,14 @@ final class McpCoordinator {
         let cancel = scheduleAfter(2) { [weak self] in
             self?.activities[session] = nil
             self?.activityClears[session] = nil
-            self?.emitChange()
+            self?.emitChange(.marks)
         }
         activityClears[session] = cancel
     }
 
-    private func emitChange() {
-        for handler in changeHandlers { handler() }
+    private func emitChange(_ change: McpChange) {
+        guard !change.isEmpty else { return }
+        for handler in changeHandlers { handler(change) }
     }
 
     /// 读令牌，没有就生成并保存。会访问钥匙串，不要在主线程调用（`setEnabled` 的用户操作路径除外）。
