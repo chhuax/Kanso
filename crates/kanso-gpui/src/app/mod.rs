@@ -26,7 +26,10 @@ pub mod backend;
 pub mod confirm;
 pub mod controller;
 pub mod events;
+pub mod filer_state;
+pub mod fspath;
 pub mod launcher;
+pub mod local_fs;
 pub mod layout;
 pub mod menus;
 pub mod prompt_dialogs;
@@ -37,6 +40,7 @@ pub mod shell;
 pub mod shortcuts;
 pub mod status_bar;
 pub mod tab;
+pub mod transfer_queue;
 #[cfg(test)]
 mod testutil;
 pub mod workspace;

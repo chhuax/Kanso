@@ -131,6 +131,12 @@ pub struct Row {
     pub size: u64,
     /// 修改时间（Unix 毫秒）。
     pub mtime_ms: Option<i64>,
+    /// POSIX 权限位（未提供为 `None`）。
+    pub permissions: Option<u32>,
+    /// 所有者。
+    pub owner: Option<String>,
+    /// 所属组。
+    pub group: Option<String>,
     /// 忽略大小写比较用的名称（到达时算一次，排序不再分配）。
     fold: String,
 }
@@ -145,7 +151,18 @@ impl From<DirEntry> for Row {
             is_symlink: e.is_symlink,
             size: e.size,
             mtime_ms: e.mtime_ms,
+            permissions: e.permissions,
+            owner: e.owner,
+            group: e.group,
         }
+    }
+}
+
+impl Row {
+    /// 大小是否已知。条目类型没有“未知大小”，约定：普通文件既无修改时间、大小又是 0，
+    /// 视为属性读取失败（filer.md §4.1：读不到的元数据不显示为真实的零字节文件）。
+    pub fn size_known(&self) -> bool {
+        self.is_dir || self.size > 0 || self.mtime_ms.is_some()
     }
 }
 
@@ -180,6 +197,10 @@ pub struct DirModel {
     sort: Sort,
     dirs: usize,
     links: usize,
+    /// 隐藏以点开头的名称（filer.md D2：默认显示，所以默认 `false`）。
+    hide_hidden: bool,
+    /// `hide_hidden` 为真时的可见子集（同样按排序顺序）。
+    vis: Vec<u32>,
 }
 
 impl DirModel {
@@ -195,6 +216,7 @@ impl DirModel {
     pub fn clear(&mut self) {
         self.rows.clear();
         self.order.clear();
+        self.vis.clear();
         self.dirs = 0;
         self.links = 0;
     }
@@ -214,6 +236,7 @@ impl DirModel {
         fresh.sort_by(|&a, &b| compare(&rows[a as usize], &rows[b as usize], sort));
         if self.order.is_empty() {
             self.order = fresh;
+            self.rebuild_vis();
             return;
         }
         let mut merged = Vec::with_capacity(self.order.len() + fresh.len());
@@ -231,6 +254,60 @@ impl DirModel {
         merged.extend_from_slice(&self.order[i..]);
         merged.extend_from_slice(&fresh[j..]);
         self.order = merged;
+        self.rebuild_vis();
+    }
+
+    fn rebuild_vis(&mut self) {
+        if !self.hide_hidden {
+            return;
+        }
+        let rows = &self.rows;
+        self.vis = self
+            .order
+            .iter()
+            .copied()
+            .filter(|&id| !crate::app::fspath::is_hidden_name(&rows[id as usize].name))
+            .collect();
+    }
+
+    /// 是否隐藏以点开头的条目。
+    pub fn set_hide_hidden(&mut self, hide: bool) {
+        self.hide_hidden = hide;
+        self.vis.clear();
+        self.rebuild_vis();
+    }
+
+    /// 当前是否在隐藏以点开头的条目。
+    pub fn hide_hidden(&self) -> bool {
+        self.hide_hidden
+    }
+
+    /// 可见条目数（应用了隐藏过滤）。
+    pub fn visible_len(&self) -> usize {
+        if self.hide_hidden {
+            self.vis.len()
+        } else {
+            self.order.len()
+        }
+    }
+
+    /// 可见顺序第 `pos` 行的稳定编号和内容（应用了隐藏过滤）。
+    pub fn visible_at(&self, pos: usize) -> Option<(u32, &Row)> {
+        let id = *if self.hide_hidden {
+            self.vis.get(pos)?
+        } else {
+            self.order.get(pos)?
+        };
+        Some((id, &self.rows[id as usize]))
+    }
+
+    /// 稳定编号当前的可见位置（应用了隐藏过滤）。
+    pub fn visible_position_of(&self, id: u32) -> Option<usize> {
+        if self.hide_hidden {
+            self.vis.iter().position(|&x| x == id)
+        } else {
+            self.order.iter().position(|&x| x == id)
+        }
     }
 
     /// 切换排序并整体重排。
@@ -239,6 +316,7 @@ impl DirModel {
         let rows = &self.rows;
         self.order
             .sort_by(|&a, &b| compare(&rows[a as usize], &rows[b as usize], sort));
+        self.rebuild_vis();
     }
 
     /// 当前排序。
@@ -733,5 +811,36 @@ mod tests {
         let d = b.take(1).unwrap();
         assert!(d.entries.is_empty());
         assert_eq!(d.end, Some(ListEnd::Done));
+    }
+
+    #[test]
+    fn hidden_filter_is_off_by_default_and_keeps_order() {
+        let mut m = DirModel::new(Sort::default());
+        m.push_batch(vec![
+            entry(".git", true, 0, Some(1)),
+            entry("src", true, 0, Some(1)),
+            entry(".env", false, 1, Some(1)),
+            entry("a.txt", false, 1, Some(1)),
+        ]);
+        assert_eq!(m.visible_len(), 4);
+        m.set_hide_hidden(true);
+        assert_eq!(m.visible_len(), 2);
+        let names: Vec<_> = (0..m.visible_len())
+            .map(|i| m.visible_at(i).unwrap().1.name.clone())
+            .collect();
+        assert_eq!(names, vec!["src", "a.txt"]);
+        // 之后到达的批次同样被过滤。
+        m.push_batch(vec![entry(".cache", true, 0, Some(1)), entry("b", true, 0, Some(1))]);
+        assert_eq!(m.visible_len(), 3);
+        m.set_hide_hidden(false);
+        assert_eq!(m.visible_len(), 6);
+    }
+
+    #[test]
+    fn unknown_size_is_not_a_real_zero_byte_file() {
+        let m = Row::from(entry("x", false, 0, None));
+        assert!(!m.size_known());
+        assert!(Row::from(entry("x", false, 0, Some(5))).size_known());
+        assert!(Row::from(entry("d", true, 0, None)).size_known());
     }
 }
