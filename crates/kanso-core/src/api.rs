@@ -25,6 +25,12 @@
 //! 下列接口留给后续契约 PR，在对应工作包开工前补充：
 //!
 //! - 窗口布局保存与恢复（T10）。
+//!
+//! # MCP 相关接口
+//!
+//! "MCP" 一节的方法只供 `kanso-mcp-server`（Rust）使用，类型见 [`crate::mcp`]，不导出到 FFI；
+//! 例外是授权与审计的读写，设置页（Swift）也要用，将来由 FFI 按需导出。
+//! 这些方法是通用能力，不按发行渠道裁剪；只有服务本身（`kanso-mcp-server`、`kanso-mcp`）仅在 Direct 编译。
 
 use std::collections::VecDeque;
 use std::fmt;
@@ -34,6 +40,7 @@ use kanso_frame::Frame;
 use kanso_license::{Entitlement, PurchaseOutcome};
 use kanso_secret::SecretKind;
 use kanso_types::event::SessionState;
+use kanso_types::mcp::{McpAccess, McpAuditEntry, McpAuditFilter, McpAuditRecord};
 use kanso_types::profile::{Group, Profile, SessionKind, Snippet};
 use kanso_types::secret::SecretString;
 use kanso_types::transfer::ConflictPolicy;
@@ -42,6 +49,10 @@ use kanso_types::{
     PromptId, PromptResponse, SessionId, TerminalOptions, TimestampMode, TransferId, ViewportPoint,
 };
 
+use crate::mcp::{
+    ConnectMode, ExecOutcome, McpConnectOutcome, McpInput, McpSessionStatus, SftpWriteMode,
+    TerminalRunOutcome, TerminalSendOutcome, TerminalText, TextScope, WaitLimits,
+};
 use crate::mock::MockCore;
 use crate::platform::Platform;
 use crate::real::RealCore;
@@ -372,6 +383,22 @@ macro_rules! dispatch_async {
     };
 }
 
+/// `mcp_terminal_run` 对标签的占用；离开作用域（含 future 被丢弃）时释放。
+struct McpClaim<'a> {
+    sender: &'a std::sync::Mutex<crate::sender::Scheduler>,
+    session: SessionId,
+}
+
+impl Drop for McpClaim<'_> {
+    fn drop(&mut self) {
+        // Drop 里不能 panic（可能正在展开）：锁中毒时照样取出数据释放占用。
+        self.sender
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .mcp_release(self.session);
+    }
+}
+
 /// 具体实现。见模块文档“为什么用枚举分发”。
 enum Backend {
     Mock(MockCore),
@@ -386,6 +413,8 @@ pub struct Core {
     backend: Backend,
     sender: std::sync::Mutex<crate::sender::Scheduler>,
     sender_clock: std::time::Instant,
+    /// MCP 授权变化的通知器，与后端共用同一个，见 [`Core::mcp_policy_watch`]。
+    mcp_policy: crate::mcp::PolicyNotifier,
 }
 
 // 编译期断言：FFI 层与多线程宿主依赖 Core 可跨线程共享。
@@ -408,10 +437,17 @@ impl Core {
     ///   **未实现的方法**（终端内传输见 F4，授权见 T11 / I5 等）不会 panic：
     ///   返回 `NotSupported`、空集合或 `None`，具体见各方法的文档与 `RealCore` 的模块文档。
     pub fn new(config: CoreConfig, platform: Platform) -> Result<Core> {
+        let mcp_policy = crate::mcp::PolicyNotifier::new();
         Ok(Core {
-            backend: Backend::Real(Box::new(RealCore::new(config, platform, None)?)),
+            backend: Backend::Real(Box::new(RealCore::new(
+                config,
+                platform,
+                None,
+                mcp_policy.clone(),
+            )?)),
             sender: Default::default(),
             sender_clock: std::time::Instant::now(),
+            mcp_policy,
         })
     }
 
@@ -427,10 +463,17 @@ impl Core {
         base_env: Vec<(String, String)>,
     ) -> Result<Core> {
         let env = kanso_session::EnvSnapshot::from_pairs(base_env);
+        let mcp_policy = crate::mcp::PolicyNotifier::new();
         Ok(Core {
-            backend: Backend::Real(Box::new(RealCore::new(config, platform, Some(env))?)),
+            backend: Backend::Real(Box::new(RealCore::new(
+                config,
+                platform,
+                Some(env),
+                mcp_policy.clone(),
+            )?)),
             sender: Default::default(),
             sender_clock: std::time::Instant::now(),
+            mcp_policy,
         })
     }
 
@@ -440,10 +483,12 @@ impl Core {
     /// - 事件通过 `platform.events` 发出；凭据写入 `platform.secrets`。
     /// - 实现：P0.4（本 crate 的 `mock` 模块）。
     pub fn new_mock(platform: Platform) -> Core {
+        let mcp_policy = crate::mcp::PolicyNotifier::new();
         Core {
-            backend: Backend::Mock(MockCore::new(platform)),
+            backend: Backend::Mock(MockCore::new(platform, mcp_policy.clone())),
             sender: Default::default(),
             sender_clock: std::time::Instant::now(),
+            mcp_policy,
         }
     }
 
@@ -487,6 +532,7 @@ impl Core {
     /// - 已打开的会话不受影响。其他 Profile 对它的跳板引用不会被改写，下次连接时报 `JumpMissing`。
     /// - 规格：store-import.md §3。实现：T8。
     pub async fn delete_profile(&self, id: ProfileId) -> Result<()> {
+        // 删除会连带删除 MCP 授权，后端在数据库提交后立即通知订阅者（见 `PolicyNotifier`）。
         dispatch_async!(self, delete_profile(id))
     }
 
@@ -523,6 +569,7 @@ impl Core {
     /// - 出错：不存在返回 `NoSuchGroup`；凭据存储失败返回 `User(SecretStoreFailed)`。
     /// - 规格：store-import.md §3。实现：T8。
     pub async fn delete_group(&self, id: GroupId) -> Result<()> {
+        // 同 delete_profile：组内会话的 MCP 授权随之删除，由后端通知。
         dispatch_async!(self, delete_group(id))
     }
 
@@ -1203,6 +1250,277 @@ impl Core {
         group: Option<GroupId>,
     ) -> Result<SshConfigImportReport> {
         dispatch_async!(self, import_ssh_config(path, aliases, group))
+    }
+
+    // ---- MCP：授权与审计（spec/mcp.md §1、§2、§6）----
+    //
+    // 数据在本机专用表里（schema v3），不随 `.kanso` 导出，也不参与同步。
+
+    /// MCP 总开关；从未设置过为关闭。
+    ///
+    /// - 线程：任意。阻塞：同步，极短。读失败记日志并按关闭处理（宁可保守）。
+    pub fn mcp_enabled(&self) -> bool {
+        dispatch!(self, mcp_enabled())
+    }
+
+    /// 设置 MCP 总开关，成功后通知 [`Core::mcp_policy_watch`] 的订阅者。
+    ///
+    /// 只改开关本身，不改各会话的级别（spec/mcp.md §2.1）。
+    /// - 线程：任意。阻塞：同步，可能触及磁盘。出错：存储失败返回 `Internal`。
+    pub fn set_mcp_enabled(&self, enabled: bool) -> Result<()> {
+        dispatch!(self, set_mcp_enabled(enabled))
+    }
+
+    /// 会话配置的 MCP 访问级别；没有授权、会话不存在或已删除都是 `Off`。
+    ///
+    /// **不含总开关**：总开关关闭时调用方应当把所有会话都按 `Off` 处理（spec/mcp.md §2.1）。
+    /// - 线程：任意。阻塞：同步，极短。读失败记日志并按 `Off` 处理。
+    pub fn mcp_access(&self, profile: ProfileId) -> McpAccess {
+        dispatch!(self, mcp_access(profile))
+    }
+
+    /// 全部不是 `Off` 的授权（设置页列表用）。读失败记日志并返回空。
+    pub fn mcp_accesses(&self) -> Vec<(ProfileId, McpAccess)> {
+        dispatch!(self, mcp_accesses())
+    }
+
+    /// 设置会话配置的访问级别，`Off` 即撤销。成功后通知 [`Core::mcp_policy_watch`] 的订阅者。
+    ///
+    /// - 线程：任意。阻塞：同步，极短。
+    /// - 出错：会话配置不存在返回 `NoSuchProfile`；存储失败返回 `Internal`。
+    pub fn set_mcp_access(&self, profile: ProfileId, level: McpAccess) -> Result<()> {
+        dispatch!(self, set_mcp_access(profile, level))
+    }
+
+    /// 订阅授权变化。值是一个只增的计数，变化即表示总开关、某个会话的级别或会话的存在性变了；
+    /// 订阅者收到后重新读取，并中断已经不再被允许的调用（spec/mcp.md §2.1、§4.4）。
+    ///
+    /// - 线程：任意。接收端可以在任意 tokio 运行时里 `changed().await`。
+    pub fn mcp_policy_watch(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.mcp_policy.subscribe()
+    }
+
+    /// 追加审计记录（一批一个事务）。
+    ///
+    /// - 线程：任意；调用方应在后台批量调用，不要每次工具调用都同步落盘（architecture §16.4）。
+    /// - 出错：存储失败返回 `Internal`。
+    pub fn mcp_audit_append(&self, entries: Vec<McpAuditEntry>) -> Result<()> {
+        dispatch!(self, mcp_audit_append(entries))
+    }
+
+    /// 查询审计记录，按 id 倒序。出错：存储失败返回 `Internal`。
+    pub fn mcp_audit(&self, filter: McpAuditFilter) -> Result<Vec<McpAuditRecord>> {
+        dispatch!(self, mcp_audit(filter))
+    }
+
+    /// 清空审计日志。出错：存储失败返回 `Internal`。
+    pub fn mcp_audit_clear(&self) -> Result<()> {
+        dispatch!(self, mcp_audit_clear())
+    }
+
+    /// 按保留规则清理审计日志（30 天、10000 条），返回删除条数。`now_ms` 为当前 Unix 毫秒，
+    /// 由调用方传入，便于测试。出错：存储失败返回 `Internal`。
+    pub fn mcp_audit_prune(&self, now_ms: i64) -> Result<u32> {
+        dispatch!(self, mcp_audit_prune(now_ms))
+    }
+
+    // ---- MCP：终端、连接与执行（spec/mcp.md §3、§4，architecture §16.3）----
+    //
+    // 授权判断、标签写锁（同一标签同时只允许一个 MCP 写操作）、"客户端所在标签"与
+    // 用户接管后的 10 秒冷却都由 `kanso-mcp-server` 负责；这里只提供能力和 core 才知道的状态。
+    //
+    // async 方法都是**取消安全**的：调用方丢弃 future 即停止等待（级别下调、客户端断开时就这么做），
+    // 已经写入终端或发到远端的内容不撤回，core 内部的登记（如等待提示符）随之撤销。
+
+    /// MCP 用的会话状态；会话不存在为 `None`。无界面会话也能查到（`headless` 为真）。
+    ///
+    /// - 线程：任意。阻塞：同步，极短。
+    /// - 实现：F9（真实后端尚未实现时返回 `None`）。
+    pub fn mcp_session_status(&self, session: SessionId) -> Option<McpSessionStatus> {
+        let mut status = dispatch!(self, mcp_session_status(session))?;
+        // Sender 的任务状态在 Core 层，不在后端。
+        status.sender_active = self
+            .sender
+            .lock()
+            .expect("Sender 锁未中毒")
+            .is_sending_to(session);
+        Some(status)
+    }
+
+    /// 读取终端文本（`kanso_terminal_read`）。超过 `max_bytes` 时保留末尾。
+    ///
+    /// - 线程：任意。阻塞：同步，持终端锁的时间与范围成正比，`Recent` 的行数由调用方限制在 2000 以内。
+    /// - 出错：会话不存在返回 `NoSuchSession`；纯 SFTP 与无界面会话返回 `NotSupported`。
+    /// - 规格：spec/mcp.md §3.2、§5。实现：F9。
+    pub fn terminal_text(
+        &self,
+        session: SessionId,
+        scope: TextScope,
+        max_bytes: usize,
+    ) -> Result<TerminalText> {
+        dispatch!(self, terminal_text(session, scope, max_bytes))
+    }
+
+    /// 在标签里输入一行命令并回车，等它返回提示符（`kanso_terminal_run`）。
+    ///
+    /// - 前置条件（spec/mcp.md §4.2）在 core 内与发送**在同一临界区**检查，不满足返回
+    ///   `Ok(Rejected(..))`，什么也不发送；含换行的命令返回 `NotSupported`。
+    ///   Sender 正在发送的判断在 Core 层完成，后端只检查其余条件。
+    /// - 完成判断复用 Sender 的"登记即将发送 + 等待提示符"（terminal.md §5.3）。
+    /// - 超时返回 `Unconfirmed`，不发送 Ctrl+C；用户在等待期间输入返回 `TakenOver`。
+    /// - 线程：任意。阻塞：异步，最长 `limits.timeout`。
+    /// - 出错：会话不存在返回 `NoSuchSession`；纯 SFTP 与无界面会话返回 `NotSupported`。
+    /// - 实现：F9。
+    pub async fn mcp_terminal_run(
+        &self,
+        session: SessionId,
+        command: &str,
+        limits: WaitLimits,
+    ) -> Result<TerminalRunOutcome> {
+        // 在调度器的锁内同时完成"Sender 是否在发送"的检查和占用登记；Sender 的 tick 在同一把锁下
+        // 看到占用后不会再向这个标签发内容（见 `Scheduler::mcp_claim`）。
+        let claimed = self
+            .sender
+            .lock()
+            .expect("Sender 锁未中毒")
+            .mcp_claim(session);
+        if !claimed {
+            let reason = if self
+                .sender
+                .lock()
+                .expect("Sender 锁未中毒")
+                .is_sending_to(session)
+            {
+                crate::mcp::TerminalBusy::SenderActive
+            } else {
+                // 另一条 MCP 命令正占用这个标签；正常情况下 kanso-mcp-server 的标签写锁会先挡住。
+                crate::mcp::TerminalBusy::CommandRunning
+            };
+            return Ok(TerminalRunOutcome::Rejected(reason));
+        }
+        // 用 Drop 释放：调用方丢弃 future（级别下调、客户端断开）时也必须释放，否则 Sender 会一直认为这个标签忙。
+        let _claim = McpClaim {
+            sender: &self.sender,
+            session,
+        };
+        dispatch_async!(self, mcp_terminal_run(session, command, limits))
+    }
+
+    /// 向标签输入文字和按键（`kanso_terminal_send`）。`settle` 为 `Some` 时，发送后等待终端
+    /// 安静这么久（调用方夹到 10 秒以内）再返回屏幕；等待期间用户输入返回 `TakenOver`。
+    ///
+    /// - 只检查未连接（含会话结束后的锁定）与终端内传输两项（见 [`TerminalSendOutcome::Rejected`]）。
+    /// - 线程：任意。阻塞：异步，最长约 `settle`。
+    /// - 出错：同 [`Core::mcp_terminal_run`]。实现：F9。
+    pub async fn mcp_terminal_send(
+        &self,
+        session: SessionId,
+        inputs: Vec<McpInput>,
+        settle: Option<std::time::Duration>,
+        max_bytes: usize,
+    ) -> Result<TerminalSendOutcome> {
+        dispatch_async!(self, mcp_terminal_send(session, inputs, settle, max_bytes))
+    }
+
+    /// 为会话配置取得一个无界面会话（见 [`crate::mcp`] 模块文档），供后台执行与 SFTP 使用。
+    ///
+    /// - 复用：同一配置有多条存活的已认证连接时取最近建立的那条；复用用户的连接为借用，
+    ///   用户关闭该连接上最后一个标签时 core 关闭这个无界面会话（spec/mcp.md §2.4）。
+    /// - `NonInteractive` 新建连接时不发 `Prompt`；需要人参与即放弃并返回 `NeedsUser`。
+    /// - 自建连接的 5 分钟空闲释放由调用方负责：到期调用 [`Core::close_session`]。
+    /// - 线程：任意。阻塞：异步，新建连接时包含握手与认证。
+    /// - 出错：配置不存在返回 `NoSuchProfile`；本地配置返回 `NotSupported`；
+    ///   连接失败（网络、认证被拒）返回 `User(..)`，消息同普通连接。
+    /// - 实现：F9。
+    pub async fn mcp_connect(
+        &self,
+        profile: ProfileId,
+        mode: ConnectMode,
+    ) -> Result<McpConnectOutcome> {
+        dispatch_async!(self, mcp_connect(profile, mode))
+    }
+
+    /// 打开一个可见标签（`kanso_open_tab`），等连接建立或失败后返回。
+    ///
+    /// 有已认证连接时复用（相当于复制标签），否则按 `mode` 新建，规则同 [`Core::mcp_connect`]。
+    /// core 不通知 UI 摆放标签：由 `kanso-mcp-server` 通过 `McpServer` 的回调通知宿主
+    /// （不抢焦点，spec/mcp.md §3.3）。返回的会话与普通标签完全相同，会正常出现在 `sessions()` 里。
+    /// - 出错：同 [`Core::mcp_connect`]；本地配置可以打开（不涉及认证）。实现：F9。
+    pub async fn mcp_open_session(
+        &self,
+        profile: ProfileId,
+        mode: ConnectMode,
+        size: GridSize,
+    ) -> Result<McpConnectOutcome> {
+        dispatch_async!(self, mcp_open_session(profile, mode, size))
+    }
+
+    /// 在会话所在的 SSH 连接上开 exec 通道执行一条命令（`kanso_exec`），不请求 PTY。
+    ///
+    /// - `session` 可以是 SSH 标签，也可以是 [`Core::mcp_connect`] 得到的无界面会话。
+    /// - 同一连接上同时进行的执行最多 4 个，超出的排队，排队时间计入超时。
+    /// - 超时关闭通道并返回 `timed_out`；远端进程可能仍在运行。
+    /// - 线程：任意。阻塞：异步，最长 `limits.timeout`。
+    /// - 出错：会话不存在返回 `NoSuchSession`；本地会话返回 `NotSupported`；
+    ///   连接已断开返回 `User(..)`。实现：F9。
+    pub async fn mcp_exec(
+        &self,
+        session: SessionId,
+        command: &str,
+        limits: WaitLimits,
+    ) -> Result<ExecOutcome> {
+        dispatch_async!(self, mcp_exec(session, command, limits))
+    }
+
+    // ---- SFTP 补充（spec/mcp.md §3.5；Filer 也可以使用）----
+
+    /// 查看单个远端路径的属性；`follow_symlinks` 为假时查看链接本身（LSTAT）。
+    ///
+    /// - 线程：任意。阻塞：异步，一次远端往返。出错：同本组其他 SFTP 方法。实现：F9。
+    pub async fn sftp_entry(
+        &self,
+        session: SessionId,
+        path: &str,
+        follow_symlinks: bool,
+    ) -> Result<DirEntry> {
+        dispatch_async!(self, sftp_entry(session, path, follow_symlinks))
+    }
+
+    /// 读取远端文件 `[offset, offset + len)`；到文件末尾时返回的字节少于 `len`。
+    ///
+    /// - 线程：任意。阻塞：异步。调用方负责限制 `len`（spec/mcp.md §3.5：单次最多 1 MiB）。
+    /// - 实现：F9。
+    pub async fn sftp_read(
+        &self,
+        session: SessionId,
+        path: &str,
+        offset: u64,
+        len: u32,
+    ) -> Result<Vec<u8>> {
+        dispatch_async!(self, sftp_read(session, path, offset, len))
+    }
+
+    /// 写远端文件，规则见 [`SftpWriteMode`]。
+    ///
+    /// - 线程：任意。阻塞：异步。调用方负责限制大小（spec/mcp.md §3.5：单次最多 8 MiB）。
+    /// - 出错：`CreateNew` 且已存在返回 `User(SftpFileExists)`；`Overwrite` 而服务器没有
+    ///   `posix-rename@openssh.com` 返回 `NotSupported`；其他失败返回 `User(SftpOpFailed)`，
+    ///   残留的临时文件路径写在消息的 detail 里。实现：F9。
+    pub async fn sftp_write(
+        &self,
+        session: SessionId,
+        path: &str,
+        data: Vec<u8>,
+        mode: SftpWriteMode,
+    ) -> Result<()> {
+        dispatch_async!(self, sftp_write(session, path, data, mode))
+    }
+
+    /// 删除远端**空**目录，不递归（MCP 不提供递归删除，spec/mcp.md §3.5）。
+    ///
+    /// - 线程：任意。阻塞：异步，一次远端往返。实现：F9。
+    pub async fn sftp_rmdir(&self, session: SessionId, path: &str) -> Result<()> {
+        dispatch_async!(self, sftp_rmdir(session, path))
     }
 
     // ---- 授权 ----

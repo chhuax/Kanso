@@ -30,10 +30,13 @@
 //! - 终端内传输（XMODEM / ZMODEM）：**F4**；
 //! - OpenSSH 配置扫描 / 导入：**T3**（解析）、**F6**；
 //! - `.kanso` 旧版（应用标记 `Kanso`）兼容导入（store-import.md §6.3）：待拿到样例文件；
-//! - 授权：**T11**（License Key）、**I5**（商店购买）。
+//! - 授权：**T11**（License Key）、**I5**（商店购买）；
+//! - MCP 的终端、连接、执行与 SFTP 补充操作：**F9**（授权与审计的存取已实现，见 `real::mcp`）。
 
 // 尚未实现的方法的参数没有用到；工作包落地后会自然用上。
 #![allow(unused_variables)]
+
+mod mcp;
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -459,6 +462,8 @@ pub(crate) struct RealCore {
     /// 进行中的 SFTP 传输。任务结束（含取消、失败）时自己移除；会话关闭时按 `session` 批量取消。
     transfers: Arc<Mutex<HashMap<TransferId, TransferEntry>>>,
     next_transfer: AtomicU64,
+    /// MCP 授权变化通知器，与 `Core` 共用（见 `crate::mcp::PolicyNotifier`）。
+    mcp_policy: crate::mcp::PolicyNotifier,
 }
 
 /// 进行中的一次 SFTP 传输。
@@ -479,6 +484,7 @@ impl RealCore {
         config: CoreConfig,
         platform: Platform,
         base_env: Option<EnvSnapshot>,
+        mcp_policy: crate::mcp::PolicyNotifier,
     ) -> Result<RealCore> {
         std::fs::create_dir_all(&config.data_dir).map_err(|e| CoreError::Internal {
             detail: format!("cannot create data dir {}: {e}", config.data_dir.display()),
@@ -561,6 +567,7 @@ impl RealCore {
             ssh_config_env: SshConfigEnv::from_snapshot(&env),
             transfers: Arc::new(Mutex::new(HashMap::new())),
             next_transfer: AtomicU64::new(1),
+            mcp_policy,
         })
     }
 
@@ -637,6 +644,7 @@ impl RealCore {
     pub(crate) async fn delete_profile(&self, id: ProfileId) -> Result<()> {
         let store = Arc::clone(&self.store);
         let secrets = Arc::clone(&self.secrets);
+        let mcp_policy = self.mcp_policy.clone();
         self.handle
             .spawn_blocking(move || {
                 let deleted = store
@@ -647,6 +655,8 @@ impl RealCore {
                 if !deleted {
                     return Err(CoreError::NoSuchProfile(id));
                 }
+                // 授权已随删除提交，立即通知；放在闭包里，调用方丢弃 future 也不会漏掉。
+                mcp_policy.bump();
                 secrets.delete_all_for(id).map_err(secret_err)
             })
             .await
@@ -682,6 +692,7 @@ impl RealCore {
     pub(crate) async fn delete_group(&self, id: GroupId) -> Result<()> {
         let store = Arc::clone(&self.store);
         let secrets = Arc::clone(&self.secrets);
+        let mcp_policy = self.mcp_policy.clone();
         self.handle
             .spawn_blocking(move || {
                 let profiles = store
@@ -690,6 +701,8 @@ impl RealCore {
                     .delete_group(id)
                     .map_err(store_err)?
                     .ok_or(CoreError::NoSuchGroup(id))?;
+                // 同 delete_profile。
+                mcp_policy.bump();
                 let mut first_err = None;
                 for p in profiles {
                     if let Err(e) = secrets.delete_all_for(p) {

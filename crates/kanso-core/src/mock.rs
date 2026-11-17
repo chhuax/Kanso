@@ -41,6 +41,8 @@ use crate::api::{
 use crate::platform::{EventSink, Platform};
 use crate::validate::validate_profile;
 
+mod mcp;
+
 /// mock 传输的总字节数（10 MB）。
 const MOCK_TRANSFER_BYTES: u64 = 10 * 1024 * 1024;
 /// mock 传输分成多少步。
@@ -65,6 +67,10 @@ struct MockSession {
     selected: bool,
     /// 搜索当前匹配项（1..=总数）。
     search_current: u32,
+    /// MCP 的无界面会话：不出现在 `sessions()` 里，也不发会话事件（见 `crate::mcp` 模块文档）。
+    headless: bool,
+    /// 无界面会话是否借用了用户的连接；借用的在该配置最后一个用户标签关闭时一并关闭。
+    borrowed: bool,
 }
 
 /// 一个进行中的 mock 传输。
@@ -88,6 +94,15 @@ struct MockState {
     /// 最近一次下发的终端显示选项；mock 没有真实终端，只记录以便测试断言。
     terminal_options: TerminalOptions,
     entitlement: Option<Entitlement>,
+    /// MCP 总开关，语义同 kanso-store 的 `mcp_local`。
+    mcp_enabled: bool,
+    /// MCP 授权；没有记录即 `Off`，语义同 `mcp_grants`。
+    mcp_grants: HashMap<ProfileId, kanso_types::mcp::McpAccess>,
+    /// MCP 审计日志，按追加顺序。
+    mcp_audit: Vec<kanso_types::mcp::McpAuditRecord>,
+    /// 下一条审计记录的 id。单独计数而不是取"最后一条 + 1"：与 SQLite AUTOINCREMENT 一样，
+    /// 清空或清理后 id 也不复用，否则旧的分页游标会把新记录当成更早的记录。
+    next_audit_id: i64,
 }
 
 /// mock 后端。`Core::new_mock` 创建。
@@ -99,6 +114,8 @@ pub(crate) struct MockCore {
     next_session: AtomicU64,
     next_transfer: AtomicU64,
     next_prompt: AtomicU64,
+    /// MCP 授权变化通知器，与 `Core` 共用。
+    mcp_policy: crate::mcp::PolicyNotifier,
 }
 
 fn secret_err(e: SecretError) -> CoreError {
@@ -198,6 +215,10 @@ fn seed_state() -> MockState {
         settings: HashMap::new(),
         terminal_options: TerminalOptions::default(),
         entitlement: Entitlement::for_channel(),
+        mcp_enabled: false,
+        mcp_grants: HashMap::new(),
+        mcp_audit: Vec::new(),
+        next_audit_id: 1,
     }
 }
 
@@ -286,7 +307,7 @@ fn file_name(path: &str) -> String {
 }
 
 impl MockCore {
-    pub(crate) fn new(platform: Platform) -> MockCore {
+    pub(crate) fn new(platform: Platform, mcp_policy: crate::mcp::PolicyNotifier) -> MockCore {
         MockCore {
             events: platform.events,
             secrets: platform.secrets,
@@ -294,6 +315,7 @@ impl MockCore {
             next_session: AtomicU64::new(1),
             next_transfer: AtomicU64::new(1),
             next_prompt: AtomicU64::new(1),
+            mcp_policy,
         }
     }
 
@@ -456,6 +478,8 @@ impl MockCore {
         self.secrets.delete_all_for(id).map_err(secret_err)?;
         st.profiles.retain(|p| p.id != id);
         st.snippets.retain(|s| s.scope != SnippetScope::Profile(id));
+        st.mcp_grants.remove(&id);
+        self.mcp_policy.bump();
         Ok(())
     }
 
@@ -495,6 +519,10 @@ impl MockCore {
         }
         st.profiles.retain(|p| !profiles.contains(&p.id));
         st.snippets.retain(|s| !snippets.contains(&s.id));
+        for p in &profiles {
+            st.mcp_grants.remove(p);
+        }
+        self.mcp_policy.bump();
         st.groups.retain(|g| g.id != id);
         Ok(())
     }
@@ -654,13 +682,17 @@ impl MockCore {
             dirty: false,
             selected: false,
             search_current: 1,
+            headless: false,
+            borrowed: false,
         };
         self.emit(CoreEvent::SessionStateChanged {
             session: id,
             state: SessionState::Connecting,
         });
+        // 复制标签复用已认证的连接，不再认证（ssh.md §6），所以只有按配置新开时才模拟 MFA 提问。
+        let fresh_connection = !matches!(target, OpenTarget::Duplicate(_));
         match (name.as_str(), endpoint, user) {
-            ("mfa-bastion", Some(endpoint), Some(user)) => {
+            ("mfa-bastion", Some(endpoint), Some(user)) if fresh_connection => {
                 let prompt = PromptId::from_raw(self.next_prompt.fetch_add(1, Ordering::SeqCst));
                 st.prompts.insert(prompt, id);
                 self.emit(CoreEvent::Prompt {
@@ -690,7 +722,37 @@ impl MockCore {
         let Some(pos) = st.sessions.iter().position(|s| s.info.id == session) else {
             return;
         };
-        st.sessions.remove(pos);
+        let closed = st.sessions.remove(pos);
+        if closed.headless {
+            // 无界面会话不向 UI 发会话事件；它发起的传输照常取消。
+            for t in st.transfers.values().filter(|t| t.session == session) {
+                t.cancel.store(true, Ordering::SeqCst);
+            }
+            return;
+        }
+        // 借用连接的无界面会话：该配置的最后一个用户标签关闭时一并关闭（spec/mcp.md §2.4）。
+        if let Some(profile) = closed.info.profile
+            && !st
+                .sessions
+                .iter()
+                .any(|s| !s.headless && s.info.profile == Some(profile))
+        {
+            let released: Vec<SessionId> = st
+                .sessions
+                .iter()
+                .filter(|s| s.headless && s.borrowed && s.info.profile == Some(profile))
+                .map(|s| s.info.id)
+                .collect();
+            st.sessions.retain(|s| !released.contains(&s.info.id));
+            // 与直接关闭无界面会话一致：它发起的传输随之取消。
+            for t in st
+                .transfers
+                .values()
+                .filter(|t| released.contains(&t.session))
+            {
+                t.cancel.store(true, Ordering::SeqCst);
+            }
+        }
         let dismissed: Vec<PromptId> = st
             .prompts
             .iter()
@@ -714,6 +776,7 @@ impl MockCore {
         self.lock()
             .sessions
             .iter()
+            .filter(|s| !s.headless)
             .map(|s| s.info.clone())
             .collect()
     }

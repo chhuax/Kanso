@@ -23,6 +23,7 @@ pub mod fs;
 pub mod geometry;
 pub mod ids;
 pub mod input;
+pub mod mcp;
 pub mod message;
 pub mod profile;
 pub mod prompt;

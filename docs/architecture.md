@@ -337,7 +337,7 @@ Kanso App 进程
   - 凭据、数据库、钥匙串只有 App 进程能碰，`kanso-mcp` 被替换或被单独调用也拿不到任何东西。
   - 不需要像独立 MCP 服务那样单独分发、单独更新。
 - **握手**：`kanso-mcp` 连上后先发一行 JSON（客户端令牌、控制终端设备名），之后才是 MCP 字节流。App 读走第一行，再把剩下的流交给 rmcp。
-  - **令牌**（`spec/mcp.md` §1.1）：`kanso-mcp` 从环境变量 `KANSO_MCP_TOKEN` 读取并原样转交，自己不做校验。App 用常量时间比较；不匹配时，由 App 以 MCP 服务端身份对 `initialize` 回错误后关闭连接。令牌的正本存在 SecretStore（macOS 上即 Keychain），不进数据库。
+  - **令牌**（`spec/mcp.md` §1.1）：`kanso-mcp` 从环境变量 `KANSO_MCP_TOKEN` 读取并原样转交，自己不做校验。App 用常量时间比较；不匹配时，由 App 以 MCP 服务端身份对 `initialize` 回错误后关闭连接。令牌由宿主保存在钥匙串里（PlatformMac），启动服务时传给 `McpServer`，重新生成时由宿主调用 `McpServer` 更新并断开旧连接；core 和数据库都不经手令牌。不走 SecretStore 的原因：现有条目按会话组织（`profile/<uuid>/...`），塞进一个全局令牌要改条目命名格式和 FFI。
   - **识别客户端所在标签**（`spec/mcp.md` §2.5）有两条线索，命中任一条即标记：
     - 控制终端：把握手里的设备名与本地会话 PTY 的从设备名比对。
     - 进程祖先链：App 用 `LOCAL_PEERPID` 套接字选项取得对端的真实 pid（不信任自报的 pid），再沿父进程向上查找，直到遇到某个本地会话的 shell 进程，或者到达 launchd。
@@ -356,41 +356,35 @@ Kanso App 进程
 | `kanso-mcp-server`（新 crate） | 与 `kanso-ffi` 同层，依赖 `kanso-core` | 工具定义与参数 schema、授权判断、标签写锁、用户接管判断、输出截断、审计记录。它只是 `Core` 公开 API 的又一个使用方，和 FFI、GPUI 地位相同；GPUI 版将来可以直接复用 |
 | `kanso-mcp`（新 crate，二进制） | `crates/kanso-mcp` | 只依赖 std 和 `libc`（用于 `flock` 和取控制终端名）。不依赖 tokio，体积和启动时间都要小 |
 | `kanso-ffi` | 现有 | 导出 `McpServer` 对象：`start`、`stop`、已连接客户端列表、断开某个客户端。只在 `direct` feature 下编译 |
-| `kanso-store` | 现有 | 新增 `mcp_grants`、`mcp_audit` 两张表（§16.4） |
+| `kanso-store` | 现有 | 新增 `mcp_grants`、`mcp_local`、`mcp_audit` 三张表（§16.4） |
 | Swift | KansoUI、KansoApp | 设置 → MCP 页面、会话编辑对话框字段、标签行 MCP 标识、状态栏指示器、处理 MCP 打开标签的事件 |
 | xtask | `apple-build`、`dmg` | 为目标架构编译 `kanso-mcp`，由 Xcode Run Script 复制进 `Contents/MacOS/`，用与 App 相同的签名身份和 hardened runtime 签名 |
 
 依赖：`rmcp`（Apache-2.0，官方 Rust SDK，只启用 server 和基于 AsyncRead/AsyncWrite 的传输），参数 schema 用 `schemars`（MIT）。引入前跑 `cargo deny` 确认传递依赖都在白名单内。
 
-### 16.3 kanso-core 需要补的契约
+### 16.3 kanso-core 的契约
 
-按 plan.md 的规则，先提一个只改契约的 PR：
+契约已落在 `kanso-core`（`Core` 的"MCP"两节方法与 `kanso_core::mcp` 模块）、`kanso-types::mcp`（授权与审计类型）和 `kanso-store`（schema v3）。真实后端已实现授权、总开关与审计的存取；终端、连接、执行和 SFTP 补充操作返回 `NotSupported`，由 F9 实现。mock 后端全部可用，供 `kanso-mcp-server` 测试。
 
-1. **输入来源**：`key`、`text_input`、`paste` 区分来源是用户还是 MCP。命令跟踪照常处理两者，但只有用户来源的输入会触发"用户接管"（`spec/mcp.md` §4.3）。用户接管通过新事件通知 `kanso-mcp-server`。
-2. **读终端文本**：按屏幕或回滚最近 N 行取纯文本，规则见 `spec/mcp.md` §5。与 `selection_text` 共用网格转文本的逻辑。
-3. **执行并等待**：`run_and_wait(session, command, timeout)`，复用 Sender 的"登记即将发送 + 等待提示符"能力（`terminal.md` §5.3），返回输出范围与退出码（有 OSC 133 D 时）。前置条件检查放在 core 里，因为只有 core 知道锁定、传输、Sender 的状态，检查和发送要在同一个临界区内完成，避免检查通过后状态又变了。
-4. **按会话查找连接**：现在只能通过 `OpenTarget::Duplicate(SessionId)` 复用某个标签的连接，内核需要补上按 ProfileId 查找已认证 transport 的能力。
-   - 同一 profile 有多条连接时，取最近建立且仍然存活的那条（`spec/mcp.md` §2.4）。
-   - transport 的引用持有者分三类：标签、MCP 借用、MCP 自建。
-   - 借用的引用在该连接上最后一个标签关闭时立即释放；自建的引用按最后一次使用后 5 分钟空闲释放。
-   - 在这之前连接的生命周期完全绑定在标签上，"没有标签的连接"是新增的状态。
-5. **后台执行**：`exec(profile, command, timeout)`，在第 4 条找到或新建的 transport 上开 exec 通道（`spec/mcp.md` §3.4）。
-6. **非交互连接**：建立连接时可以指定"不允许提问"和"只复用、不新建"两个选项。
-   - "不允许提问"：认证流程走到任何需要发 `CoreEvent::Prompt` 的地方，都改为立即失败，返回需要人参与的原因（`spec/mcp.md` §2.4）。MCP 的所有连接都用这个模式。
-   - "只复用、不新建"：访问级别为只读的会话，所有调用都使用这个选项。
-7. **会话快照**：`sessions()` 补充活动状态、是否锁定、是否在传输、PTY 从设备名（本地会话）、来源（用户 / MCP 客户端编号）。
-8. **新事件**：`McpSessionOpened`（UI 收到后把会话放进标签栏，不切换焦点）、`McpActivity`（标签上的 MCP 标识）、`McpClientsChanged`（状态栏指示器）。
-9. **SFTP**：列目录、读写、传输直接复用 Filer 已有的 API，需要补的有：
-   - "仅新建"打开标志。
-   - 覆盖写：先写临时文件，再用 `posix-rename@openssh.com` 扩展改名；服务器没声明这个扩展时直接报错。目标是符号链接时，先用 realpath 解析出真实路径。
-   - 传输引擎的同名冲突策略：除了 Filer 的"询问"，再加上"失败 / 覆盖 / 跳过"三种不提问的固定策略。
+1. **输入来源不改现有接口**：`key`、`text_input`、`paste` 一律视为用户输入；MCP 的输入只走 `mcp_terminal_run`、`mcp_terminal_send`。用户接管（`spec/mcp.md` §4.3）由这两个调用在等待期间自行检测并返回 `TakenOver`，10 秒冷却由 `kanso-mcp-server` 记录。这样不用给现有输入接口加来源参数，避免牵动 FFI 与 Swift。
+2. **读终端文本**：`terminal_text(session, scope, max_bytes)`，规则见 `spec/mcp.md` §5，与 `selection_text` 共用网格转文本的逻辑。
+3. **执行并等待**：`mcp_terminal_run(session, command, limits)`，复用 Sender 的"登记即将发送 + 等待提示符"能力（`terminal.md` §5.3）。前置条件在 core 内与发送**在同一临界区**检查，不满足返回 `Rejected(TerminalBusy)`，因为只有 core 知道锁定、传输的状态，分开检查会在检查通过后状态又变了。Sender 是否正在发送由 `Core` 层（调度器在那里）判断。
+4. **无界面会话与连接复用**：`mcp_connect(profile, mode)` 返回一个无界面会话，机制同纯 SFTP 会话，不出现在 `sessions()` 里，也不发会话事件；后台执行和 SFTP 都用它的 SessionId，因此现有的 `sftp_*`、传输接口不用另做一套。
+   - 内核需要补上按 ProfileId 查找已认证 transport 的能力（现在只能经 `OpenTarget::Duplicate` 复用某个标签的连接）；多条时取最近建立且仍存活的那条。
+   - 复用用户的连接为借用：该连接上最后一个标签关闭时，core 关闭这个无界面会话。自建连接的 5 分钟空闲释放由 `kanso-mcp-server` 计时，到期调用 `close_session`。
+   - 无界面会话发起的传输照常发传输事件，UI 必须容忍传输事件里出现自己没打开过的 SessionId。
+5. **非交互连接**：`ConnectMode::NonInteractive` 认证走到任何需要发 `CoreEvent::Prompt` 的地方都改为放弃，返回 `NeedsUser(UserNeed)`；`ReuseOnly` 只复用不新建，访问级别为只读的会话用它（`spec/mcp.md` §2.4）。`mcp_open_session` 打开可见标签，规则相同。
+6. **后台执行**：`mcp_exec(session, command, limits)`，在会话所在的连接上开 exec 通道，同一连接最多 4 个并发（`spec/mcp.md` §3.4）。
+7. **会话状态**：`mcp_session_status(session)` 返回活动、锁定、终端内传输、Sender、是否无界面、有没有 OSC 133、本地 PTY 从设备路径与 shell pid。不扩展 `SessionInfo`，因为它经 FFI 导出给 Swift。
+8. **不新增 `CoreEvent`**：标签摆放、MCP 活动标识、客户端数变化都由 `McpServer` 对象自己回调宿主（F9 定义），core 不需要知道。授权变化由 `mcp_policy_watch()` 通知 `kanso-mcp-server`（总开关、会话级别、会话删除都会触发）。
+9. **SFTP 补充**：`sftp_entry`（可选不跟随符号链接）、`sftp_read`（按偏移分段）、`sftp_write`（`CreateNew` / `Overwrite`；覆盖用 `posix-rename@openssh.com`，目标是符号链接时写真实文件，服务器没有该扩展返回 `NotSupported`）、`sftp_rmdir`（只删空目录）。传输的同名冲突策略复用已有的 `ConflictPolicy`（`Fail` / `Overwrite` / `Skip`），不需要新增。
 
 ### 16.4 存储
 
-- `mcp_grants(profile_id PRIMARY KEY, level)`：**不是同步候选表**，没有墓碑，也不进入 `.kanso` 导出。删除 profile 时一并删除对应行。
-- `mcp_audit`：自增主键加时间索引，按 `spec/mcp.md` §6 记录。写入在后台批量进行，不阻塞工具调用。启动时和每小时清理一次过期记录。
-- 两张表都随下一个 schema 版本迁移加入，见 `docs/schema.md`。
-- 客户端令牌存在 SecretStore，不进数据库；重新生成时覆盖旧值。
+- schema v3 新增 `mcp_grants`（会话级别，没有记录即关闭）、`mcp_local`（总开关）、`mcp_audit`（审计），都是本机专用表，不是同步候选表，不进入 `.kanso` 导出；表结构见 `docs/schema.md` §2.8。
+- 删除会话时在同一事务里物理删除它的授权。
+- 审计由 `kanso-mcp-server` 在后台批量写入，不阻塞工具调用；启动时和每小时调用一次 `mcp_audit_prune`。
+- 客户端令牌不进数据库，见 §16.1。
 
 ### 16.5 并发
 

@@ -1,7 +1,7 @@
 # 数据库 schema
 
 SQLite 数据库的表结构说明。技术方案见 `architecture.md` §8，行为规则见 `spec/store-import.md`。
-实现位于 `crates/kanso-store`，迁移文件位于 `crates/kanso-store/migrations/`。当前版本：**v1**。
+实现位于 `crates/kanso-store`，迁移文件位于 `crates/kanso-store/migrations/`。当前版本：**v3**（v2 给 `history` 加 `hosts` 列，v3 加 MCP 的三张表）。
 
 ## 1. 通用约定
 
@@ -100,6 +100,44 @@ SQLite 数据库的表结构说明。技术方案见 `architecture.md` §8，行
 | `added_at` | INTEGER | NOT NULL | 记录时间 |
 
 `WITHOUT ROWID`。只有 MAS 版使用（Direct 版直接读写 `~/.ssh/known_hosts`）。同一主机每种算法最多一条；用户“接受变更”时先删除该主机的全部行再插入。
+
+### 2.8 MCP 的本机专用表（v3，`spec/mcp.md` §2.2、§6）
+
+下面三张表都是**本机专用表**：不是同步候选表，没有 `updated_at` / `deleted` 墓碑，不进入 `.kanso` 导出，也不参与将来的同步。MCP 授权必须由用户在这台机器上亲手开启，导入文件或同步都不能悄悄给 AI 开权限。
+
+`mcp_grants`：会话的访问级别。**没有记录即"关闭"**，所以新建、导入、复制出来的会话天然是关闭。
+
+| 列 | 类型 | 约束 | 含义 |
+|---|---|---|---|
+| `profile_id` | TEXT | PRIMARY KEY | 会话 UUID |
+| `level` | TEXT | NOT NULL，CHECK `read-only` / `full` | 访问级别 |
+
+删除会话（含删除分组连带删除的会话）时，在同一事务里**物理删除**对应行；墓碑复活的会话因此回到关闭。读取时与 `profiles` 联查，已删除会话一律按关闭处理。
+
+`mcp_local`：MCP 的本机键值设置，目前只有 `enabled`（`'1'` / `'0'`，缺省为关闭）。不放进 `settings`，因为 `settings` 会随 `.kanso` 导出。
+
+| 列 | 类型 | 约束 | 含义 |
+|---|---|---|---|
+| `key` | TEXT | PRIMARY KEY | 键 |
+| `value` | TEXT | NOT NULL | 值 |
+
+`mcp_audit`：工具调用审计。只记参数摘要，**不记**终端输出、执行输出和文件内容。
+
+| 列 | 类型 | 约束 | 含义 |
+|---|---|---|---|
+| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | 自增 id，分页与"保留最新 N 条"都按它 |
+| `at` | INTEGER | NOT NULL | 调用开始时间（Unix 毫秒） |
+| `client` | TEXT | NOT NULL | 客户端自报名称 |
+| `mcp_session` | TEXT | NOT NULL | MCP 会话编号 |
+| `tool` | TEXT | NOT NULL | 工具名；连接阶段被拒绝时为空串 |
+| `profile_id` | TEXT | NULL | 目标会话 UUID；会话删除后保留原值 |
+| `session_id` | INTEGER | NULL | 运行时 SessionId，只在同一次运行内有意义 |
+| `args` | TEXT | NOT NULL | 参数摘要 |
+| `error_code` | TEXT | NULL | 错误码；NULL 表示成功 |
+| `duration_ms` | INTEGER | NOT NULL | 耗时 |
+| `bytes` | INTEGER | NOT NULL | 返回的数据大小 |
+
+索引：`idx_mcp_audit_at (at)`、`idx_mcp_audit_profile (profile_id)`。保留 30 天且最多 10000 条，先到者为准：先按 `at` 删过期的，再按 `id` 只保留最新 10000 条（按 `id` 而不是 `at`，因为 `at` 来自调用方时钟，可能回拨）。
 
 ## 3. 迁移规则
 
