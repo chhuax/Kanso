@@ -37,7 +37,7 @@ use kanso_gpui::app::menus::{
 };
 use kanso_gpui::app::settings::DisplaySettings;
 use kanso_gpui::app::shell::{DIVIDER_THICKNESS, DividerDrag, min_fraction};
-use kanso_gpui::app::shortcuts::{AppCommand, lookup, shortcut_text};
+use kanso_gpui::app::shortcuts::{AppCommand, lookup};
 use kanso_gpui::app::status_bar::{clock_text, ms_until_next_minute};
 use kanso_gpui::app::tab::{CloseNote, TabConnection};
 use kanso_gpui::app::workspace::{CloseConfirmation, CloseScope};
@@ -101,10 +101,10 @@ pub(crate) struct ShellView {
     drag: Option<DividerDrag>,
     /// 当前弹出的右键 / 应用菜单（最上层，同一时间只有一个）。
     pub(super) menu: Option<Entity<ContextMenu>>,
-    menu_sub: Option<Subscription>,
+    pub(super) menu_sub: Option<Subscription>,
     /// 当前的关闭 / 退出确认对话框，以及它确认后要执行的关闭请求。
     pub(super) dialog: Option<Entity<Dialog>>,
-    dialog_sub: Option<Subscription>,
+    pub(super) dialog_sub: Option<Subscription>,
     pending_close: Option<CloseRequest>,
     /// 右键行为：弹菜单 / 复制或粘贴（terminal.md §8.1）。
     right_click_menu: bool,
@@ -843,7 +843,12 @@ impl ShellView {
         cx.notify();
     }
 
-    fn on_dialog_result(&mut self, r: &DialogResult, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn on_dialog_result(
+        &mut self,
+        r: &DialogResult,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.dialog = None;
         self.dialog_sub = None;
         if let Some(p) = self.pending_data.take() {

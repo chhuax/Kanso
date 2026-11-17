@@ -394,7 +394,7 @@ mod tests {
             user: user.into(),
             identity_file: None,
             proxy_jump: None,
-            existing: existing.then(|| ProfileId::new()),
+            existing: existing.then(ProfileId::new),
             warnings: Vec::new(),
         }
     }
