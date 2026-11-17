@@ -267,6 +267,9 @@
 |---|---|
 | `MCP_DISABLED` | 总开关关闭 |
 | `INVALID_TOKEN` | 客户端令牌缺失或不匹配（§1.1），在初始化时返回 |
+| `NOT_RUNNING` | Kanso 没有运行，由转发程序返回 |
+| `TOO_MANY_CLIENTS` | 同时连接的客户端超过上限 |
+| `VERSION_MISMATCH` | 转发程序与 App 版本不一致，需重启 AI 工具或更新 Kanso |
 | `NOT_FOUND` | 会话或标签不存在、已关闭，或会话级别为"关闭" |
 | `ACCESS_DENIED` | 会话级别不足以执行该操作 |
 | `TAB_BUSY` | 标签不满足 §4.2 的前置条件，说明里写明是哪一条 |

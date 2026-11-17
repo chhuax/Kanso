@@ -85,6 +85,13 @@ impl Registry {
         }
     }
 
+    /// 同 [`close`](Self::close)，但不回调。只给 `Drop` 用：对象已在销毁，宿主不应再收到事件。
+    pub(super) fn close_silently(&self) {
+        let mut g = self.lock();
+        g.open = false;
+        Self::drop_all(&mut g);
+    }
+
     fn drop_all(g: &mut Inner) -> bool {
         let had = !g.clients.is_empty();
         for c in g.clients.drain(..) {
@@ -94,9 +101,16 @@ impl Registry {
     }
 
     /// 更换令牌并断开全部现有客户端（它们用的都是旧令牌）。没有在运行时什么也不做。
+    ///
+    /// 拒绝空令牌且不断开任何客户端：宿主读钥匙串失败时可能传来空串，若照单全收，
+    /// 会把所有客户端踢掉而状态仍显示 Running，用户无从察觉；保持旧令牌更安全。
     pub(super) fn set_token(&self, token: SecretString) {
         let mut g = self.lock();
         if !g.open {
+            return;
+        }
+        if token.expose().is_empty() {
+            tracing::warn!("ignoring empty mcp token update");
             return;
         }
         g.token = token;
@@ -190,7 +204,33 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::constant_time_eq;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use kanso_types::SessionId;
+
+    use super::*;
+    use crate::{McpActivity, McpServerStatus};
+
+    /// 只统计 `on_clients_changed` 次数的 delegate。
+    #[derive(Default)]
+    struct CountingDelegate {
+        clients_changed: AtomicUsize,
+    }
+
+    impl McpServerDelegate for CountingDelegate {
+        fn on_status_changed(&self, _: McpServerStatus) {}
+        fn on_clients_changed(&self, _: Vec<McpClientInfo>) {
+            self.clients_changed.fetch_add(1, Ordering::SeqCst);
+        }
+        fn on_session_opened(&self, _: SessionId, _: McpClientInfo) {}
+        fn on_activity(&self, _: SessionId, _: Option<McpActivity>) {}
+        fn on_session_released(&self, _: SessionId) {}
+    }
+
+    fn registry() -> (Registry, Arc<CountingDelegate>) {
+        let delegate = Arc::new(CountingDelegate::default());
+        (Registry::new(delegate.clone()), delegate)
+    }
 
     #[test]
     fn compares_tokens() {
@@ -198,5 +238,29 @@ mod tests {
         assert!(!constant_time_eq(b"abc", b"abd"));
         assert!(!constant_time_eq(b"abc", b"abcd"));
         assert!(constant_time_eq(b"", b""));
+    }
+
+    #[test]
+    fn empty_token_update_is_ignored_and_keeps_clients() {
+        let (reg, delegate) = registry();
+        reg.open(SecretString::new("old"));
+        assert!(matches!(reg.admit("old"), Admission::Admitted { .. }));
+        let before = delegate.clients_changed.load(Ordering::SeqCst);
+        reg.set_token(SecretString::new(""));
+        assert_eq!(reg.list().len(), 1);
+        assert_eq!(delegate.clients_changed.load(Ordering::SeqCst), before);
+        // 旧令牌仍然有效。
+        assert!(matches!(reg.admit("old"), Admission::Admitted { .. }));
+    }
+
+    #[test]
+    fn close_silently_drops_clients_without_callback() {
+        let (reg, delegate) = registry();
+        reg.open(SecretString::new("t"));
+        assert!(matches!(reg.admit("t"), Admission::Admitted { .. }));
+        let before = delegate.clients_changed.load(Ordering::SeqCst);
+        reg.close_silently();
+        assert!(reg.list().is_empty());
+        assert_eq!(delegate.clients_changed.load(Ordering::SeqCst), before);
     }
 }

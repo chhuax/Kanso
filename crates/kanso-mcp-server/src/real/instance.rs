@@ -11,6 +11,7 @@ use kanso_mcp::paths::McpPaths;
 ///
 /// 返回的 `File` 要一直持有到进程结束：锁随文件描述符释放。Rust 打开的文件带 `O_CLOEXEC`，
 /// 所以 App 启动的 shell 等子进程不会继承它，否则 App 退出后锁还会被子进程占着。
+#[allow(unsafe_code)]
 pub(super) fn acquire(paths: &McpPaths) -> io::Result<Option<File>> {
     fs::DirBuilder::new()
         .recursive(true)

@@ -63,6 +63,7 @@ fn base_dir(home: &Path, bundle_id: &str) -> PathBuf {
 }
 
 /// 当前用户的家目录，取自用户数据库。
+#[allow(unsafe_code)]
 fn home_dir() -> io::Result<PathBuf> {
     // SAFETY: `passwd` 是只含指针与整数的 C 结构体，全 0 是合法的初始值；它只作为输出参数。
     let mut pwd: libc::passwd = unsafe { std::mem::zeroed() };
@@ -89,6 +90,7 @@ fn home_dir() -> io::Result<PathBuf> {
 
 /// 当前用户的临时目录。macOS 上用 `confstr(_CS_DARWIN_USER_TEMP_DIR)`，不读 `$TMPDIR`，理由同家目录。
 #[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
 fn user_temp_dir() -> PathBuf {
     let mut buf = vec![0 as libc::c_char; 1024];
     // SAFETY: `buf` 是有效的可写缓冲区，长度如实传入；confstr 最多写入 `buf.len()` 字节并以 NUL 结尾。

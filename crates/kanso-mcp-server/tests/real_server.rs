@@ -241,6 +241,46 @@ fn second_instance_in_same_dir_is_unavailable() {
     f.server.start(config(TOKEN)).unwrap();
 }
 
+/// 用独立的文件描述符持有锁文件的 flock，模拟转发程序探测时的短暂占用。
+#[allow(unsafe_code)]
+fn hold_flock(path: &std::path::Path, op: libc::c_int) -> std::fs::File {
+    use std::os::fd::AsRawFd;
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)
+        .unwrap();
+    // SAFETY: `file` 是刚打开、仍存活的有效描述符。
+    let rc = unsafe { libc::flock(file.as_raw_fd(), op | libc::LOCK_NB) };
+    assert_eq!(rc, 0);
+    file
+}
+
+#[test]
+fn start_retries_after_lock_was_briefly_held_by_a_probe() {
+    let dir = tempfile::tempdir().unwrap();
+    let mcp_dir = dir.path().join("mcp");
+    std::fs::create_dir_all(&mcp_dir).unwrap();
+    let probe = hold_flock(&mcp_dir.join("kanso.lock"), libc::LOCK_SH);
+    let rec = Arc::new(Recorder::default());
+    let server = McpServer::new_in_dir(new_core(), rec.clone(), mcp_dir);
+    assert_eq!(
+        server.status(),
+        McpServerStatus::Unavailable(McpUnavailable::AnotherInstance)
+    );
+    // 探测还没结束时再启动，仍然是另一个实例。
+    assert_eq!(
+        server.start(config(TOKEN)),
+        Err(McpServerError::AnotherInstance)
+    );
+    // 探测结束后重试成功，状态从 AnotherInstance 正常过渡到 Running。
+    drop(probe);
+    server.start(config(TOKEN)).unwrap();
+    assert!(matches!(server.status(), McpServerStatus::Running { .. }));
+}
+
 #[test]
 fn start_creates_private_socket_and_stop_removes_it() {
     let f = Fixture::new();
@@ -370,6 +410,7 @@ fn invalid_token_gets_error_reply_audit_and_is_closed() {
             .unwrap()
             .contains("Invalid or missing Kanso MCP token")
     );
+    assert_eq!(resp["error"]["data"]["code"], "INVALID_TOKEN");
     assert!(c.is_closed());
     assert!(f.server.clients().is_empty());
 
@@ -397,6 +438,7 @@ fn seventeenth_client_is_refused() {
         resp["error"]["message"],
         "Too many MCP clients connected to Kanso."
     );
+    assert_eq!(resp["error"]["data"]["code"], "TOO_MANY_CLIENTS");
     assert_eq!(f.server.clients().len(), 16);
     drop(held);
 }
@@ -411,7 +453,9 @@ fn set_token_disconnects_old_connections() {
 
     let mut stale = f.connect(TOKEN);
     stale.send(json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}));
-    assert_eq!(stale.read()["error"]["code"], -32000);
+    let stale_resp = stale.read();
+    assert_eq!(stale_resp["error"]["code"], -32000);
+    assert_eq!(stale_resp["error"]["data"]["code"], "INVALID_TOKEN");
 
     let mut fresh = f.connect("rotated");
     fresh.initialize("new");
@@ -558,6 +602,7 @@ fn version_mismatch_gets_error_reply() {
             .unwrap()
             .contains("versions do not match")
     );
+    assert_eq!(resp["error"]["data"]["code"], "VERSION_MISMATCH");
     assert!(f.server.clients().is_empty());
 }
 

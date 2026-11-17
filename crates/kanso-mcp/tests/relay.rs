@@ -105,9 +105,11 @@ fn reports_not_running_without_lock_file() {
             .unwrap()
             .contains("Kanso is not running")
     );
+    assert_eq!(resp["error"]["data"]["code"], "NOT_RUNNING");
 }
 
 #[test]
+#[allow(unsafe_code)]
 fn reports_disabled_when_lock_is_held_but_no_socket() {
     let dir = tempfile::tempdir().unwrap();
     // 模拟 App 在运行但开关关闭：持有单实例锁，没有监听 socket。
@@ -125,6 +127,7 @@ fn reports_disabled_when_lock_is_held_but_no_socket() {
             .unwrap()
             .contains("MCP is disabled")
     );
+    assert_eq!(resp["error"]["data"]["code"], "MCP_DISABLED");
     drop(lock);
 }
 

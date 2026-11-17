@@ -30,12 +30,5 @@ kanso-core.workspace = true
 kanso-types.workspace = true
 serde_json.workspace = true
 
-# 需要直接调 libc（flock、getpwuid_r、confstr、取控制终端），因此不继承 workspace lints，
-# 显式列出与 workspace 相同的规则，仅把 unsafe_code 放开为 allow；每处 unsafe 写 SAFETY 注释。
-[lints.rust]
-missing_docs = "warn"
-unsafe_op_in_unsafe_fn = "deny"
-unsafe_code = "allow"
-
-[lints.clippy]
-all = { level = "warn", priority = -1 }
+[lints]
+workspace = true

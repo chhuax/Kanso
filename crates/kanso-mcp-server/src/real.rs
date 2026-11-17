@@ -32,6 +32,7 @@ use kanso_mcp::paths::McpPaths;
 use kanso_types::secret::SecretString;
 use tokio::runtime::{Builder, Runtime};
 use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 
 use self::audit::AuditSink;
 use self::registry::Registry;
@@ -42,6 +43,8 @@ use crate::{
 
 /// 停止时等审计任务写完剩余记录的上限。
 const AUDIT_FLUSH_TIMEOUT: Duration = Duration::from_secs(2);
+/// 停止时等进行中的连接任务（含正在执行的工具调用）结束的上限。
+const CONN_DRAIN_TIMEOUT: Duration = Duration::from_secs(1);
 /// 停止时等运行时里的任务退出的上限。
 const RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 
@@ -50,6 +53,9 @@ struct Shared {
     core: Arc<Core>,
     registry: Arc<Registry>,
     audit: AuditSink,
+    /// 所有连接任务都登记在这里，停止时要等它们结束：连接任务里正在执行的工具调用，
+    /// 结束时还要写审计，必须赶在审计队列关闭之前。
+    conns: TaskTracker,
 }
 
 /// 单实例锁的结果。
@@ -65,6 +71,10 @@ enum Lock {
 /// 运行中的状态；停止时被取走并拆除。
 struct Running {
     runtime: Runtime,
+    /// 只停 accept 循环；与 `shutdown` 分开，是为了先停止接新连接、等连接任务结束，最后才让审计收尾。
+    accept_stop: CancellationToken,
+    accept: tokio::task::JoinHandle<()>,
+    conns: TaskTracker,
     shutdown: CancellationToken,
     audit: tokio::task::JoinHandle<()>,
     socket: PathBuf,
@@ -166,7 +176,10 @@ impl RealServer {
         self.stop_running();
         let mut inner = self.lock();
         // 目录创建失败可能是暂时的（例如磁盘刚恢复），先重试一次。
-        if matches!(inner.lock, Lock::Failed(_)) {
+        // `Another` 也要重试：转发程序为区分"未运行"与"开关关闭"会短暂对锁文件做探测加锁，
+        // 构造时恰好撞上就会被误记成另一个实例，若不重新尝试，本实例此后永远起不来。
+        // 仍是 `Another` 才说明真有另一个实例。
+        if matches!(inner.lock, Lock::Failed(_) | Lock::Another) {
             inner.lock = self.acquire_lock();
             if matches!(inner.lock, Lock::Another) {
                 inner.status = McpServerStatus::Unavailable(McpUnavailable::AnotherInstance);
@@ -248,16 +261,22 @@ impl RealServer {
 
         let shutdown = CancellationToken::new();
         let (sink, rx) = audit::channel();
+        let conns = TaskTracker::new();
         let shared = Arc::new(Shared {
             core: self.core.clone(),
             registry: self.registry.clone(),
             audit: sink,
+            conns: conns.clone(),
         });
         self.registry.open(token);
-        runtime.spawn(accept_loop(listener, shared, shutdown.clone()));
+        let accept_stop = CancellationToken::new();
+        let accept = runtime.spawn(accept_loop(listener, shared, accept_stop.clone()));
         let audit = runtime.spawn(audit::run(self.core.clone(), rx, shutdown.clone()));
         Ok(Running {
             runtime,
+            accept_stop,
+            accept,
+            conns,
             shutdown,
             audit,
             socket: socket.to_owned(),
@@ -277,21 +296,44 @@ impl RealServer {
             self.set_status(&mut inner, McpServerStatus::Stopped);
             running
         };
-        Self::teardown(&self.registry, running);
+        Self::teardown(&self.registry, running, false);
     }
 
-    /// 拆除运行时。顺序有意义：先断开客户端（此后不再有新调用产生审计），
-    /// 再取消关停令牌让审计任务写完队列里剩下的记录，否则正在进行的调用写的审计会因队列已关闭而丢失。
-    fn teardown(registry: &Registry, running: Running) {
-        registry.close();
-        running.shutdown.cancel();
-        // 设上限：数据库卡住时不拖住宿主线程。
-        let audit = running.audit;
-        running.runtime.block_on(async {
+    /// 拆除运行时。顺序有意义：
+    /// 1. 先断开客户端（连接任务随之收到取消）；
+    /// 2. 停止 accept，此后不会有新连接任务；
+    /// 3. 等连接任务全部结束：正在执行的工具调用结束后还要 `audit.push`，此时审计必须还在收；
+    /// 4. 最后取消 `shutdown`，让审计任务写完队列里剩下的记录，再等它。
+    ///
+    /// 步骤 3、4 都设上限：连接任务或数据库卡住时不拖住宿主线程。`silent` 为真（`Drop`）时断开客户端不回调。
+    fn teardown(registry: &Registry, running: Running, silent: bool) {
+        if silent {
+            registry.close_silently();
+        } else {
+            registry.close();
+        }
+        running.accept_stop.cancel();
+        let Running {
+            runtime,
+            accept,
+            conns,
+            shutdown,
+            audit,
+            socket,
+            ..
+        } = running;
+        runtime.block_on(async {
+            let _ = tokio::time::timeout(CONN_DRAIN_TIMEOUT, async {
+                let _ = accept.await;
+                conns.close();
+                conns.wait().await;
+            })
+            .await;
+            shutdown.cancel();
             let _ = tokio::time::timeout(AUDIT_FLUSH_TIMEOUT, audit).await;
         });
-        running.runtime.shutdown_timeout(RUNTIME_SHUTDOWN_TIMEOUT);
-        let _ = fs::remove_file(&running.socket);
+        runtime.shutdown_timeout(RUNTIME_SHUTDOWN_TIMEOUT);
+        let _ = fs::remove_file(&socket);
     }
 
     /// 停止后状态回到 `Stopped`。启动失败（`Unavailable(Failed)`）后用户关掉开关时也要回到 `Stopped`，
@@ -331,7 +373,7 @@ impl Drop for RealServer {
     fn drop(&mut self) {
         let inner = self.inner.get_mut().unwrap_or_else(|e| e.into_inner());
         if let Some(running) = inner.running.take() {
-            Self::teardown(&self.registry, running);
+            Self::teardown(&self.registry, running, true);
         }
     }
 }
@@ -346,7 +388,7 @@ async fn accept_loop(
             _ = shutdown.cancelled() => return,
             accepted = listener.accept() => match accepted {
                 Ok((stream, _)) => {
-                    tokio::spawn(conn::handle(stream, shared.clone()));
+                    shared.conns.spawn(conn::handle(stream, shared.clone()));
                 }
                 Err(e) => {
                     // 例如文件描述符耗尽：稍等再试，避免空转占满 CPU。

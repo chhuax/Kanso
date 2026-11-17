@@ -72,7 +72,14 @@ impl KansoHandler {
         let started = Instant::now();
         let at_ms = now_ms();
         let client = self.shared.registry.add_call(self.client_id);
-        let outcome = if self.shared.core.mcp_enabled() {
+        // core 的查询会读 SQLite（同步阻塞）；MCP 运行时只有 2 个工作线程，直接在这里调用，
+        // 几个并发连接就能占满线程，连接握手与取消都会被拖住，所以放进阻塞线程池。
+        // 任务异常（panic）时按"开关关闭"处理：宁可拒绝也不放行。
+        let core = self.shared.core.clone();
+        let enabled = tokio::task::spawn_blocking(move || core.mcp_enabled())
+            .await
+            .unwrap_or(false);
+        let outcome = if enabled {
             work.await
         } else {
             Err(ToolError {
@@ -114,7 +121,10 @@ impl KansoHandler {
         name = "kanso_list_sessions",
         description = "List the saved sessions Kanso lets AI tools see (access level is not Off), \
             with their open tabs. Each session has id, name, kind (local/ssh/sftp), host, port, user, \
-            group and access (read-only/full).",
+            group and access (read-only/full). Each tab has id, title, state, opened_by_mcp and \
+            is_client_tab (plus activity, locked and terminal_transfer when known). \
+            opened_by_mcp is always false for now, and is_client_tab is currently always false: \
+            Kanso cannot yet tell which tab the calling AI client runs in.",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -133,7 +143,17 @@ impl KansoHandler {
         );
         let core = self.shared.core.clone();
         self.invoke("kanso_list_sessions", args, async move {
-            Ok(list_sessions(&core, &params))
+            // 同 `invoke`：整个枚举都是同步读库，放进阻塞线程池，避免占住只有 2 个线程的运行时。
+            tokio::task::spawn_blocking(move || list_sessions(&core, &params))
+                .await
+                .map_err(|e| {
+                    tracing::warn!("kanso_list_sessions task failed: {e}");
+                    ToolError {
+                        code: "INTERRUPTED",
+                        message: "Listing sessions was interrupted by an internal error."
+                            .to_owned(),
+                    }
+                })
         })
         .await
     }
@@ -232,6 +252,11 @@ fn tab_json(core: &Core, info: &kanso_core::SessionInfo) -> Value {
             SessionState::Connected => "connected",
             SessionState::Closed(_) => "closed",
         },
+        // TODO(F9 阶段 2)：阶段 1 没有 `kanso_open_tab`，不存在由 MCP 打开的标签，固定 false；
+        // 客户端所在标签（控制终端与进程祖先链，spec/mcp.md §2.5）要阶段 2 才能判断，暂时固定 false。
+        // 字段先留着，是为了让 AI 工具现在就能按 spec §3.1 的结构解析。
+        "opened_by_mcp": false,
+        "is_client_tab": false,
     });
     // 真实后端暂时没有这项状态（返回 None）：缺失就省略，不编造。
     if let Some(status) = core.mcp_session_status(info.id) {

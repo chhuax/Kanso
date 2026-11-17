@@ -3,7 +3,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use kanso_mcp::jsonrpc::SERVER_ERROR;
+use kanso_mcp::jsonrpc::{
+    CODE_INVALID_TOKEN, CODE_TOO_MANY_CLIENTS, CODE_VERSION_MISMATCH, SERVER_ERROR,
+};
 use kanso_mcp::{hello, jsonrpc};
 use kanso_types::mcp::McpAuditEntry;
 use rmcp::ServiceExt;
@@ -44,6 +46,7 @@ struct Hello {
 }
 
 /// 处理一个已接受的连接，直到它结束。
+#[allow(unsafe_code)]
 pub(super) async fn handle(stream: UnixStream, shared: Arc<Shared>) {
     // 只允许同一系统用户（spec/mcp.md §8）。socket 在 0700 目录里，这是第二道防线。
     let cred = match stream.peer_cred() {
@@ -64,7 +67,13 @@ pub(super) async fn handle(stream: UnixStream, shared: Arc<Shared>) {
     let hello = match timeout(HELLO_TIMEOUT, read_hello(&mut reader)).await {
         Ok(Some(h)) if h.v == hello::VERSION => h,
         Ok(Some(_)) => {
-            reject(&mut reader, &mut write, MSG_VERSION_MISMATCH).await;
+            reject(
+                &mut reader,
+                &mut write,
+                CODE_VERSION_MISMATCH,
+                MSG_VERSION_MISMATCH,
+            )
+            .await;
             return;
         }
         // 超时、超长或不是合法的握手：直接断开。
@@ -83,15 +92,21 @@ pub(super) async fn handle(stream: UnixStream, shared: Arc<Shared>) {
                 profile: None,
                 session: None,
                 args: String::new(),
-                error_code: Some("INVALID_TOKEN".to_owned()),
+                error_code: Some(CODE_INVALID_TOKEN.to_owned()),
                 duration_ms: 0,
                 bytes: 0,
             });
-            reject(&mut reader, &mut write, MSG_INVALID_TOKEN).await;
+            reject(
+                &mut reader,
+                &mut write,
+                CODE_INVALID_TOKEN,
+                MSG_INVALID_TOKEN,
+            )
+            .await;
             return;
         }
         Admission::TooMany => {
-            reject(&mut reader, &mut write, MSG_TOO_MANY).await;
+            reject(&mut reader, &mut write, CODE_TOO_MANY_CLIENTS, MSG_TOO_MANY).await;
             return;
         }
         Admission::Closed => return,
@@ -155,14 +170,19 @@ async fn read_line(reader: &mut BufReader<OwnedReadHalf>, max: usize) -> Option<
 
 /// 读客户端的第一条请求，回复一个 JSON-RPC 错误后断开。
 /// 转发程序只是原样转发，客户端发出 initialize 后一直在等回复；不回复它只会看到"连接意外断开"。
-async fn reject(reader: &mut BufReader<OwnedReadHalf>, write: &mut OwnedWriteHalf, message: &str) {
+async fn reject(
+    reader: &mut BufReader<OwnedReadHalf>,
+    write: &mut OwnedWriteHalf,
+    stable_code: &str,
+    message: &str,
+) {
     let Ok(Some(line)) = timeout(HELLO_TIMEOUT, read_line(reader, MAX_REQUEST_LEN)).await else {
         return;
     };
     let Some(id) = jsonrpc::request_id(&line) else {
         return;
     };
-    let reply = jsonrpc::error_response(&id, SERVER_ERROR, message);
+    let reply = jsonrpc::error_response(&id, SERVER_ERROR, stable_code, message);
     let _ = write.write_all(reply.as_bytes()).await;
     let _ = write.shutdown().await;
 }

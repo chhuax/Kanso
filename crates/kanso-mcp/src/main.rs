@@ -22,7 +22,8 @@ mod unix {
     use kanso_mcp::{DIRECT_BUNDLE_ID, TOKEN_ENV, hello, jsonrpc};
 
     use kanso_mcp::jsonrpc::{
-        MSG_DISABLED as DISABLED, MSG_NOT_RUNNING as NOT_RUNNING, SERVER_ERROR,
+        CODE_MCP_DISABLED, CODE_NOT_RUNNING, MSG_DISABLED as DISABLED,
+        MSG_NOT_RUNNING as NOT_RUNNING, SERVER_ERROR,
     };
     /// 找带 id 的请求时最多看几行：正常情况下第一行就是 initialize。
     const MAX_LINES_BEFORE_REQUEST: usize = 16;
@@ -32,13 +33,13 @@ mod unix {
             Ok(p) => p,
             Err(e) => {
                 eprintln!("kanso-mcp: {e}");
-                return reply_error(NOT_RUNNING);
+                return reply_error(CODE_NOT_RUNNING, NOT_RUNNING);
             }
         };
         match UnixStream::connect(&paths.socket) {
             Ok(stream) => relay(stream),
-            Err(_) if app_running(&paths.lock) => reply_error(DISABLED),
-            Err(_) => reply_error(NOT_RUNNING),
+            Err(_) if app_running(&paths.lock) => reply_error(CODE_MCP_DISABLED, DISABLED),
+            Err(_) => reply_error(CODE_NOT_RUNNING, NOT_RUNNING),
         }
     }
 
@@ -58,10 +59,10 @@ mod unix {
         let token = std::env::var(TOKEN_ENV).unwrap_or_default();
         let line = hello::encode(&token, controlling_tty().as_deref());
         if stream.write_all(line.as_bytes()).is_err() {
-            return reply_error(NOT_RUNNING);
+            return reply_error(CODE_NOT_RUNNING, NOT_RUNNING);
         }
         let Ok(mut upstream) = stream.try_clone() else {
-            return reply_error(NOT_RUNNING);
+            return reply_error(CODE_NOT_RUNNING, NOT_RUNNING);
         };
         // stdin → socket 放在另一个线程；stdin 结束时半关闭写方向，让 App 知道客户端不会再发了。
         std::thread::spawn(move || {
@@ -78,24 +79,29 @@ mod unix {
 
     /// App 是否在运行：它从启动起就一直持有单实例锁（architecture §16.1）。
     /// 能拿到锁说明没有在运行；拿到后立即随文件关闭而释放，不改动任何文件。
+    ///
+    /// 用共享锁（`LOCK_SH`）探测：App 持有排他锁时共享锁照样 EWOULDBLOCK，判断不变；
+    /// 多个转发程序同时探测互不冲突，只有探测期间 App 才可能短暂撞上（`LOCK_EX` 与共享锁互斥），
+    /// 所以 App 侧 `start` 遇到 `Another` 时必须重新尝试加锁，不能把这次碰撞当作永久结果。
+    #[allow(unsafe_code)]
     fn app_running(lock: &Path) -> bool {
         // 锁文件不存在（从没运行过）也视为未运行；不创建它。
         let Ok(file) = std::fs::File::open(lock) else {
             return false;
         };
         // SAFETY: `file` 持有有效的文件描述符，flock 只作用于它；文件在本函数结束时关闭，锁随之释放。
-        let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+        let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) };
         rc != 0 && io::Error::last_os_error().raw_os_error() == Some(libc::EWOULDBLOCK)
     }
 
     /// 读到客户端第一条带 id 的请求，回一个错误后退出。客户端会把消息显示给用户或 AI。
-    fn reply_error(message: &str) -> ExitCode {
+    fn reply_error(stable_code: &str, message: &str) -> ExitCode {
         let stdin = io::stdin();
         let mut lines = stdin.lock().lines();
         for _ in 0..MAX_LINES_BEFORE_REQUEST {
             let Some(Ok(line)) = lines.next() else { break };
             if let Some(id) = jsonrpc::request_id(&line) {
-                let reply = jsonrpc::error_response(&id, SERVER_ERROR, message);
+                let reply = jsonrpc::error_response(&id, SERVER_ERROR, stable_code, message);
                 let mut stdout = io::stdout().lock();
                 let _ = stdout.write_all(reply.as_bytes());
                 let _ = stdout.flush();
@@ -108,6 +114,7 @@ mod unix {
 
     /// 本进程的控制终端路径，例如 `/dev/ttys003`；没有控制终端时为 `None`。
     /// stdin/stdout 是与 AI 工具之间的管道，所以打开 `/dev/tty` 取控制终端，而不是看 stdin。
+    #[allow(unsafe_code)]
     fn controlling_tty() -> Option<String> {
         // 带 O_NOCTTY：只是查询，不能让本进程因此获得控制终端。
         let tty = std::fs::File::options()

@@ -6,6 +6,17 @@ use crate::hello::json_string;
 
 /// JSON-RPC 的"服务端错误"区间（-32000 到 -32099）里的一个码；转发程序与 App 的拒绝回复共用。
 pub const SERVER_ERROR: i32 = -32000;
+/// 稳定错误码（spec/mcp.md §9），放在 JSON-RPC 错误的 `data.code` 里，AI 工具据此判断下一步，
+/// 不必解析英文说明。转发程序与 App 的握手拒绝回复共用这几个常量，避免两端各写一份而漂移。
+pub const CODE_INVALID_TOKEN: &str = "INVALID_TOKEN";
+/// 总开关关闭。
+pub const CODE_MCP_DISABLED: &str = "MCP_DISABLED";
+/// Kanso 没有运行，只由转发程序返回。
+pub const CODE_NOT_RUNNING: &str = "NOT_RUNNING";
+/// 同时连接的客户端超过上限。
+pub const CODE_TOO_MANY_CLIENTS: &str = "TOO_MANY_CLIENTS";
+/// 转发程序与 App 的握手版本不一致。
+pub const CODE_VERSION_MISMATCH: &str = "VERSION_MISMATCH";
 /// Kanso 未运行时转发程序回复的说明。
 pub const MSG_NOT_RUNNING: &str = "Kanso is not running. Ask the user to open Kanso.";
 /// 总开关关闭时转发程序与工具调用回复的说明。
@@ -47,11 +58,13 @@ pub fn request_id(line: &str) -> Option<String> {
     }
 }
 
-/// 生成一条 JSON-RPC 错误回复（含结尾换行）。`id` 是 [`request_id`] 取出的原始文本。
-pub fn error_response(id: &str, code: i32, message: &str) -> String {
+/// 生成一条 JSON-RPC 错误回复（含结尾换行）。`id` 是 [`request_id`] 取出的原始文本，
+/// `stable_code` 取上面的 `CODE_*` 常量，写入 `error.data.code`。
+pub fn error_response(id: &str, code: i32, stable_code: &str, message: &str) -> String {
     format!(
-        "{{\"jsonrpc\":\"2.0\",\"id\":{id},\"error\":{{\"code\":{code},\"message\":{}}}}}\n",
-        json_string(message)
+        "{{\"jsonrpc\":\"2.0\",\"id\":{id},\"error\":{{\"code\":{code},\"message\":{},\"data\":{{\"code\":{}}}}}}}\n",
+        json_string(message),
+        json_string(stable_code)
     )
 }
 
@@ -137,8 +150,8 @@ mod tests {
     #[test]
     fn error_response_echoes_raw_id() {
         assert_eq!(
-            error_response("\"abc\"", -32000, "Kanso is not running"),
-            "{\"jsonrpc\":\"2.0\",\"id\":\"abc\",\"error\":{\"code\":-32000,\"message\":\"Kanso is not running\"}}\n"
+            error_response("\"abc\"", -32000, "NOT_RUNNING", "Kanso is not running"),
+            "{\"jsonrpc\":\"2.0\",\"id\":\"abc\",\"error\":{\"code\":-32000,\"message\":\"Kanso is not running\",\"data\":{\"code\":\"NOT_RUNNING\"}}}\n"
         );
     }
 }
