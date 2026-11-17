@@ -3,6 +3,7 @@
 pub(crate) mod dialog;
 pub(crate) mod focus_chain;
 pub(crate) mod menu;
+pub(crate) mod text_area;
 pub(crate) mod text_input;
 
 pub(crate) mod dropdown;

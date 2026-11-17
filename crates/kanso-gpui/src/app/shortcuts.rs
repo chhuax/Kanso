@@ -82,6 +82,12 @@ pub enum AppCommand {
     CopyBlockCommand,
     /// 复制右键所在命令块的输出。
     CopyBlockOutput,
+    /// 显示 / 隐藏底部 Sender 面板（Ctrl+Alt+↓）。
+    ToggleSender,
+    /// 开关“命令建议”（补全与历史采集）。
+    ToggleCommandSuggestions,
+    /// 清除命令历史（先确认）。
+    ClearCommandHistory,
 }
 
 impl AppCommand {
@@ -159,6 +165,8 @@ pub const DEFAULT_BINDINGS: &[Binding] = &[
     b(false, true, false, "9", AppCommand::SelectTab(8)),
     // 面板显隐（spec 里 Ctrl+Alt+← 对应标签栏）。
     b(true, true, false, "left", AppCommand::ToggleSidebar),
+    // Sender 面板显隐（ui-shell.md §7：Ctrl+Alt+↓）。
+    b(true, true, false, "down", AppCommand::ToggleSender),
     // 清屏（ui-shell.md §7）。
     b(false, true, false, "k", AppCommand::ClearBuffer),
     // 设置：mac 是 ⌘,，Windows 沿用 Ctrl+,（VS Code、Windows Terminal 同样的习惯）。
@@ -279,6 +287,20 @@ mod tests {
         assert_eq!(press("0", true, false, false), Some(AppCommand::ZoomReset));
         assert!(AppCommand::ZoomIn.repeatable());
         assert!(!AppCommand::OpenSettings.repeatable());
+    }
+
+    #[test]
+    fn sender_toggle_default() {
+        assert_eq!(
+            press("down", true, true, false),
+            Some(AppCommand::ToggleSender)
+        );
+        assert_eq!(press("down", false, true, false), None);
+        assert_eq!(
+            shortcut_text(AppCommand::ToggleSender).as_deref(),
+            Some("Ctrl+Alt+Down")
+        );
+        assert!(!AppCommand::ToggleSender.repeatable());
     }
 
     #[test]

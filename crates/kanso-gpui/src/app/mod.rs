@@ -21,10 +21,13 @@
 //! - [`menus`]：终端 / 标签右键菜单与窗口级应用菜单的内容，菜单项 id 与 [`shortcuts::AppCommand`] 互转。
 //! - [`confirm`]：关闭 / 退出确认对话框的内容与结果判断。
 //! - [`find`] / [`gutter`] / [`blocks`] / [`links`]：终端内查找、时间戳 / 行号栏、命令块、链接的纯逻辑。
+//! - [`sender`]：底部 Sender 面板的纯逻辑（草稿 / 编辑、保存作用域、分页、重复参数、菜单、文字）。
+//! - [`completion`]：命令补全弹窗的纯逻辑（请求代次、键盘状态机、位置、设置、来源判断）。
 //! - [`status_bar`]：状态栏的内容模型、时钟格式与刷新对齐、目录截断。
 
 pub mod backend;
 pub mod blocks;
+pub mod completion;
 pub mod confirm;
 pub mod controller;
 pub mod events;
@@ -36,6 +39,7 @@ pub mod links;
 pub mod menus;
 pub mod prompt_dialogs;
 pub mod prompts;
+pub mod sender;
 pub mod sessions;
 pub mod settings;
 pub mod shell;

@@ -23,12 +23,15 @@ mod find_bar;
 mod launcher;
 mod memory;
 mod selftest;
+mod sender;
 mod session_editor;
 mod settings;
 mod sftp_bench;
 mod shell;
+mod shell_completion;
 mod shell_launcher;
 mod shell_selftest;
+mod shell_sender;
 mod sidebar;
 mod status_bar;
 mod term_selftest;
@@ -63,6 +66,8 @@ pub(crate) static KEEP_OPEN: AtomicBool = AtomicBool::new(false);
 pub(crate) static SETTINGS_TEST: AtomicBool = AtomicBool::new(false);
 /// `--term-test`：外壳启动后自动走一遍终端显示功能（查找、时间戳栏、链接、块跳转），把 PASS / FAIL 写进日志。
 pub(crate) static TERM_TEST: AtomicBool = AtomicBool::new(false);
+/// `--sender-test`：外壳启动后自动展开 Sender、发一条命令，把终端屏幕里是否出现输出写进日志（PASS / FAIL）。
+pub(crate) static SENDER_TEST: AtomicBool = AtomicBool::new(false);
 static LOG_FILE: OnceLock<Mutex<std::fs::File>> = OnceLock::new();
 
 /// 应用标识：凭据管理器条目前缀与数据目录名，发布后不能改。
@@ -153,6 +158,7 @@ fn parse_args() -> Args {
             "--keep" => KEEP_OPEN.store(true, Ordering::Relaxed),
             "--settings-test" => SETTINGS_TEST.store(true, Ordering::Relaxed),
             "--term-test" => TERM_TEST.store(true, Ordering::Relaxed),
+            "--sender-test" => SENDER_TEST.store(true, Ordering::Relaxed),
             "--sftp" => match it
                 .next()
                 .and_then(|v| kanso_gpui::filer::SftpSpec::parse(&v))
@@ -410,6 +416,7 @@ pub fn run() -> i32 {
             log("GPUI 应用循环已启动");
             // 启动器 / 编辑对话框 / 提示框里的输入框需要这组按键绑定。
             widgets::text_input::bind_keys(cx);
+            widgets::text_area::bind_keys(cx);
             let bounds = Bounds::centered(None, size(px(1120.0), px(680.0)), cx);
             // 主窗口关闭就退出（设置窗口是附属窗口，不能让它把进程留住）。
             cx.on_window_closed(|cx| {

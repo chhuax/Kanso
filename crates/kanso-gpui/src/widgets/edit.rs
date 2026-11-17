@@ -76,6 +76,8 @@ pub struct EditState {
     pub masked: bool,
     /// 只读（含禁用）：可选择、可复制，不可修改。
     pub read_only: bool,
+    /// 多行模式：保留换行（`\r\n` / `\r` 归一成 `\n`），Home / End 按行，可用 [`EditState::move_up`] / [`EditState::move_down`]。
+    pub multiline: bool,
 }
 
 fn utf16_len(s: &str) -> usize {
@@ -107,6 +109,14 @@ fn floor_boundary(s: &str, mut i: usize) -> usize {
 }
 
 impl EditState {
+    /// 空的多行编辑状态。
+    pub fn new_multiline() -> EditState {
+        EditState {
+            multiline: true,
+            ..EditState::default()
+        }
+    }
+
     /// 以初始文本创建，光标在末尾。
     pub fn new(text: &str) -> EditState {
         let mut s = EditState::default();
@@ -304,18 +314,100 @@ impl EditState {
         }
     }
 
-    /// Home。
+    /// Home（多行模式移到当前行首）。
     pub fn move_home(&mut self, extend: bool) {
         if !self.is_composing() {
-            self.set_cursor(0, extend);
+            let target = if self.multiline {
+                self.line_start(self.head)
+            } else {
+                0
+            };
+            self.set_cursor(target, extend);
         }
     }
 
-    /// End。
+    /// End（多行模式移到当前行尾）。
     pub fn move_end(&mut self, extend: bool) {
         if !self.is_composing() {
-            self.set_cursor(self.text.len(), extend);
+            let target = if self.multiline {
+                self.line_end(self.head)
+            } else {
+                self.text.len()
+            };
+            self.set_cursor(target, extend);
         }
+    }
+
+    // ---- 多行 ----
+
+    /// `offset` 所在行的行首偏移。
+    pub fn line_start(&self, offset: usize) -> usize {
+        let o = self.clamp_offset(offset);
+        self.text[..o].rfind('\n').map_or(0, |i| i + 1)
+    }
+
+    /// `offset` 所在行的行尾偏移（换行符之前）。
+    pub fn line_end(&self, offset: usize) -> usize {
+        let o = self.clamp_offset(offset);
+        self.text[o..].find('\n').map_or(self.text.len(), |i| o + i)
+    }
+
+    /// 文本的行数（空文本为 1 行）。
+    pub fn line_count(&self) -> usize {
+        self.text.matches('\n').count() + 1
+    }
+
+    /// 光标所在行号（从 0 开始）。
+    pub fn cursor_line(&self) -> usize {
+        self.text[..self.head].matches('\n').count()
+    }
+
+    /// 光标在当前行内的字素簇列号。
+    fn cursor_column(&self) -> usize {
+        self.text[self.line_start(self.head)..self.head]
+            .graphemes(true)
+            .count()
+    }
+
+    /// 把行 `line_start` 开头往后数 `col` 个字素簇的偏移（不越过行尾）。
+    fn offset_at_column(&self, line_start: usize, col: usize) -> usize {
+        let end = self.line_end(line_start);
+        let mut off = line_start;
+        for g in self.text[line_start..end].graphemes(true).take(col) {
+            off += g.len();
+        }
+        off
+    }
+
+    /// ↑：多行模式移到上一行的同一列；已在第一行则移到开头。
+    pub fn move_up(&mut self, extend: bool) {
+        if self.is_composing() {
+            return;
+        }
+        let start = self.line_start(self.head);
+        if start == 0 {
+            self.set_cursor(0, extend);
+            return;
+        }
+        let col = self.cursor_column();
+        let prev_start = self.line_start(start - 1);
+        let target = self.offset_at_column(prev_start, col);
+        self.set_cursor(target, extend);
+    }
+
+    /// ↓：多行模式移到下一行的同一列；已在最后一行则移到末尾。
+    pub fn move_down(&mut self, extend: bool) {
+        if self.is_composing() {
+            return;
+        }
+        let end = self.line_end(self.head);
+        if end >= self.text.len() {
+            self.set_cursor(self.text.len(), extend);
+            return;
+        }
+        let col = self.cursor_column();
+        let target = self.offset_at_column(end + 1, col);
+        self.set_cursor(target, extend);
     }
 
     /// Ctrl+A。
@@ -349,15 +441,18 @@ impl EditState {
     fn prepare(&self, text: &str, range: &Range<usize>, whole: bool) -> String {
         let mut out = String::with_capacity(text.len());
         let mut chars = text.chars().peekable();
+        let newline = if self.multiline { '\n' } else { ' ' };
         while let Some(c) = chars.next() {
             match c {
                 '\r' => {
                     if chars.peek() == Some(&'\n') {
                         chars.next();
                     }
-                    out.push(' ');
+                    out.push(newline);
                 }
-                '\n' | '\t' => out.push(' '),
+                '\n' => out.push(newline),
+                '\t' if self.multiline => out.push_str("    "),
+                '\t' => out.push(' '),
                 c if c.is_control() => {}
                 c => out.push(c),
             }
@@ -1120,5 +1215,62 @@ mod tests {
         assert_eq!(d.text, format!("{0}{0}你", MASK_CHAR));
         let m = s.marked_range().unwrap();
         assert_eq!(d.to_display(m.end), d.text.len());
+    }
+
+    fn ml(text: &str) -> EditState {
+        let mut s = EditState::new_multiline();
+        s.set_text(text);
+        s
+    }
+
+    #[test]
+    fn multiline_keeps_newlines_and_normalises_cr() {
+        let mut s = ml("a\r\nb\rc");
+        assert_eq!(s.text(), "a\nb\nc");
+        s.insert("\td");
+        assert_eq!(s.text(), "a\nb\nc    d");
+        // 单行模式仍然把换行变空格。
+        let mut single = st("");
+        single.paste("x\ny");
+        assert_eq!(single.text(), "x y");
+    }
+
+    #[test]
+    fn multiline_home_end_work_per_line() {
+        let mut s = ml("ab\ncde\nf");
+        s.set_cursor(5, false);
+        s.move_home(false);
+        assert_eq!(s.cursor(), 3);
+        s.move_end(false);
+        assert_eq!(s.cursor(), 6);
+        assert_eq!(s.line_count(), 3);
+        assert_eq!(s.cursor_line(), 1);
+    }
+
+    #[test]
+    fn multiline_up_down_keep_the_column() {
+        let mut s = ml("abcd\nx\nefgh");
+        s.set_cursor(3, false); // abc|d
+        s.move_down(false);
+        assert_eq!(s.cursor(), 6); // 短行行尾
+        s.move_down(false);
+        assert_eq!(s.cursor(), 8); // 第三行第 1 列
+        s.move_up(false);
+        assert_eq!(s.cursor(), 6);
+        s.move_up(false);
+        assert_eq!(s.cursor(), 1);
+        s.move_up(false);
+        assert_eq!(s.cursor(), 0);
+        let mut e = ml("ab");
+        e.move_down(false);
+        assert_eq!(e.cursor(), 2);
+    }
+
+    #[test]
+    fn multiline_up_down_extend_selection() {
+        let mut s = ml("ab\ncd");
+        s.set_cursor(1, false);
+        s.move_down(true);
+        assert_eq!(s.selection(), 1..4);
     }
 }
