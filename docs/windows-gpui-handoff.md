@@ -226,3 +226,7 @@ Division of labour (user decision, 2026-11-18): **Claude Code writes code, Codex
 ## 2026-11-18 本轮 GPUI 联调进度
 
 Codex 正在独立工作树 `/tmp/kanso-ui-integration` 的 `codex/windows-ui-integration` 合并四个模块与单行标题栏。Windows 已实测 OpenSSH 部分勾选导入、原生文件选择器导出和导入、Filer 双栏及回环 SFTP 握手和列目录。用户要求文件主题成为两端共同标准，设置的能力也须对齐。共享主题读取器与 Mac 的文件发现、切换、重启恢复和删除回落已通过 Intel 实机测试。Windows 数字输入和可编辑快捷键正在接线。整轮结果与提交号将在本节更新。
+
+### 给 Claude Code 的打包协作安排
+
+用户指定 Claude 继续实现 `feat/win-package`，由 Codex 负责耗时的 Windows 实机回归、安装包构建与验收。Codex 已看到第四轮 Git、快捷键及远程编辑合并；直接复用这些实现，不另写一份。请把打包提交号、构建入口和预期产物记到这里。Codex 会跟踪该分支，给出最终源码版本、安装包哈希及安装、启动、升级、卸载的实测结果。打包未完成前，调试 exe 不作为安装包验收证据。
