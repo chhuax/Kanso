@@ -4,6 +4,7 @@
 //!
 //! 本文件不依赖窗口系统，三个平台都能编译与测试。
 
+use crate::app::i18n::tr;
 use kanso_types::SessionId;
 
 use crate::app::shortcuts::{AppCommand, shortcut_text};
@@ -135,15 +136,15 @@ fn item(label: &str, command: AppCommand) -> MenuItem {
 /// 终端右键菜单（terminal.md §8.1：复制、粘贴、全选、清除缓冲区；再加拆分）。
 /// 没有选区时“复制”禁用。（“在 Filer 中显示工作目录”等 Filer 接进外壳后再加。）
 pub fn terminal_menu(has_selection: bool) -> Vec<MenuItem> {
-    let copy = item("复制", AppCommand::Copy);
+    let copy = item(tr("复制"), AppCommand::Copy);
     vec![
         if has_selection { copy } else { copy.disabled() },
-        item("粘贴", AppCommand::Paste),
-        item("全选", AppCommand::SelectAll),
-        item("清除缓冲区", AppCommand::ClearBuffer),
+        item(tr("粘贴"), AppCommand::Paste),
+        item(tr("全选"), AppCommand::SelectAll),
+        item(tr("清除缓冲区"), AppCommand::ClearBuffer),
         MenuItem::separator(),
-        item("向右拆分", AppCommand::SplitRight),
-        item("向下拆分", AppCommand::SplitDown),
+        item(tr("向右拆分"), AppCommand::SplitRight),
+        item(tr("向下拆分"), AppCommand::SplitDown),
     ]
 }
 
@@ -174,16 +175,19 @@ pub fn tab_menu(ctx: TabMenuContext) -> Vec<MenuItem> {
     if ctx.from_profile {
         items.push(MenuItem::action(
             encode(AppCommand::EditSession(s)),
-            "编辑会话…",
+            tr("编辑会话…"),
         ));
         items.push(MenuItem::separator());
     }
-    items.push(MenuItem::action(encode(AppCommand::CloseTab(s)), "关闭"));
+    items.push(MenuItem::action(
+        encode(AppCommand::CloseTab(s)),
+        tr("关闭"),
+    ));
     items.push(MenuItem::separator());
-    items.push(group("关闭其他", CloseScope::Others, ctx.has_others));
-    items.push(group("关闭左侧", CloseScope::Above, ctx.has_above));
-    items.push(group("关闭右侧", CloseScope::Below, ctx.has_below));
-    items.push(group("全部关闭", CloseScope::All, true));
+    items.push(group(tr("关闭其他"), CloseScope::Others, ctx.has_others));
+    items.push(group(tr("关闭左侧"), CloseScope::Above, ctx.has_above));
+    items.push(group(tr("关闭右侧"), CloseScope::Below, ctx.has_below));
+    items.push(group(tr("全部关闭"), CloseScope::All, true));
     items
 }
 
@@ -202,48 +206,48 @@ pub struct AppMenuState {
 pub fn app_menu(state: AppMenuState) -> Vec<MenuItem> {
     vec![
         MenuItem::submenu(
-            "会话",
+            tr("会话"),
             vec![
-                item("新建会话…", AppCommand::OpenLauncher),
-                item("新建本地 Shell", AppCommand::NewLocalTab),
+                item(tr("新建会话…"), AppCommand::OpenLauncher),
+                item(tr("新建本地 Shell"), AppCommand::NewLocalTab),
                 MenuItem::separator(),
-                item("上一个标签", AppCommand::PrevTab),
-                item("下一个标签", AppCommand::NextTab),
-                item("上一个分屏", AppCommand::PrevPane),
-                item("下一个分屏", AppCommand::NextPane),
+                item(tr("上一个标签"), AppCommand::PrevTab),
+                item(tr("下一个标签"), AppCommand::NextTab),
+                item(tr("上一个分屏"), AppCommand::PrevPane),
+                item(tr("下一个分屏"), AppCommand::NextPane),
                 MenuItem::separator(),
-                item("关闭会话", AppCommand::CloseSession),
+                item(tr("关闭会话"), AppCommand::CloseSession),
                 MenuItem::separator(),
-                item("导出数据…", AppCommand::ExportData),
-                item("导入数据…", AppCommand::ImportData),
-                item("导入 OpenSSH 配置…", AppCommand::ImportSshConfig),
+                item(tr("导出数据…"), AppCommand::ExportData),
+                item(tr("导入数据…"), AppCommand::ImportData),
+                item(tr("导入 OpenSSH 配置…"), AppCommand::ImportSshConfig),
             ],
         ),
         MenuItem::submenu(
-            "编辑",
+            tr("编辑"),
             vec![
-                item("复制", AppCommand::Copy),
-                item("粘贴", AppCommand::Paste),
-                item("全选", AppCommand::SelectAll),
+                item(tr("复制"), AppCommand::Copy),
+                item(tr("粘贴"), AppCommand::Paste),
+                item(tr("全选"), AppCommand::SelectAll),
                 MenuItem::separator(),
-                item("清除缓冲区", AppCommand::ClearBuffer),
+                item(tr("清除缓冲区"), AppCommand::ClearBuffer),
                 MenuItem::separator(),
-                item("右键弹出菜单", AppCommand::ToggleRightClickMenu)
+                item(tr("右键弹出菜单"), AppCommand::ToggleRightClickMenu)
                     .checked(state.right_click_menu),
             ],
         ),
         MenuItem::submenu(
-            "视图",
+            tr("视图"),
             vec![
-                item("标签栏", AppCommand::ToggleSidebar).checked(state.sidebar_visible),
+                item(tr("标签栏"), AppCommand::ToggleSidebar).checked(state.sidebar_visible),
                 MenuItem::separator(),
-                item("向右拆分", AppCommand::SplitRight),
-                item("向下拆分", AppCommand::SplitDown),
+                item(tr("向右拆分"), AppCommand::SplitRight),
+                item(tr("向下拆分"), AppCommand::SplitDown),
             ],
         ),
         MenuItem::separator(),
-        item("设置…", AppCommand::OpenSettings),
-        item("退出", AppCommand::Quit),
+        item(tr("设置…"), AppCommand::OpenSettings),
+        item(tr("退出"), AppCommand::Quit),
     ]
 }
 

@@ -9,6 +9,7 @@
 
 use gpui::{Context, Window, prelude::*};
 use kanso_gpui::app::controller::FALLBACK_GRID;
+use kanso_gpui::app::i18n::{fmt, tr};
 use kanso_gpui::app::launcher::core_error_text;
 use kanso_gpui::app::prompt_dialogs::{response_for, spec_for};
 use kanso_types::ProfileId;
@@ -98,7 +99,7 @@ impl ShellView {
             Some(id) => match self.core.profiles().into_iter().find(|p| p.id == id) {
                 Some(p) => Some(p),
                 None => {
-                    self.show_notice_str("这个会话已经不存在", cx);
+                    self.show_notice_str(tr("这个会话已经不存在"), cx);
                     return;
                 }
             },
@@ -143,11 +144,11 @@ impl ShellView {
         cx: &mut Context<Self>,
     ) {
         let Some(profile) = self.core.profiles().into_iter().find(|p| p.id == id) else {
-            self.show_notice_str("这个会话已经不存在", cx);
+            self.show_notice_str(tr("这个会话已经不存在"), cx);
             return;
         };
         if profile.kind.kind() == SessionKind::Sftp {
-            self.show_notice_str("SFTP 会话需要文件面板，主窗口暂时还不能打开它", cx);
+            self.show_notice_str(tr("SFTP 会话需要文件面板，主窗口暂时还不能打开它"), cx);
             return;
         }
         match self.ctl.open_profile(id, None, FALLBACK_GRID) {
@@ -158,7 +159,10 @@ impl ShellView {
             }
             Err(e) => {
                 log(&format!("连接“{}”失败：{e}", profile.name));
-                let text = format!("无法连接“{}”：{}", profile.name, core_error_text(&e));
+                let text = fmt(
+                    tr("无法连接“{}”：{}"),
+                    &[&profile.name, &core_error_text(&e)],
+                );
                 self.show_notice_str(&text, cx);
             }
         }

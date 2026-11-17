@@ -16,6 +16,7 @@
 //!
 //! 主机密钥 / 密码提问的对话框由提示框模块负责，这里只留 TODO。
 
+use kanso_gpui::app::i18n::{fmt, tr};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -729,7 +730,7 @@ impl ShellView {
                 self.attach_terminal(id, window, cx);
                 self.after_change(window, cx);
             }
-            Err(e) => self.show_notice(format!("无法打开本地 shell：{e}"), cx),
+            Err(e) => self.show_notice(fmt(tr("无法打开本地 shell：{}"), &[&e]), cx),
         }
     }
 
@@ -739,7 +740,7 @@ impl ShellView {
                 self.attach_terminal(id, window, cx);
                 self.after_change(window, cx);
             }
-            Err(e) => self.show_notice(format!("无法拆分：{e}"), cx),
+            Err(e) => self.show_notice(fmt(tr("无法拆分：{}"), &[&e]), cx),
         }
     }
 
@@ -826,7 +827,11 @@ impl ShellView {
         let titles: Vec<String> = c
             .sessions
             .iter()
-            .map(|s| self.ctl.tab_title(*s).unwrap_or_else(|| "会话".to_owned()))
+            .map(|s| {
+                self.ctl
+                    .tab_title(*s)
+                    .unwrap_or_else(|| tr("会话").to_owned())
+            })
             .collect();
         let spec = close_dialog_spec(&titles, c.interrupts_transfers, req.quit);
         let dialog = cx.new(|cx| Dialog::new(spec, window, cx));
@@ -1263,15 +1268,16 @@ fn axis_coord_f(axis: SplitAxis, x: f64, y: f64) -> f64 {
 /// 异常结束的会话在窗格底部显示的文字；正常运行 / 用户主动关闭没有。
 fn closed_banner(connection: &TabConnection) -> Option<String> {
     match connection {
-        TabConnection::Closed(Some(CloseNote::Exited { code: Some(c) })) => {
-            Some(format!("会话已结束（退出码 {c}）。Ctrl+Shift+W 关闭此标签"))
-        }
+        TabConnection::Closed(Some(CloseNote::Exited { code: Some(c) })) => Some(fmt(
+            tr("会话已结束（退出码 {}）。Ctrl+Shift+W 关闭此标签"),
+            &[&c],
+        )),
         TabConnection::Closed(Some(CloseNote::Exited { code: None })) => {
-            Some("会话已结束。Ctrl+Shift+W 关闭此标签".to_owned())
+            Some(tr("会话已结束。Ctrl+Shift+W 关闭此标签").to_owned())
         }
         // TODO(l10n)：用 kanso-l10n 渲染错误消息。
         TabConnection::Closed(Some(CloseNote::Error(_))) => {
-            Some("会话已断开。Ctrl+Shift+W 关闭此标签".to_owned())
+            Some(tr("会话已断开。Ctrl+Shift+W 关闭此标签").to_owned())
         }
         _ => None,
     }

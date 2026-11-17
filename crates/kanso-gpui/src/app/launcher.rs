@@ -3,6 +3,7 @@
 //!
 //! 对照 `Sessions/SessionLauncherViewController.swift`（ui-shell.md §4、§5）。
 
+use crate::app::i18n::{fmt, tr};
 use kanso_core::{CoreError, DeleteImpact};
 use kanso_types::geometry::Rgb;
 use kanso_types::message::Message;
@@ -23,7 +24,7 @@ pub fn render_message(message: &Message) -> String {
 pub fn core_error_text(error: &CoreError) -> String {
     error
         .user_message()
-        .map_or_else(|| "操作失败。".to_owned(), render_message)
+        .map_or_else(|| tr("操作失败。").to_owned(), render_message)
 }
 
 // ---- 列表行 ----
@@ -64,7 +65,7 @@ pub fn row_index_of(rows: &[LauncherRow], id: ProfileId) -> Option<usize> {
 pub fn subtitle_text(profile: &Profile) -> String {
     match row_subtitle(profile) {
         RowSubtitle::Target(t) | RowSubtitle::ShellCommand(t) => t,
-        RowSubtitle::DefaultShell => "默认 Shell".to_owned(),
+        RowSubtitle::DefaultShell => tr("默认 Shell").to_owned(),
     }
 }
 
@@ -85,17 +86,18 @@ pub enum ProfileAction {
 
 /// 会话行菜单：连接、编辑、移到分组、删除（ui-shell.md §4）。
 pub fn profile_menu(profile: &Profile, groups: &[Group]) -> Vec<MenuItem> {
-    let mut moves = vec![MenuItem::action("move:none", "不分组").checked(profile.group.is_none())];
+    let mut moves =
+        vec![MenuItem::action("move:none", tr("不分组")).checked(profile.group.is_none())];
     moves.extend(groups.iter().map(|g| {
         MenuItem::action(format!("move:{}", g.id), g.name.clone())
             .checked(profile.group == Some(g.id))
     }));
     vec![
-        MenuItem::action("connect", "连接"),
-        MenuItem::action("edit", "编辑…"),
-        MenuItem::submenu("移到分组", moves),
+        MenuItem::action("connect", tr("连接")),
+        MenuItem::action("edit", tr("编辑…")),
+        MenuItem::submenu(tr("移到分组"), moves),
         MenuItem::separator(),
-        MenuItem::action("delete", "删除…"),
+        MenuItem::action("delete", tr("删除…")),
     ]
 }
 
@@ -125,8 +127,8 @@ pub enum GroupAction {
 /// 分组菜单。
 pub fn group_menu() -> Vec<MenuItem> {
     vec![
-        MenuItem::action("rename", "重命名…"),
-        MenuItem::action("delete", "删除…"),
+        MenuItem::action("rename", tr("重命名…")),
+        MenuItem::action("delete", tr("删除…")),
     ]
 }
 
@@ -151,8 +153,8 @@ pub enum SavedAction {
 /// "已保存的会话"菜单。
 pub fn saved_menu() -> Vec<MenuItem> {
     vec![
-        MenuItem::action("new-group", "新建分组…"),
-        MenuItem::action("import-ssh", "导入 OpenSSH 配置…"),
+        MenuItem::action("new-group", tr("新建分组…")),
+        MenuItem::action("import-ssh", tr("导入 OpenSSH 配置…")),
     ]
 }
 
@@ -169,22 +171,23 @@ pub fn parse_saved_action(id: &str) -> Option<SavedAction> {
 
 /// 删除分组前的确认文字：数字来自核心的 `group_delete_impact`，必须与实际删除的一致。
 pub fn delete_group_message(impact: &DeleteImpact) -> String {
-    format!(
-        "删除这个分组会同时删除其中的 {} 个会话和 {} 条快捷命令，此操作无法撤销。",
-        impact.profiles, impact.snippets
+    fmt(
+        tr("删除这个分组会同时删除其中的 {} 个会话和 {} 条快捷命令，此操作无法撤销。"),
+        &[&impact.profiles, &impact.snippets],
     )
 }
 
 /// 删除会话前的确认文字（只删 Kanso 里保存的会话与凭据，不碰 ssh 配置与密钥文件）。
-pub const DELETE_PROFILE_MESSAGE: &str =
-    "只会删除 Kanso 中保存的会话及其凭据，不会改动 ~/.ssh/config 和密钥文件。此操作无法撤销。";
+pub fn delete_profile_message() -> &'static str {
+    tr("只会删除 Kanso 中保存的会话及其凭据，不会改动 ~/.ssh/config 和密钥文件。此操作无法撤销。")
+}
 
 // ---- 编辑对话框 ----
 
 /// 类型的显示名。
 pub fn kind_label(kind: SessionKind) -> &'static str {
     match kind {
-        SessionKind::Local => "本地",
+        SessionKind::Local => tr("本地"),
         SessionKind::Ssh => "SSH",
         SessionKind::Sftp => "SFTP",
     }
@@ -193,8 +196,8 @@ pub fn kind_label(kind: SessionKind) -> &'static str {
 /// 认证方式的显示名。
 pub fn auth_label(auth: AuthMethod) -> &'static str {
     match auth {
-        AuthMethod::Password => "密码",
-        AuthMethod::PrivateKey => "私钥",
+        AuthMethod::Password => tr("密码"),
+        AuthMethod::PrivateKey => tr("私钥"),
         AuthMethod::Agent => "ssh-agent",
     }
 }
@@ -211,17 +214,17 @@ pub fn toggle_color(current: Option<Rgb>, picked: Rgb) -> Option<Rgb> {
 /// 保存失败的提示文字。`render` 把核心的用户级消息渲染成当前语言（视图用 `kanso-l10n`）。
 pub fn editor_error_text(error: &EditorError, render: impl Fn(&Message) -> String) -> String {
     match error {
-        EditorError::NameEmpty => "请输入会话名称。".to_owned(),
-        EditorError::PortInvalid => "端口必须是 1 到 65535 之间的数字。".to_owned(),
+        EditorError::NameEmpty => tr("请输入会话名称。").to_owned(),
+        EditorError::PortInvalid => tr("端口必须是 1 到 65535 之间的数字。").to_owned(),
         EditorError::LocaleInvalid => {
-            "Locale 只能包含字母、数字和 _ - . @，长度 1 到 64。".to_owned()
+            tr("Locale 只能包含字母、数字和 _ - . @，长度 1 到 64。").to_owned()
         }
         EditorError::Save(e) => e
             .user_message()
-            .map_or_else(|| "保存失败。".to_owned(), render),
+            .map_or_else(|| tr("保存失败。").to_owned(), render),
         EditorError::Credential(e) => {
             let detail = e.user_message().map(render).unwrap_or_default();
-            format!("会话已保存，但凭据没有存进去：{detail}")
+            fmt(tr("会话已保存，但凭据没有存进去：{}"), &[&detail])
         }
     }
 }

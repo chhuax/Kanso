@@ -8,6 +8,7 @@
 //! 数据与规则在库里的 `app::sessions::LauncherModel`（三平台可测）；菜单项、确认文案在 `app::launcher`。
 //! 本视图只发事件（[`LauncherEvent`]），由 `ShellView` 决定怎么开标签 / 弹编辑对话框。
 
+use kanso_gpui::app::i18n::{fmt, tr};
 use std::sync::Arc;
 
 use gpui::{
@@ -303,7 +304,7 @@ impl LauncherView {
     ) {
         let spec = DialogSpec::new(title)
             .text(text)
-            .button(ButtonSpec::primary("ok", "好").cancel());
+            .button(ButtonSpec::primary("ok", tr("好")).cancel());
         self.show_dialog(spec, Pending::Info, window, cx);
     }
 
@@ -312,18 +313,18 @@ impl LauncherView {
     }
 
     fn new_group_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let spec = DialogSpec::new("新建分组")
-            .input(InputSpec::new("name", "分组名称"))
-            .button(ButtonSpec::secondary("cancel", "取消").cancel())
-            .button(ButtonSpec::primary("ok", "创建"));
+        let spec = DialogSpec::new(tr("新建分组"))
+            .input(InputSpec::new("name", tr("分组名称")))
+            .button(ButtonSpec::secondary("cancel", tr("取消")).cancel())
+            .button(ButtonSpec::primary("ok", tr("创建")));
         self.show_dialog(spec, Pending::NewGroup, window, cx);
     }
 
     fn rename_group_dialog(&mut self, group: Group, window: &mut Window, cx: &mut Context<Self>) {
-        let spec = DialogSpec::new("重命名分组")
-            .input(InputSpec::new("name", "分组名称").initial(&group.name))
-            .button(ButtonSpec::secondary("cancel", "取消").cancel())
-            .button(ButtonSpec::primary("ok", "重命名"));
+        let spec = DialogSpec::new(tr("重命名分组"))
+            .input(InputSpec::new("name", tr("分组名称")).initial(&group.name))
+            .button(ButtonSpec::secondary("cancel", tr("取消")).cancel())
+            .button(ButtonSpec::primary("ok", tr("重命名")));
         self.show_dialog(spec, Pending::RenameGroup(group), window, cx);
     }
 
@@ -332,14 +333,14 @@ impl LauncherView {
             Ok(impact) => logic::delete_group_message(&impact),
             Err(e) => return self.error_dialog(&core_error_text(&e), window, cx),
         };
-        let spec = DialogSpec::new(&format!("删除分组“{}”？", group.name))
+        let spec = DialogSpec::new(&fmt(tr("删除分组“{}”？"), &[&group.name]))
             .text(&text)
             .button(
-                ButtonSpec::secondary("cancel", "取消")
+                ButtonSpec::secondary("cancel", tr("取消"))
                     .cancel()
                     .default_button(),
             )
-            .button(ButtonSpec::danger("delete", "删除"));
+            .button(ButtonSpec::danger("delete", tr("删除")));
         self.show_dialog(spec, Pending::DeleteGroup(group), window, cx);
     }
 
@@ -352,14 +353,14 @@ impl LauncherView {
         let Some(name) = self.model.profile(id).map(|p| p.name.clone()) else {
             return;
         };
-        let spec = DialogSpec::new(&format!("删除会话“{name}”？"))
-            .text(logic::DELETE_PROFILE_MESSAGE)
+        let spec = DialogSpec::new(&fmt(tr("删除会话“{}”？"), &[&name]))
+            .text(logic::delete_profile_message())
             .button(
-                ButtonSpec::secondary("cancel", "取消")
+                ButtonSpec::secondary("cancel", tr("取消"))
                     .cancel()
                     .default_button(),
             )
-            .button(ButtonSpec::danger("delete", "删除"));
+            .button(ButtonSpec::danger("delete", tr("删除")));
         self.show_dialog(spec, Pending::DeleteProfile(id), window, cx);
     }
 
@@ -490,7 +491,7 @@ impl LauncherView {
             .cursor_pointer()
             .hover(|s| s.bg(th.c("bg.tabHover")).text_color(th.c("text.primary")))
             .child(icon(
-                if label == "编辑" {
+                if label == tr("编辑") {
                     "pencil"
                 } else {
                     "ellipsis"
@@ -575,7 +576,7 @@ impl LauncherView {
                     .opacity(if selected { 1.0 } else { 0.0 })
                     .group_hover(group_name, actions_visible)
                     .child(
-                        self.small_button(("edit", index), "编辑", th)
+                        self.small_button(("edit", index), tr("编辑"), th)
                             .on_mouse_down(
                                 MouseButton::Left,
                                 cx.listener(move |_this, _: &MouseDownEvent, _w, cx| {

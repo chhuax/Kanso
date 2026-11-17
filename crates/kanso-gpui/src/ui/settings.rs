@@ -17,7 +17,7 @@ use gpui::{
     WindowHandle, WindowOptions, div, prelude::*, px, rgba, size,
 };
 use kanso_core::Core;
-use kanso_gpui::app::i18n::{LanguageSetting, tr};
+use kanso_gpui::app::i18n::{LanguageSetting, fmt, tr};
 use kanso_gpui::app::settings::{
     AppearanceSettings, BUILTIN_THEMES, CursorShapeSetting, DisplaySettings, GutterMode, Section,
     SettingsStore, ThemeMode, TimelineSettings, clean_font_names, is_monospace, pick_nerd_fallback,
@@ -207,7 +207,7 @@ fn font_items(names: &[String], current: &str) -> (Vec<String>, Vec<Item>, usize
         .enumerate()
         .map(|(i, n)| {
             Item::option(if i == 0 {
-                "系统默认".to_owned()
+                tr("系统默认").to_owned()
             } else {
                 n.clone()
             })
@@ -239,7 +239,7 @@ fn format_lines(v: u32) -> String {
         }
         out.push(ch);
     }
-    format!("{out} 行")
+    fmt(tr("{} 行"), &[&out])
 }
 
 fn theme_items() -> Vec<Item> {
@@ -273,7 +273,7 @@ impl SettingsView {
             Dropdown::new(window, cx)
                 .items(ui_items)
                 .button_label(render_message(&Message::UiChoose {}))
-                .filterable("搜索字体")
+                .filterable(tr("搜索字体"))
                 .selected(ui_sel)
         });
         // 终端字体：先只放"系统默认"和当前值，等宽字体探测完再补齐。
@@ -282,18 +282,18 @@ impl SettingsView {
             Dropdown::new(window, cx)
                 .items(term_items)
                 .button_label(render_message(&Message::UiChoose {}))
-                .filterable("搜索等宽字体")
+                .filterable(tr("搜索等宽字体"))
                 .selected(term_sel)
         });
         let term_font_input = cx.new(|cx| {
             TextInput::new(window, cx)
                 .with_text(&display.font_family)
-                .placeholder("系统默认；也可直接输入字体名")
+                .placeholder(tr("系统默认；也可直接输入字体名"))
         });
         let ui_font_input = cx.new(|cx| {
             TextInput::new(window, cx)
                 .with_text(&display.ui_font_family)
-                .placeholder("系统默认；也可直接输入字体名")
+                .placeholder(tr("系统默认；也可直接输入字体名"))
         });
         let (_, sb_items, sb_sel) = scrollback_items(display.scrollback_lines);
         let scrollback = cx.new(|cx| Dropdown::new(window, cx).items(sb_items).selected(sb_sel));

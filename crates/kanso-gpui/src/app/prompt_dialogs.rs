@@ -8,6 +8,7 @@
 //!
 //! 对话框控件没有复选框，"保存到凭据存储"用两个按钮表达：**连接并保存**（默认）与**仅连接**。
 
+use crate::app::i18n::{fmt, tr};
 use kanso_types::prompt::PromptResponse;
 use kanso_types::secret::SecretString;
 
@@ -27,12 +28,12 @@ pub const BTN_ONCE: &str = "once";
 
 /// "是谁在问"的文字：`host:port`，经由跳板链，所属标签。
 pub fn target_text(target: &PromptTarget) -> String {
-    let mut s = format!("服务器：{}", target.host_port);
+    let mut s = fmt(tr("服务器：{}"), &[&target.host_port]);
     if let Some(via) = target.via_chain() {
-        s.push_str(&format!("（经由 {via}）"));
+        s.push_str(&fmt(tr("（经由 {}）"), &[&via]));
     }
     if let Some(title) = &target.session_title {
-        s.push_str(&format!("\n标签：{title}"));
+        s.push_str(&fmt(tr("\n标签：{}"), &[&title]));
     }
     s
 }
@@ -41,24 +42,24 @@ pub fn target_text(target: &PromptTarget) -> String {
 pub fn spec_for(dialog: &PromptDialog) -> Option<DialogSpec> {
     match dialog {
         PromptDialog::HostKeyChanged(m) => Some(
-            DialogSpec::new("主机密钥已变更")
+            DialogSpec::new(tr("主机密钥已变更"))
                 .text(&target_text(&m.target))
                 .text(
                     "这台服务器的主机密钥与记录的不一致。可能遭到中间人攻击，\
                      也可能是服务器重装过。只有确认信任这次变更时才继续。",
                 )
-                .text("密钥类型")
+                .text(tr("密钥类型"))
                 .code(&m.key_type)
-                .text("SHA256 指纹")
+                .text(tr("SHA256 指纹"))
                 .code(&m.fingerprint)
-                .text("原记录位置")
+                .text(tr("原记录位置"))
                 .code(&m.known_hosts_location)
                 .button(
-                    ButtonSpec::secondary(BTN_CANCEL, "取消")
+                    ButtonSpec::secondary(BTN_CANCEL, tr("取消"))
                         .cancel()
                         .default_button(),
                 )
-                .button(ButtonSpec::danger(BTN_ACCEPT, "接受新密钥并连接")),
+                .button(ButtonSpec::danger(BTN_ACCEPT, tr("接受新密钥并连接"))),
         ),
         PromptDialog::KeyboardInteractive(m) => Some(keyboard_interactive_spec(m)),
         PromptDialog::Credential(m) => Some(credential_spec(m)),
@@ -68,7 +69,7 @@ pub fn spec_for(dialog: &PromptDialog) -> Option<DialogSpec> {
 
 fn keyboard_interactive_spec(m: &KeyboardInteractivePrompt) -> DialogSpec {
     // 服务器给的 name / instruction / 问题是原文，不本地化。
-    let title = m.name.clone().unwrap_or_else(|| "需要验证".to_owned());
+    let title = m.name.clone().unwrap_or_else(|| tr("需要验证").to_owned());
     let mut spec = DialogSpec::new(&title).text(&target_text(&m.target));
     if let Some(instruction) = &m.instruction {
         spec = spec.text(instruction);
@@ -85,25 +86,28 @@ fn keyboard_interactive_spec(m: &KeyboardInteractivePrompt) -> DialogSpec {
             InputSpec::new(&id, label)
         });
     }
-    spec.button(ButtonSpec::secondary(BTN_CANCEL, "取消").cancel())
-        .button(ButtonSpec::primary(BTN_CONTINUE, "继续"))
+    spec.button(ButtonSpec::secondary(BTN_CANCEL, tr("取消")).cancel())
+        .button(ButtonSpec::primary(BTN_CONTINUE, tr("继续")))
 }
 
 fn credential_spec(m: &CredentialPrompt) -> DialogSpec {
     let (title, label, intro) = match &m.key_path {
         Some(path) => (
-            "需要私钥口令",
-            "私钥口令",
-            format!("{}\n用户：{}\n私钥：{path}", target_text(&m.target), m.user),
+            tr("需要私钥口令"),
+            tr("私钥口令"),
+            fmt(
+                tr("{}\n用户：{}\n私钥：{}"),
+                &[&target_text(&m.target), &m.user, &path],
+            ),
         ),
         None => (
-            "需要密码",
-            "密码",
-            format!("{}\n用户：{}", target_text(&m.target), m.user),
+            tr("需要密码"),
+            tr("密码"),
+            fmt(tr("{}\n用户：{}"), &[&target_text(&m.target), &m.user]),
         ),
     };
-    let save = ButtonSpec::primary(BTN_SAVE, "连接并保存");
-    let once = ButtonSpec::secondary(BTN_ONCE, "仅连接");
+    let save = ButtonSpec::primary(BTN_SAVE, tr("连接并保存"));
+    let once = ButtonSpec::secondary(BTN_ONCE, tr("仅连接"));
     let (first, second) = if m.remember {
         (once, save.default_button())
     } else {
@@ -112,7 +116,7 @@ fn credential_spec(m: &CredentialPrompt) -> DialogSpec {
     DialogSpec::new(title)
         .text(&intro)
         .input(InputSpec::secure("secret", label))
-        .button(ButtonSpec::secondary(BTN_CANCEL, "取消").cancel())
+        .button(ButtonSpec::secondary(BTN_CANCEL, tr("取消")).cancel())
         .button(first)
         .button(second)
 }

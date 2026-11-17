@@ -9,6 +9,7 @@
 //! 本文件不依赖窗口系统，三个平台都能编译与测试。
 
 use crate::app::controller::LegacyLine;
+use crate::app::i18n::{fmt, tr};
 use crate::app::tab::{CloseNote, TabDescriptions, TabItem, TabStateLine, truncate_keep_tail};
 use crate::filer::format_mtime;
 
@@ -27,17 +28,17 @@ pub enum StatusTone {
 // TODO(l10n)：用 kanso-l10n 渲染错误消息。
 pub fn state_text(line: &TabStateLine) -> String {
     match line {
-        TabStateLine::Connecting => "连接中…".to_owned(),
+        TabStateLine::Connecting => tr("连接中…").to_owned(),
         TabStateLine::Closed(Some(CloseNote::Exited { code: Some(c) })) => {
-            format!("会话已结束（退出码 {c}）")
+            fmt(tr("会话已结束（退出码 {}）"), &[&c])
         }
-        TabStateLine::Closed(Some(CloseNote::Exited { code: None })) => "会话已结束".to_owned(),
-        TabStateLine::Closed(Some(CloseNote::Error(_))) => "会话已断开".to_owned(),
-        TabStateLine::Closed(None) => "会话已结束".to_owned(),
-        TabStateLine::CommandRunning => "命令运行中".to_owned(),
-        TabStateLine::AgentRunning => "AI 运行中".to_owned(),
-        TabStateLine::AgentFinished => "AI 已完成".to_owned(),
-        TabStateLine::UnreadDone => "命令已完成，点击查看".to_owned(),
+        TabStateLine::Closed(Some(CloseNote::Exited { code: None })) => tr("会话已结束").to_owned(),
+        TabStateLine::Closed(Some(CloseNote::Error(_))) => tr("会话已断开").to_owned(),
+        TabStateLine::Closed(None) => tr("会话已结束").to_owned(),
+        TabStateLine::CommandRunning => tr("命令运行中").to_owned(),
+        TabStateLine::AgentRunning => tr("AI 运行中").to_owned(),
+        TabStateLine::AgentFinished => tr("AI 已完成").to_owned(),
+        TabStateLine::UnreadDone => tr("命令已完成，点击查看").to_owned(),
     }
 }
 

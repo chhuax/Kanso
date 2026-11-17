@@ -12,6 +12,7 @@
 //!
 //! 本模块不依赖 gpui，三个平台都能编译与测试；GPUI 一侧见 `ui/settings.rs`。
 
+use crate::app::i18n::tr;
 use kanso_types::display::{CursorShape, TerminalOptions};
 use serde_json::{Map, Value, json};
 
@@ -111,9 +112,9 @@ impl CursorShapeSetting {
     /// 显示名。
     pub fn label(self) -> &'static str {
         match self {
-            CursorShapeSetting::Block => "块状",
-            CursorShapeSetting::Underline => "下划线",
-            CursorShapeSetting::Bar => "竖线",
+            CursorShapeSetting::Block => tr("块状"),
+            CursorShapeSetting::Underline => tr("下划线"),
+            CursorShapeSetting::Bar => tr("竖线"),
         }
     }
 
@@ -308,9 +309,9 @@ impl ThemeMode {
     /// 显示名。
     pub fn label(self) -> &'static str {
         match self {
-            ThemeMode::System => "跟随系统",
-            ThemeMode::Light => "浅色",
-            ThemeMode::Dark => "深色",
+            ThemeMode::System => tr("跟随系统"),
+            ThemeMode::Light => tr("浅色"),
+            ThemeMode::Dark => tr("深色"),
         }
     }
 
@@ -436,10 +437,10 @@ impl GutterMode {
     /// 显示名。
     pub fn label(self) -> &'static str {
         match self {
-            GutterMode::Off => "关闭",
-            GutterMode::LineNumbers => "只显示行号",
-            GutterMode::Timestamps => "只显示时间",
-            GutterMode::Both => "时间和行号",
+            GutterMode::Off => tr("不显示"),
+            GutterMode::LineNumbers => tr("只显示行号"),
+            GutterMode::Timestamps => tr("只显示时间"),
+            GutterMode::Both => tr("时间和行号"),
         }
     }
 }

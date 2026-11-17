@@ -6,6 +6,7 @@
 //!
 //! 默认按钮是“取消”：回车不会误关一个正在运行的会话，要关必须点“关闭”或 Tab 过去再回车。
 
+use crate::app::i18n::{fmt, tr};
 use kanso_types::SessionId;
 
 use crate::widgets::dialog::{ButtonSpec, DialogResult, DialogSpec};
@@ -34,26 +35,26 @@ pub fn close_dialog_spec(titles: &[String], interrupts_transfers: bool, quit: bo
         .map(|t| format!("• {t}"))
         .collect();
     if titles.len() > MAX_LISTED {
-        lines.push(format!("…另外 {} 个", titles.len() - MAX_LISTED));
+        lines.push(fmt(tr("…另外 {} 个"), &[&(titles.len() - MAX_LISTED)]));
     }
     let mut spec = DialogSpec::new(if quit {
-        "退出 Kanso？"
+        tr("退出 Kanso？")
     } else {
-        "关闭仍在运行的会话？"
+        tr("关闭仍在运行的会话？")
     })
-    .text("以下会话仍在运行或保持连接：")
+    .text(tr("以下会话仍在运行或保持连接："))
     .code(&lines.join("\n"));
     if interrupts_transfers {
-        spec = spec.text("关闭会中断正在进行的文件传输。");
+        spec = spec.text(tr("关闭会中断正在进行的文件传输。"));
     }
     spec.button(
-        ButtonSpec::secondary(CANCEL_ID, "取消")
+        ButtonSpec::secondary(CANCEL_ID, tr("取消"))
             .cancel()
             .default_button(),
     )
     .button(ButtonSpec::danger(
         CONFIRM_ID,
-        if quit { "退出" } else { "关闭" },
+        if quit { tr("退出") } else { tr("关闭") },
     ))
 }
 
