@@ -325,7 +325,7 @@ impl ShellView {
             6 => {
                 let t1 = ids[0];
                 if self.st_rows(t1, "KT_BACK_TO_TAB1", cx) >= 2 {
-                    self.st_pass("Alt+1 切回被盖住的标签，终端仍可输入");
+                    self.st_note("PASS Alt+1 切回被盖住的标签，终端仍可输入".into());
                     self.run_command(AppCommand::CloseSession, window, cx);
                     let ws = self.ctl.workspace();
                     if ws.tab_count() != 3 || self.terminals.contains_key(&t1) {
