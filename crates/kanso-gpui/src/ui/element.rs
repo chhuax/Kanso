@@ -11,6 +11,7 @@ use kanso_gpui::ime::layout_preedit;
 use kanso_gpui::render::{CursorKind, RenderGrid};
 use kanso_gpui::theme::{Palette, Rgb8};
 
+use super::decor;
 use super::view::{Metrics, PAD, TerminalView, compute_grid};
 use super::{START, log, memory};
 
@@ -30,7 +31,7 @@ fn font_for(bold: bool, italic: bool) -> Font {
     f
 }
 
-fn hsla(c: Rgb8) -> Hsla {
+pub(super) fn hsla(c: Rgb8) -> Hsla {
     rgb(c.to_u32()).into()
 }
 
@@ -81,14 +82,15 @@ impl Element for TerminalElement {
         cx: &mut App,
     ) -> Self::PrepaintState {
         // 窗口大小变化 → 重新算行列数 → 通知会话。
-        let (metrics, current) = {
+        let (metrics, current, gutter_w) = {
             let v = self.view.read(cx);
-            (v.metrics, v.size)
+            (v.metrics, v.size, v.gutter_width())
         };
         if let Some(size) = compute_grid(
             f32::from(bounds.size.width),
             f32::from(bounds.size.height),
             &metrics,
+            gutter_w,
         ) && size != current
         {
             let scale = window.scale_factor();
@@ -107,8 +109,7 @@ impl Element for TerminalElement {
         window: &mut Window,
         cx: &mut App,
     ) {
-        let origin = bounds.origin + point(px(PAD), px(PAD));
-        let (grid, palette, metrics, marked, caret, focus) = {
+        let (grid, palette, metrics, marked, caret, focus, decor, gutter_w) = {
             let v = self.view.read(cx);
             (
                 v.grid.clone(),
@@ -117,8 +118,12 @@ impl Element for TerminalElement {
                 v.ime.marked_text().map(str::to_owned),
                 v.ime.selected_range().start,
                 v.focus.clone(),
+                v.decor_input(),
+                v.gutter_width(),
             )
         };
+        // 正文区从时间戳栏右侧开始。
+        let origin = bounds.origin + point(px(gutter_w + PAD), px(PAD));
         // 输入法：每帧在绘制阶段把处理器交给窗口，候选框定位与组字回调都经由它。
         window.handle_input(
             &focus,
@@ -127,7 +132,14 @@ impl Element for TerminalElement {
         );
 
         if let Some(grid) = grid {
+            // 选中的命令块底色在文字背景之下。
+            if let Some(d) = &decor {
+                decor::paint_block_highlight(d, bounds, origin, window);
+            }
             paint_grid(&grid, &metrics, origin, window, cx);
+            if let Some(d) = &decor {
+                decor::paint_overlays(d, bounds, origin, window, cx);
+            }
             if let Some(text) = marked {
                 paint_preedit(&text, caret, &grid, &palette, &metrics, origin, window, cx);
             }
@@ -151,7 +163,13 @@ impl Element for TerminalElement {
     }
 }
 
-fn cell_rect(origin: Point<Pixels>, m: &Metrics, row: u16, col: u16, cols: u16) -> Bounds<Pixels> {
+pub(super) fn cell_rect(
+    origin: Point<Pixels>,
+    m: &Metrics,
+    row: u16,
+    col: u16,
+    cols: u16,
+) -> Bounds<Pixels> {
     // 边界取整，避免相邻矩形之间出现缝。
     let x0 = (f32::from(col) * m.cell_w).round();
     let x1 = (f32::from(col + cols) * m.cell_w).round();

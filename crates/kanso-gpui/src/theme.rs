@@ -70,8 +70,8 @@ pub struct Decorations {
 
 impl Decorations {
     fn for_background(background: Rgb8) -> Decorations {
-        let dark = u16::from(background.r) + u16::from(background.g) + u16::from(background.b)
-            < 3 * 128;
+        let dark =
+            u16::from(background.r) + u16::from(background.g) + u16::from(background.b) < 3 * 128;
         if dark {
             Decorations {
                 gutter_text: Rgb8::new(0x8E, 0x94, 0x9B),

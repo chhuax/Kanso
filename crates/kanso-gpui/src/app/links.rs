@@ -150,10 +150,12 @@ pub fn url_at(lines: &[LineText], row: usize, col: usize) -> Option<LinkHit> {
         }
     }
 
-    let hit = pos
-        .iter()
-        .position(|&(r, c, w)| usize::from(r) == row && usize::from(c) <= col && col < usize::from(c + w))?;
-    let (start, end) = scan(&chars).into_iter().find(|&(s, e)| s <= hit && hit < e)?;
+    let hit = pos.iter().position(|&(r, c, w)| {
+        usize::from(r) == row && usize::from(c) <= col && col < usize::from(c + w)
+    })?;
+    let (start, end) = scan(&chars)
+        .into_iter()
+        .find(|&(s, e)| s <= hit && hit < e)?;
 
     let mut segments: Vec<(u16, u16, u16)> = Vec::new();
     for &(r, c, w) in &pos[start..end] {

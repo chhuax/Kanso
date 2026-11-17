@@ -6,25 +6,35 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use gpui::{
-    App, Bounds, ClipboardItem, Context, EntityInputHandler, EventEmitter, FocusHandle, Focusable,
-    KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point,
-    ScrollWheelEvent, UTF16Selection, Window, div, point, prelude::*, px, rgb, size,
+    App, Bounds, ClipboardItem, Context, Entity, EntityInputHandler, EventEmitter, FocusHandle,
+    Focusable, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels,
+    Point, ScrollWheelEvent, Subscription, UTF16Selection, Window, div, point, prelude::*, px, rgb,
+    size,
 };
-use kanso_core::Core;
-use kanso_frame::Frame;
+use kanso_core::{Core, CoreError};
+use kanso_frame::{CommandBlock, Frame};
 use kanso_types::input::{
     Key, KeyEvent, KeyEventKind, Modifiers, MouseButton as KButton, MouseEvent, MouseEventKind,
     PasteContent,
 };
 use kanso_types::{CellSide, GridSize, SessionId, ViewportPoint};
 
+use kanso_gpui::app::blocks::{BlockMenu, BlockPart, BlockSelection, has_command, menu_for};
+use kanso_gpui::app::find::{FindResult, FindState, Throttle, TimerAction};
+use kanso_gpui::app::links::{LinkHit, is_openable, url_at};
+use kanso_gpui::app::settings::GutterMode;
+use kanso_gpui::contrast::ContrastGuard;
 use kanso_gpui::ime::ImeState;
 use kanso_gpui::keys::{KeyAction, KeyInput, classify_key};
 use kanso_gpui::metrics::{cell_at, grid_size, scroll_lines};
-use kanso_gpui::render::{RenderGrid, build_render_grid, screen_text};
+use kanso_gpui::render::{
+    RenderGrid, build_render_grid_with, hyperlink_at, line_texts, screen_text,
+};
 use kanso_gpui::theme::Palette;
 
+use super::decor::{self, DecorInput};
 use super::element::{TerminalElement, base_font};
+use super::find_bar::{FindBar, FindBarEvent};
 use super::selftest::SelfTest;
 use super::{LOG_INPUT, log};
 
@@ -40,6 +50,9 @@ pub(crate) struct Metrics {
     pub font_size: f32,
     pub cell_w: f32,
     pub cell_h: f32,
+    /// 时间戳 / 行号栏的字号与单元格宽（比正文小一档）。
+    pub gutter_font_size: f32,
+    pub gutter_cell_w: f32,
 }
 
 /// 量字体：等宽字体用 `m` 的步进作为单元格宽；单元格高 = 字体自然行高（ascent + descent 向上取整）× 行距倍数，
@@ -53,6 +66,11 @@ pub(crate) fn measure(window: &Window) -> Metrics {
         .advance(font_id, fs, 'm')
         .map(|s| f32::from(s.width))
         .unwrap_or(font_size * 0.6);
+    let gutter_font_size = (font_size * 0.85).round().max(9.0);
+    let gutter_cell_w = ts
+        .advance(font_id, px(gutter_font_size), 'm')
+        .map(|s| f32::from(s.width))
+        .unwrap_or(gutter_font_size * 0.6);
     let (asc, desc) = (
         f32::from(ts.ascent(font_id, fs)),
         f32::from(ts.descent(font_id, fs)),
@@ -67,6 +85,8 @@ pub(crate) fn measure(window: &Window) -> Metrics {
         font_size,
         cell_w,
         cell_h: cell_h.max(font_size),
+        gutter_font_size,
+        gutter_cell_w,
     }
 }
 
@@ -89,6 +109,8 @@ pub(crate) enum TerminalEvent {
         session: SessionId,
         position: Point<Pixels>,
     },
+    /// 需要在状态栏上短暂提示一句话（例如“已复制”）。
+    Notice(String),
 }
 
 pub(crate) struct TerminalView {
@@ -113,6 +135,25 @@ pub(crate) struct TerminalView {
     left_down: bool,
     /// 右键行为：`true` 弹出菜单，`false` 为“复制或粘贴”（terminal.md §8.1）。由外壳统一设置。
     pub right_click_menu: bool,
+    /// 时间戳 / 行号栏模式（由外壳按全局设置与 AI 会话的临时设置下发）。
+    pub gutter_mode: GutterMode,
+    /// 最低对比度保护（关闭为 `None`）。
+    contrast: Option<ContrastGuard>,
+    /// 查找状态（terminal.md §11）与查找栏。
+    pub find: FindState,
+    find_bar: Option<Entity<FindBar>>,
+    find_sub: Option<Subscription>,
+    /// 命令块选中状态（command-blocks.md §2）。
+    pub block_sel: BlockSelection,
+    /// 右键菜单对应的块（复制命令 / 输出作用于它）。
+    menu_block: Option<u64>,
+    menu_block_menu: Option<BlockMenu>,
+    /// 悬停的链接与所在单元格。
+    hover: Option<LinkHit>,
+    hover_cell: Option<(u16, u16)>,
+    ctrl_down: bool,
+    /// 左键按下时所在的单元格（判断是否开始拖选）。
+    down_cell: Option<(u16, u16)>,
 }
 
 impl EventEmitter<TerminalEvent> for TerminalView {}
@@ -175,7 +216,76 @@ impl TerminalView {
             track_screen,
             left_down: false,
             right_click_menu: true,
+            gutter_mode: GutterMode::Off,
+            contrast: super::display::min_contrast().map(ContrastGuard::new),
+            find: FindState::default(),
+            find_bar: None,
+            find_sub: None,
+            block_sel: BlockSelection::default(),
+            menu_block: None,
+            menu_block_menu: None,
+            hover: None,
+            hover_cell: None,
+            ctrl_down: false,
+            down_cell: None,
         }
+    }
+
+    /// 栏宽（逻辑像素）；关闭为 0。正文区从它右侧开始。
+    pub(crate) fn gutter_width(&self) -> f32 {
+        decor::gutter_width(self.gutter_mode, self.metrics.gutter_cell_w)
+    }
+
+    /// 换时间戳 / 行号栏模式。栏宽变化会改变列数，由元素下一次绘制时通知会话。
+    pub(crate) fn set_gutter_mode(&mut self, mode: GutterMode, cx: &mut Context<Self>) {
+        if self.gutter_mode != mode {
+            self.gutter_mode = mode;
+            cx.notify();
+        }
+    }
+
+    /// 装饰绘制需要的数据快照；还没有帧时为 `None`。
+    pub(crate) fn decor_input(&self) -> Option<DecorInput> {
+        Some(DecorInput {
+            grid: self.grid.clone()?,
+            palette: self.palette.clone(),
+            metrics: self.metrics,
+            gutter_mode: self.gutter_mode,
+            gutter_w: self.gutter_width(),
+            blocks: self.blocks().to_vec(),
+            selected_block: self.block_sel.selected(),
+            hover: self.hover.clone(),
+            tz_offset_min: super::tz::local_offset_minutes(),
+        })
+    }
+
+    fn blocks(&self) -> &[CommandBlock] {
+        self.frame
+            .as_ref()
+            .map_or(&[], |f| f.command_blocks.as_slice())
+    }
+
+    /// 用当前帧、配色与对比度保护重建渲染数据。
+    fn rebuild_grid(&mut self) {
+        if let Some(frame) = &self.frame
+            && let Ok(view) = frame.view()
+        {
+            self.grid = Some(Arc::new(build_render_grid_with(
+                &view,
+                &self.palette,
+                self.contrast.as_mut(),
+            )));
+        }
+    }
+
+    /// 最低对比度保护的设置变了；返回是否有变化。
+    pub(crate) fn set_min_contrast(&mut self, ratio: Option<f64>) -> bool {
+        if self.contrast.as_ref().map(ContrastGuard::ratio) == ratio {
+            return false;
+        }
+        self.contrast = ratio.map(ContrastGuard::new);
+        self.rebuild_grid();
+        true
     }
 
     /// 窗口激活状态变化：失焦丢弃组字，不上屏（checklist 场景 5）。
@@ -192,23 +302,23 @@ impl TerminalView {
             return;
         }
         self.palette = Arc::new(palette);
-        if let Some(frame) = &self.frame
-            && let Ok(view) = frame.view()
-        {
-            self.grid = Some(Arc::new(build_render_grid(&view, &self.palette)));
-        }
+        self.rebuild_grid();
         cx.notify();
     }
 
     /// 显示设置里的字体 / 字号 / 行距变了：重新量字体，并把新的单元格像素尺寸告知会话。
     /// 行列数由绘制时的元素按新度量重新计算（变了会走 `apply_resize`）。
     pub(crate) fn apply_display(&mut self, window: &Window, cx: &mut Context<Self>) {
+        if self.set_min_contrast(super::display::min_contrast()) {
+            cx.notify();
+        }
         let m = measure(window);
-        if (m.font_size, m.cell_w, m.cell_h)
+        if (m.font_size, m.cell_w, m.cell_h, m.gutter_cell_w)
             == (
                 self.metrics.font_size,
                 self.metrics.cell_w,
                 self.metrics.cell_h,
+                self.metrics.gutter_cell_w,
             )
         {
             return;
@@ -234,7 +344,11 @@ impl TerminalView {
         };
         match frame.view() {
             Ok(view) => {
-                self.grid = Some(Arc::new(build_render_grid(&view, &self.palette)));
+                self.grid = Some(Arc::new(build_render_grid_with(
+                    &view,
+                    &self.palette,
+                    self.contrast.as_mut(),
+                )));
                 if self.track_screen || self.selftest.is_some() {
                     self.screen = screen_text(&view);
                 }
@@ -242,6 +356,18 @@ impl TerminalView {
             Err(e) => log(&format!("帧解析失败：{e}")),
         }
         self.frame = Some(frame);
+        // 进入全屏程序：块选中取消，退出后不恢复。
+        if self.grid.as_ref().is_some_and(|g| g.alt_screen) {
+            self.block_sel.on_alt_screen(true);
+        }
+        // 内容变了，悬停的链接位置可能已经不对；下一次鼠标移动时重新识别。
+        if self.hover.take().is_some() {
+            self.hover_cell = None;
+        }
+        // 新输出到来：搜索计数随之更新（节流）。
+        if self.find.wants_refresh() {
+            self.schedule_find_refresh(cx);
+        }
         cx.notify();
     }
 
@@ -284,6 +410,7 @@ impl TerminalView {
             ));
         }
         self.snap_to_bottom();
+        self.block_sel.clear();
         if let Err(e) = self.core.key(self.session, event) {
             log(&format!("key 失败：{e}"));
         }
@@ -294,6 +421,7 @@ impl TerminalView {
             log(&format!("textInput {text:?}"));
         }
         self.snap_to_bottom();
+        self.block_sel.clear();
         if let Err(e) = self.core.text_input(self.session, text) {
             log(&format!("text_input 失败：{e}"));
         }
@@ -308,10 +436,291 @@ impl TerminalView {
         });
     }
 
+    /// 复制：有普通选区复制选区；没有选区但选中了命令块，复制整块（command-blocks.md §3）。
     pub(crate) fn copy(&mut self, cx: &mut Context<Self>) {
         if let Some(text) = self.core.selection_text(self.session) {
             cx.write_to_clipboard(ClipboardItem::new_string(text));
             let _ = self.core.clear_selection(self.session);
+        } else if let Some(id) = self.block_sel.selected() {
+            self.copy_block_part(id, BlockPart::All, cx);
+        }
+    }
+
+    fn copy_block_part(&mut self, id: u64, part: BlockPart, cx: &mut Context<Self>) {
+        match self
+            .core
+            .command_block_text(self.session, id, part as u8)
+            .filter(|t| !t.is_empty())
+        {
+            Some(text) => {
+                cx.write_to_clipboard(ClipboardItem::new_string(text));
+                cx.emit(TerminalEvent::Notice("已复制".to_owned()));
+            }
+            None => log(&format!("块 {id} 没有可复制的内容")),
+        }
+    }
+
+    /// 右键菜单的“复制命令 / 复制输出”：作用于右键点中的块。
+    pub(crate) fn copy_menu_block(&mut self, part: BlockPart, cx: &mut Context<Self>) {
+        if let Some(id) = self.menu_block {
+            self.copy_block_part(id, part, cx);
+        }
+    }
+
+    /// 右键菜单里块相关项（点在有命令的块内才有）。
+    pub(crate) fn menu_block_menu(&self) -> Option<BlockMenu> {
+        self.menu_block_menu
+    }
+
+    /// 跳到上一个 / 下一个命令块并选中它（command-blocks.md §4）。
+    pub(crate) fn jump_block(&mut self, forward: bool, cx: &mut Context<Self>) {
+        match self.core.jump_command_block(self.session, forward) {
+            Ok(Some(id)) => {
+                self.block_sel.select(id);
+                cx.notify();
+            }
+            Ok(None) => {}
+            Err(e) => log(&format!("jump_command_block 失败：{e}")),
+        }
+    }
+
+    // ---- 查找（terminal.md §11）----
+
+    /// 打开查找栏并聚焦；已打开就重新聚焦。有上次的文字时恢复并立即搜索，高亮随之回来。
+    pub(crate) fn open_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.find.open = true;
+        if self.find_bar.is_none() {
+            let bar = cx.new(|cx| FindBar::new(window, cx));
+            self.find_sub = Some(cx.subscribe_in(
+                &bar,
+                window,
+                |this, _bar, ev: &FindBarEvent, window, cx| this.on_find_event(ev, window, cx),
+            ));
+            let text = self.find.text.clone();
+            bar.update(cx, |b, cx| b.set_text(&text, cx));
+            self.find_bar = Some(bar);
+            self.find_search(cx);
+        }
+        if let Some(bar) = &self.find_bar {
+            bar.read(cx).focus_input(window, cx);
+        }
+        self.sync_find_bar(cx);
+        cx.notify();
+    }
+
+    /// 关闭查找栏：清高亮、停止随输出刷新、焦点还给终端。
+    pub(crate) fn close_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.core.search_close(self.session);
+        self.find.close();
+        self.find_bar = None;
+        self.find_sub = None;
+        self.focus.focus(window);
+        cx.notify();
+    }
+
+    /// 查找下一个 / 上一个；栏没开时先打开。文字为空什么都不做。
+    pub(crate) fn find_step(
+        &mut self,
+        backwards: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.find.open {
+            self.open_find(window, cx);
+        }
+        if self.find.text.is_empty() {
+            return;
+        }
+        let r = self.core.search_next(self.session, backwards);
+        self.apply_search(r);
+        self.sync_find_bar(cx);
+        cx.notify();
+    }
+
+    fn on_find_event(&mut self, ev: &FindBarEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match ev {
+            FindBarEvent::Query(t) => {
+                if *t != self.find.text {
+                    self.find.text = t.clone();
+                    self.find_search(cx);
+                }
+            }
+            FindBarEvent::ToggleCase => {
+                self.find.case_sensitive = !self.find.case_sensitive;
+                self.find_search(cx);
+            }
+            FindBarEvent::ToggleRegex => {
+                self.find.regex = !self.find.regex;
+                self.find_search(cx);
+            }
+            FindBarEvent::Next => self.find_step(false, window, cx),
+            FindBarEvent::Prev => self.find_step(true, window, cx),
+            FindBarEvent::Close => self.close_find(window, cx),
+        }
+    }
+
+    /// 用当前文字与开关搜索；文字为空则关闭搜索并清空状态（不显示“无结果”）。
+    fn find_search(&mut self, cx: &mut Context<Self>) {
+        match self.find.query() {
+            None => {
+                self.core.search_close(self.session);
+                self.find.clear_result();
+            }
+            Some(q) => {
+                let r = self.core.search(self.session, q);
+                self.apply_search(r);
+            }
+        }
+        self.sync_find_bar(cx);
+        cx.notify();
+    }
+
+    /// 非法正则时核心返回 `User` 错误；其他错误（会话已不存在等）静默清空状态。
+    fn apply_search(&mut self, r: Result<kanso_core::SearchStatus, CoreError>) {
+        self.find.result = match r {
+            Ok(s) => s.into(),
+            Err(CoreError::User(_)) => FindResult::InvalidRegex,
+            Err(_) => FindResult::Idle,
+        };
+    }
+
+    fn sync_find_bar(&mut self, cx: &mut Context<Self>) {
+        if let Some(bar) = &self.find_bar {
+            let (case, regex, text, err) = (
+                self.find.case_sensitive,
+                self.find.regex,
+                self.find.status_text(),
+                self.find.is_error(),
+            );
+            bar.update(cx, |b, cx| b.set_state(case, regex, text, err, cx));
+        }
+    }
+
+    /// 新输出到来：节流后读一次搜索状态，保证最后一次输出之后的计数是准确的。
+    fn schedule_find_refresh(&mut self, cx: &mut Context<Self>) {
+        if let Throttle::RunNow { timer_ms } = self.find.refresher.request() {
+            self.refresh_find_status(cx);
+            self.arm_find_timer(timer_ms, cx);
+        }
+    }
+
+    fn refresh_find_status(&mut self, cx: &mut Context<Self>) {
+        let r = self.core.search_status(self.session);
+        self.apply_search(r);
+        self.sync_find_bar(cx);
+    }
+
+    fn arm_find_timer(&mut self, ms: u64, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(ms))
+                .await;
+            let _ = this.update(cx, |t, cx| match t.find.refresher.on_timer() {
+                TimerAction::Idle => {}
+                TimerAction::RunAndRearm { timer_ms } => {
+                    if t.find.wants_refresh() {
+                        t.refresh_find_status(cx);
+                    }
+                    t.arm_find_timer(timer_ms, cx);
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// 自检：直接设置搜索文字与正则开关并搜索。
+    pub(crate) fn selftest_query(&mut self, text: &str, regex: bool, cx: &mut Context<Self>) {
+        self.find.text = text.to_owned();
+        self.find.regex = regex;
+        self.find_search(cx);
+    }
+
+    /// 自检：当前屏幕上识别到的第一个 URL。
+    pub(crate) fn selftest_find_url(&self) -> Option<String> {
+        let view = self.frame.as_ref()?.view().ok()?;
+        let lines = line_texts(&view);
+        (0..lines.len()).find_map(|r| {
+            (0..lines[r].chars.len()).find_map(|c| url_at(&lines, r, c).map(|h| h.url))
+        })
+    }
+
+    // ---- 链接（terminal.md §10）----
+
+    /// 指针下的链接：先看 OSC 8 超链接，再从屏幕文字里识别 URL。
+    fn link_at(&self, pos: Point<Pixels>) -> Option<LinkHit> {
+        let p = self.grid_point(pos);
+        let frame = self.frame.as_ref()?;
+        let view = frame.view().ok()?;
+        if let Some(id) = hyperlink_at(&view, p.row, p.col) {
+            let url = self.core.hyperlink_url(self.session, id)?;
+            let same = |c: u16| hyperlink_at(&view, p.row, c) == Some(id);
+            let (mut c0, mut c1) = (p.col, p.col + 1);
+            while c0 > 0 && same(c0 - 1) {
+                c0 -= 1;
+            }
+            while c1 < view.header().cols && same(c1) {
+                c1 += 1;
+            }
+            return Some(LinkHit {
+                url,
+                segments: vec![(p.row, c0, c1)],
+            });
+        }
+        url_at(&line_texts(&view), usize::from(p.row), usize::from(p.col))
+    }
+
+    /// Ctrl+点击：指针下有链接就用系统默认程序打开，返回是否处理了这次点击。
+    fn try_open_link(&mut self, pos: Point<Pixels>, cx: &mut Context<Self>) -> bool {
+        let Some(link) = self.link_at(pos) else {
+            return false;
+        };
+        if is_openable(&link.url) {
+            log(&format!("打开链接 {}", link.url));
+            cx.open_url(&link.url);
+        } else {
+            log(&format!("拒绝打开不受信任协议的链接 {}", link.url));
+            cx.emit(TerminalEvent::Notice("不支持打开这种链接".to_owned()));
+        }
+        true
+    }
+
+    fn update_hover(&mut self, ev: &MouseMoveEvent, cx: &mut Context<Self>) {
+        let ctrl = ev.modifiers.control;
+        if ctrl != self.ctrl_down {
+            self.ctrl_down = ctrl;
+            if self.hover.is_some() {
+                cx.notify();
+            }
+        }
+        let p = self.grid_point(ev.position);
+        let cell = (p.row, p.col);
+        if self.hover_cell == Some(cell) {
+            return;
+        }
+        self.hover_cell = Some(cell);
+        let blocked = self.mouse_reporting() && !ev.modifiers.shift;
+        let new = if blocked {
+            None
+        } else {
+            self.link_at(ev.position)
+        };
+        if new != self.hover {
+            self.hover = new;
+            cx.notify();
+        }
+    }
+
+    // ---- 命令块点击（command-blocks.md §2）----
+
+    fn block_at_row(&self, row: u16) -> Option<&CommandBlock> {
+        decor::block_for_row(self.grid.as_deref()?, self.blocks(), row)
+    }
+
+    fn click_block(&mut self, pos: Point<Pixels>, click_count: usize, cx: &mut Context<Self>) {
+        let row = self.grid_point(pos).row;
+        let hit = self.block_at_row(row).cloned();
+        if self.block_sel.click(hit.as_ref(), click_count) {
+            cx.notify();
         }
     }
 
@@ -326,6 +735,7 @@ impl TerminalView {
     }
 
     pub(crate) fn clear_buffer(&mut self) {
+        self.block_sel.clear();
         if let Err(e) = self.core.clear_buffer(self.session) {
             log(&format!("clear_buffer 失败：{e}"));
         }
@@ -334,6 +744,7 @@ impl TerminalView {
     pub(crate) fn paste(&mut self, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|i| i.text()) {
             self.snap_to_bottom();
+            self.block_sel.clear();
             if let Err(e) = self.core.paste(self.session, PasteContent::Text(text)) {
                 log(&format!("paste 失败：{e}"));
             }
@@ -443,6 +854,16 @@ impl TerminalView {
         self.focus.focus(window);
         match ev.button {
             MouseButton::Left => {
+                // 程序没有接管鼠标（或按住 Shift 绕过）时，终端自己处理：Ctrl+点击开链接，单击选 / 取消命令块。
+                let reporting = self.mouse_reporting() && !ev.modifiers.shift;
+                if !reporting {
+                    if ev.modifiers.control && self.try_open_link(ev.position, cx) {
+                        return;
+                    }
+                    self.click_block(ev.position, ev.click_count, cx);
+                }
+                let p = self.grid_point(ev.position);
+                self.down_cell = Some((p.row, p.col));
                 self.left_down = true;
                 self.send_mouse(
                     MouseEventKind::Down,
@@ -462,6 +883,11 @@ impl TerminalView {
                         ev.click_count,
                     );
                 } else if self.right_click_menu {
+                    // 右键点在有命令的块内时，菜单里多“复制命令 / 复制输出”。
+                    let row = self.grid_point(ev.position).row;
+                    let hit = self.block_at_row(row).cloned();
+                    self.menu_block = hit.as_ref().filter(|b| has_command(b)).map(|b| b.id);
+                    self.menu_block_menu = menu_for(hit.as_ref());
                     // 菜单模式：没有选区时先选中指针下的单词（VS Code 的做法），再让外壳弹菜单。
                     if !self.has_selection() {
                         let at = self.grid_point(ev.position);
@@ -509,13 +935,13 @@ impl TerminalView {
         }
     }
 
-    fn on_mouse_move(
-        &mut self,
-        ev: &MouseMoveEvent,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) {
+    fn on_mouse_move(&mut self, ev: &MouseMoveEvent, _window: &mut Window, cx: &mut Context<Self>) {
         if self.left_down && ev.pressed_button == Some(MouseButton::Left) {
+            // 开始拖动文本选区：取消块选中（同一个单元格内的抖动不算）。
+            let p = self.grid_point(ev.position);
+            if self.down_cell.is_some_and(|c| c != (p.row, p.col)) && self.block_sel.clear() {
+                cx.notify();
+            }
             self.send_mouse(
                 MouseEventKind::Drag,
                 KButton::Left,
@@ -523,14 +949,17 @@ impl TerminalView {
                 &ev.modifiers,
                 1,
             );
-        } else if self.mouse_reporting() {
-            self.send_mouse(
-                MouseEventKind::Move,
-                KButton::None,
-                ev.position,
-                &ev.modifiers,
-                0,
-            );
+        } else {
+            self.update_hover(ev, cx);
+            if self.mouse_reporting() {
+                self.send_mouse(
+                    MouseEventKind::Move,
+                    KButton::None,
+                    ev.position,
+                    &ev.modifiers,
+                    0,
+                );
+            }
         }
     }
 
@@ -558,9 +987,14 @@ impl Focusable for TerminalView {
 
 impl Render for TerminalView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let bar = self.find_bar.clone();
         div()
             .size_full()
+            .relative()
             .bg(rgb(self.palette.background.to_u32()))
+            .when(self.hover.is_some() && self.ctrl_down, |d| {
+                d.cursor_pointer()
+            })
             .key_context("Terminal")
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key_down))
@@ -572,6 +1006,8 @@ impl Render for TerminalView {
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .child(TerminalElement { view: cx.entity() })
+            // 查找栏浮在右上角。
+            .children(bar.map(|b| div().absolute().top(px(8.0)).right(px(8.0)).child(b)))
     }
 }
 
@@ -667,7 +1103,7 @@ impl EntityInputHandler for TerminalView {
         let col = (usize::from(start_col) + before).min(usize::from(cols.saturating_sub(1)));
         Some(Bounds::new(
             point(
-                element_bounds.origin.x + px(PAD + col as f32 * m.cell_w),
+                element_bounds.origin.x + px(self.gutter_width() + PAD + col as f32 * m.cell_w),
                 element_bounds.origin.y + px(PAD + f32::from(cursor_row) * m.cell_h),
             ),
             size(px(width as f32 * m.cell_w), px(m.cell_h)),
@@ -694,6 +1130,16 @@ pub(crate) fn palette_for(dark: bool) -> Palette {
 }
 
 /// 供元素计算行列数。
-pub(crate) fn compute_grid(width: f32, height: f32, m: &Metrics) -> Option<GridSize> {
-    grid_size(width - 2.0 * PAD, height - 2.0 * PAD, m.cell_w, m.cell_h)
+pub(crate) fn compute_grid(
+    width: f32,
+    height: f32,
+    m: &Metrics,
+    gutter_w: f32,
+) -> Option<GridSize> {
+    grid_size(
+        width - gutter_w - 2.0 * PAD,
+        height - 2.0 * PAD,
+        m.cell_w,
+        m.cell_h,
+    )
 }

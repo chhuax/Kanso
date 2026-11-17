@@ -29,8 +29,10 @@ use gpui::{
     prelude::*, px, rgba,
 };
 use kanso_core::Core;
+use kanso_gpui::app::blocks::BlockPart;
 use kanso_gpui::app::confirm::{CloseRequest, close_dialog_spec, is_confirmed};
 use kanso_gpui::app::controller::{AppController, Effects, FALLBACK_GRID};
+use kanso_gpui::app::gutter::{GutterPolicy, ToggleOutcome, core_mode};
 use kanso_gpui::app::layout::{LayoutDivider, PaneId, Rect, SplitAxis};
 use kanso_gpui::app::menus::{
     AppMenuState, TabMenuContext, app_menu, decode, tab_menu, terminal_menu,
@@ -134,6 +136,8 @@ pub(crate) struct ShellView {
     pub(super) editor_sub: Option<Subscription>,
     /// 正在显示的连接提示框（主机密钥 / 密码 / 二次验证）。
     pub(super) prompt: Option<(PromptId, Entity<Dialog>)>,
+    /// 时间戳 / 行号栏模式：全局设置 + AI 会话的临时覆盖（terminal.md §2）。
+    pub(super) gutter_policy: GutterPolicy,
     pub(super) prompt_sub: Option<Subscription>,
 }
 
@@ -204,7 +208,13 @@ impl ShellView {
             editor_sub: None,
             prompt: None,
             prompt_sub: None,
+            gutter_policy: GutterPolicy::default(),
         };
+        {
+            let timeline = *this.settings.read(cx).timeline();
+            this.gutter_policy.set_global(timeline);
+            this.core.set_timestamp_mode(None, core_mode(timeline.mode));
+        }
 
         // 点窗口关闭按钮：有仍在连接的会话先确认（spec §8）。
         let weak = cx.weak_entity();
@@ -284,6 +294,7 @@ impl ShellView {
                     log(&format!("设置已变更：{section:?}"));
                 }
                 this.settings.read(cx).push_to_display(cx);
+                this.sync_gutter_global(cx);
                 this.refresh_display(window, cx);
             },
         );
@@ -303,6 +314,9 @@ impl ShellView {
             this.dark
         ));
 
+        if super::TERM_TEST.load(Ordering::Relaxed) {
+            this.run_term_test(window, cx);
+        }
         if super::SETTINGS_TEST.load(Ordering::Relaxed) {
             this.run_settings_test(window, cx);
         }
@@ -350,6 +364,77 @@ impl ShellView {
         );
         self.terminals.insert(id, term);
         self.subs.insert(id, sub);
+        self.apply_gutter(id, cx);
+    }
+
+    // ---- 时间戳 / 行号栏 ----
+
+    /// 把会话当前该用的栏模式应用到它的终端视图与核心。
+    fn apply_gutter(&mut self, id: SessionId, cx: &mut Context<Self>) {
+        let mode = self.gutter_policy.effective(id);
+        if let Some(t) = self.terminals.get(&id) {
+            t.update(cx, |t, cx| t.set_gutter_mode(mode, cx));
+        }
+        self.core.set_timestamp_mode(Some(id), core_mode(mode));
+    }
+
+    /// 全局时间轴设置变了（设置窗口、状态栏开关）：同步策略并刷新所有终端。
+    fn sync_gutter_global(&mut self, cx: &mut Context<Self>) {
+        let timeline = *self.settings.read(cx).timeline();
+        self.gutter_policy.set_global(timeline);
+        self.core.set_timestamp_mode(None, core_mode(timeline.mode));
+        let ids: Vec<SessionId> = self.terminals.keys().copied().collect();
+        for id in ids {
+            self.apply_gutter(id, cx);
+        }
+    }
+
+    /// 按各会话的 agent 状态更新临时设置：识别到 AI CLI 时默认隐藏栏，工具退出后恢复。
+    fn sync_agents(&mut self, cx: &mut Context<Self>) {
+        let states: Vec<(SessionId, Option<kanso_types::agent::AgentKind>)> = self
+            .terminals
+            .keys()
+            .map(|&id| {
+                let agent = self
+                    .ctl
+                    .workspace()
+                    .item(id)
+                    .and_then(|i| i.activity.agent());
+                (id, agent)
+            })
+            .collect();
+        for (id, agent) in states {
+            if self.gutter_policy.observe_agent(id, agent).is_some() {
+                self.apply_gutter(id, cx);
+            }
+        }
+    }
+
+    /// 状态栏“时间戳”开关：AI 会话里只作用于当前会话，否则切换全局模式。
+    pub(super) fn toggle_timeline(&mut self, cx: &mut Context<Self>) {
+        let active = self.ctl.workspace().active_session();
+        match self.gutter_policy.toggle(active) {
+            ToggleOutcome::Session(_) => {
+                if let Some(id) = active {
+                    self.apply_gutter(id, cx);
+                }
+            }
+            ToggleOutcome::Global(t) => {
+                self.settings.update(cx, |m, cx| {
+                    m.update_timeline(cx, |tl| *tl = t);
+                });
+            }
+        }
+        cx.notify();
+    }
+
+    /// 活动会话的终端实体。
+    pub(super) fn active_terminal(&self) -> Option<Entity<TerminalView>> {
+        self.ctl
+            .workspace()
+            .active_session()
+            .and_then(|s| self.terminals.get(&s))
+            .cloned()
     }
 
     fn on_terminal_event(
@@ -360,6 +445,7 @@ impl ShellView {
     ) {
         match ev {
             TerminalEvent::SelfTestFinished(ok) => self.on_terminal_selftest(*ok, window, cx),
+            TerminalEvent::Notice(text) => self.show_notice(text.clone(), cx),
             TerminalEvent::ContextMenu { session, position } => {
                 // 右键的终端成为活动终端，菜单里的复制 / 粘贴等就作用于它。
                 self.activate_session(*session, window, cx);
@@ -387,6 +473,7 @@ impl ShellView {
                 }
             }
         }
+        self.sync_agents(cx);
         if fx.prompt {
             self.sync_prompt(window, cx);
         }
@@ -446,6 +533,26 @@ impl ShellView {
             AppCommand::Paste => self.with_active_terminal(cx, |t, cx| t.paste(cx)),
             AppCommand::SelectAll => self.with_active_terminal(cx, |t, _| t.select_all()),
             AppCommand::ClearBuffer => self.with_active_terminal(cx, |t, _| t.clear_buffer()),
+            AppCommand::Find => {
+                if let Some(t) = self.active_terminal() {
+                    t.update(cx, |t, cx| t.open_find(window, cx));
+                }
+            }
+            AppCommand::FindNext | AppCommand::FindPrev => {
+                let backwards = command == AppCommand::FindPrev;
+                if let Some(t) = self.active_terminal() {
+                    t.update(cx, |t, cx| t.find_step(backwards, window, cx));
+                }
+            }
+            AppCommand::PrevBlock => self.with_active_terminal(cx, |t, cx| t.jump_block(false, cx)),
+            AppCommand::NextBlock => self.with_active_terminal(cx, |t, cx| t.jump_block(true, cx)),
+            AppCommand::ToggleTimeline => self.toggle_timeline(cx),
+            AppCommand::CopyBlockCommand => {
+                self.with_active_terminal(cx, |t, cx| t.copy_menu_block(BlockPart::Command, cx))
+            }
+            AppCommand::CopyBlockOutput => {
+                self.with_active_terminal(cx, |t, cx| t.copy_menu_block(BlockPart::Output, cx))
+            }
             AppCommand::CloseTab(id) => self.request_close(id, window, cx),
             AppCommand::CloseGroup(scope, id) => self.close_group(scope, id, window, cx),
             AppCommand::ToggleRightClickMenu => {
@@ -662,11 +769,11 @@ impl ShellView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let has_selection = self
-            .terminals
-            .get(&session)
-            .is_some_and(|t| t.read(cx).has_selection());
-        self.open_menu(terminal_menu(has_selection), position, window, cx);
+        let (has_selection, block) = self.terminals.get(&session).map_or((false, None), |t| {
+            let t = t.read(cx);
+            (t.has_selection(), t.menu_block_menu())
+        });
+        self.open_menu(terminal_menu(has_selection, block), position, window, cx);
     }
 
     pub(super) fn open_tab_menu(
@@ -859,6 +966,7 @@ impl ShellView {
         for id in closed {
             self.terminals.remove(&id);
             self.subs.remove(&id);
+            self.gutter_policy.forget(id);
             if self.focused == Some(id) {
                 self.focused = None;
             }
@@ -1294,7 +1402,7 @@ impl Render for ShellView {
         }
         let panes = self.render_panes(area, th, cx);
         let sidebar = self.sidebar_visible.then(|| self.render_sidebar(th, cx));
-        let status_bar = self.render_status_bar(th, window);
+        let status_bar = self.render_status_bar(th, window, cx);
         let notice = self
             .notice
             .as_ref()

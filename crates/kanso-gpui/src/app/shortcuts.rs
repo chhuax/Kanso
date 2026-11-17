@@ -66,6 +66,22 @@ pub enum AppCommand {
     ZoomOut,
     /// 终端字号恢复默认。
     ZoomReset,
+    /// 打开活动终端的查找栏（ui-shell.md §7：Ctrl+Shift+F）。
+    Find,
+    /// 查找下一个（Ctrl+Shift+G / F3）。
+    FindNext,
+    /// 查找上一个（Shift+F3）。
+    FindPrev,
+    /// 滚动到上一个命令块（command-blocks.md §4）。
+    PrevBlock,
+    /// 滚动到下一个命令块。
+    NextBlock,
+    /// 状态栏的时间戳栏开关（AI 会话里只作用于当前会话）。
+    ToggleTimeline,
+    /// 复制右键所在命令块的命令。
+    CopyBlockCommand,
+    /// 复制右键所在命令块的输出。
+    CopyBlockOutput,
 }
 
 impl AppCommand {
@@ -79,6 +95,10 @@ impl AppCommand {
                 | AppCommand::PrevPane
                 | AppCommand::ZoomIn
                 | AppCommand::ZoomOut
+                | AppCommand::FindNext
+                | AppCommand::FindPrev
+                | AppCommand::PrevBlock
+                | AppCommand::NextBlock
         )
     }
 }
@@ -148,6 +168,15 @@ pub const DEFAULT_BINDINGS: &[Binding] = &[
     b(true, false, true, "+", AppCommand::ZoomIn),
     b(true, false, false, "-", AppCommand::ZoomOut),
     b(true, false, false, "0", AppCommand::ZoomReset),
+    // 查找（terminal.md §11）。F3 / Shift+F3 是 Windows 的通用习惯，作为查找下一个 / 上一个。
+    b(true, false, true, "f", AppCommand::Find),
+    b(true, false, true, "g", AppCommand::FindNext),
+    b(false, false, false, "f3", AppCommand::FindNext),
+    b(false, false, true, "f3", AppCommand::FindPrev),
+    // 命令块跳转（command-blocks.md §4）；规格没有给 Windows 键位，选 Ctrl+Shift+↑/↓
+    // （Ctrl+↑/↓ 与 Alt+↑/↓ 的 Ctrl 映射留给 shell）。
+    b(true, false, true, "up", AppCommand::PrevBlock),
+    b(true, false, true, "down", AppCommand::NextBlock),
 ];
 
 /// 查表。Win 键组合属于系统，永远不命中。
@@ -300,6 +329,24 @@ mod tests {
                 "{a:?} 与复制粘贴冲突"
             );
         }
+    }
+
+    #[test]
+    fn find_and_block_shortcuts() {
+        assert_eq!(press("f", true, false, true), Some(AppCommand::Find));
+        assert_eq!(press("g", true, false, true), Some(AppCommand::FindNext));
+        assert_eq!(press("f3", false, false, false), Some(AppCommand::FindNext));
+        assert_eq!(press("f3", false, false, true), Some(AppCommand::FindPrev));
+        assert_eq!(press("up", true, false, true), Some(AppCommand::PrevBlock));
+        assert_eq!(
+            press("down", true, false, true),
+            Some(AppCommand::NextBlock)
+        );
+        // 普通 Ctrl+F / Ctrl+Up 仍然属于 shell。
+        assert_eq!(press("f", true, false, false), None);
+        assert_eq!(press("up", true, false, false), None);
+        assert!(!AppCommand::Find.repeatable());
+        assert!(AppCommand::FindNext.repeatable());
     }
 
     #[test]
