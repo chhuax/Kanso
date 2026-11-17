@@ -1264,7 +1264,7 @@ messages! {
     /// GPUI 界面文字：ui-keys-conflict-title
     UiKeysConflictTitle = "ui-keys-conflict-title" { chord: String },
     /// GPUI 界面文字：ui-keys-conflict-body
-    UiKeysConflictBody = "ui-keys-conflict-body" { chord: String, existing: String, new: String },
+    UiKeysConflictBody = "ui-keys-conflict-body" { chord: String, holder: String, new: String },
     /// GPUI 界面文字：ui-keys-replace
     UiKeysReplace = "ui-keys-replace" {},
     /// GPUI 界面文字：ui-keys-restore-item

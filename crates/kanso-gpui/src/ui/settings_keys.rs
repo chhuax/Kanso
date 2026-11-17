@@ -188,7 +188,7 @@ impl SettingsView {
                         .text_color(th.c("text.secondary"))
                         .child(render_message(&Message::UiKeysConflictBody {
                             chord: c.chord.display(),
-                            existing: other,
+                            holder: other,
                             new,
                         })),
                 );
