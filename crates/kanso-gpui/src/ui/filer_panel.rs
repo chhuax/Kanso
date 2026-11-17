@@ -32,6 +32,7 @@ use kanso_gpui::app::filer_text::msg;
 use kanso_gpui::app::fspath::{self, PathStyle};
 use kanso_gpui::app::launcher::core_error_text;
 use kanso_gpui::app::local_fs::{self, CopyPolicy, LocalErrorKind};
+use kanso_gpui::app::remote_edit::EditFiles;
 use kanso_gpui::app::transfer_queue::{
     Action, BatchEnd, Finish, Kind, TransferItem, TransferQueue,
 };
@@ -45,6 +46,7 @@ use kanso_types::{CoreEvent, SessionId};
 
 use kanso_gpui::widgets::style::Appearance;
 
+use super::filer_edit::{EditHub, EditKey, EditStart};
 use super::log;
 use super::shell::Theme;
 use super::widgets::text_input::{TextInput, TextInputEvent};
@@ -90,7 +92,7 @@ pub(crate) enum FilerEvent {
 
 /// 等待对话框结果的操作。
 #[derive(Clone, Debug)]
-enum Pending {
+pub(crate) enum Pending {
     Delete {
         pane: usize,
         targets: Vec<DeleteTarget>,
@@ -103,6 +105,10 @@ enum Pending {
     Conflict {
         pane: usize,
     },
+    /// 远程编辑：大文件确认（打开前）。
+    EditLarge(Box<EditStart>),
+    /// 远程编辑：远端文件已变化，等用户选覆盖 / 重新下载 / 暂不处理。
+    EditConflict(EditKey),
 }
 
 /// 一栏。
@@ -135,12 +141,14 @@ pub(crate) struct FilerPanel {
     pub(crate) panes: Vec<Pane>,
     /// Aux：当前显示的栏；Dual：拥有键盘焦点的栏。
     pub(crate) shown: usize,
-    by_session: HashMap<SessionId, usize>,
+    pub(crate) by_session: HashMap<SessionId, usize>,
     pub(crate) focus: FocusHandle,
     pub(crate) tz_min: i32,
     /// 最近一次绘制用的主题（列表行的处理函数里取色用）。
     pub(crate) cached_theme: Theme,
-    pending: Option<Pending>,
+    pub(crate) pending: Option<Pending>,
+    /// 远程编辑与拖出准备（只有辅助 Filer 用）。
+    pub(crate) edits: EditHub,
     t0: Instant,
     /// 收尾进度条的收起重绘是否已排程。
     linger_scheduled: bool,
@@ -164,7 +172,23 @@ fn home_dir() -> String {
 impl FilerPanel {
     /// 辅助 Filer（还没有任何栏，等 [`Self::show_session`]）。
     pub(crate) fn new_aux(core: Arc<Core>, cx: &mut Context<Self>) -> Self {
-        FilerPanel::new(core, PanelMode::Aux, cx)
+        let mut p = FilerPanel::new(core, PanelMode::Aux, cx);
+        // 远程编辑的临时副本根目录；启动时在后台清理上次遗留的已同步副本（未同步的保留）。
+        p.edits.files = EditFiles::new_default().ok();
+        if let Some(f) = p.edits.files.clone() {
+            cx.background_executor()
+                .spawn(async move {
+                    let _ = EditFiles::clean_previous_runs(&f.root, Some(&f.run));
+                })
+                .detach();
+        }
+        // 退出应用：已回传的副本清理，有未回传修改的保留（§9.3）。
+        let sub = cx.on_app_quit(|this, _cx| {
+            this.edit_close_all();
+            async {}
+        });
+        p._subs.push(sub);
+        p
     }
 
     /// 纯 SFTP 标签的双栏：左栏远端，右栏本地。
@@ -196,6 +220,7 @@ impl FilerPanel {
                 appearance: Appearance::Dark,
             },
             pending: None,
+            edits: EditHub::new(None),
             t0: Instant::now(),
             linger_scheduled: false,
             _subs: Vec::new(),
@@ -285,7 +310,8 @@ impl FilerPanel {
     }
 
     /// 标签关闭：丢掉它的栏状态（栏本身留在向量里避免下标错位，只是不再被引用并停止读取）。
-    pub(crate) fn forget_session(&mut self, sid: SessionId) {
+    pub(crate) fn forget_session(&mut self, sid: SessionId, cx: &mut Context<Self>) {
+        self.edit_close_session(sid, cx);
         if let Some(i) = self.by_session.remove(&sid) {
             let p = &mut self.panes[i];
             p.list_task = None;
@@ -636,6 +662,7 @@ impl FilerPanel {
 
     /// 外壳转发的核心事件：会话状态、传输进度。
     pub(crate) fn on_core_event(&mut self, ev: &CoreEvent, cx: &mut Context<Self>) {
+        self.edit_on_core_event(ev, cx);
         match ev {
             CoreEvent::SessionStateChanged { session, state } => {
                 let idxs: Vec<usize> = self
@@ -1214,7 +1241,7 @@ impl FilerPanel {
 
     // ---- 打开 ----
 
-    /// 激活一行（双击 / Enter）：目录进入；本地文件用系统默认应用打开；远端文件暂不支持编辑。
+    /// 激活一行（双击 / Enter）：目录进入；本地文件用系统默认应用打开；远端文件下载到临时副本后用本地应用编辑（filer.md §9）。
     pub(crate) fn open_row(&mut self, idx: usize, id: u32, cx: &mut Context<Self>) {
         let Some(row) = self.panes[idx].model.row(id).cloned() else {
             return;
@@ -1238,9 +1265,7 @@ impl FilerPanel {
         } else if self.panes[idx].source == Source::Local && self.mode == PanelMode::Aux {
             cx.open_with_system(Path::new(&row.path));
         } else if self.panes[idx].source != Source::Local && self.mode == PanelMode::Aux {
-            cx.emit(FilerEvent::Notice(msg(
-                Message::UiFilerRemoteEditUnsupported {},
-            )));
+            self.open_remote(idx, id, false, cx);
         }
     }
 
@@ -1275,7 +1300,7 @@ impl FilerPanel {
             format!("filer:{idx}:open"),
             msg(Message::UiFilerMenuOpen {}),
         )];
-        if aux && !row.is_dir && !row.is_symlink && !remote {
+        if aux && !row.is_dir && (remote || !row.is_symlink) {
             items.push(MenuItem::action(
                 format!("filer:{idx}:open-with"),
                 msg(Message::UiFilerMenuOpenWith {}),
@@ -1399,10 +1424,14 @@ impl FilerPanel {
                 }
             }
             "open-with" => {
-                if let Some(id) = self.panes[idx].sel.cursor()
-                    && let Some(row) = self.panes[idx].model.row(id)
-                {
-                    open_with_dialog(&row.path);
+                if let Some(id) = self.panes[idx].sel.cursor() {
+                    if self.panes[idx].source == Source::Local {
+                        if let Some(row) = self.panes[idx].model.row(id) {
+                            open_with_dialog(&row.path);
+                        }
+                    } else {
+                        self.open_remote(idx, id, true, cx);
+                    }
                 }
             }
             "download" => self.pick_and_download(idx, cx),
@@ -1548,6 +1577,8 @@ impl FilerPanel {
                     NameOutcome::Name(name) => self.run_name(pane, kind, old, name, cx),
                 }
             }
+            Pending::EditLarge(start) => self.edit_on_large(*start, result, cx),
+            Pending::EditConflict(key) => self.edit_on_conflict(key, result, cx),
             Pending::Conflict { pane } => {
                 let now = self.now_ms();
                 let decision = conflict_decision(result);
@@ -1767,7 +1798,7 @@ async fn remote_dir_is_empty(core: &Core, session: SessionId, path: &str) -> Res
 }
 
 /// “打开方式”：交给 Windows 的系统选择器（rundll32 的 OpenAs_RunDLL）。
-fn open_with_dialog(path: &str) {
+pub(crate) fn open_with_dialog(path: &str) {
     #[cfg(windows)]
     {
         let _ = std::process::Command::new("rundll32.exe")

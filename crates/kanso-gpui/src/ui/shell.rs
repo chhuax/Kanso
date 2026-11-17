@@ -1251,7 +1251,8 @@ impl ShellView {
     /// 侧栏占用的宽度（隐藏时为 0；窄窗口最多占 40%）。
     pub(super) fn sidebar_width(&self, window: &Window) -> f32 {
         if self.sidebar_visible {
-            number("spacing", "sidebar.defaultWidth").min(f32::from(window.viewport_size().width) * 0.4)
+            number("spacing", "sidebar.defaultWidth")
+                .min(f32::from(window.viewport_size().width) * 0.4)
         } else {
             0.0
         }
@@ -1265,9 +1266,8 @@ impl ShellView {
         let w = f64::from(f32::from(size.width)) - f64::from(self.git_width(window));
         // 顶部留给标题栏，底部留给状态栏与发送区。
         let top = super::toolbar::HEIGHT;
-        let h = f64::from(
-            f32::from(size.height) - top - status_bar_h() - self.sender_total_height(),
-        );
+        let h =
+            f64::from(f32::from(size.height) - top - status_bar_h() - self.sender_total_height());
         Rect::new(x, f64::from(top), (w - x).max(0.0), h.max(0.0))
     }
 

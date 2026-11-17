@@ -63,7 +63,11 @@ fn toggle_item(
         .child(icon(
             symbol,
             12.0,
-            if on { th.c("accent") } else { th.c("text.secondary") },
+            if on {
+                th.c("accent")
+            } else {
+                th.c("text.secondary")
+            },
         ))
         .when(!compact, |item| item.child(label))
 }
