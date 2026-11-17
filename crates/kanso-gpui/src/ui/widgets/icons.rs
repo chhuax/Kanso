@@ -48,6 +48,8 @@ impl AssetSource for Icons {
             "icons/crosshair.svg" => include_bytes!("../../../assets/icons/crosshair.svg"),
             "icons/eye.svg" => include_bytes!("../../../assets/icons/eye.svg"),
             "icons/link.svg" => include_bytes!("../../../assets/icons/link.svg"),
+            "icons/keyboard.svg" => include_bytes!("../../../assets/icons/keyboard.svg"),
+            "icons/rotate-ccw.svg" => include_bytes!("../../../assets/icons/rotate-ccw.svg"),
             "icons/chevron-right.svg" => include_bytes!("../../../assets/icons/chevron-right.svg"),
             "icons/git-branch.svg" => include_bytes!("../../../assets/icons/git-branch.svg"),
             "icons/undo-2.svg" => include_bytes!("../../../assets/icons/undo-2.svg"),

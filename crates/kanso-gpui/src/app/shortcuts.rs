@@ -5,8 +5,7 @@
 //! 除非表里明确写了；匹配要求修饰键**完全一致**（Ctrl+Shift+T 不会被 Ctrl+T 命中）。
 //! 复制 / 粘贴不在这张表里，仍由 [`crate::keys::classify_key`] 处理。
 //!
-//! TODO(rebind)：spec 要求可在“键盘快捷键”对话框重新绑定；对话框做好后，把这张表改成运行时可替换，
-//! 查找函数的签名不用变。
+//! 这张表是**默认值**；用户改绑后的生效表在 [`crate::app::keybindings`]，[`lookup`] / [`shortcut_text`] 读那边。
 
 use kanso_types::SessionId;
 
@@ -110,6 +109,8 @@ pub enum AppCommand {
     XmodemReceive,
     /// 取消活动会话正在进行的终端内传输（ZMODEM / XMODEM）。
     CancelTerminalTransfer,
+    /// 恢复默认设置（先确认；帮助菜单项，不绑定快捷键）。
+    ResetSettings,
 }
 
 impl AppCommand {
@@ -213,46 +214,14 @@ pub const DEFAULT_BINDINGS: &[Binding] = &[
     b(true, false, true, "down", AppCommand::NextBlock),
 ];
 
-/// 查表。Win 键组合属于系统，永远不命中。
+/// 查表（默认值 + 用户覆盖，见 [`crate::app::keybindings`]）。Win 键组合属于系统，永远不命中。
 pub fn lookup(input: &KeyInput<'_>) -> Option<AppCommand> {
-    if input.platform {
-        return None;
-    }
-    DEFAULT_BINDINGS
-        .iter()
-        .find(|bd| {
-            bd.ctrl == input.ctrl
-                && bd.alt == input.alt
-                && bd.shift == input.shift
-                && bd.key == input.key
-        })
-        .map(|bd| bd.command)
+    crate::app::keybindings::current().lookup(input)
 }
 
-/// 命令的人读快捷键文字（菜单 / 提示用），取表里第一条。没有绑定返回 `None`。
+/// 命令的人读快捷键文字（菜单 / 提示用），取当前生效的第一条。没有绑定返回 `None`。
 pub fn shortcut_text(command: AppCommand) -> Option<String> {
-    let bd = DEFAULT_BINDINGS.iter().find(|bd| bd.command == command)?;
-    let mut parts = Vec::new();
-    if bd.ctrl {
-        parts.push("Ctrl".to_owned());
-    }
-    if bd.alt {
-        parts.push("Alt".to_owned());
-    }
-    if bd.shift {
-        parts.push("Shift".to_owned());
-    }
-    let mut chars = bd.key.chars();
-    let key = match (chars.next(), chars.next()) {
-        (Some(c), None) => c.to_uppercase().to_string(),
-        _ => {
-            let mut s = bd.key.to_owned();
-            s[..1].make_ascii_uppercase();
-            s
-        }
-    };
-    parts.push(key);
-    Some(parts.join("+"))
+    crate::app::keybindings::current().text(command)
 }
 
 #[cfg(test)]

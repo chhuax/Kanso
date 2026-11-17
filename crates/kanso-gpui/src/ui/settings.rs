@@ -13,11 +13,12 @@ use std::time::Instant;
 
 use gpui::{
     AnyElement, App, Bounds, Context, Entity, EventEmitter, FocusHandle, Focusable, Hsla,
-    MouseButton, MouseDownEvent, SharedString, Subscription, TitlebarOptions, Window, WindowBounds,
-    WindowHandle, WindowOptions, div, prelude::*, px, rgba, size,
+    KeyDownEvent, MouseButton, MouseDownEvent, SharedString, Subscription, TitlebarOptions, Window,
+    WindowBounds, WindowHandle, WindowOptions, div, prelude::*, px, rgba, size,
 };
 use kanso_core::Core;
 use kanso_gpui::app::i18n::{LanguageSetting, label, t};
+use kanso_gpui::app::keybindings::{self, KeybindingSettings};
 use kanso_gpui::app::settings::{
     AppearanceSettings, BUILTIN_THEMES, CursorShapeSetting, DisplaySettings, GutterMode, Section,
     SettingsStore, ThemeMode, TimelineSettings, clean_font_names, is_monospace, pick_nerd_fallback,
@@ -37,6 +38,9 @@ use kanso_types::message::Message;
 /// 回滚行数下拉里的预设。
 const SCROLLBACK_PRESETS: [u32; 7] = [1_000, 5_000, 10_000, 20_000, 50_000, 100_000, 1_000_000];
 
+#[path = "settings_keys.rs"]
+mod keys;
+
 // ---- 模型 ----
 
 /// 设置变化事件。
@@ -55,9 +59,38 @@ impl EventEmitter<SettingsEvent> for SettingsModel {}
 impl SettingsModel {
     /// 从核心的设置表载入，并把终端选项下发给核心。
     pub(crate) fn new(core: Arc<Core>) -> Self {
-        SettingsModel {
-            store: SettingsStore::load(core),
+        let store = SettingsStore::load(core);
+        // 启动时就把用户的快捷键覆盖装进生效表。
+        keybindings::install(store.keybindings());
+        SettingsModel { store }
+    }
+
+    pub(crate) fn keybindings(&self) -> &KeybindingSettings {
+        self.store.keybindings()
+    }
+
+    /// 修改快捷键覆盖；变化时重新安装生效表（菜单提示与外壳查表立即更新）。
+    pub(crate) fn update_keybindings(
+        &mut self,
+        cx: &mut Context<Self>,
+        change: impl FnOnce(&mut KeybindingSettings),
+    ) {
+        if let Some(s) = self.store.update_keybindings(change) {
+            keybindings::install(self.store.keybindings());
+            cx.emit(SettingsEvent::Changed(s));
+            cx.notify();
         }
+    }
+
+    /// 恢复默认设置（调用方负责确认）：清空设置表并回到默认值，每个分区各通知一次。
+    pub(crate) fn reset_to_defaults(&mut self, cx: &mut Context<Self>) -> Result<(), String> {
+        self.store.reset_to_defaults()?;
+        keybindings::install(self.store.keybindings());
+        for section in Section::ALL {
+            cx.emit(SettingsEvent::Changed(section));
+        }
+        cx.notify();
+        Ok(())
     }
 
     pub(crate) fn display(&self) -> &DisplaySettings {
@@ -180,6 +213,8 @@ pub(crate) struct SettingsView {
     ui_font_input: Entity<TextInput>,
     ui_names: Vec<String>,
     scrollback: Entity<Dropdown>,
+    /// 键盘页的录制 / 冲突状态。
+    keys: keys::KeysState,
     mode: Entity<Dropdown>,
     light_theme: Entity<Dropdown>,
     dark_theme: Entity<Dropdown>,
@@ -411,6 +446,7 @@ impl SettingsView {
             ui_font_input,
             ui_names,
             scrollback,
+            keys: keys::KeysState::default(),
             mode,
             light_theme,
             dark_theme,
@@ -1069,6 +1105,7 @@ impl Render for SettingsView {
         for (i, title, symbol) in [
             (0, Message::UiGeneral {}, "sun-moon"),
             (1, Message::UiDisplay {}, "type"),
+            (2, Message::UiKeysPage {}, "keyboard"),
         ] {
             toolbar = toolbar.child(
                 div()
@@ -1093,6 +1130,7 @@ impl Render for SettingsView {
                         MouseButton::Left,
                         cx.listener(move |this, _, _, cx| {
                             this.page = i;
+                            this.keys.cancel();
                             cx.notify();
                         }),
                     )
@@ -1100,10 +1138,10 @@ impl Render for SettingsView {
                     .child(render_message(&title)),
             );
         }
-        let cards = if self.page == 0 {
-            vec![appearance_card, language_card, timeline_card, ui_card]
-        } else {
-            vec![font_card, cursor_card, scroll_card, contrast_card]
+        let cards = match self.page {
+            0 => vec![appearance_card, language_card, timeline_card, ui_card],
+            1 => vec![font_card, cursor_card, scroll_card, contrast_card],
+            _ => self.keys_cards(&th, cx),
         };
         div()
             .size_full()
@@ -1114,6 +1152,16 @@ impl Render for SettingsView {
             .text_size(px(display::ui_font_size()))
             .text_color(th.c("text.primary"))
             .track_focus(&self.focus)
+            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _w, cx| this.keys_on_key(ev, cx)))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _: &MouseDownEvent, _w, cx| {
+                    // 点在别处：放弃正在进行的录制。
+                    if this.keys.cancel() {
+                        cx.notify();
+                    }
+                }),
+            )
             .child(toolbar)
             .child(
                 div()
