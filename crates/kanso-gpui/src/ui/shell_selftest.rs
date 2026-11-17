@@ -51,9 +51,13 @@ fn hold_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// 模拟按键。必须等当前对 `ShellView` 的更新结束后再派发（按键会回到 `ShellView` 的监听器里，
+/// 在更新中直接派发会重入同一个实体），所以用 `Window::defer`；多次调用按先后顺序执行。
 fn key(window: &mut Window, cx: &mut Context<ShellView>, name: &str) {
     if let Ok(k) = Keystroke::parse(name) {
-        window.dispatch_keystroke(k, cx);
+        window.defer(cx, move |window, cx| {
+            window.dispatch_keystroke(k, cx);
+        });
     }
 }
 
