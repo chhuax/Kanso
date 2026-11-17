@@ -9,6 +9,7 @@ mod color;
 mod locales;
 mod notices;
 mod tokens;
+mod windows;
 
 use std::env;
 use std::path::Path;
@@ -25,6 +26,7 @@ fn main() -> ExitCode {
         Some("check-locales") => locales::check(),
         Some("notices") => notices::generate(),
         Some("dmg") => apple::dmg(),
+        Some("win-package") => windows::win_package(&args[1..]),
         Some("bindgen") => bindings::generate(),
         Some("check-bindings") => bindings::check(),
         Some("apple-lib") => apple::apple_lib(&args[1..]),
@@ -51,6 +53,7 @@ fn usage() {
          check-locales               校验 locales/*.ftl 与 kanso-types 消息清单一致，并检查 Localizable.xcstrings 中英齐全\n  \
          notices                     重新生成产品依赖与素材的 THIRD_PARTY_NOTICES.md\n  \
          dmg                         Release 构建 Direct 渠道并生成 arm64 DMG，输出 SHA-256\n  \
+         win-package [--skip-build] [--no-installer] [--offline]\n                                     （仅 Windows）Release 构建 kanso-gpui，生成绿色版 zip 与 NSIS 安装程序（找到 makensis 时），输出 SHA-256\n  \
          bindgen                     用 UniFFI library mode 重新生成 Swift 绑定（入库于 apple/Packages/KansoBridge）\n  \
          check-bindings              重新生成到临时目录并与入库绑定逐字节比较，不一致即失败\n  \
          xcode                       生成 design token 产物并用 XcodeGen 生成 apple/Kanso.xcodeproj\n  \
