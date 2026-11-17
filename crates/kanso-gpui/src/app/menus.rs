@@ -62,11 +62,13 @@ pub fn encode(command: AppCommand) -> String {
         AppCommand::ToggleCommandSuggestions => "toggle-command-suggestions".into(),
         AppCommand::ClearCommandHistory => "clear-command-history".into(),
         AppCommand::ToggleFiler => "toggle-filer".into(),
+        AppCommand::ToggleGit => "toggle-git".into(),
         AppCommand::LocateFiler => "locate-filer".into(),
         AppCommand::XmodemSend => "xmodem-send".into(),
         AppCommand::XmodemSend1K => "xmodem-send-1k".into(),
         AppCommand::XmodemReceive => "xmodem-receive".into(),
         AppCommand::CancelTerminalTransfer => "cancel-terminal-transfer".into(),
+        AppCommand::ResetSettings => "reset-settings".into(),
     }
 }
 
@@ -143,26 +145,20 @@ pub fn decode(id: &str) -> Option<AppCommand> {
         "toggle-command-suggestions" => AppCommand::ToggleCommandSuggestions,
         "clear-command-history" => AppCommand::ClearCommandHistory,
         "toggle-filer" => AppCommand::ToggleFiler,
+        "toggle-git" => AppCommand::ToggleGit,
         "locate-filer" => AppCommand::LocateFiler,
         "xmodem-send" => AppCommand::XmodemSend,
         "xmodem-send-1k" => AppCommand::XmodemSend1K,
         "xmodem-receive" => AppCommand::XmodemReceive,
         "cancel-terminal-transfer" => AppCommand::CancelTerminalTransfer,
+        "reset-settings" => AppCommand::ResetSettings,
         _ => return None,
     })
 }
 
-/// 菜单里显示的快捷键文字：先查应用级键位表；复制 / 粘贴 / 全选由终端按键路径处理（不在表里），写死默认值。
+/// 菜单提示与终端捕获阶段共用当前生效的绑定。
 pub fn menu_shortcut(command: AppCommand) -> Option<String> {
-    if let Some(t) = shortcut_text(command) {
-        return Some(t);
-    }
-    match command {
-        AppCommand::Copy => Some("Ctrl+Shift+C".into()),
-        AppCommand::Paste => Some("Ctrl+Shift+V".into()),
-        AppCommand::SelectAll => Some("Ctrl+Shift+A".into()),
-        _ => None,
-    }
+    shortcut_text(command)
 }
 
 /// 带快捷键提示的动作项。
@@ -273,6 +269,8 @@ pub struct AppMenuState {
     pub command_suggestions: bool,
     /// Filer 是否显示。
     pub filer_visible: bool,
+    /// Git 改动面板是否显示。
+    pub git_visible: bool,
 }
 
 /// 窗口级应用菜单（Windows / Linux 没有系统菜单栏，spec §6 末段：放在应用内）。
@@ -353,6 +351,8 @@ pub fn app_menu(state: AppMenuState) -> Vec<MenuItem> {
                     .checked(state.sender_visible),
                 item(&msg(Message::UiFilerMenuView {}), AppCommand::ToggleFiler)
                     .checked(state.filer_visible),
+                item(&msg(Message::UiGitMenuView {}), AppCommand::ToggleGit)
+                    .checked(state.git_visible),
                 MenuItem::separator(),
                 item(label(Message::UiSplitRight {}), AppCommand::SplitRight),
                 item(label(Message::UiSplitDown {}), AppCommand::SplitDown),
@@ -360,6 +360,7 @@ pub fn app_menu(state: AppMenuState) -> Vec<MenuItem> {
         ),
         MenuItem::separator(),
         item(label(Message::UiSettings2 {}), AppCommand::OpenSettings),
+        item(label(Message::UiResetMenu {}), AppCommand::ResetSettings),
         item(label(Message::UiQuit {}), AppCommand::Quit),
     ]
 }
@@ -429,6 +430,7 @@ mod tests {
             AppCommand::ZoomIn,
             AppCommand::ZoomOut,
             AppCommand::ToggleFiler,
+            AppCommand::ToggleGit,
             AppCommand::LocateFiler,
             AppCommand::XmodemSend,
             AppCommand::XmodemSend1K,
@@ -446,6 +448,7 @@ mod tests {
             AppCommand::ToggleTimeline,
             AppCommand::CopyBlockCommand,
             AppCommand::CopyBlockOutput,
+            AppCommand::OpenPalette,
         ];
         for c in cmds {
             assert_eq!(decode(&encode(c)), Some(c), "{c:?}");
@@ -470,6 +473,7 @@ mod tests {
             sender_visible: true,
             command_suggestions: true,
             filer_visible: false,
+            git_visible: false,
         };
         for items in [
             terminal_menu(true, Some(BlockMenu { copy_command: true })),
@@ -564,6 +568,7 @@ mod tests {
             sender_visible: false,
             command_suggestions: true,
             filer_visible: true,
+            git_visible: false,
         });
         let flat = all(&items);
         for want in [
@@ -587,6 +592,7 @@ mod tests {
             "toggle-sender",
             "toggle-command-suggestions",
             "clear-command-history",
+            "reset-settings",
             "quit",
         ] {
             assert!(flat.iter().any(|a| a.0 == want), "缺少 {want}");

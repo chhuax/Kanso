@@ -241,9 +241,11 @@ impl ShellView {
         } else {
             3.0 * CAPTION_BUTTON_W
         };
-        let search_w = (width - controls - 86.).clamp(0., 240.);
+        // 右侧还有 Git 按钮和应用菜单按钮，搜索框让出这部分宽度。
+        let right = controls + 96.;
+        let search_w = (width - right - 86.).clamp(0., 240.);
         let search_x = ((width - search_w) * 0.5)
-            .min(width - controls - 40. - search_w)
+            .min(width - right - 40. - search_w)
             .max(40.);
         let button = |id, name| {
             div()
@@ -313,12 +315,19 @@ impl ShellView {
                     .child(icon("search", 12., th.c("text.tertiary")))
                     .child(render_message(&Message::UiSearch {})),
             )
-            .child(button("app-menu", "menu").on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, ev: &MouseDownEvent, w, cx| {
-                    this.open_app_menu(point(ev.position.x, px(HEIGHT)), w, cx)
-                }),
-            ))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(2.))
+                    .child(self.git_status_item(th, cx))
+                    .child(button("app-menu", "menu").on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, ev: &MouseDownEvent, w, cx| {
+                            this.open_app_menu(point(ev.position.x, px(HEIGHT)), w, cx)
+                        }),
+                    )),
+            )
     }
 
     pub(super) fn render_palette(

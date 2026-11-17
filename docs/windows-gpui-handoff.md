@@ -151,3 +151,82 @@ Division of labour (user decision, 2026-11-18): **Claude Code writes code, Codex
 - Windows 离线 build、clippy --all-targets -D warnings、kanso-gpui --lib 368 项通过。最终二进制的 selftest-20261118024915、settings-test-20261118024927 均退出 0，日志中设备重置为 0。
 - 在 200% 缩放下实际操作窗口和搜索。preview-20261118024941 下有截图及 lt-steps.log，最终脚本退出 0。确认搜索能连接保存的 PowerShell、切回 CMD、打开设置，Esc 后 CMD 执行 echo 并输出 MAIN_WINDOW_OK。507 逻辑像素宽的窗口验证了菜单和键盘搜索。关闭时窗口消失、进程正常结束，GPUI 收尾日志有无效窗口句柄记录。
 - 此轮只改 Rust 及配套资源。cargo xtask ci --skip-apple 通过工作区测试、C ABI、187 条消息、绑定和渠道矩阵，仍在 cargo deny 的已有依赖审查项失败。日志在 /tmp/kanso-polish/main-window-ci.log。
+
+
+## 远程编辑与条目拖出（分支 feat/gpui-remote-edit，未运行过）
+
+### 已实现
+
+- 辅助 Filer 里双击 / Enter / 右键"打开"远端普通文件：先 `sftp_stat`，下载到 `%TEMP%\kanso-remote-edit\<run>\<session>\<record>\content\<原名>`，成功后用系统默认应用打开；右键"打开方式…"先下载再弹系统选择器（rundll32 OpenAs_RunDLL）。目录仍是进入目录。超过 50 MB 先弹确认。
+- 保存检测用**轮询**（150 ms，只盯那一条路径的 大小+修改时间），安静 300 ms 后回传；"先写新文件再替换原文件"、备份 / 交换文件、刚下载完成都按规格处理。回传先 stat 远端做冲突检查（D5 未决：不替用户选，弹框"覆盖远端 / 丢弃本地修改并重新下载 / 暂不处理"，默认是暂不处理），再把副本快照到 `upload\<名称>` 上传到原路径，成功后读远端新版本、刷新所在目录（只在用户正停留在该目录时）。
+- 失败按 6/12/24/48/60 秒退避重试，相同错误只提示一次；会话重连时立即继续；标签永久关闭时已同步的副本清理、有未回传修改的保留并提示位置；退出应用时同样（无提示）；下次启动清理上次遗留的已同步副本。有未同步修改时再次打开同一文件不重新下载，直接重新打开本地副本。
+- 状态行（Filer 底部）：`来源 · 路径 · 状态`，下载带进度与取消，回传只显示文字（不伪装进度）。
+- 条目拖出：辅助 Filer 的行可以拖，落在**终端**时向松手所在终端插入路径（`PasteContent::Files`，核心负责转义与 AI CLI 规则），聚焦该终端；外部文件拖到终端同样插入路径。远端条目开始拖动就下载暂存副本（状态行显示进度），准备期间松手立即取消下载，副本在松手后才完成则提示"请重新拖动"；暂存目录 `<run>\drag\<id>`，下次启动清理。拖回本 Filer 不会触发上传。
+- 纯逻辑与单测：`app/remote_edit.rs`、`app/drag_out.rs`（Mac 上 `cargo test -p kanso-gpui --lib` 即可）。界面：`ui/filer_edit.rs`、`ui/filer_drag.rs`。核心 / FFI 未改。
+
+### 做不到 / 没做
+
+- **拖出到资源管理器 / 桌面不支持**：gpui 0.2.2 没有"发起系统拖放"的接口（Windows 要 OLE DoDragDrop，需 unsafe，本 crate 禁止）。只能拖到本应用内的终端。
+- 拖动起始阈值是 gpui 固定的 2 px（规格约 5 px），改不了。
+- 打开应用失败（`cx.open_with_system` 不返回错误）无法给出原因。"另存副本"（mac 版冲突框第四个选项）没做。最近使用的应用列表只对 macOS / Linux 有意义，未做。
+- 没有文件监视库，所以是轮询；没新增依赖。
+
+### 自检
+
+- `kanso-gpui.exe --remote-edit-test`：不开窗口、不联网，用真实临时文件跑轮询 / 防抖 / 替换式保存 / 备份文件 / 关闭保留 / 下次启动清理，日志打 `remote-edit-test PASS/FAIL`，退出码 0/1。
+- 端到端需要 SFTP 服务器（VM 里 127.0.0.1:2299 的私有 sshd）：连接后打开 txt，用记事本改并保存，观察状态行"等待同步→正在同步…→已同步"，服务器内容更新。
+
+### 调试时请检查
+
+1. 双击远端文件：状态行进度、记事本是否打开了正确文件；同名文件在两个目录 / 两个会话里互不覆盖。
+2. 记事本保存一次只上传一次；VS Code 等"替换式"保存连续保存都能同步；上传期间再保存，最终远端是最新内容且不会提前显示"已同步"。
+3. 在服务器上另行改该文件后再保存：应弹冲突框，三个按钮行为；Esc / 暂不处理后状态行为红色"远端文件已变化"，再保存会再次询问。
+4. 断开网络（或 kill sshd）后保存：状态行"同步失败"、只提示一次；恢复后自动传上去；关闭标签时有未传修改应提示保留位置，`%TEMP%\kanso-remote-edit` 下仍有该文件。
+5. 重新打开有未同步修改的文件：提示"没有重新下载"，不丢修改。
+6. 条目拖动：mouse down 后重绘是否影响 `on_drag`（每行每帧新建载荷，依赖按下时的重绘换新 `DragPrep`）；拖到终端松手插入路径；远端大目录拖动中途松手应立刻停止下载；`has_active_drag` 轮询是否在松手后 50 ms 内触发收尾。
+7. 终端落点：分屏时落到哪个终端就插入哪个；该终端是否同时成为活动终端（目前只 `window.focus`，未必切换活动标签 / 分屏）；弹出对话框时不应接收落下。
+8. 下次启动清理：`%TEMP%\kanso-remote-edit` 下旧运行目录里已同步的记录被删，未同步的保留。
+
+
+## 2026-11-18 Round 4 merge (Claude Code → Codex)
+
+### Branch
+
+- `proto/gpui-integrate` is now at `e2cdefc` (first-parent: 34f5c93 ace4163 → 30b4eb4 git → c87a824 keys → 1d9c1d0 redit → 2 post-merge fix commits).
+- **Codex's `ace4163` has been merged in** (single-row title bar, window controls, restorable sidebar, Ctrl+Shift+P command search). Codex can base the next round of debugging directly on `e2cdefc`, so there's no need to merge ace4163 again.
+- Checks: Mac `cargo test -p kanso-gpui -p kanso-types -p kanso-l10n` (597 / 19 / 15), `check-locales` (607 messages), `check-bindings`; VM `clippy --all-targets -D warnings` with zero warnings. **The program has not been run.**
+
+### How the title bar and round 3's layout were combined (check visually first)
+
+- The title bar is `toolbar::HEIGHT` (34 px) tall, covers the top of the whole window, and the window buttons are on the top layer.
+- `split_area`: horizontally it subtracts `sidebar_width + filer_width` on the left and `git_width` on the right; vertically it subtracts the title bar at the top and status bar plus Sender at the bottom. The new `ShellView::sidebar_width(window)` takes at most 40% on narrow windows.
+- The sidebar runs from the bottom edge of the title bar to the bottom of the window. The Filer and Git panels both start below the title bar.
+- The status bar starts at the right edge of the sidebar and spans the area under the Filer and the terminal. It keeps the working Filer toggle and timeline toggle, plus Codex's folder icon before the directory and the behaviour of collapsing text in narrow windows.
+- **The Git "Changes" button has moved to the right side of the title bar** (left of the app menu, matching mac `GitTitlebarButton`). That element uses `.occlude()` so the drag region doesn't swallow clicks, and the search box gives up about 96 px on the right.
+- Still to check: whether the status bar covers the bottom of the Filer; whether the Git button and search box overlap in a narrow window; vertical alignment of the Git panel, Filer, Sender, and title bar; whether the Git button receives clicks; whether window dragging and double-click to maximize still work.
+
+### New self-test entry points this round (none run yet)
+
+| Argument | Module | Notes |
+|---|---|---|
+| `--git-selftest [--keep]` | Git changes panel | Needs `git` on PATH; creates a repo in a temp directory and runs summary / diff / commit / refresh / discard |
+| `--settings-test` (new `[test] keys` at the end) | Keyboard settings | **Clears the settings table in the current data directory**; run it only with isolated HOME/APPDATA |
+| `--remote-edit-test` | Remote editing | No window, no network; polling / debounce / replace-style save / cleanup |
+
+### What each module added
+
+- **git** (`app/git_panel.rs`, `ui/git_panel.rs`, `ui/shell_git.rs`): the right-side panel can be open alongside the Filer, initial width 420, adjustable 280–760, not persisted (per filer.md D8; ui-shell.md says to restore the width, and the two specs disagree, pending a user decision). Only reads local shells, using the shell's cwd; SSH/SFTP show an empty state. The data comes from `kanso_core::git::GitPanel` in the core. Auto-refresh is throttled to 800 ms. Commit and discard (with confirmation) are supported. There's a "Git 改动" (Git changes) item in the View menu, with no default shortcut. The agent's 15-item checklist: in narrow windows the Filer/terminal/Git make way for each other; card header click-through (the copy/discard buttons use stop_propagation); horizontal scrolling of the diff vs. vertical wheel scrolling; diff row width is estimated as `chars × 12 × 0.62`, which will be wide for CJK; Enter in the commit box during IME composition; status button jitter; refresh frequency under heavy output; `cd` into/out of a repo, submodules, worktrees; switching tabs during a write operation; discard confirmation text; modal exclusivity; switching between Chinese and English; Windows path separators and case-insensitive `COMPUTERNAME` matching; error message when `git` is missing; width-drag boundaries; light/dark `diff.*` colours.
+- **keys** (`app/keybindings.rs`, `ui/settings_keys.rs`, `ui/shell_keys.rs`): third settings page, "键盘" (Keyboard): record a shortcut (Esc cancels, Backspace clears), a "replace / cancel" bar on conflict, reset one or reset all. App-level shortcuts are looked up in the shell's capture phase via `keybindings::current()`; `clear_key_bindings` is not used, so text_input's bindings are unaffected. Stored in the settings key **`keybindings-win`** (mac uses `keybindings`; the format is the same, `{"v":1,"bindings":{...}}`, with command ids taken from mac). "Restore default settings…" was added to the app menu (it only clears the settings table, not sessions/history). Copy/paste/select all are not on the Keyboard page (they go through the terminal's key path). Things to check: what key names GPUI reports on Windows (`escape`/`esc`, whether Ctrl+Shift+\ arrives as `\` or `|`, etc.); whether Alt alone triggers the system menu; whether Ctrl+Tab can be recorded; after rebinding, the old key stops working and menu hints update; the 4 consecutive Changed events on reset causing flicker; persistence across restarts.
+- **redit** (`app/remote_edit.rs`, `app/drag_out.rs`, `ui/filer_edit.rs`, `ui/filer_drag.rs`): double-click / Enter / "打开" (Open) on a remote file → download to `%TEMP%\kanso-remote-edit\...` → open with the system default application; "打开方式…" (Open with…) uses rundll32 OpenAs_RunDLL. Save detection polls size+mtime every 150 ms, waits 300 ms of quiet, then uploads; on remote conflict a three-button dialog appears (overwrite remote / discard local and re-download / decide later; Esc defaults to decide later; D5 not decided). Failed uploads retry with backoff of 6/12/24/48/60 seconds. Dragging Filer items or external files into the terminal inserts the path. **Dragging out to Explorer is not supported** (gpui 0.2.2 has no API for it; OLE DoDragDrop needs unsafe). Manual steps and an 11-item checklist are in the "远程编辑与条目拖出" (remote editing and item drag-out) section of this document above; real SFTP can use the private sshd on 127.0.0.1:2299 under `C:\kt\launcher\sshd\`.
+
+### Not done (waiting on user decisions)
+
+- Trial / License UI: the docs say paid channels are on hold and only the free open-source Direct build ships; plan I5 ("no trial") contradicts ui-shell §11 ("show the remaining trial days"). Not implemented.
+
+## 2026-11-18 本轮 GPUI 联调进度
+
+Codex 正在独立工作树 `/tmp/kanso-ui-integration` 的 `codex/windows-ui-integration` 合并四个模块与单行标题栏。Windows 已实测 OpenSSH 部分勾选导入、原生文件选择器导出和导入、Filer 双栏及回环 SFTP 握手和列目录。用户要求文件主题成为两端共同标准，设置的能力也须对齐。共享主题读取器与 Mac 的文件发现、切换、重启恢复和删除回落已通过 Intel 实机测试。Windows 数字输入和可编辑快捷键正在接线。整轮结果与提交号将在本节更新。
+
+### 给 Claude Code 的打包协作安排
+
+用户指定 Claude 继续实现 `feat/win-package`，由 Codex 负责耗时的 Windows 实机回归、安装包构建与验收。Codex 已看到第四轮 Git、快捷键及远程编辑合并；直接复用这些实现，不另写一份。请把打包提交号、构建入口和预期产物记到这里。Codex 会跟踪该分支，给出最终源码版本、安装包哈希及安装、启动、升级、卸载的实测结果。打包未完成前，调试 exe 不作为安装包验收证据。

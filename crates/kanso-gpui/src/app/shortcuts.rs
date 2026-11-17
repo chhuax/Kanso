@@ -5,8 +5,7 @@
 //! 除非表里明确写了；匹配要求修饰键**完全一致**（Ctrl+Shift+T 不会被 Ctrl+T 命中）。
 //! 复制 / 粘贴不在这张表里，仍由 [`crate::keys::classify_key`] 处理。
 //!
-//! TODO(rebind)：spec 要求可在“键盘快捷键”对话框重新绑定；对话框做好后，把这张表改成运行时可替换，
-//! 查找函数的签名不用变。
+//! 这张表是**默认值**；用户改绑后的生效表在 [`crate::app::keybindings`]，[`lookup`] / [`shortcut_text`] 读那边。
 
 use kanso_types::SessionId;
 
@@ -98,6 +97,8 @@ pub enum AppCommand {
     ClearCommandHistory,
     /// 显示 / 隐藏 Filer（视图菜单；用已记住的浏览位置）。
     ToggleFiler,
+    /// 显示 / 隐藏 Git 改动面板（没有默认快捷键）。
+    ToggleGit,
     /// 在 Filer 中显示活动 shell 的工作目录（Ctrl+Shift+J，filer.md §2）。
     LocateFiler,
     /// 用 XMODEM（128 字节块）发送文件。
@@ -108,6 +109,8 @@ pub enum AppCommand {
     XmodemReceive,
     /// 取消活动会话正在进行的终端内传输（ZMODEM / XMODEM）。
     CancelTerminalTransfer,
+    /// 恢复默认设置（先确认；帮助菜单项，不绑定快捷键）。
+    ResetSettings,
 }
 
 impl AppCommand {
@@ -156,6 +159,11 @@ const fn b(ctrl: bool, alt: bool, shift: bool, key: &'static str, command: AppCo
 
 /// 默认绑定表。同一命令可以有多行（别名）。
 pub const DEFAULT_BINDINGS: &[Binding] = &[
+    // 编辑快捷键在外壳捕获阶段按当前绑定执行，文本框仍走自己的编辑路径。
+    b(true, false, true, "c", AppCommand::Copy),
+    b(true, false, true, "v", AppCommand::Paste),
+    b(false, false, true, "insert", AppCommand::Paste),
+    b(true, false, true, "a", AppCommand::SelectAll),
     // 标签
     b(true, false, true, "t", AppCommand::NewLocalTab),
     // 规格没有给启动器单独的键；Ctrl+Shift+O 与 Ctrl+Shift+T / W 同属「会话」组。
@@ -211,46 +219,14 @@ pub const DEFAULT_BINDINGS: &[Binding] = &[
     b(true, false, true, "down", AppCommand::NextBlock),
 ];
 
-/// 查表。Win 键组合属于系统，永远不命中。
+/// 查表（默认值 + 用户覆盖，见 [`crate::app::keybindings`]）。Win 键组合属于系统，永远不命中。
 pub fn lookup(input: &KeyInput<'_>) -> Option<AppCommand> {
-    if input.platform {
-        return None;
-    }
-    DEFAULT_BINDINGS
-        .iter()
-        .find(|bd| {
-            bd.ctrl == input.ctrl
-                && bd.alt == input.alt
-                && bd.shift == input.shift
-                && bd.key == input.key
-        })
-        .map(|bd| bd.command)
+    crate::app::keybindings::current().lookup(input)
 }
 
-/// 命令的人读快捷键文字（菜单 / 提示用），取表里第一条。没有绑定返回 `None`。
+/// 命令的人读快捷键文字（菜单 / 提示用），取当前生效的第一条。没有绑定返回 `None`。
 pub fn shortcut_text(command: AppCommand) -> Option<String> {
-    let bd = DEFAULT_BINDINGS.iter().find(|bd| bd.command == command)?;
-    let mut parts = Vec::new();
-    if bd.ctrl {
-        parts.push("Ctrl".to_owned());
-    }
-    if bd.alt {
-        parts.push("Alt".to_owned());
-    }
-    if bd.shift {
-        parts.push("Shift".to_owned());
-    }
-    let mut chars = bd.key.chars();
-    let key = match (chars.next(), chars.next()) {
-        (Some(c), None) => c.to_uppercase().to_string(),
-        _ => {
-            let mut s = bd.key.to_owned();
-            s[..1].make_ascii_uppercase();
-            s
-        }
-    };
-    parts.push(key);
-    Some(parts.join("+"))
+    crate::app::keybindings::current().text(command)
 }
 
 #[cfg(test)]
@@ -361,7 +337,7 @@ mod tests {
     }
 
     #[test]
-    fn no_duplicate_chords_and_no_conflict_with_copy_paste() {
+    fn no_duplicate_default_chords() {
         for (i, a) in DEFAULT_BINDINGS.iter().enumerate() {
             for c in &DEFAULT_BINDINGS[i + 1..] {
                 assert!(
@@ -369,11 +345,6 @@ mod tests {
                     "重复按键 {a:?}"
                 );
             }
-            // Ctrl+Shift+C / V 留给复制粘贴。
-            assert!(
-                !(a.ctrl && a.shift && !a.alt && matches!(a.key, "c" | "v")),
-                "{a:?} 与复制粘贴冲突"
-            );
         }
     }
 

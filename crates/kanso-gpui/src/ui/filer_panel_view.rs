@@ -2,8 +2,9 @@
 //! 错误条、传输进度条、底部统计与拖放提示。样式取自设计 token，与 mac 版 `FilerPanelView` 对应。
 
 use gpui::{
-    AnyElement, Context, ExternalPaths, Hsla, KeyDownEvent, MouseButton, MouseDownEvent, Render,
-    SharedString, Stateful, Window, div, prelude::*, px, relative, uniform_list,
+    AnyElement, AppContext as _, Context, ExternalPaths, Hsla, KeyDownEvent, MouseButton,
+    MouseDownEvent, Render, SharedString, Stateful, Window, div, prelude::*, px, relative,
+    uniform_list,
 };
 use kanso_gpui::app::filer_state::{
     Phase, date_text, datetime_text, row_tooltip, size_text, stats_text,
@@ -15,6 +16,7 @@ use kanso_gpui::widgets::style::number;
 use kanso_types::message::Message;
 
 use super::display;
+use super::filer_drag::DragChip;
 use super::filer_panel::{FilerEvent, FilerPanel, PanelMode, Source};
 use super::shell::Theme;
 use super::widgets::icons::icon;
@@ -48,10 +50,15 @@ impl Render for Tip {
 }
 
 fn with_tip<E: gpui::InteractiveElement + gpui::StatefulInteractiveElement>(
+    panel: &FilerPanel,
     el: E,
     text: String,
     th: Theme,
 ) -> E {
+    // 对话框可在鼠标静止时出现，必须撤掉底层已经显示的提示。
+    if panel.dialog_pending() {
+        return el;
+    }
     el.tooltip(move |_window, cx| {
         let text: SharedString = text.clone().into();
         cx.new(|_| Tip { text, th }).into()
@@ -60,6 +67,7 @@ fn with_tip<E: gpui::InteractiveElement + gpui::StatefulInteractiveElement>(
 
 /// 工具条上的图标按钮。`on_click` 由调用方挂；不可用时置灰且不响应。
 fn icon_button(
+    panel: &FilerPanel,
     id: impl Into<gpui::ElementId>,
     name: &'static str,
     tip: String,
@@ -85,7 +93,7 @@ fn icon_button(
     } else {
         b
     };
-    with_tip(b, tip, th)
+    with_tip(panel, b, tip, th)
 }
 
 impl FilerPanel {
@@ -197,6 +205,7 @@ impl FilerPanel {
             tools = tools
                 .child(
                     icon_button(
+                        self,
                         loc_id("t-folder"),
                         "folder-plus",
                         msg(Message::UiFilerNewFolder {}),
@@ -210,6 +219,7 @@ impl FilerPanel {
                 )
                 .child(
                     icon_button(
+                        self,
                         loc_id("t-rename"),
                         "pencil",
                         msg(Message::UiFilerRename {}),
@@ -223,6 +233,7 @@ impl FilerPanel {
                 )
                 .child(
                     icon_button(
+                        self,
                         loc_id("t-delete"),
                         "trash",
                         msg(Message::UiFilerDelete {}),
@@ -238,6 +249,7 @@ impl FilerPanel {
             tools = tools
                 .child(
                     icon_button(
+                        self,
                         loc_id("t-file"),
                         "file-plus",
                         msg(Message::UiFilerNewFile {}),
@@ -250,6 +262,7 @@ impl FilerPanel {
                 )
                 .child(
                     icon_button(
+                        self,
                         loc_id("t-folder"),
                         "folder-plus",
                         msg(Message::UiFilerNewFolder {}),
@@ -262,6 +275,7 @@ impl FilerPanel {
                 )
                 .child(
                     icon_button(
+                        self,
                         loc_id("t-upload"),
                         "upload",
                         if remote {
@@ -281,6 +295,7 @@ impl FilerPanel {
                 )
                 .child(
                     icon_button(
+                        self,
                         loc_id("t-download"),
                         "download",
                         if remote {
@@ -295,6 +310,7 @@ impl FilerPanel {
                 )
                 .child(
                     icon_button(
+                        self,
                         loc_id("t-delete"),
                         "trash",
                         msg(Message::UiFilerDelete {}),
@@ -308,6 +324,7 @@ impl FilerPanel {
             .child(div().flex_1())
             .child(
                 icon_button(
+                    self,
                     loc_id("t-hidden"),
                     "eye",
                     msg(Message::UiFilerTipHidden {}),
@@ -319,6 +336,7 @@ impl FilerPanel {
             )
             .child(
                 icon_button(
+                    self,
                     loc_id("t-refresh"),
                     "refresh-cw",
                     msg(Message::UiFilerRefresh {}),
@@ -330,6 +348,7 @@ impl FilerPanel {
         if !dual {
             tools = tools.child(
                 icon_button(
+                    self,
                     loc_id("t-locate"),
                     "crosshair",
                     msg(Message::UiFilerTipLocate {}),
@@ -350,6 +369,7 @@ impl FilerPanel {
             .gap(px(2.0))
             .child(
                 icon_button(
+                    self,
                     loc_id("p-up"),
                     "arrow-up",
                     msg(Message::UiFilerTipUp {}),
@@ -360,6 +380,7 @@ impl FilerPanel {
             )
             .child(
                 icon_button(
+                    self,
                     loc_id("p-home"),
                     "house",
                     msg(Message::UiFilerTipHome {}),
@@ -542,7 +563,8 @@ impl FilerPanel {
                                 .child(date),
                         );
                     }
-                    let row = with_tip(row, tip, th)
+                    let row = this
+                        .with_tip(row, tip, th)
                         .on_mouse_down(
                             MouseButton::Left,
                             cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
@@ -568,6 +590,16 @@ impl FilerPanel {
                                 cx.stop_propagation();
                             }),
                         );
+                    // 辅助 Filer 的条目可以拖出（到终端插入路径）；双栏里不拖。
+                    let row = if dual {
+                        row
+                    } else {
+                        let panel = cx.entity();
+                        row.on_drag(this.make_drag(idx, id), move |d, _off, _window, app| {
+                            let label = panel.update(app, |p, cx| p.start_drag(d, cx));
+                            app.new(|_| DragChip::new(label, th))
+                        })
+                    };
                     rows.push(row);
                 }
                 rows
@@ -735,6 +767,13 @@ impl FilerPanel {
         if let Some(bar) = pane.queue.bar(now) {
             out.push(self.render_bar(qidx, &bar, th, cx));
         }
+        if self.mode == PanelMode::Aux
+            && let Some(status) = self
+                .session_of_pane(qidx)
+                .and_then(|sid| self.edit_status(sid))
+        {
+            out.push(self.render_edit_status(qidx, &status, th, cx));
+        }
         if let Some(err) = pane.queue.error() {
             out.push(
                 div()
@@ -751,6 +790,7 @@ impl FilerPanel {
                     .child(div().flex_1().min_w_0().child(err.to_owned()))
                     .child(
                         icon_button(
+                            self,
                             ("err-x", qidx),
                             "x",
                             msg(Message::UiFilerDismiss {}),
@@ -767,6 +807,97 @@ impl FilerPanel {
             );
         }
         out
+    }
+
+    /// 远程编辑 / 拖出准备的状态行：来源 · 路径 · 状态；下载与拖出准备带进度条。
+    fn render_edit_status(
+        &self,
+        qidx: usize,
+        status: &super::filer_edit::EditStatus,
+        th: Theme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let color = if status.is_error {
+            th.c("status.error")
+        } else {
+            th.c("accent")
+        };
+        let now = self.now_ms();
+        let track = div()
+            .relative()
+            .h(px(4.0))
+            .w_full()
+            .rounded(px(2.0))
+            .bg(th.c("bg.field"))
+            .overflow_hidden();
+        let track = match status.fraction {
+            Some(f) => track.child(
+                div()
+                    .h_full()
+                    .w(relative(f as f32))
+                    .rounded(px(2.0))
+                    .bg(color),
+            ),
+            None => {
+                let phase = ((now % 1600) as f32 / 800.0 - 1.0).abs();
+                track.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .h_full()
+                        .left(relative(phase * 0.7))
+                        .w(relative(0.3))
+                        .rounded(px(2.0))
+                        .bg(color),
+                )
+            }
+        };
+        let cancel = status.cancel;
+        div()
+            .flex_none()
+            .px(px(10.0))
+            .py(px(6.0))
+            .flex()
+            .flex_col()
+            .gap(px(4.0))
+            .border_t_1()
+            .border_color(th.c("border.subtle"))
+            .text_size(px(number("font", "ui.caption")))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.0))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .text_color(if status.is_error {
+                                th.c("status.error")
+                            } else {
+                                th.c("text.primary")
+                            })
+                            .child(status.text.clone()),
+                    )
+                    .children(cancel.map(|id| {
+                        icon_button(
+                            self,
+                            ("edit-cancel", qidx),
+                            "x",
+                            msg(Message::UiFilerTipCancel {}),
+                            true,
+                            th,
+                        )
+                        .size(px(18.0))
+                        .on_click(
+                            cx.listener(move |this, _, _, cx| this.edit_cancel_transfer(id, cx)),
+                        )
+                    })),
+            )
+            .children(status.progress.then_some(track))
+            .into_any_element()
     }
 
     fn render_bar(&self, qidx: usize, bar: &Bar, th: Theme, cx: &mut Context<Self>) -> AnyElement {
@@ -833,6 +964,7 @@ impl FilerPanel {
                     )
                     .children(bar.cancellable.then(|| {
                         icon_button(
+                            self,
                             ("xfer-cancel", qidx),
                             "x",
                             msg(Message::UiFilerTipCancel {}),
@@ -923,6 +1055,7 @@ impl FilerPanel {
             .border_color(th.c("border.subtle"))
             .child(
                 icon_button(
+                    self,
                     ("mid", 0usize),
                     "upload",
                     msg(Message::UiFilerSendToRemote {}),
@@ -933,6 +1066,7 @@ impl FilerPanel {
             )
             .child(
                 icon_button(
+                    self,
                     ("mid", 1usize),
                     "download",
                     msg(Message::UiFilerGetFromRemote {}),

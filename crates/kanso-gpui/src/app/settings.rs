@@ -18,6 +18,7 @@ use kanso_types::message::Message;
 use serde_json::{Map, Value, json};
 
 use super::i18n::LanguageSetting;
+use super::keybindings::KeybindingSettings;
 use crate::theme::Palette;
 
 /// 当前写入的版本号。
@@ -32,11 +33,18 @@ pub enum Section {
     Appearance,
     /// 时间戳 / 行号栏。
     Timeline,
+    /// 快捷键改绑（Windows / Linux 专用 key，见 [`crate::app::keybindings`]）。
+    Keybindings,
 }
 
 impl Section {
     /// 全部分区。
-    pub const ALL: [Section; 3] = [Section::Display, Section::Appearance, Section::Timeline];
+    pub const ALL: [Section; 4] = [
+        Section::Display,
+        Section::Appearance,
+        Section::Timeline,
+        Section::Keybindings,
+    ];
 
     /// 设置表里的 key。
     pub fn key(self) -> &'static str {
@@ -44,6 +52,7 @@ impl Section {
             Section::Display => "display",
             Section::Appearance => "appearance",
             Section::Timeline => "timeline",
+            Section::Keybindings => crate::app::keybindings::SETTING_KEY,
         }
     }
 }
@@ -602,6 +611,8 @@ pub trait SettingsBackend {
     fn setting(&self, key: &str) -> Option<String>;
     /// 写分区 JSON。
     fn set_setting(&self, key: &str, json: String) -> Result<(), String>;
+    /// 清空全部设置（只动设置表，不动会话 / 分组 / Sender 命令 / 历史）。
+    fn reset_settings(&self) -> Result<(), String>;
     /// 下发终端选项（回滚、光标、语义着色）。
     fn set_terminal_options(&self, options: TerminalOptions);
 }
@@ -612,6 +623,9 @@ impl SettingsBackend for kanso_core::Core {
     }
     fn set_setting(&self, key: &str, json: String) -> Result<(), String> {
         kanso_core::Core::set_setting(self, key, json).map_err(|e| e.to_string())
+    }
+    fn reset_settings(&self) -> Result<(), String> {
+        kanso_core::Core::reset_settings(self).map_err(|e| e.to_string())
     }
     fn set_terminal_options(&self, options: TerminalOptions) {
         kanso_core::Core::set_terminal_options(self, options);
@@ -625,6 +639,9 @@ impl<T: SettingsBackend + ?Sized> SettingsBackend for std::sync::Arc<T> {
     fn set_setting(&self, key: &str, json: String) -> Result<(), String> {
         (**self).set_setting(key, json)
     }
+    fn reset_settings(&self) -> Result<(), String> {
+        (**self).reset_settings()
+    }
     fn set_terminal_options(&self, options: TerminalOptions) {
         (**self).set_terminal_options(options);
     }
@@ -636,6 +653,7 @@ pub struct SettingsStore<B> {
     display: DisplaySettings,
     appearance: AppearanceSettings,
     timeline: TimelineSettings,
+    keybindings: KeybindingSettings,
 }
 
 impl<B: SettingsBackend> SettingsStore<B> {
@@ -646,13 +664,49 @@ impl<B: SettingsBackend> SettingsStore<B> {
             AppearanceSettings::decode(backend.setting(Section::Appearance.key()).as_deref());
         let timeline =
             TimelineSettings::decode(backend.setting(Section::Timeline.key()).as_deref());
+        let keybindings =
+            KeybindingSettings::decode(backend.setting(Section::Keybindings.key()).as_deref());
         backend.set_terminal_options(display.terminal_options());
         SettingsStore {
             backend,
             display,
             appearance,
             timeline,
+            keybindings,
         }
+    }
+
+    /// 快捷键覆盖。
+    pub fn keybindings(&self) -> &KeybindingSettings {
+        &self.keybindings
+    }
+
+    /// 修改快捷键覆盖。
+    pub fn update_keybindings(
+        &mut self,
+        change: impl FnOnce(&mut KeybindingSettings),
+    ) -> Option<Section> {
+        let mut new = self.keybindings.clone();
+        change(&mut new);
+        if new == self.keybindings {
+            return None;
+        }
+        self.keybindings = new;
+        self.persist(Section::Keybindings, self.keybindings.encode());
+        Some(Section::Keybindings)
+    }
+
+    /// “恢复默认设置”：清空设置表，内存里的各分区回到默认值，并把默认终端选项下发给核心。
+    /// 失败时什么都不改。只动设置，不动会话 / 分组 / Sender 命令 / 历史（store-import.md §9）。
+    pub fn reset_to_defaults(&mut self) -> Result<(), String> {
+        self.backend.reset_settings()?;
+        self.display = DisplaySettings::default();
+        self.appearance = AppearanceSettings::default();
+        self.timeline = TimelineSettings::default();
+        self.keybindings = KeybindingSettings::default();
+        self.backend
+            .set_terminal_options(self.display.terminal_options());
+        Ok(())
     }
 
     /// 显示设置。
@@ -777,6 +831,10 @@ mod tests {
         }
         fn set_setting(&self, key: &str, json: String) -> Result<(), String> {
             self.map.borrow_mut().insert(key.to_owned(), json);
+            Ok(())
+        }
+        fn reset_settings(&self) -> Result<(), String> {
+            self.map.borrow_mut().clear();
             Ok(())
         }
         fn set_terminal_options(&self, options: TerminalOptions) {
@@ -978,5 +1036,33 @@ mod tests {
             Some("Symbols Nerd Font Mono")
         );
         assert_eq!(pick_nerd_fallback(&["Arial".to_owned()]), None);
+    }
+
+    #[test]
+    fn keybindings_persist_and_reset_restores_everything() {
+        let mem = Mem::default();
+        let mut store = SettingsStore::load(&mem);
+        let section = store.update_keybindings(|k| {
+            k.overrides.insert("find".into(), "ctrl+f".into());
+        });
+        assert_eq!(section, Some(Section::Keybindings));
+        assert!(mem.map.borrow().contains_key("keybindings-win"));
+        // 值没变：不写、不通知。
+        assert_eq!(
+            store.update_keybindings(|k| {
+                k.overrides.insert("find".into(), "ctrl+f".into());
+            }),
+            None
+        );
+        store.update_display(|d| d.font_size = 20.0);
+        let reloaded = SettingsStore::load(&mem);
+        assert_eq!(reloaded.keybindings().overrides.len(), 1);
+        store.reset_to_defaults().unwrap();
+        assert!(mem.map.borrow().is_empty());
+        assert!(store.keybindings().overrides.is_empty());
+        assert_eq!(
+            store.display().font_size,
+            DisplaySettings::default().font_size
+        );
     }
 }

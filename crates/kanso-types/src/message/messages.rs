@@ -884,6 +884,56 @@ messages! {
     UiXferMenuCancel = "ui-xfer-menu-cancel" {},
     /// Filer 与文件传输界面文字：无法开始传输：{ $reason }
     UiXferStartFailed = "ui-xfer-start-failed" { why: String },
+    /// 远程编辑与拖出：准备远程编辑：{ $name }
+    RemoteEditPreparing = "ui-redit-preparing" { name: String },
+    /// 远程编辑与拖出：已同步
+    RemoteEditSynced = "ui-redit-synced" {},
+    /// 远程编辑与拖出：等待同步
+    RemoteEditPending = "ui-redit-pending" {},
+    /// 远程编辑与拖出：正在同步…
+    RemoteEditSyncing = "ui-redit-syncing" {},
+    /// 远程编辑与拖出：远端文件已变化，同步已暂停
+    RemoteEditConflict = "ui-redit-conflict" {},
+    /// 远程编辑与拖出：同步失败：{ $why }
+    RemoteEditFailed = "ui-redit-failed" { why: String },
+    /// 远程编辑与拖出：{ $source } · { $path } · { $text }
+    RemoteEditStatusLine = "ui-redit-status-line" { source: String, path: String, text: String },
+    /// 远程编辑与拖出：无法打开“{ $name }”：{ $why }
+    RemoteEditOpenFailed = "ui-redit-open-failed" { name: String, why: String },
+    /// 远程编辑与拖出：会话未连接，无法打开远端文件
+    RemoteEditNotConnected = "ui-redit-not-connected" {},
+    /// 远程编辑与拖出：文件名“{ $name }”含有本机不允许的字符，无法在本机编辑；可先下载。
+    RemoteEditBadName = "ui-redit-bad-name" { name: String },
+    /// 远程编辑与拖出：“{ $name }”有尚未回传的本地修改，没有重新下载覆盖；已重新打开本地副本。
+    RemoteEditUnsavedKept = "ui-redit-unsaved-kept" { name: String },
+    /// 远程编辑与拖出：修改未到达服务器：{ $count } 个本地副本已保留在 { $dir }
+    RemoteEditRetained = "ui-redit-retained" { count: i64, dir: String },
+    /// 远程编辑与拖出：打开大文件？
+    RemoteEditLargeTitle = "ui-redit-large-title" {},
+    /// 远程编辑与拖出：“{ $name }”大小为 { $size }，需要先完整下载到本机才能编辑。
+    RemoteEditLargeBody = "ui-redit-large-body" { name: String, amount: String },
+    /// 远程编辑与拖出：继续下载并打开
+    RemoteEditLargeContinue = "ui-redit-large-continue" {},
+    /// 远程编辑与拖出：远端文件已被修改
+    RemoteEditConflictTitle = "ui-redit-conflict-title" {},
+    /// 远程编辑与拖出：“{ $name }”（{ $source }）自打开后在服务器上被修改或删除。直接回传会覆盖服务器上的内容。
+    RemoteEditConflictBody = "ui-redit-conflict-body" { name: String, source: String },
+    /// 远程编辑与拖出：覆盖远端
+    RemoteEditConflictOverwrite = "ui-redit-conflict-overwrite" {},
+    /// 远程编辑与拖出：丢弃本地修改并重新下载
+    RemoteEditConflictRedownload = "ui-redit-conflict-redownload" {},
+    /// 远程编辑与拖出：暂不处理
+    RemoteEditConflictPause = "ui-redit-conflict-pause" {},
+    /// 远程编辑与拖出：准备拖出 { $name }
+    FilerDragPreparing = "ui-filer-drag-preparing" { name: String },
+    /// 远程编辑与拖出：无法准备拖出“{ $name }”：{ $why }
+    FilerDragFailed = "ui-filer-drag-failed" { name: String, why: String },
+    /// 远程编辑与拖出：准备完成但拖动已结束，请重新拖动
+    FilerDragTooLate = "ui-filer-drag-too-late" {},
+    /// 远程编辑与拖出：远端文件还在准备，已取消；请按住鼠标等准备完成再松手
+    FilerDragNotReady = "ui-filer-drag-not-ready" {},
+    /// 远程编辑与拖出：已取消拖出准备
+    FilerDragCancelled = "ui-filer-drag-cancelled" {},
     /// 小于一秒的命令耗时。
     CommandDurationMilliseconds = "command-duration-milliseconds" { value: String },
     /// 小于一分钟的命令耗时。
@@ -1143,4 +1193,126 @@ messages! {
     // ---- secret ----
     /// 凭据存储读写失败，`detail` 为英文技术细节。
     SecretStoreFailed = "secret-store-failed" { detail: String },
+
+    // ---- Git 改动面板（gpui） ----
+    /// Git 改动面板界面文字：改动
+    UiGitTitle = "ui-git-title" {},
+    /// Git 改动面板界面文字：刷新改动
+    UiGitRefresh = "ui-git-refresh" {},
+    /// Git 改动面板界面文字：关闭改动面板
+    UiGitClose = "ui-git-close" {},
+    /// Git 改动面板界面文字：更多操作
+    UiGitMore = "ui-git-more" {},
+    /// Git 改动面板界面文字：无法检测此目录的改动；仅适用于 Git 仓库
+    UiGitUnsupported = "ui-git-unsupported" {},
+    /// Git 改动面板界面文字：正在读取改动…
+    UiGitLoading = "ui-git-loading" {},
+    /// Git 改动面板界面文字：工作区干净
+    UiGitClean = "ui-git-clean" {},
+    /// Git 改动面板界面文字：提交说明（回车提交）
+    UiGitCommitPlaceholder = "ui-git-commit-placeholder" {},
+    /// Git 改动面板界面文字：提交
+    UiGitCommit = "ui-git-commit" {},
+    /// Git 改动面板界面文字：丢弃该文件改动
+    UiGitDiscardFile = "ui-git-discard-file" {},
+    /// Git 改动面板界面文字：丢弃全部改动
+    UiGitDiscardAll = "ui-git-discard-all" {},
+    /// Git 改动面板界面文字：复制完整路径
+    UiGitCopyPath = "ui-git-copy-path" {},
+    /// Git 改动面板界面文字：正在读取差异…
+    UiGitReadingDiff = "ui-git-reading-diff" {},
+    /// Git 改动面板界面文字：差异已截断
+    UiGitDiffTruncated = "ui-git-diff-truncated" {},
+    /// Git 改动面板界面文字：提交可能已经留下暂存的内容。
+    UiGitCommitMayStaged = "ui-git-commit-may-staged" {},
+    /// Git 改动面板界面文字：丢弃“{ $path }”的改动？
+    UiGitDiscardTitleFile = "ui-git-discard-title-file" { path: String },
+    /// Git 改动面板界面文字：丢弃“{ $repo }”中的全部改动？
+    UiGitDiscardTitleAll = "ui-git-discard-title-all" { repo: String },
+    /// Git 改动面板界面文字：新增的内容将被永久删除。
+    UiGitDiscardBodyNew = "ui-git-discard-body-new" {},
+    /// Git 改动面板界面文字：暂存和未暂存的修改都会丢失；重命名会恢复原路径。
+    UiGitDiscardBodyTracked = "ui-git-discard-body-tracked" {},
+    /// Git 改动面板界面文字：暂存、未暂存和未跟踪的改动都会永久丢失；被 Git 忽略的文件保留。
+    UiGitDiscardBodyAll = "ui-git-discard-body-all" {},
+    /// Git 改动面板界面文字：应用内没有撤销、回收站或自动备份。
+    UiGitDiscardNoUndo = "ui-git-discard-no-undo" {},
+    /// Git 改动面板界面文字：取消
+    UiGitCancel = "ui-git-cancel" {},
+    /// Git 改动面板界面文字：丢弃
+    UiGitDiscard = "ui-git-discard" {},
+    /// Git 改动面板界面文字：Git 改动
+    UiGitMenuView = "ui-git-menu-view" {},
+    /// Git 改动面板界面文字：{ $repo } · { $branch }
+    UiGitBranchTooltip = "ui-git-branch-tooltip" { repo: String, branch: String },
+
+    // ---- 键盘设置页与恢复默认设置（GPUI） ----
+    /// GPUI 界面文字：ui-keys-page
+    UiKeysPage = "ui-keys-page" {},
+    /// GPUI 界面文字：ui-keys-group-other
+    UiKeysGroupOther = "ui-keys-group-other" {},
+    /// GPUI 界面文字：ui-keys-hint
+    UiKeysHint = "ui-keys-hint" {},
+    /// GPUI 界面文字：ui-keys-recording
+    UiKeysRecording = "ui-keys-recording" {},
+    /// GPUI 界面文字：ui-keys-unbound
+    UiKeysUnbound = "ui-keys-unbound" {},
+    /// GPUI 界面文字：ui-keys-fixed-tabs
+    UiKeysFixedTabs = "ui-keys-fixed-tabs" {},
+    /// GPUI 界面文字：ui-keys-fixed-tabs-key
+    UiKeysFixedTabsKey = "ui-keys-fixed-tabs-key" {},
+    /// GPUI 界面文字：ui-keys-reserved
+    UiKeysReserved = "ui-keys-reserved" { chord: String },
+    /// GPUI 界面文字：ui-keys-needs-modifier
+    UiKeysNeedsModifier = "ui-keys-needs-modifier" {},
+    /// GPUI 界面文字：ui-keys-conflict-title
+    UiKeysConflictTitle = "ui-keys-conflict-title" { chord: String },
+    /// GPUI 界面文字：ui-keys-conflict-body
+    UiKeysConflictBody = "ui-keys-conflict-body" { chord: String, holder: String, new: String },
+    /// GPUI 界面文字：ui-keys-replace
+    UiKeysReplace = "ui-keys-replace" {},
+    /// GPUI 界面文字：ui-keys-restore-item
+    UiKeysRestoreItem = "ui-keys-restore-item" {},
+    /// GPUI 界面文字：ui-keys-restore-all
+    UiKeysRestoreAll = "ui-keys-restore-all" {},
+    /// GPUI 界面文字：ui-keys-customized
+    UiKeysCustomized = "ui-keys-customized" {},
+    /// GPUI 界面文字：ui-reset-menu
+    UiResetMenu = "ui-reset-menu" {},
+    /// GPUI 界面文字：ui-reset-title
+    UiResetTitle = "ui-reset-title" {},
+    /// GPUI 界面文字：ui-reset-body
+    UiResetBody = "ui-reset-body" {},
+    /// GPUI 界面文字：ui-reset-confirm
+    UiResetConfirm = "ui-reset-confirm" {},
+    /// GPUI 界面文字：ui-reset-failed
+    UiResetFailed = "ui-reset-failed" { detail: String },
+    /// GPUI 界面文字：ui-reset-done
+    UiResetDone = "ui-reset-done" {},
+    /// GPUI 界面文字：ui-keys-cmd-open-launcher
+    UiKeysCmdOpenLauncher = "ui-keys-cmd-open-launcher" {},
+    /// GPUI 界面文字：ui-keys-cmd-find
+    UiKeysCmdFind = "ui-keys-cmd-find" {},
+    /// GPUI 界面文字：ui-keys-cmd-find-next
+    UiKeysCmdFindNext = "ui-keys-cmd-find-next" {},
+    /// GPUI 界面文字：ui-keys-cmd-find-prev
+    UiKeysCmdFindPrev = "ui-keys-cmd-find-prev" {},
+    /// GPUI 界面文字：ui-keys-cmd-prev-block
+    UiKeysCmdPrevBlock = "ui-keys-cmd-prev-block" {},
+    /// GPUI 界面文字：ui-keys-cmd-next-block
+    UiKeysCmdNextBlock = "ui-keys-cmd-next-block" {},
+    /// GPUI 界面文字：ui-keys-cmd-toggle-sidebar
+    UiKeysCmdToggleSidebar = "ui-keys-cmd-toggle-sidebar" {},
+    /// GPUI 界面文字：ui-keys-cmd-toggle-sender
+    UiKeysCmdToggleSender = "ui-keys-cmd-toggle-sender" {},
+    /// 快捷键设置页：命令搜索。
+    UiKeysCmdOpenPalette = "ui-keys-cmd-open-palette" {},
+    /// GPUI 界面文字：ui-keys-cmd-toggle-filer
+    UiKeysCmdToggleFiler = "ui-keys-cmd-toggle-filer" {},
+    /// GPUI 界面文字：ui-keys-cmd-zoom-in
+    UiKeysCmdZoomIn = "ui-keys-cmd-zoom-in" {},
+    /// GPUI 界面文字：ui-keys-cmd-zoom-out
+    UiKeysCmdZoomOut = "ui-keys-cmd-zoom-out" {},
+    /// GPUI 界面文字：ui-keys-cmd-zoom-reset
+    UiKeysCmdZoomReset = "ui-keys-cmd-zoom-reset" {},
 }

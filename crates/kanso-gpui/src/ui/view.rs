@@ -6,10 +6,10 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use gpui::{
-    App, Bounds, ClipboardItem, Context, Entity, EntityInputHandler, EventEmitter, FocusHandle,
-    Focusable, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels,
-    Point, ScrollWheelEvent, Subscription, UTF16Selection, Window, div, point, prelude::*, px, rgb,
-    size,
+    App, Bounds, ClipboardItem, Context, Entity, EntityInputHandler, EventEmitter, ExternalPaths,
+    FocusHandle, Focusable, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, Pixels, Point, ScrollWheelEvent, Subscription, UTF16Selection, Window, div,
+    point, prelude::*, px, rgb, size,
 };
 use kanso_core::{Core, CoreError};
 use kanso_frame::{CommandBlock, Frame};
@@ -34,6 +34,7 @@ use kanso_gpui::theme::Palette;
 
 use super::decor::{self, DecorInput};
 use super::element::{TerminalElement, base_font};
+use super::filer_drag::FilerDrag;
 use super::find_bar::{FindBar, FindBarEvent};
 use super::selftest::SelfTest;
 use super::{LOG_INPUT, log};
@@ -758,6 +759,46 @@ impl TerminalView {
         }
     }
 
+    /// 文件落到终端（外部文件或从 Filer 拖来的条目）：向这个终端插入路径，聚焦它；不自动执行（filer.md §7.5）。
+    /// 转义、AI CLI 会话保持原样粘贴路径等规则都在核心的 `PasteContent::Files` 里。
+    pub(crate) fn drop_paths(
+        &mut self,
+        paths: Vec<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if paths.is_empty() {
+            return;
+        }
+        window.focus(&self.focus);
+        self.snap_to_bottom();
+        self.block_sel.clear();
+        if let Err(e) = self.core.paste(self.session, PasteContent::Files(paths)) {
+            log(&format!("拖入路径失败：{e}"));
+        }
+        cx.notify();
+    }
+
+    /// 从辅助 Filer 拖来的条目落下。远端条目要等本机暂存副本准备完成，没完成就拒绝（并取消准备）。
+    fn drop_filer(&mut self, d: &FilerDrag, window: &mut Window, cx: &mut Context<Self>) {
+        use kanso_gpui::app::drag_out::DropOutcome;
+        match d.prep.on_drop() {
+            DropOutcome::Insert(paths) => self.drop_paths(paths, window, cx),
+            DropOutcome::NotReady => {
+                cx.emit(TerminalEvent::Notice(kanso_gpui::app::filer_text::msg(
+                    kanso_types::message::Message::FilerDragNotReady {},
+                )))
+            }
+            DropOutcome::Failed(why) => cx.emit(TerminalEvent::Notice(
+                kanso_gpui::app::filer_text::msg(kanso_types::message::Message::FilerDragFailed {
+                    name: d.label(),
+                    why,
+                }),
+            )),
+            DropOutcome::Ignore => {}
+        }
+    }
+
     // ---- 输入法（纯状态逻辑在 kanso_gpui::ime，这里只接线）----
 
     pub(crate) fn ime_mark(
@@ -808,14 +849,6 @@ impl TerminalView {
                 } else {
                     self.send_key(event);
                 }
-                cx.stop_propagation();
-            }
-            KeyAction::Copy => {
-                self.copy(cx);
-                cx.stop_propagation();
-            }
-            KeyAction::Paste => {
-                self.paste(cx);
                 cx.stop_propagation();
             }
             KeyAction::PassThrough => {}
@@ -1012,6 +1045,17 @@ impl Render for TerminalView {
             .on_mouse_up(MouseButton::Right, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
+            .on_drop(cx.listener(|this, paths: &ExternalPaths, window, cx| {
+                let paths = paths
+                    .paths()
+                    .iter()
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .collect();
+                this.drop_paths(paths, window, cx);
+            }))
+            .on_drop(cx.listener(|this, d: &FilerDrag, window, cx| this.drop_filer(d, window, cx)))
+            .drag_over::<ExternalPaths>(|s, _, _, _| s.border_2().border_color(rgb(0x3b82f6)))
+            .drag_over::<FilerDrag>(|s, _, _, _| s.border_2().border_color(rgb(0x3b82f6)))
             .child(TerminalElement { view: cx.entity() })
             // 查找栏浮在右上角。
             .children(bar.map(|b| div().absolute().top(px(8.0)).right(px(8.0)).child(b)))

@@ -41,10 +41,6 @@ pub struct KeyInput<'a> {
 pub enum KeyAction {
     /// 交给 `Core::key`，并吞掉事件（不再产生 `WM_CHAR`）。
     Send(KeyEvent),
-    /// 复制选区。
-    Copy,
-    /// 粘贴剪贴板。
-    Paste,
     /// 不处理，让事件继续走文本路径（`WM_CHAR` / 输入法）。
     PassThrough,
 }
@@ -81,18 +77,6 @@ pub fn classify_key(input: &KeyInput<'_>) -> KeyAction {
         // Win 键组合属于系统。
         return KeyAction::PassThrough;
     }
-    // 复制 / 粘贴：Ctrl+Shift+C / V、Shift+Insert。不用裸 Ctrl+C / V，它们要照常发给 shell。
-    if input.ctrl && input.shift && !input.alt {
-        match input.key {
-            "c" => return KeyAction::Copy,
-            "v" => return KeyAction::Paste,
-            _ => {}
-        }
-    }
-    if input.shift && !input.ctrl && !input.alt && input.key == "insert" {
-        return KeyAction::Paste;
-    }
-
     let key = if let Some(k) = named_key(input.key) {
         k
     } else if input.key == "space" {
@@ -294,30 +278,24 @@ mod tests {
     }
 
     #[test]
-    fn copy_paste_shortcuts() {
-        assert_eq!(
-            classify_key(&KeyInput {
-                ctrl: true,
-                shift: true,
-                ..k("c")
-            }),
-            KeyAction::Copy
-        );
-        assert_eq!(
-            classify_key(&KeyInput {
-                ctrl: true,
-                shift: true,
-                ..k("v")
-            }),
-            KeyAction::Paste
-        );
-        assert_eq!(
+    fn clipboard_chords_reach_shell_if_not_claimed_by_app() {
+        for key in ["c", "v", "a"] {
+            assert!(matches!(
+                classify_key(&KeyInput {
+                    ctrl: true,
+                    shift: true,
+                    ..k(key)
+                }),
+                KeyAction::Send(_)
+            ));
+        }
+        assert!(matches!(
             classify_key(&KeyInput {
                 shift: true,
                 ..k("insert")
             }),
-            KeyAction::Paste
-        );
+            KeyAction::Send(_)
+        ));
         // 裸 Ctrl+C / Ctrl+V 照常发给 shell。
         assert!(matches!(
             classify_key(&KeyInput {
