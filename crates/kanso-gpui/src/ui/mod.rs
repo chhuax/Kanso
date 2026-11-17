@@ -9,6 +9,7 @@
 //! - `selftest` / `shell_selftest`：`--selftest` 自检（终端阶段 + 多标签 / 分屏阶段）；
 //! - `memory`：进程内存读数（日志用）。
 
+mod demo_dialog;
 mod demo_input;
 mod element;
 mod filer;
@@ -77,6 +78,8 @@ pub(crate) struct Args {
     pub sftp_bench: bool,
     /// `--demo-input`：只打开输入框演示窗口（不启动核心）。
     pub demo_input: bool,
+    /// `--demo-dialog`：只打开模态对话框演示窗口（不启动核心）。
+    pub demo_dialog: bool,
 }
 
 fn parse_args() -> Args {
@@ -94,6 +97,7 @@ fn parse_args() -> Args {
         expect_count: None,
         sftp_bench: false,
         demo_input: false,
+        demo_dialog: false,
     };
     let mut explicit_log = false;
     let mut it = std::env::args().skip(1);
@@ -113,6 +117,7 @@ fn parse_args() -> Args {
             "--expect-count" => args.expect_count = it.next().and_then(|v| v.parse().ok()),
             "--sftp-bench" => args.sftp_bench = true,
             "--demo-input" => args.demo_input = true,
+            "--demo-dialog" => args.demo_dialog = true,
             "--timeout" => {
                 if let Some(v) = it.next().and_then(|v| v.parse().ok()) {
                     args.timeout_secs = v;
@@ -312,6 +317,9 @@ pub fn run() -> i32 {
 
     if args.demo_input {
         return demo_input::run();
+    }
+    if args.demo_dialog {
+        return demo_dialog::run();
     }
 
     let (tx, rx) = unbounded::<CoreEvent>();
