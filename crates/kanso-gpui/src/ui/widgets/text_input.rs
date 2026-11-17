@@ -243,6 +243,11 @@ impl TextInput {
         cx.notify();
     }
 
+    /// 是否正在输入法组字（对话框据此决定回车 / Tab 是否归输入法）。
+    pub fn is_composing(&self) -> bool {
+        self.state.is_composing()
+    }
+
     /// 把焦点交给输入框。
     pub fn focus(&self, window: &mut Window) {
         if !self.disabled {
