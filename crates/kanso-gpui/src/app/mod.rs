@@ -13,6 +13,7 @@
 //! - [`controller`]：把工作区、事件、提示队列与核心调用串起来的应用控制器。
 //! - [`prompts`]：提示队列与状态机（主机密钥变更、密码 / 口令、keyboard-interactive）。
 //! - [`sessions`]：会话启动器模型与会话编辑模型。
+//! - [`settings`]：显示设置模型（字体、外观、时间轴）与持久化。
 //! - [`shortcuts`]：应用级快捷键表。
 //! - [`shell`]：窗口外壳的纯逻辑（分隔条拖动换算、关闭二次确认）。
 
@@ -22,6 +23,7 @@ pub mod events;
 pub mod layout;
 pub mod prompts;
 pub mod sessions;
+pub mod settings;
 pub mod shell;
 pub mod shortcuts;
 pub mod tab;

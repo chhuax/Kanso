@@ -17,8 +17,8 @@ use gpui::{
     ElementId, ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle,
     Focusable, GlobalElementId, Hsla, KeyBinding, KeyDownEvent, LayoutId, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, ShapedLine,
-    SharedString, Style, Subscription, TextRun, UTF16Selection, UnderlineStyle, Window,
-    WindowAppearance, div, fill, point, prelude::*, px, relative, rgba, size,
+    SharedString, Style, Subscription, TextRun, UTF16Selection, UnderlineStyle, Window, div, fill,
+    point, prelude::*, px, relative, rgba, size,
 };
 use kanso_gpui::widgets::blink::{Blink, HALF_PERIOD};
 use kanso_gpui::widgets::edit::{Display, EditState};
@@ -862,10 +862,7 @@ impl Element for TextElement {
 
 impl Render for TextInput {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.appearance = match window.appearance() {
-            WindowAppearance::Light | WindowAppearance::VibrantLight => Appearance::Light,
-            _ => Appearance::Dark,
-        };
+        self.appearance = crate::ui::display::window_appearance(window);
         let st = self.field_style();
         let focused = self.focus.is_focused(window) && !self.disabled;
         let (bg, border, text) = if self.disabled {
