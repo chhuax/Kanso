@@ -113,13 +113,7 @@ impl DemoView {
         if self.dialog.is_some() {
             return;
         }
-        if ev.keystroke.key == "tab" {
-            // 应用没有全局 Tab 键绑定，演示窗口自己在三个打开按钮间切换焦点。
-            if ev.keystroke.modifiers.shift {
-                window.focus_prev();
-            } else {
-                window.focus_next();
-            }
+        if super::widgets::focus_chain::handle_tab(&self.openers, ev, window) {
             cx.stop_propagation();
         } else if matches!(ev.keystroke.key.as_str(), "enter" | "space")
             && let Some(i) = self.openers.iter().position(|h| h.is_focused(window))
