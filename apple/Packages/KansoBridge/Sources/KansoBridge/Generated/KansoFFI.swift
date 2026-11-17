@@ -1044,6 +1044,394 @@ public func FfiConverterTypeFfiEventListener_lower(_ value: FfiEventListener) ->
 
 
 /**
+ * 服务回调，由 Swift 实现。
+ *
+ * - **线程**：在任意工作线程上调用，不保证是主线程；
+ * - **阻塞**：必须立即返回，只做"投递到主线程"；
+ * - **重入**：不得在回调里同步调用 `KansoMcpServer` 或 `KansoCore` 的方法（可能死锁）。
+ */
+public protocol FfiMcpServerDelegate: AnyObject, Sendable {
+    
+    /**
+     * 服务状态变化。
+     */
+    func onStatusChanged(status: FfiMcpServerStatus) 
+    
+    /**
+     * 已连接的客户端列表变化（完整的新列表）；调用次数变化可能很频繁，应合并刷新。
+     */
+    func onClientsChanged(clients: [FfiMcpClientInfo]) 
+    
+    /**
+     * MCP 打开了新标签：放进最前面窗口的当前分屏，**不切换当前标签、不抢焦点**，加"由 MCP 打开"标记。
+     */
+    func onSessionOpened(sessionId: UInt64, client: FfiMcpClientInfo) 
+    
+    /**
+     * 标签上的 MCP 活动：有值时显示标识；为空表示操作结束，2 秒后撤掉标识。
+     */
+    func onActivity(sessionId: UInt64, activity: FfiMcpActivity?) 
+    
+    /**
+     * 客户端断开后，它打开的标签变成普通标签：去掉"由 MCP 打开"标记。
+     */
+    func onSessionReleased(sessionId: UInt64) 
+    
+}
+/**
+ * 服务回调，由 Swift 实现。
+ *
+ * - **线程**：在任意工作线程上调用，不保证是主线程；
+ * - **阻塞**：必须立即返回，只做"投递到主线程"；
+ * - **重入**：不得在回调里同步调用 `KansoMcpServer` 或 `KansoCore` 的方法（可能死锁）。
+ */
+open class FfiMcpServerDelegateImpl: FfiMcpServerDelegate, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_kanso_ffi_fn_clone_ffimcpserverdelegate(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_kanso_ffi_fn_free_ffimcpserverdelegate(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * 服务状态变化。
+     */
+open func onStatusChanged(status: FfiMcpServerStatus)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_method_ffimcpserverdelegate_on_status_changed(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeFfiMcpServerStatus_lower(status),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * 已连接的客户端列表变化（完整的新列表）；调用次数变化可能很频繁，应合并刷新。
+     */
+open func onClientsChanged(clients: [FfiMcpClientInfo])  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_method_ffimcpserverdelegate_on_clients_changed(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceTypeFfiMcpClientInfo.lower(clients),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * MCP 打开了新标签：放进最前面窗口的当前分屏，**不切换当前标签、不抢焦点**，加"由 MCP 打开"标记。
+     */
+open func onSessionOpened(sessionId: UInt64, client: FfiMcpClientInfo)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_method_ffimcpserverdelegate_on_session_opened(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(sessionId),
+        FfiConverterTypeFfiMcpClientInfo_lower(client),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * 标签上的 MCP 活动：有值时显示标识；为空表示操作结束，2 秒后撤掉标识。
+     */
+open func onActivity(sessionId: UInt64, activity: FfiMcpActivity?)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_method_ffimcpserverdelegate_on_activity(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(sessionId),
+        FfiConverterOptionTypeFfiMcpActivity.lower(activity),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * 客户端断开后，它打开的标签变成普通标签：去掉"由 MCP 打开"标记。
+     */
+open func onSessionReleased(sessionId: UInt64)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_method_ffimcpserverdelegate_on_session_released(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(sessionId),uniffiCallStatus
+    )
+}
+}
+    
+
+    
+}
+
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceFfiMcpServerDelegate {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceFfiMcpServerDelegate = UniffiVTableCallbackInterfaceFfiMcpServerDelegate(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeFfiMcpServerDelegate.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface FfiMcpServerDelegate: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeFfiMcpServerDelegate.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface FfiMcpServerDelegate: handle missing in uniffiClone")
+            }
+        },
+        onStatusChanged: { (
+            uniffiHandle: UInt64,
+            status: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeFfiMcpServerDelegate.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onStatusChanged(
+                     status: try FfiConverterTypeFfiMcpServerStatus_lift(status)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onClientsChanged: { (
+            uniffiHandle: UInt64,
+            clients: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeFfiMcpServerDelegate.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onClientsChanged(
+                     clients: try FfiConverterSequenceTypeFfiMcpClientInfo.lift(clients)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onSessionOpened: { (
+            uniffiHandle: UInt64,
+            sessionId: UInt64,
+            client: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeFfiMcpServerDelegate.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onSessionOpened(
+                     sessionId: try FfiConverterUInt64.lift(sessionId),
+                     client: try FfiConverterTypeFfiMcpClientInfo_lift(client)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onActivity: { (
+            uniffiHandle: UInt64,
+            sessionId: UInt64,
+            activity: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeFfiMcpServerDelegate.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onActivity(
+                     sessionId: try FfiConverterUInt64.lift(sessionId),
+                     activity: try FfiConverterOptionTypeFfiMcpActivity.lift(activity)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onSessionReleased: { (
+            uniffiHandle: UInt64,
+            sessionId: UInt64,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeFfiMcpServerDelegate.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onSessionReleased(
+                     sessionId: try FfiConverterUInt64.lift(sessionId)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        }
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    //
+    // `nonisolated(unsafe)` is needed under Swift 6 strict concurrency.
+    // This is safe because the pointee is initialized once during static init
+    // and never mutated by either side of the FFI.  Its fields are C function pointers.
+    nonisolated(unsafe) static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceFfiMcpServerDelegate> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceFfiMcpServerDelegate>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
+}
+
+private func uniffiCallbackInitFfiMcpServerDelegate() {
+    uniffi_kanso_ffi_fn_init_callback_vtable_ffimcpserverdelegate(UniffiCallbackInterfaceFfiMcpServerDelegate.vtablePtr)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiMcpServerDelegate: FfiConverter {
+    fileprivate static let handleMap = UniffiHandleMap<FfiMcpServerDelegate>()
+
+    typealias FfiType = UInt64
+    typealias SwiftType = FfiMcpServerDelegate
+
+    public static func lift(_ handle: UInt64) throws -> FfiMcpServerDelegate {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return FfiMcpServerDelegateImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
+    }
+
+    public static func lower(_ value: FfiMcpServerDelegate) -> UInt64 {
+         if let rustImpl = value as? FfiMcpServerDelegateImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiMcpServerDelegate {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: FfiMcpServerDelegate, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMcpServerDelegate_lift(_ handle: UInt64) throws -> FfiMcpServerDelegate {
+    return try FfiConverterTypeFfiMcpServerDelegate.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMcpServerDelegate_lower(_ value: FfiMcpServerDelegate) -> UInt64 {
+    return FfiConverterTypeFfiMcpServerDelegate.lower(value)
+}
+
+
+
+
+
+
+/**
  * 凭据存储的宿主实现（macOS：钥匙串）。
  *
  * - **线程**：core 只在 `spawn_blocking` 的工作线程上调用，不是主线程；
@@ -1942,6 +2330,41 @@ public protocol KansoCoreProtocol: AnyObject, Sendable {
      * 启动 XMODEM 文件面板；未选块大小时接收。
      */
     func xmodemStart(sessionId: UInt64, block: FfiXmodemBlock?) throws  -> UInt64
+    
+    /**
+     * 会话配置的访问级别；不含总开关。
+     */
+    func mcpAccess(profileId: String) throws  -> FfiMcpAccess
+    
+    /**
+     * 全部不是"关闭"的授权。
+     */
+    func mcpAccesses()  -> [FfiMcpGrant]
+    
+    /**
+     * 查询审计日志。
+     */
+    func mcpAudit(filter: FfiMcpAuditFilter) throws  -> [FfiMcpAuditRecord]
+    
+    /**
+     * 清空审计日志。
+     */
+    func mcpAuditClear() throws 
+    
+    /**
+     * MCP 总开关；从未设置过为关闭。宿主据此决定启动时是否调用 `KansoMcpServer.start`。
+     */
+    func mcpEnabled()  -> Bool
+    
+    /**
+     * 设置访问级别，`Off` 即撤销。会话配置不存在返回 `NoSuchProfile`。
+     */
+    func setMcpAccess(profileId: String, level: FfiMcpAccess) throws 
+    
+    /**
+     * 设置 MCP 总开关。宿主随后自行调用 `KansoMcpServer.start` / `stop`。
+     */
+    func setMcpEnabled(enabled: Bool) throws 
     
 }
 /**
@@ -3125,6 +3548,92 @@ open func xmodemStart(sessionId: UInt64, block: FfiXmodemBlock?)throws  -> UInt6
 })
 }
     
+    /**
+     * 会话配置的访问级别；不含总开关。
+     */
+open func mcpAccess(profileId: String)throws  -> FfiMcpAccess  {
+    return try  FfiConverterTypeFfiMcpAccess_lift(try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_method_kansocore_mcp_access(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(profileId),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * 全部不是"关闭"的授权。
+     */
+open func mcpAccesses() -> [FfiMcpGrant]  {
+    return try!  FfiConverterSequenceTypeFfiMcpGrant.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_method_kansocore_mcp_accesses(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * 查询审计日志。
+     */
+open func mcpAudit(filter: FfiMcpAuditFilter)throws  -> [FfiMcpAuditRecord]  {
+    return try  FfiConverterSequenceTypeFfiMcpAuditRecord.lift(try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_method_kansocore_mcp_audit(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeFfiMcpAuditFilter_lower(filter),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * 清空审计日志。
+     */
+open func mcpAuditClear()throws   {try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_method_kansocore_mcp_audit_clear(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * MCP 总开关；从未设置过为关闭。宿主据此决定启动时是否调用 `KansoMcpServer.start`。
+     */
+open func mcpEnabled() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_method_kansocore_mcp_enabled(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * 设置访问级别，`Off` 即撤销。会话配置不存在返回 `NoSuchProfile`。
+     */
+open func setMcpAccess(profileId: String, level: FfiMcpAccess)throws   {try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_method_kansocore_set_mcp_access(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(profileId),
+        FfiConverterTypeFfiMcpAccess_lower(level),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * 设置 MCP 总开关。宿主随后自行调用 `KansoMcpServer.start` / `stop`。
+     */
+open func setMcpEnabled(enabled: Bool)throws   {try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_method_kansocore_set_mcp_enabled(
+            self.uniffiCloneHandle(),
+        FfiConverterBool.lower(enabled),uniffiCallStatus
+    )
+}
+}
+    
 
     
 }
@@ -3400,6 +3909,290 @@ public func FfiConverterTypeKansoGitPanel_lift(_ handle: UInt64) throws -> Kanso
 #endif
 public func FfiConverterTypeKansoGitPanel_lower(_ value: KansoGitPanel) -> UInt64 {
     return FfiConverterTypeKansoGitPanel.lower(value)
+}
+
+
+
+
+
+
+/**
+ * MCP 服务对象。宿主创建一个，在整个进程生命周期内持有；线程安全。
+ */
+public protocol KansoMcpServerProtocol: AnyObject, Sendable {
+    
+    /**
+     * 当前已连接的客户端。
+     */
+    func clients()  -> [FfiMcpClientInfo]
+    
+    /**
+     * **仅 mock**：模拟客户端在 `session_id` 上开始（有 `tool`）或结束（`tool` 为空）一次操作。
+     */
+    func debugActivity(sessionId: UInt64, tool: String?) throws 
+    
+    /**
+     * **仅 mock**：模拟客户端打开 `profile_id` 的标签，返回新标签 id。真实服务返回 `NotSupported`。
+     */
+    func debugOpenTab(profileId: String) async throws  -> UInt64
+    
+    /**
+     * 断开指定客户端；不存在时忽略。
+     */
+    func disconnect(clientId: UInt64) 
+    
+    /**
+     * 更换客户端令牌（"重新生成令牌"后调用）：用旧令牌的连接立即断开。
+     */
+    func setToken(token: String) 
+    
+    /**
+     * 开始监听；已在运行时用新参数重启。`bundle_id` 传 App 的 bundle id，`token` 传钥匙串里的客户端令牌。
+     */
+    func start(bundleId: String, token: String) throws 
+    
+    /**
+     * 当前状态。
+     */
+    func status()  -> FfiMcpServerStatus
+    
+    /**
+     * 停止监听并断开全部客户端。
+     */
+    func stop() 
+    
+}
+/**
+ * MCP 服务对象。宿主创建一个，在整个进程生命周期内持有；线程安全。
+ */
+open class KansoMcpServer: KansoMcpServerProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_kanso_ffi_fn_clone_kansomcpserver(self.handle, $0) }
+    }
+    /**
+     * 创建真实服务，与宿主共用 `core`。**F9 完成前** `start` 返回 `NotSupported`；
+     * 非 Direct 渠道永远如此。
+     */
+public convenience init(core: KansoCore, delegate: FfiMcpServerDelegate) {
+    let handle =
+        try! rustCall() {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_constructor_kansomcpserver_new(
+        FfiConverterTypeKansoCore_lower(core),
+        FfiConverterTypeFfiMcpServerDelegate_lower(delegate),uniffiCallStatus
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_kanso_ffi_fn_free_kansomcpserver(handle, $0) }
+    }
+
+    
+    /**
+     * 创建 mock 服务（界面开发与截图测试）：`start` 后模拟一个已连接的客户端，
+     * `debug_open_tab` / `debug_activity` 可触发对应回调。通常与 `KansoCore.newMock` 配套。
+     */
+public static func newMock(core: KansoCore, delegate: FfiMcpServerDelegate) -> KansoMcpServer  {
+    return try!  FfiConverterTypeKansoMcpServer_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_constructor_kansomcpserver_new_mock(
+        FfiConverterTypeKansoCore_lower(core),
+        FfiConverterTypeFfiMcpServerDelegate_lower(delegate),uniffiCallStatus
+    )
+})
+}
+    
+
+    
+    /**
+     * 当前已连接的客户端。
+     */
+open func clients() -> [FfiMcpClientInfo]  {
+    return try!  FfiConverterSequenceTypeFfiMcpClientInfo.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_method_kansomcpserver_clients(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * **仅 mock**：模拟客户端在 `session_id` 上开始（有 `tool`）或结束（`tool` 为空）一次操作。
+     */
+open func debugActivity(sessionId: UInt64, tool: String?)throws   {try rustCallWithError(FfiConverterTypeFfiMcpServerError_lift) {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_method_kansomcpserver_debug_activity(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(sessionId),
+        FfiConverterOptionString.lower(tool),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * **仅 mock**：模拟客户端打开 `profile_id` 的标签，返回新标签 id。真实服务返回 `NotSupported`。
+     */
+open func debugOpenTab(profileId: String)async throws  -> UInt64  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_kanso_ffi_fn_method_kansomcpserver_debug_open_tab(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(profileId)
+                )
+            },
+            pollFunc: ffi_kanso_ffi_rust_future_poll_u64,
+            completeFunc: ffi_kanso_ffi_rust_future_complete_u64,
+            freeFunc: ffi_kanso_ffi_rust_future_free_u64,
+            liftFunc: FfiConverterUInt64.lift,
+            errorHandler: FfiConverterTypeFfiMcpServerError_lift
+        )
+}
+    
+    /**
+     * 断开指定客户端；不存在时忽略。
+     */
+open func disconnect(clientId: UInt64)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_method_kansomcpserver_disconnect(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(clientId),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * 更换客户端令牌（"重新生成令牌"后调用）：用旧令牌的连接立即断开。
+     */
+open func setToken(token: String)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_method_kansomcpserver_set_token(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(token),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * 开始监听；已在运行时用新参数重启。`bundle_id` 传 App 的 bundle id，`token` 传钥匙串里的客户端令牌。
+     */
+open func start(bundleId: String, token: String)throws   {try rustCallWithError(FfiConverterTypeFfiMcpServerError_lift) {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_method_kansomcpserver_start(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(bundleId),
+        FfiConverterString.lower(token),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * 当前状态。
+     */
+open func status() -> FfiMcpServerStatus  {
+    return try!  FfiConverterTypeFfiMcpServerStatus_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_method_kansomcpserver_status(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * 停止监听并断开全部客户端。
+     */
+open func stop()  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_method_kansomcpserver_stop(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+}
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeKansoMcpServer: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = KansoMcpServer
+
+    public static func lift(_ handle: UInt64) throws -> KansoMcpServer {
+        return KansoMcpServer(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: KansoMcpServer) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> KansoMcpServer {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: KansoMcpServer, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeKansoMcpServer_lift(_ handle: UInt64) throws -> KansoMcpServer {
+    return try FfiConverterTypeKansoMcpServer.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeKansoMcpServer_lower(_ value: KansoMcpServer) -> UInt64 {
+    return FfiConverterTypeKansoMcpServer.lower(value)
 }
 
 
@@ -5419,6 +6212,511 @@ public func FfiConverterTypeFfiLocalProfile_lift(_ buf: RustBuffer) throws -> Ff
 #endif
 public func FfiConverterTypeFfiLocalProfile_lower(_ value: FfiLocalProfile) -> RustBuffer {
     return FfiConverterTypeFfiLocalProfile.lower(value)
+}
+
+
+/**
+ * 标签上正在进行的 MCP 操作（镜像 `McpActivity`）。
+ */
+public struct FfiMcpActivity: Equatable, Hashable {
+    /**
+     * 客户端编号。
+     */
+    public var clientId: UInt64
+    /**
+     * 客户端名称。
+     */
+    public var clientName: String
+    /**
+     * 工具名。
+     */
+    public var tool: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * 客户端编号。
+         */clientId: UInt64, 
+        /**
+         * 客户端名称。
+         */clientName: String, 
+        /**
+         * 工具名。
+         */tool: String) {
+        self.clientId = clientId
+        self.clientName = clientName
+        self.tool = tool
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiMcpActivity: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiMcpActivity: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiMcpActivity {
+        return
+            try FfiMcpActivity(
+                clientId: FfiConverterUInt64.read(from: &buf), 
+                clientName: FfiConverterString.read(from: &buf), 
+                tool: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiMcpActivity, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.clientId, into: &buf)
+        FfiConverterString.write(value.clientName, into: &buf)
+        FfiConverterString.write(value.tool, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMcpActivity_lift(_ buf: RustBuffer) throws -> FfiMcpActivity {
+    return try FfiConverterTypeFfiMcpActivity.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMcpActivity_lower(_ value: FfiMcpActivity) -> RustBuffer {
+    return FfiConverterTypeFfiMcpActivity.lower(value)
+}
+
+
+/**
+ * 审计日志查询条件（镜像 `McpAuditFilter`）。结果按 id 倒序。
+ */
+public struct FfiMcpAuditFilter: Equatable, Hashable {
+    /**
+     * 只看某个客户端名称（精确匹配）。
+     */
+    public var client: String?
+    /**
+     * 只看某个会话配置。
+     */
+    public var profileId: String?
+    /**
+     * 只看失败或被拒绝的调用。
+     */
+    public var errorsOnly: Bool
+    /**
+     * 分页：只返回 id 小于它的记录；第一页为空。
+     */
+    public var beforeId: Int64?
+    /**
+     * 最多返回条数；0 按默认 100，上限 1000。
+     */
+    public var limit: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * 只看某个客户端名称（精确匹配）。
+         */client: String?, 
+        /**
+         * 只看某个会话配置。
+         */profileId: String?, 
+        /**
+         * 只看失败或被拒绝的调用。
+         */errorsOnly: Bool, 
+        /**
+         * 分页：只返回 id 小于它的记录；第一页为空。
+         */beforeId: Int64?, 
+        /**
+         * 最多返回条数；0 按默认 100，上限 1000。
+         */limit: UInt32) {
+        self.client = client
+        self.profileId = profileId
+        self.errorsOnly = errorsOnly
+        self.beforeId = beforeId
+        self.limit = limit
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiMcpAuditFilter: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiMcpAuditFilter: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiMcpAuditFilter {
+        return
+            try FfiMcpAuditFilter(
+                client: FfiConverterOptionString.read(from: &buf), 
+                profileId: FfiConverterOptionString.read(from: &buf), 
+                errorsOnly: FfiConverterBool.read(from: &buf), 
+                beforeId: FfiConverterOptionInt64.read(from: &buf), 
+                limit: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiMcpAuditFilter, into buf: inout [UInt8]) {
+        FfiConverterOptionString.write(value.client, into: &buf)
+        FfiConverterOptionString.write(value.profileId, into: &buf)
+        FfiConverterBool.write(value.errorsOnly, into: &buf)
+        FfiConverterOptionInt64.write(value.beforeId, into: &buf)
+        FfiConverterUInt32.write(value.limit, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMcpAuditFilter_lift(_ buf: RustBuffer) throws -> FfiMcpAuditFilter {
+    return try FfiConverterTypeFfiMcpAuditFilter.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMcpAuditFilter_lower(_ value: FfiMcpAuditFilter) -> RustBuffer {
+    return FfiConverterTypeFfiMcpAuditFilter.lower(value)
+}
+
+
+/**
+ * 一条审计记录（扁平化的 `McpAuditRecord`）。
+ */
+public struct FfiMcpAuditRecord: Equatable, Hashable {
+    /**
+     * 自增 id，分页游标。
+     */
+    public var id: Int64
+    /**
+     * 调用开始时间，Unix 毫秒。
+     */
+    public var atMs: Int64
+    /**
+     * 客户端自报名称。
+     */
+    public var client: String
+    /**
+     * MCP 会话编号。
+     */
+    public var mcpSession: String
+    /**
+     * 工具名；连接阶段被拒绝时为空串。
+     */
+    public var tool: String
+    /**
+     * 目标会话配置；会话已删除时 id 仍保留，界面查不到名称时显示"已删除的会话"。
+     */
+    public var profileId: String?
+    /**
+     * 目标标签或无界面会话的运行时 id。
+     */
+    public var sessionId: UInt64?
+    /**
+     * 参数摘要（命令文本、路径）。
+     */
+    public var args: String
+    /**
+     * 错误码；成功为空。
+     */
+    public var errorCode: String?
+    /**
+     * 耗时（毫秒）。
+     */
+    public var durationMs: UInt32
+    /**
+     * 返回的数据大小（字节）。
+     */
+    public var bytes: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * 自增 id，分页游标。
+         */id: Int64, 
+        /**
+         * 调用开始时间，Unix 毫秒。
+         */atMs: Int64, 
+        /**
+         * 客户端自报名称。
+         */client: String, 
+        /**
+         * MCP 会话编号。
+         */mcpSession: String, 
+        /**
+         * 工具名；连接阶段被拒绝时为空串。
+         */tool: String, 
+        /**
+         * 目标会话配置；会话已删除时 id 仍保留，界面查不到名称时显示"已删除的会话"。
+         */profileId: String?, 
+        /**
+         * 目标标签或无界面会话的运行时 id。
+         */sessionId: UInt64?, 
+        /**
+         * 参数摘要（命令文本、路径）。
+         */args: String, 
+        /**
+         * 错误码；成功为空。
+         */errorCode: String?, 
+        /**
+         * 耗时（毫秒）。
+         */durationMs: UInt32, 
+        /**
+         * 返回的数据大小（字节）。
+         */bytes: UInt64) {
+        self.id = id
+        self.atMs = atMs
+        self.client = client
+        self.mcpSession = mcpSession
+        self.tool = tool
+        self.profileId = profileId
+        self.sessionId = sessionId
+        self.args = args
+        self.errorCode = errorCode
+        self.durationMs = durationMs
+        self.bytes = bytes
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiMcpAuditRecord: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiMcpAuditRecord: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiMcpAuditRecord {
+        return
+            try FfiMcpAuditRecord(
+                id: FfiConverterInt64.read(from: &buf), 
+                atMs: FfiConverterInt64.read(from: &buf), 
+                client: FfiConverterString.read(from: &buf), 
+                mcpSession: FfiConverterString.read(from: &buf), 
+                tool: FfiConverterString.read(from: &buf), 
+                profileId: FfiConverterOptionString.read(from: &buf), 
+                sessionId: FfiConverterOptionUInt64.read(from: &buf), 
+                args: FfiConverterString.read(from: &buf), 
+                errorCode: FfiConverterOptionString.read(from: &buf), 
+                durationMs: FfiConverterUInt32.read(from: &buf), 
+                bytes: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiMcpAuditRecord, into buf: inout [UInt8]) {
+        FfiConverterInt64.write(value.id, into: &buf)
+        FfiConverterInt64.write(value.atMs, into: &buf)
+        FfiConverterString.write(value.client, into: &buf)
+        FfiConverterString.write(value.mcpSession, into: &buf)
+        FfiConverterString.write(value.tool, into: &buf)
+        FfiConverterOptionString.write(value.profileId, into: &buf)
+        FfiConverterOptionUInt64.write(value.sessionId, into: &buf)
+        FfiConverterString.write(value.args, into: &buf)
+        FfiConverterOptionString.write(value.errorCode, into: &buf)
+        FfiConverterUInt32.write(value.durationMs, into: &buf)
+        FfiConverterUInt64.write(value.bytes, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMcpAuditRecord_lift(_ buf: RustBuffer) throws -> FfiMcpAuditRecord {
+    return try FfiConverterTypeFfiMcpAuditRecord.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMcpAuditRecord_lower(_ value: FfiMcpAuditRecord) -> RustBuffer {
+    return FfiConverterTypeFfiMcpAuditRecord.lower(value)
+}
+
+
+/**
+ * 已连接的客户端（镜像 `McpClientInfo`）。
+ */
+public struct FfiMcpClientInfo: Equatable, Hashable {
+    /**
+     * 本次运行内唯一的客户端编号。
+     */
+    public var id: UInt64
+    /**
+     * 客户端自报名称；空串时界面显示"未知客户端"。
+     */
+    public var name: String
+    /**
+     * 连接时间，Unix 毫秒。
+     */
+    public var connectedAtMs: Int64
+    /**
+     * 已处理的工具调用次数。
+     */
+    public var calls: UInt64
+    /**
+     * 客户端所在标签；没有识别出为空。
+     */
+    public var ownSessionId: UInt64?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * 本次运行内唯一的客户端编号。
+         */id: UInt64, 
+        /**
+         * 客户端自报名称；空串时界面显示"未知客户端"。
+         */name: String, 
+        /**
+         * 连接时间，Unix 毫秒。
+         */connectedAtMs: Int64, 
+        /**
+         * 已处理的工具调用次数。
+         */calls: UInt64, 
+        /**
+         * 客户端所在标签；没有识别出为空。
+         */ownSessionId: UInt64?) {
+        self.id = id
+        self.name = name
+        self.connectedAtMs = connectedAtMs
+        self.calls = calls
+        self.ownSessionId = ownSessionId
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiMcpClientInfo: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiMcpClientInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiMcpClientInfo {
+        return
+            try FfiMcpClientInfo(
+                id: FfiConverterUInt64.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf), 
+                connectedAtMs: FfiConverterInt64.read(from: &buf), 
+                calls: FfiConverterUInt64.read(from: &buf), 
+                ownSessionId: FfiConverterOptionUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiMcpClientInfo, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.id, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterInt64.write(value.connectedAtMs, into: &buf)
+        FfiConverterUInt64.write(value.calls, into: &buf)
+        FfiConverterOptionUInt64.write(value.ownSessionId, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMcpClientInfo_lift(_ buf: RustBuffer) throws -> FfiMcpClientInfo {
+    return try FfiConverterTypeFfiMcpClientInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMcpClientInfo_lower(_ value: FfiMcpClientInfo) -> RustBuffer {
+    return FfiConverterTypeFfiMcpClientInfo.lower(value)
+}
+
+
+/**
+ * 一条不是"关闭"的授权（设置页列表）。
+ */
+public struct FfiMcpGrant: Equatable, Hashable {
+    /**
+     * 会话配置 id（小写连字符 UUID）。
+     */
+    public var profileId: String
+    /**
+     * 访问级别。
+     */
+    public var level: FfiMcpAccess
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * 会话配置 id（小写连字符 UUID）。
+         */profileId: String, 
+        /**
+         * 访问级别。
+         */level: FfiMcpAccess) {
+        self.profileId = profileId
+        self.level = level
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiMcpGrant: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiMcpGrant: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiMcpGrant {
+        return
+            try FfiMcpGrant(
+                profileId: FfiConverterString.read(from: &buf), 
+                level: FfiConverterTypeFfiMcpAccess.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiMcpGrant, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.profileId, into: &buf)
+        FfiConverterTypeFfiMcpAccess.write(value.level, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMcpGrant_lift(_ buf: RustBuffer) throws -> FfiMcpGrant {
+    return try FfiConverterTypeFfiMcpGrant.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMcpGrant_lower(_ value: FfiMcpGrant) -> RustBuffer {
+    return FfiConverterTypeFfiMcpGrant.lower(value)
 }
 
 
@@ -9328,6 +10626,466 @@ public func FfiConverterTypeFfiLineEnding_lower(_ value: FfiLineEnding) -> RustB
 
 
 /**
+ * 会话的 MCP 访问级别（镜像 `kanso_types::mcp::McpAccess`）。
+ */
+
+public enum FfiMcpAccess: Equatable, Hashable {
+    
+    /**
+     * 关闭：MCP 看不到这个会话。
+     */
+    case off
+    /**
+     * 只读：只复用已有连接，不新建连接。
+     */
+    case readOnly
+    /**
+     * 完全：允许写操作，可在不提问的前提下新建连接。
+     */
+    case full
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiMcpAccess: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiMcpAccess: FfiConverterRustBuffer {
+    typealias SwiftType = FfiMcpAccess
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiMcpAccess {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .off
+        
+        case 2: return .readOnly
+        
+        case 3: return .full
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiMcpAccess, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .off:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .readOnly:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .full:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMcpAccess_lift(_ buf: RustBuffer) throws -> FfiMcpAccess {
+    return try FfiConverterTypeFfiMcpAccess.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMcpAccess_lower(_ value: FfiMcpAccess) -> RustBuffer {
+    return FfiConverterTypeFfiMcpAccess.lower(value)
+}
+
+
+
+/**
+ * 生成配置命令的客户端种类（镜像 `kanso_mcp_server::McpClientKind`）。
+ */
+
+public enum FfiMcpClientKind: Equatable, Hashable {
+    
+    /**
+     * Claude Code。
+     */
+    case claudeCode
+    /**
+     * Codex CLI。
+     */
+    case codex
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiMcpClientKind: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiMcpClientKind: FfiConverterRustBuffer {
+    typealias SwiftType = FfiMcpClientKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiMcpClientKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .claudeCode
+        
+        case 2: return .codex
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiMcpClientKind, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .claudeCode:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .codex:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMcpClientKind_lift(_ buf: RustBuffer) throws -> FfiMcpClientKind {
+    return try FfiConverterTypeFfiMcpClientKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMcpClientKind_lower(_ value: FfiMcpClientKind) -> RustBuffer {
+    return FfiConverterTypeFfiMcpClientKind.lower(value)
+}
+
+
+
+/**
+ * 服务操作失败（镜像 `McpServerError`）。
+ */
+public 
+enum FfiMcpServerError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+    
+    
+    /**
+     * 当前渠道或当前实现不支持。
+     */
+    case NotSupported
+    /**
+     * 另一个 Kanso 实例已在提供服务。
+     */
+    case AnotherInstance
+    /**
+     * 服务没有运行。
+     */
+    case NotRunning
+    /**
+     * 其他失败；`detail` 只进日志。
+     */
+    case Failed(
+        /**
+         * 英文技术细节。
+         */detail: String
+    )
+
+    
+
+    
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
+}
+
+#if compiler(>=6)
+extension FfiMcpServerError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiMcpServerError: FfiConverterRustBuffer {
+    typealias SwiftType = FfiMcpServerError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiMcpServerError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .NotSupported
+        case 2: return .AnotherInstance
+        case 3: return .NotRunning
+        case 4: return .Failed(
+            detail: try FfiConverterString.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiMcpServerError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case .NotSupported:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .AnotherInstance:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .NotRunning:
+            writeInt(&buf, Int32(3))
+        
+        
+        case let .Failed(detail):
+            writeInt(&buf, Int32(4))
+            FfiConverterString.write(detail, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMcpServerError_lift(_ buf: RustBuffer) throws -> FfiMcpServerError {
+    return try FfiConverterTypeFfiMcpServerError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMcpServerError_lower(_ value: FfiMcpServerError) -> RustBuffer {
+    return FfiConverterTypeFfiMcpServerError.lower(value)
+}
+
+
+/**
+ * 服务状态（镜像 `McpServerStatus`）。
+ */
+
+public enum FfiMcpServerStatus: Equatable, Hashable {
+    
+    /**
+     * 没有运行。
+     */
+    case stopped
+    /**
+     * 正在监听。
+     */
+    case running(
+        /**
+         * socket 路径，设置页可显示以便排查。
+         */socketPath: String
+    )
+    /**
+     * 无法提供服务。
+     */
+    case unavailable(
+        /**
+         * 原因。
+         */reason: FfiMcpUnavailable
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiMcpServerStatus: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiMcpServerStatus: FfiConverterRustBuffer {
+    typealias SwiftType = FfiMcpServerStatus
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiMcpServerStatus {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .stopped
+        
+        case 2: return .running(socketPath: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 3: return .unavailable(reason: try FfiConverterTypeFfiMcpUnavailable.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiMcpServerStatus, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .stopped:
+            writeInt(&buf, Int32(1))
+        
+        
+        case let .running(socketPath):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(socketPath, into: &buf)
+            
+        
+        case let .unavailable(reason):
+            writeInt(&buf, Int32(3))
+            FfiConverterTypeFfiMcpUnavailable.write(reason, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMcpServerStatus_lift(_ buf: RustBuffer) throws -> FfiMcpServerStatus {
+    return try FfiConverterTypeFfiMcpServerStatus.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMcpServerStatus_lower(_ value: FfiMcpServerStatus) -> RustBuffer {
+    return FfiConverterTypeFfiMcpServerStatus.lower(value)
+}
+
+
+
+/**
+ * 无法提供服务的原因（镜像 `McpUnavailable`）。
+ */
+
+public enum FfiMcpUnavailable: Equatable, Hashable {
+    
+    /**
+     * 当前渠道不提供 MCP，或真实服务尚未实现。**不要据此隐藏 MCP 页面**：是否显示页面只看
+     * [`mcp_supported`]。Direct 构建里出现这个状态时在页面上显示错误，保证用户还能把开关关掉。
+     */
+    case notSupported
+    /**
+     * 另一个 Kanso 实例（例如同时打开的 Debug 版）已在提供服务。
+     */
+    case anotherInstance
+    /**
+     * 启动失败；`detail` 只进日志。
+     */
+    case failed(
+        /**
+         * 英文技术细节。
+         */detail: String
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiMcpUnavailable: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiMcpUnavailable: FfiConverterRustBuffer {
+    typealias SwiftType = FfiMcpUnavailable
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiMcpUnavailable {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .notSupported
+        
+        case 2: return .anotherInstance
+        
+        case 3: return .failed(detail: try FfiConverterString.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiMcpUnavailable, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .notSupported:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .anotherInstance:
+            writeInt(&buf, Int32(2))
+        
+        
+        case let .failed(detail):
+            writeInt(&buf, Int32(3))
+            FfiConverterString.write(detail, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMcpUnavailable_lift(_ buf: RustBuffer) throws -> FfiMcpUnavailable {
+    return try FfiConverterTypeFfiMcpUnavailable.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMcpUnavailable_lower(_ value: FfiMcpUnavailable) -> RustBuffer {
+    return FfiConverterTypeFfiMcpUnavailable.lower(value)
+}
+
+
+
+/**
  * 鼠标按键。
  */
 
@@ -11553,6 +13311,30 @@ fileprivate struct FfiConverterOptionTypeFfiGitSummary: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeFfiMcpActivity: FfiConverterRustBuffer {
+    typealias SwiftType = FfiMcpActivity?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeFfiMcpActivity.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeFfiMcpActivity.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeFfiMessage: FfiConverterRustBuffer {
     typealias SwiftType = FfiMessage?
 
@@ -11948,6 +13730,81 @@ fileprivate struct FfiConverterSequenceTypeFfiLegacyHop: FfiConverterRustBuffer 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeFfiMcpAuditRecord: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiMcpAuditRecord]
+
+    public static func write(_ value: [FfiMcpAuditRecord], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiMcpAuditRecord.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiMcpAuditRecord] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiMcpAuditRecord]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiMcpAuditRecord.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiMcpClientInfo: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiMcpClientInfo]
+
+    public static func write(_ value: [FfiMcpClientInfo], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiMcpClientInfo.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiMcpClientInfo] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiMcpClientInfo]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiMcpClientInfo.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiMcpGrant: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiMcpGrant]
+
+    public static func write(_ value: [FfiMcpGrant], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiMcpGrant.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiMcpGrant] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiMcpGrant]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiMcpGrant.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeFfiMessage: FfiConverterRustBuffer {
     typealias SwiftType = [FfiMessage]
 
@@ -12158,6 +14015,34 @@ public func renderMessage(message: FfiMessage, languages: [String]) -> String  {
     )
 })
 }
+/**
+ * 生成"复制 Claude Code / Codex 配置"的终端命令。`helper_path` 为 App 包内 `kanso-mcp` 的绝对路径。
+ *
+ * 命令以一个空格开头，使令牌不进入 **Kanso 自己**的命令历史；界面原样复制，不要去掉。
+ * 它**挡不住 shell 自己的历史**：macOS 默认的 zsh 不开 `HIST_IGNORE_SPACE`，令牌仍会写进
+ * `~/.zsh_history`。设置页必须在复制按钮旁说明这一点。
+ */
+public func mcpClientConfig(kind: FfiMcpClientKind, helperPath: String, token: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_func_mcp_client_config(
+        FfiConverterTypeFfiMcpClientKind_lower(kind),
+        FfiConverterString.lower(helperPath),
+        FfiConverterString.lower(token),uniffiCallStatus
+    )
+})
+}
+/**
+ * 当前构建是否提供 MCP 服务（只有 Direct 渠道提供）。宿主据此决定是否显示设置 → MCP 页面，
+ * 不要靠调用 `start` 试探：`start` 只在总开关打开时才调用，而开关就在那个页面上（spec/mcp.md §11）。
+ */
+public func mcpSupported() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_func_mcp_supported(uniffiCallStatus
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -12175,6 +14060,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.contractVersionMismatch
     }
     if (uniffi_kanso_ffi_checksum_func_render_message() != 2088) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_kanso_ffi_checksum_func_mcp_client_config() != 6733) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_kanso_ffi_checksum_func_mcp_supported() != 1161) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_kanso_ffi_checksum_method_ffidirstream_next_batch() != 43421) {
@@ -12411,6 +14302,27 @@ private let initializationResult: InitializationResult = {
     if (uniffi_kanso_ffi_checksum_method_kansocore_xmodem_start() != 37194) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_kanso_ffi_checksum_method_kansocore_mcp_access() != 16155) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_kanso_ffi_checksum_method_kansocore_mcp_accesses() != 64093) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_kanso_ffi_checksum_method_kansocore_mcp_audit() != 34478) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_kanso_ffi_checksum_method_kansocore_mcp_audit_clear() != 51498) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_kanso_ffi_checksum_method_kansocore_mcp_enabled() != 48747) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_kanso_ffi_checksum_method_kansocore_set_mcp_access() != 48346) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_kanso_ffi_checksum_method_kansocore_set_mcp_enabled() != 64122) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_kanso_ffi_checksum_method_framehandle_byte_len() != 43292) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -12438,6 +14350,45 @@ private let initializationResult: InitializationResult = {
     if (uniffi_kanso_ffi_checksum_method_kansogitpanel_read() != 2680) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_kanso_ffi_checksum_method_ffimcpserverdelegate_on_status_changed() != 20834) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_kanso_ffi_checksum_method_ffimcpserverdelegate_on_clients_changed() != 13182) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_kanso_ffi_checksum_method_ffimcpserverdelegate_on_session_opened() != 64159) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_kanso_ffi_checksum_method_ffimcpserverdelegate_on_activity() != 26601) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_kanso_ffi_checksum_method_ffimcpserverdelegate_on_session_released() != 2215) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_kanso_ffi_checksum_method_kansomcpserver_clients() != 26776) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_kanso_ffi_checksum_method_kansomcpserver_debug_activity() != 32632) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_kanso_ffi_checksum_method_kansomcpserver_debug_open_tab() != 48447) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_kanso_ffi_checksum_method_kansomcpserver_disconnect() != 16647) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_kanso_ffi_checksum_method_kansomcpserver_set_token() != 25307) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_kanso_ffi_checksum_method_kansomcpserver_start() != 30917) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_kanso_ffi_checksum_method_kansomcpserver_status() != 65306) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_kanso_ffi_checksum_method_kansomcpserver_stop() != 24006) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_kanso_ffi_checksum_method_ffisecretstore_get() != 10273) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -12462,8 +14413,15 @@ private let initializationResult: InitializationResult = {
     if (uniffi_kanso_ffi_checksum_constructor_kansogitpanel_new() != 47678) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_kanso_ffi_checksum_constructor_kansomcpserver_new() != 51587) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_kanso_ffi_checksum_constructor_kansomcpserver_new_mock() != 29627) {
+        return InitializationResult.apiChecksumMismatch
+    }
 
     uniffiCallbackInitFfiEventListener()
+    uniffiCallbackInitFfiMcpServerDelegate()
     uniffiCallbackInitFfiSecretStore()
     return InitializationResult.ok
 }()

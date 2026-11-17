@@ -29,6 +29,7 @@ kanso-license = { path = "crates/kanso-license", default-features = false }
 kanso-session = { path = "crates/kanso-session" }
 kanso-core = { path = "crates/kanso-core", default-features = false }
 kanso-ffi = { path = "crates/kanso-ffi" }
+kanso-mcp-server = { path = "crates/kanso-mcp-server", default-features = false }
 kanso-frame = { path = "crates/kanso-frame" }
 kanso-bench = { path = "crates/kanso-bench" }
 kanso-l10n = { path = "crates/kanso-l10n" }

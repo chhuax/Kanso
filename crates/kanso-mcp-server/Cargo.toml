@@ -1,0 +1,26 @@
+[package]
+name = "kanso-mcp-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Kanso 的 MCP 服务（spec/mcp.md、architecture §16）：App 进程内的 MCP 服务端"
+
+[dependencies]
+kanso-core = { workspace = true, default-features = false }
+kanso-types.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt"] }
+
+[features]
+default = ["direct"]
+# 只有 Direct 渠道包含真实服务；其他渠道的 `McpServer` 只报告"不支持"（spec/mcp.md §11）。
+# 公开接口在所有渠道都存在，因为 Swift 绑定只生成一份、三个渠道共用。
+direct = ["kanso-core/direct"]
+mas = ["kanso-core/mas"]
+setapp = ["kanso-core/setapp"]
+
+[lints]
+workspace = true

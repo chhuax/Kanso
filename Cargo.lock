@@ -1654,6 +1654,7 @@ dependencies = [
  "kanso-frame",
  "kanso-l10n",
  "kanso-license",
+ "kanso-mcp-server",
  "kanso-secret",
  "kanso-term",
  "kanso-types",
@@ -1682,6 +1683,15 @@ name = "kanso-license"
 version = "1.0.2"
 dependencies = [
  "kanso-types",
+]
+
+[[package]]
+name = "kanso-mcp-server"
+version = "1.0.2"
+dependencies = [
+ "kanso-core",
+ "kanso-types",
+ "tokio",
 ]
 
 [[package]]

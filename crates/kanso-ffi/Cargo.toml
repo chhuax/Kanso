@@ -12,6 +12,7 @@ crate-type = ["lib", "staticlib"]
 
 [dependencies]
 kanso-core = { workspace = true, default-features = false }
+kanso-mcp-server = { workspace = true, default-features = false }
 kanso-frame.workspace = true
 kanso-term.workspace = true
 kanso-secret.workspace = true
@@ -22,9 +23,9 @@ uniffi.workspace = true
 
 [features]
 default = ["direct"]
-direct = ["kanso-core/direct"]
-mas = ["kanso-core/mas"]
-setapp = ["kanso-core/setapp"]
+direct = ["kanso-core/direct", "kanso-mcp-server/direct"]
+mas = ["kanso-core/mas", "kanso-mcp-server/mas"]
+setapp = ["kanso-core/setapp", "kanso-mcp-server/setapp"]
 
 # 本 crate 将来必须使用 unsafe（extern "C" 与 UniFFI 生成代码），因此不继承 workspace lints，
 # 而是显式列出与 workspace 相同的规则，仅把 unsafe_code 放开为 allow。

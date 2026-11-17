@@ -319,7 +319,7 @@ core 定义 trait，宿主实现后在启动时注入：
 
 ## 16. MCP 服务
 
-行为规格见 `docs/spec/mcp.md`。本节只定进程结构、模块落点和契约改动。第一版只在 Direct 渠道编译（`direct` feature），MAS 与 Setapp 构建不包含任何 MCP 代码。
+行为规格见 `docs/spec/mcp.md`。本节只定进程结构、模块落点和契约改动。第一版只在 Direct 渠道提供服务：真实服务与 `kanso-mcp` 转发程序只在 `direct` feature 下工作、只随 Direct 版打包。服务的公开接口与 FFI 导出在三个渠道都存在（见 §16.2 `kanso-ffi` 一行），非 Direct 渠道里它只报告"不支持"。
 
 ### 16.1 进程结构
 
@@ -353,9 +353,9 @@ Kanso App 进程
 
 | 组件 | 位置 | 说明 |
 |---|---|---|
-| `kanso-mcp-server`（新 crate） | 与 `kanso-ffi` 同层，依赖 `kanso-core` | 工具定义与参数 schema、授权判断、标签写锁、用户接管判断、输出截断、审计记录。它只是 `Core` 公开 API 的又一个使用方，和 FFI、GPUI 地位相同；GPUI 版将来可以直接复用 |
+| `kanso-mcp-server`（新 crate） | 与 `kanso-ffi` 同层，依赖 `kanso-core` | 工具定义与参数 schema、授权判断、标签写锁、用户接管判断、输出截断、审计记录。它只是 `Core` 公开 API 的又一个使用方，和 FFI、GPUI 地位相同；GPUI 版将来可以直接复用。公开接口 `McpServer` / `McpServerDelegate` 已定；内含 mock 服务（不监听 socket，模拟一个客户端，供 Swift 开发），真实服务在 F9 完成前 `start` 返回 `NotSupported` |
 | `kanso-mcp`（新 crate，二进制） | `crates/kanso-mcp` | 只依赖 std 和 `libc`（用于 `flock` 和取控制终端名）。不依赖 tokio，体积和启动时间都要小 |
-| `kanso-ffi` | 现有 | 导出 `McpServer` 对象：`start`、`stop`、已连接客户端列表、断开某个客户端。只在 `direct` feature 下编译 |
+| `kanso-ffi` | 现有 | `KansoCore` 导出授权、总开关、审计读写；导出 `KansoMcpServer` 对象（`start`、`stop`、`set_token`、状态、客户端列表、断开客户端，mock 另有 `debug_*`）、回调接口 `FfiMcpServerDelegate`（状态、客户端、标签摆放、MCP 标识、标签释放）和 `mcp_client_config`。**三个渠道都导出**：Swift 绑定只生成一份、三个渠道共用，按渠道裁剪会让 MAS 版链接失败；非 Direct 渠道的服务恒为"不支持"。界面**只按 `mcp_supported()`** 决定是否显示 MCP 页面，不看 `start` 的结果：Direct 构建里 `start` 失败要在页面上显示错误，若因此隐藏页面，用户就再也关不掉开关 |
 | `kanso-store` | 现有 | 新增 `mcp_grants`、`mcp_local`、`mcp_audit` 三张表（§16.4） |
 | Swift | KansoUI、KansoApp | 设置 → MCP 页面、会话编辑对话框字段、标签行 MCP 标识、状态栏指示器、处理 MCP 打开标签的事件 |
 | xtask | `apple-build`、`dmg` | 为目标架构编译 `kanso-mcp`，由 Xcode Run Script 复制进 `Contents/MacOS/`，用与 App 相同的签名身份和 hardened runtime 签名 |
