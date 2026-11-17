@@ -330,6 +330,13 @@ impl Dropdown {
         // 收起态。
         match key {
             "space" | "enter" if plain => self.open(window, cx),
+            "tab" if plain || m.shift => {
+                if m.shift {
+                    window.focus_prev();
+                } else {
+                    window.focus_next();
+                }
+            }
             "down" | "up" if m.alt => self.open(window, cx),
             "down" if plain => {
                 let new = self.state.step_selected(1);
@@ -618,11 +625,6 @@ impl Render for Dropdown {
                     }
                 }),
             )
-            .child(
-                canvas(move |bounds, _, _| cell.set(bounds), |_, _, _, _| {})
-                    .absolute()
-                    .size_full(),
-            )
             .child(div().flex_1().min_w_0().truncate().child(label))
             .child(
                 div()
@@ -640,7 +642,16 @@ impl Render for Dropdown {
             .key_context("KansoDropdown")
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key_down))
+            .relative()
             .w_full()
+            .child(
+                // 记录整个控件（= 按钮）的窗口坐标；显式 top / left，否则绝对定位按静态位置落到内边距里。
+                canvas(move |bounds, _, _| cell.set(bounds), |_, _, _, _| {})
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .size_full(),
+            )
             .child(button)
             .when(open, |d| d.child(self.render_menu(window, cx)))
     }
