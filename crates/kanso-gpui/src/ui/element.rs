@@ -1,10 +1,10 @@
 //! 自绘元素：量行列、画背景 / 文字 / 光标 / 输入法预编辑，并把输入处理器注册给窗口。
 
 use gpui::{
-    App, BorderStyle, Bounds, Element, ElementId, ElementInputHandler, Entity, Font, FontFallbacks,
-    FontFeatures, FontStyle, FontWeight, GlobalElementId, Hsla, InspectorElementId, IntoElement,
-    LayoutId, Pixels, Point, SharedString, StrikethroughStyle, Style, TextRun, UnderlineStyle,
-    Window, fill, outline, point, px, relative, rgb, size,
+    App, BorderStyle, Bounds, Element, ElementId, ElementInputHandler, Entity, Font, FontStyle,
+    FontWeight, GlobalElementId, Hsla, InspectorElementId, IntoElement, LayoutId, Pixels, Point,
+    SharedString, StrikethroughStyle, Style, TextRun, UnderlineStyle, Window, fill, outline, point,
+    px, relative, rgb, size,
 };
 use kanso_frame::UNDERLINE_CURLY;
 use kanso_gpui::ime::layout_preedit;
@@ -14,19 +14,9 @@ use kanso_gpui::theme::{Palette, Rgb8};
 use super::view::{Metrics, PAD, TerminalView, compute_grid};
 use super::{START, log, memory};
 
-/// 终端字体：Windows 11 自带的 Cascadia Mono；没有时依次退到 Consolas 与中文字体。
+/// 终端字体：取自显示设置（见 `display::terminal_font`）。
 pub(crate) fn base_font() -> Font {
-    Font {
-        family: "Cascadia Mono".into(),
-        features: FontFeatures::default(),
-        fallbacks: Some(FontFallbacks::from_fonts(vec![
-            "Consolas".to_owned(),
-            "Microsoft YaHei UI".to_owned(),
-            "Segoe UI Symbol".to_owned(),
-        ])),
-        weight: FontWeight::NORMAL,
-        style: FontStyle::Normal,
-    }
+    super::display::terminal_font()
 }
 
 fn font_for(bold: bool, italic: bool) -> Font {

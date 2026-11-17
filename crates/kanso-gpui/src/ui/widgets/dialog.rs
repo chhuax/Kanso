@@ -15,8 +15,7 @@
 
 use gpui::{
     App, BoxShadow, Context, CursorStyle, Entity, EventEmitter, FocusHandle, Focusable, Hsla,
-    KeyDownEvent, MouseButton, Subscription, Window, WindowAppearance, div, point, prelude::*, px,
-    rgba,
+    KeyDownEvent, MouseButton, Subscription, Window, div, point, prelude::*, px, rgba,
 };
 use kanso_gpui::widgets::dialog::{
     BodyBlock, ButtonRole, DialogResult, DialogSpec, FocusRing, Slot, Trigger, enter_target,
@@ -328,10 +327,7 @@ impl Dialog {
 
 impl Render for Dialog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.appearance = match window.appearance() {
-            WindowAppearance::Light | WindowAppearance::VibrantLight => Appearance::Light,
-            _ => Appearance::Dark,
-        };
+        self.appearance = crate::ui::display::window_appearance(window);
         let a = self.appearance;
 
         let mut card = div()

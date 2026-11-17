@@ -16,8 +16,7 @@
 
 use gpui::{
     App, BoxShadow, Context, EventEmitter, FocusHandle, Focusable, Hsla, KeyDownEvent, MouseButton,
-    MouseDownEvent, Pixels, Point, Window, WindowAppearance, deferred, div, point, prelude::*, px,
-    rgba,
+    MouseDownEvent, Pixels, Point, Window, deferred, div, point, prelude::*, px, rgba,
 };
 use kanso_gpui::widgets::menu::{
     ARROW_W, CHECK_W, ITEM_H, LevelLayout, MenuItem, MenuKey, MenuOutcome, MenuState, PAD_X, PAD_Y,
@@ -211,10 +210,7 @@ impl Palette {
 
 impl Render for ContextMenu {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let appearance = match window.appearance() {
-            WindowAppearance::Light | WindowAppearance::VibrantLight => Appearance::Light,
-            _ => Appearance::Dark,
-        };
+        let appearance = crate::ui::display::window_appearance(window);
         let pal = Palette::new(appearance);
         let vp = window.viewport_size();
         let layouts = self.layout(vp.width.into(), vp.height.into());

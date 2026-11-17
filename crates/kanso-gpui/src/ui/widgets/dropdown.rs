@@ -15,8 +15,8 @@ use std::rc::Rc;
 use gpui::{
     AnyElement, App, Bounds, BoxShadow, Context, CursorStyle, ElementId, Entity, EventEmitter,
     FocusHandle, Focusable, Hsla, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent,
-    Pixels, ScrollStrategy, SharedString, Subscription, UniformListScrollHandle, Window,
-    WindowAppearance, anchored, canvas, deferred, div, point, prelude::*, px, rgba, uniform_list,
+    Pixels, ScrollStrategy, SharedString, Subscription, UniformListScrollHandle, Window, anchored,
+    canvas, deferred, div, point, prelude::*, px, rgba, uniform_list,
 };
 use kanso_gpui::widgets::dropdown::{
     self as logic, DropdownState, Item, MENU_PADDING, ROW_HEIGHT, Rect, RowKind,
@@ -561,10 +561,7 @@ fn single_char(ev: &KeyDownEvent) -> Option<char> {
 
 impl Render for Dropdown {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.appearance = match window.appearance() {
-            WindowAppearance::Light | WindowAppearance::VibrantLight => Appearance::Light,
-            _ => Appearance::Dark,
-        };
+        self.appearance = crate::ui::display::window_appearance(window);
         let st = FieldStyle::new(self.appearance);
         let open = self.state.is_open();
         let focused = self.focus.is_focused(window) && !self.disabled;

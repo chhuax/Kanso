@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, Hsla, KeyDownEvent, MouseButton,
-    MouseDownEvent, ScrollHandle, Subscription, Window, WindowAppearance, div, prelude::*, px, rgb,
+    MouseDownEvent, ScrollHandle, Subscription, Window, div, prelude::*, px, rgb,
 };
 use kanso_core::Core;
 use kanso_gpui::app::launcher::{
@@ -97,10 +97,7 @@ impl Focusable for LauncherView {
 }
 
 fn appearance(window: &Window) -> Appearance {
-    match window.appearance() {
-        WindowAppearance::Light | WindowAppearance::VibrantLight => Appearance::Light,
-        _ => Appearance::Dark,
-    }
+    super::display::window_appearance(window)
 }
 
 impl LauncherView {

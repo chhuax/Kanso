@@ -7,6 +7,7 @@
 //! - `status_bar`：底部状态栏；
 //! - `view`：终端视图实体（持有会话，处理按键 / 鼠标 / 滚轮 / 输入法，`EntityInputHandler` 实现）；
 //! - `element`：自绘元素（度量字体、算行列数、画背景 / 文字 / 光标 / 预编辑）；
+//! - `settings` / `display`：显示设置窗口与模型、字体 / 外观的生效状态；
 //! - `selftest` / `shell_selftest`：`--selftest` 自检（终端阶段 + 多标签 / 分屏阶段）；
 //! - `memory`：进程内存读数（日志用）。
 
@@ -14,12 +15,14 @@ mod demo_dialog;
 mod demo_dropdown;
 mod demo_input;
 mod demo_menu;
+mod display;
 mod element;
 mod filer;
 mod launcher;
 mod memory;
 mod selftest;
 mod session_editor;
+mod settings;
 mod sftp_bench;
 mod shell;
 mod shell_launcher;
@@ -53,6 +56,8 @@ pub(crate) static EXIT_CODE: AtomicI32 = AtomicI32::new(0);
 pub(crate) static LOG_INPUT: AtomicBool = AtomicBool::new(false);
 /// `--keep`：自检通过后不退出，方便截图。
 pub(crate) static KEEP_OPEN: AtomicBool = AtomicBool::new(false);
+/// `--settings-test`：外壳启动后自动走一遍显示设置（开窗口、改字号 / 行距 / 字体 / 外观），把结果写进日志。
+pub(crate) static SETTINGS_TEST: AtomicBool = AtomicBool::new(false);
 static LOG_FILE: OnceLock<Mutex<std::fs::File>> = OnceLock::new();
 
 /// 应用标识：凭据管理器条目前缀与数据目录名，发布后不能改。
@@ -119,6 +124,7 @@ fn parse_args() -> Args {
             "--selftest" => args.selftest = true,
             "--log-input" => LOG_INPUT.store(true, Ordering::Relaxed),
             "--keep" => KEEP_OPEN.store(true, Ordering::Relaxed),
+            "--settings-test" => SETTINGS_TEST.store(true, Ordering::Relaxed),
             "--sftp" => match it
                 .next()
                 .and_then(|v| kanso_gpui::filer::SftpSpec::parse(&v))
@@ -371,8 +377,13 @@ pub fn run() -> i32 {
         // 启动器 / 编辑对话框 / 提示框里的输入框需要这组按键绑定。
         widgets::text_input::bind_keys(cx);
         let bounds = Bounds::centered(None, size(px(1120.0), px(680.0)), cx);
+        // 主窗口关闭就退出（设置窗口是附属窗口，不能让它把进程留住）。
         cx.on_window_closed(|cx| {
-            if cx.windows().is_empty() {
+            if !cx
+                .windows()
+                .iter()
+                .any(|w| w.downcast::<ShellView>().is_some())
+            {
                 cx.quit();
             }
         })

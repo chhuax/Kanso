@@ -15,6 +15,7 @@
 //! - [`prompt_dialogs`]：提示 → 对话框规格 / 对话框结果 → 应答。
 //! - [`launcher`]：启动器与编辑对话框的视图辅助（行展开、菜单项、确认文案）。
 //! - [`sessions`]：会话启动器模型与会话编辑模型。
+//! - [`settings`]：显示设置模型（字体、外观、时间轴）与持久化。
 //! - [`shortcuts`]：应用级快捷键表。
 //! - [`shell`]：窗口外壳的纯逻辑（分隔条拖动换算）。
 //! - [`menus`]：终端 / 标签右键菜单与窗口级应用菜单的内容，菜单项 id 与 [`shortcuts::AppCommand`] 互转。
@@ -31,6 +32,7 @@ pub mod menus;
 pub mod prompt_dialogs;
 pub mod prompts;
 pub mod sessions;
+pub mod settings;
 pub mod shell;
 pub mod shortcuts;
 pub mod status_bar;

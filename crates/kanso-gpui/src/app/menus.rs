@@ -36,6 +36,10 @@ pub fn encode(command: AppCommand) -> String {
         AppCommand::Quit => "quit".into(),
         AppCommand::OpenLauncher => "open-launcher".into(),
         AppCommand::OpenSettings => "open-settings".into(),
+        AppCommand::NewSession => "new-session".into(),
+        AppCommand::ZoomIn => "zoom-in".into(),
+        AppCommand::ZoomOut => "zoom-out".into(),
+        AppCommand::ZoomReset => "zoom-reset".into(),
     }
 }
 
@@ -92,6 +96,10 @@ pub fn decode(id: &str) -> Option<AppCommand> {
         "quit" => AppCommand::Quit,
         "open-launcher" => AppCommand::OpenLauncher,
         "open-settings" => AppCommand::OpenSettings,
+        "new-session" => AppCommand::NewSession,
+        "zoom-in" => AppCommand::ZoomIn,
+        "zoom-out" => AppCommand::ZoomOut,
+        "zoom-reset" => AppCommand::ZoomReset,
         _ => return None,
     })
 }
@@ -287,6 +295,10 @@ mod tests {
             AppCommand::Quit,
             AppCommand::OpenLauncher,
             AppCommand::OpenSettings,
+            AppCommand::NewSession,
+            AppCommand::ZoomIn,
+            AppCommand::ZoomOut,
+            AppCommand::ZoomReset,
         ];
         for c in cmds {
             assert_eq!(decode(&encode(c)), Some(c), "{c:?}");

@@ -42,9 +42,10 @@ pub(crate) struct Metrics {
     pub cell_h: f32,
 }
 
-/// 量字体：等宽字体用 `m` 的步进作为单元格宽，行高取 ascent + descent 向上取整。
+/// 量字体：等宽字体用 `m` 的步进作为单元格宽；单元格高 = 字体自然行高（ascent + descent 向上取整）× 行距倍数，
+/// 字形在单元格内垂直居中（`ShapedLine::paint` 按行高平分额外空间）。字体、字号与行距取自显示设置。
 pub(crate) fn measure(window: &Window) -> Metrics {
-    let font_size = 14.0_f32;
+    let font_size = super::display::terminal_font_size();
     let ts = window.text_system();
     let font_id = ts.resolve_font(&base_font());
     let fs = px(font_size);
@@ -52,7 +53,16 @@ pub(crate) fn measure(window: &Window) -> Metrics {
         .advance(font_id, fs, 'm')
         .map(|s| f32::from(s.width))
         .unwrap_or(font_size * 0.6);
-    let cell_h = f32::from(ts.ascent(font_id, fs) + ts.descent(font_id, fs)).ceil();
+    let (asc, desc) = (
+        f32::from(ts.ascent(font_id, fs)),
+        f32::from(ts.descent(font_id, fs)),
+    );
+    log(&format!(
+        "measure：ascent {asc:.2} descent {desc:.2} 字号 {font_size}"
+    ));
+    // descent 在 GPUI 里是负数（基线以下），取绝对值。
+    let natural = (asc + desc.abs()).ceil();
+    let cell_h = (natural * super::display::line_height()).round();
     Metrics {
         font_size,
         cell_w,
@@ -176,9 +186,8 @@ impl TerminalView {
         cx.notify();
     }
 
-    /// 跟随系统深浅色换配色，并用最近一帧重建渲染数据。
-    pub(crate) fn set_dark(&mut self, dark: bool, cx: &mut Context<Self>) {
-        let palette = palette_for(dark);
+    /// 换终端配色并重建渲染数据。
+    pub(crate) fn set_palette(&mut self, palette: Palette, cx: &mut Context<Self>) {
         if *self.palette == palette {
             return;
         }
@@ -187,6 +196,32 @@ impl TerminalView {
             && let Ok(view) = frame.view()
         {
             self.grid = Some(Arc::new(build_render_grid(&view, &self.palette)));
+        }
+        cx.notify();
+    }
+
+    /// 显示设置里的字体 / 字号 / 行距变了：重新量字体，并把新的单元格像素尺寸告知会话。
+    /// 行列数由绘制时的元素按新度量重新计算（变了会走 `apply_resize`）。
+    pub(crate) fn apply_display(&mut self, window: &Window, cx: &mut Context<Self>) {
+        let m = measure(window);
+        if (m.font_size, m.cell_w, m.cell_h)
+            == (
+                self.metrics.font_size,
+                self.metrics.cell_w,
+                self.metrics.cell_h,
+            )
+        {
+            return;
+        }
+        self.metrics = m;
+        let scale = window.scale_factor();
+        let (w, h) = ((m.cell_w * scale) as u16, (m.cell_h * scale) as u16);
+        log(&format!(
+            "字体度量更新：字号 {} 单元格 {:.2}x{:.2}",
+            m.font_size, m.cell_w, m.cell_h
+        ));
+        if let Err(e) = self.core.resize(self.session, self.size, w, h) {
+            log(&format!("resize 失败：{e}"));
         }
         cx.notify();
     }

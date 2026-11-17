@@ -11,8 +11,8 @@ use std::sync::Arc;
 
 use gpui::{
     App, BoxShadow, Context, Entity, EventEmitter, FocusHandle, Focusable, Hsla, KeyDownEvent,
-    MouseButton, MouseDownEvent, PathPromptOptions, ScrollHandle, Subscription, Window,
-    WindowAppearance, div, point, prelude::*, px, rgb, rgba,
+    MouseButton, MouseDownEvent, PathPromptOptions, ScrollHandle, Subscription, Window, div, point,
+    prelude::*, px, rgb, rgba,
 };
 use kanso_core::Core;
 use kanso_gpui::app::launcher::{
@@ -173,10 +173,7 @@ impl Focusable for SessionEditorView {
 }
 
 fn appearance(window: &Window) -> Appearance {
-    match window.appearance() {
-        WindowAppearance::Light | WindowAppearance::VibrantLight => Appearance::Light,
-        _ => Appearance::Dark,
-    }
+    super::display::window_appearance(window)
 }
 
 const ALL_FIELDS: [EditorField; 17] = [

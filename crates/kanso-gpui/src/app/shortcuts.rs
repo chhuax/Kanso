@@ -58,8 +58,14 @@ pub enum AppCommand {
     ToggleRightClickMenu,
     /// 退出应用（有仍在连接的会话时先确认）。
     Quit,
-    /// 打开设置（界面由设置模块提供，暂时只记日志）。
+    /// 打开设置（显示设置）。
     OpenSettings,
+    /// 放大终端文字（改终端字号，步长 1）。
+    ZoomIn,
+    /// 缩小终端文字。
+    ZoomOut,
+    /// 终端字号恢复默认。
+    ZoomReset,
 }
 
 impl AppCommand {
@@ -67,7 +73,12 @@ impl AppCommand {
     pub fn repeatable(self) -> bool {
         matches!(
             self,
-            AppCommand::NextTab | AppCommand::PrevTab | AppCommand::NextPane | AppCommand::PrevPane
+            AppCommand::NextTab
+                | AppCommand::PrevTab
+                | AppCommand::NextPane
+                | AppCommand::PrevPane
+                | AppCommand::ZoomIn
+                | AppCommand::ZoomOut
         )
     }
 }
@@ -130,6 +141,13 @@ pub const DEFAULT_BINDINGS: &[Binding] = &[
     b(true, true, false, "left", AppCommand::ToggleSidebar),
     // 清屏（ui-shell.md §7）。
     b(false, true, false, "k", AppCommand::ClearBuffer),
+    // 设置：mac 是 ⌘,，Windows 沿用 Ctrl+,（VS Code、Windows Terminal 同样的习惯）。
+    b(true, false, false, ",", AppCommand::OpenSettings),
+    // 终端文字缩放（ui-shell.md §7）。Ctrl+Shift+= 在美式键盘上报 `+`，一并收。
+    b(true, false, false, "=", AppCommand::ZoomIn),
+    b(true, false, true, "+", AppCommand::ZoomIn),
+    b(true, false, false, "-", AppCommand::ZoomOut),
+    b(true, false, false, "0", AppCommand::ZoomReset),
 ];
 
 /// 查表。Win 键组合属于系统，永远不命中。
@@ -219,6 +237,19 @@ mod tests {
         );
         assert_eq!(press("tab", true, false, false), Some(AppCommand::NextTab));
         assert_eq!(press("tab", true, false, true), Some(AppCommand::PrevTab));
+    }
+
+    #[test]
+    fn settings_and_zoom_defaults() {
+        assert_eq!(
+            press(",", true, false, false),
+            Some(AppCommand::OpenSettings)
+        );
+        assert_eq!(press("=", true, false, false), Some(AppCommand::ZoomIn));
+        assert_eq!(press("-", true, false, false), Some(AppCommand::ZoomOut));
+        assert_eq!(press("0", true, false, false), Some(AppCommand::ZoomReset));
+        assert!(AppCommand::ZoomIn.repeatable());
+        assert!(!AppCommand::OpenSettings.repeatable());
     }
 
     #[test]

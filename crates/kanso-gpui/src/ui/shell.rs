@@ -25,8 +25,8 @@ use futures::StreamExt as _;
 use futures::channel::mpsc::UnboundedReceiver;
 use gpui::{
     Context, CursorStyle, Entity, Hsla, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, Pixels, Render, Subscription, Window, WindowAppearance, div, prelude::*, px,
-    rgba,
+    MouseUpEvent, Pixels, Render, SharedString, Subscription, Window, WindowHandle, div,
+    prelude::*, px, rgba,
 };
 use kanso_core::Core;
 use kanso_gpui::app::confirm::{CloseRequest, close_dialog_spec, is_confirmed};
@@ -35,6 +35,7 @@ use kanso_gpui::app::layout::{LayoutDivider, PaneId, Rect, SplitAxis};
 use kanso_gpui::app::menus::{
     AppMenuState, TabMenuContext, app_menu, decode, tab_menu, terminal_menu,
 };
+use kanso_gpui::app::settings::DisplaySettings;
 use kanso_gpui::app::shell::{DIVIDER_THICKNESS, DividerDrag, min_fraction};
 use kanso_gpui::app::shortcuts::{AppCommand, lookup, shortcut_text};
 use kanso_gpui::app::status_bar::{clock_text, ms_until_next_minute};
@@ -46,8 +47,10 @@ use kanso_gpui::widgets::menu::MenuItem;
 use kanso_gpui::widgets::style::{Appearance, color, number};
 use kanso_types::{CoreEvent, PromptId, SessionId};
 
+use super::display;
 use super::launcher::LauncherView;
 use super::session_editor::SessionEditorView;
+use super::settings::{self, SettingsEvent, SettingsModel, SettingsView};
 use super::shell_selftest::ShellSelfTest;
 use super::view::{TerminalEvent, TerminalView};
 use super::widgets::dialog::{Dialog, DialogEvent};
@@ -112,6 +115,9 @@ pub(crate) struct ShellView {
     /// 底部的临时提示（文字、到期时刻）。
     notice: Option<(String, Instant)>,
     dark: bool,
+    /// 显示设置模型（字体 / 外观 / 时间轴），设置窗口与外壳共用。
+    settings: Entity<SettingsModel>,
+    settings_window: Option<WindowHandle<SettingsView>>,
     window_active: bool,
     /// 最近一次通知核心“有输入焦点”的会话。
     focused: Option<SessionId>,
@@ -144,7 +150,9 @@ impl ShellView {
         let home = std::env::var("USERPROFILE")
             .or_else(|_| std::env::var("HOME"))
             .unwrap_or_default();
-        let dark = is_dark(window);
+        let settings = cx.new(|_| SettingsModel::new(core.clone()));
+        settings.read(cx).push_to_display(cx);
+        let dark = display::effective_dark(window);
         let mut this = ShellView {
             ctl: AppController::new(core.clone(), home),
             core,
@@ -162,6 +170,8 @@ impl ShellView {
             clock: clock_text(unix_ms(), tz::local_offset_minutes()),
             notice: None,
             dark,
+            settings,
+            settings_window: None,
             window_active: true,
             focused: None,
             last_title: String::new(),
@@ -237,15 +247,46 @@ impl ShellView {
                 t.update(cx, |t, cx| t.on_window_activation(active, cx));
             }
         });
+        // 系统深浅色变化（GPUI 在 Windows 上监听 ImmersiveColorSet）：跟随系统时整窗切换。
         let appearance = cx.observe_window_appearance(window, |this, window, cx| {
-            this.dark = is_dark(window);
-            let dark = this.dark;
-            for t in this.terminals.values() {
-                t.update(cx, |t, cx| t.set_dark(dark, cx));
-            }
-            cx.notify();
+            this.refresh_display(window, cx);
+            log(&format!(
+                "系统外观变化：系统深色={} -> {}",
+                display::system_is_dark(window),
+                this.describe_terminal(cx)
+            ));
         });
-        this._window_subs = vec![activation, appearance];
+        let settings_sub = cx.subscribe_in(
+            &this.settings.clone(),
+            window,
+            |this, _model, ev: &SettingsEvent, window, cx| {
+                let SettingsEvent::Changed(section) = ev;
+                if super::LOG_INPUT.load(Ordering::Relaxed) {
+                    log(&format!("设置已变更：{section:?}"));
+                }
+                this.settings.read(cx).push_to_display(cx);
+                this.refresh_display(window, cx);
+            },
+        );
+        this._window_subs = vec![activation, appearance, settings_sub];
+        {
+            let m = this.settings.read(cx);
+            log(&format!(
+                "设置已载入：display={:?} appearance={:?} timeline={:?}",
+                m.display(),
+                m.appearance(),
+                m.timeline()
+            ));
+        }
+        log(&format!(
+            "外观：系统深色={} 生效深色={}",
+            display::system_is_dark(window),
+            this.dark
+        ));
+
+        if super::SETTINGS_TEST.load(Ordering::Relaxed) {
+            this.run_settings_test(window, cx);
+        }
 
         // 第一个标签。
         match this.ctl.open_local_shell(None, FALLBACK_GRID) {
@@ -281,6 +322,8 @@ impl ShellView {
             t.right_click_menu = right_click_menu;
             t
         });
+        let palette = self.terminal_palette(cx);
+        term.update(cx, |t, cx| t.set_palette(palette, cx));
         let sub = cx.subscribe_in(
             &term,
             window,
@@ -355,7 +398,7 @@ impl ShellView {
         cx: &mut Context<Self>,
     ) {
         // 菜单或对话框打开时是模态的：快捷键不穿透。
-        if self.dialog.is_some() || self.menu.is_some() || self.modal_open() {
+        if self.modal_open() {
             return;
         }
         match command {
@@ -396,8 +439,145 @@ impl ShellView {
             }
             AppCommand::Quit => self.request_quit(window, cx),
             AppCommand::EditSession(id) => self.open_editor(Some(id), window, cx),
-            AppCommand::OpenSettings => log("打开设置：设置界面尚未接入"),
+            AppCommand::OpenSettings => self.open_settings(cx),
+            AppCommand::ZoomIn => self.zoom(1.0, cx),
+            AppCommand::ZoomOut => self.zoom(-1.0, cx),
+            AppCommand::ZoomReset => self.settings.update(cx, |m, cx| {
+                m.update_display(cx, |d| d.font_size = DisplaySettings::DEFAULT_FONT_SIZE)
+            }),
         }
+    }
+
+    /// 打开设置窗口（已打开就带到前台）。
+    pub(super) fn open_settings(&mut self, cx: &mut Context<Self>) {
+        let model = self.settings.clone();
+        self.settings_window = settings::open_window(model, self.settings_window, cx);
+    }
+
+    /// 终端文字放大 / 缩小：直接改显示设置里的终端字号（所有终端一起变）。
+    fn zoom(&mut self, delta: f64, cx: &mut Context<Self>) {
+        self.settings.update(cx, |m, cx| {
+            m.update_display(cx, |d| d.font_size = d.zoomed(delta))
+        });
+    }
+
+    /// 当前外观下的终端配色。
+    fn terminal_palette(&self, cx: &gpui::App) -> kanso_gpui::theme::Palette {
+        self.settings
+            .read(cx)
+            .appearance()
+            .terminal_palette(self.dark)
+    }
+
+    /// 一行描述第一个终端的度量与配色（自检日志用）。
+    fn describe_terminal(&self, cx: &gpui::App) -> String {
+        match self.terminals.values().next() {
+            Some(t) => {
+                let t = t.read(cx);
+                format!(
+                    "dark={} 单元格 {:.2}x{:.2} 字号 {} 背景 {:06X} 行列 {}x{}",
+                    self.dark,
+                    t.metrics.cell_w,
+                    t.metrics.cell_h,
+                    t.metrics.font_size,
+                    t.palette.background.to_u32(),
+                    t.size.cols,
+                    t.size.rows
+                )
+            }
+            None => "无终端".to_owned(),
+        }
+    }
+
+    /// `--settings-test`：不靠截图，直接驱动设置模型并记录终端的反应。
+    pub(super) fn run_settings_test(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        cx.spawn_in(window, async move |this, cx| {
+            let step = |cx: &mut gpui::AsyncWindowContext| {
+                let cx = cx.background_executor().clone();
+                async move { cx.timer(Duration::from_millis(1200)).await }
+            };
+            let _ = this.update_in(cx, |this, _w, cx| {
+                log(&format!("[test] 初始 {}", this.describe_terminal(cx)));
+                this.open_settings(cx);
+                log(&format!(
+                    "[test] 设置窗口已打开={}",
+                    this.settings_window.is_some()
+                ));
+            });
+            step(cx).await;
+            type Edit = Box<dyn Fn(&mut SettingsModel, &mut Context<SettingsModel>)>;
+            let edits: Vec<(&str, Edit)> = vec![
+                (
+                    "字号 20",
+                    Box::new(|m, cx| m.update_display(cx, |d| d.font_size = 20.0)),
+                ),
+                (
+                    "行距 1.5",
+                    Box::new(|m, cx| m.update_display(cx, |d| d.line_height = 1.5)),
+                ),
+                (
+                    "字体 Consolas",
+                    Box::new(|m, cx| m.update_display(cx, |d| d.font_family = "Consolas".into())),
+                ),
+                (
+                    "强制浅色",
+                    Box::new(|m, cx| {
+                        m.update_appearance(cx, |a| {
+                            a.mode = kanso_gpui::app::settings::ThemeMode::Light
+                        })
+                    }),
+                ),
+                (
+                    "强制深色",
+                    Box::new(|m, cx| {
+                        m.update_appearance(cx, |a| {
+                            a.mode = kanso_gpui::app::settings::ThemeMode::Dark
+                        })
+                    }),
+                ),
+                (
+                    "跟随系统",
+                    Box::new(|m, cx| {
+                        m.update_appearance(cx, |a| {
+                            a.mode = kanso_gpui::app::settings::ThemeMode::System
+                        })
+                    }),
+                ),
+            ];
+            for (name, edit) in edits {
+                let _ = this.update_in(cx, |this, _w, cx| {
+                    this.settings.update(cx, |m, cx| edit(m, cx));
+                });
+                step(cx).await;
+                let _ = this.update_in(cx, |this, _w, cx| {
+                    log(&format!("[test] {name} -> {}", this.describe_terminal(cx)));
+                });
+            }
+            let _ = this.update_in(cx, |this, _w, cx| {
+                log(&format!(
+                    "[test] 已写入核心 display={:?} appearance={:?}",
+                    this.core.setting("display"),
+                    this.core.setting("appearance")
+                ));
+                if !super::KEEP_OPEN.load(Ordering::Relaxed) {
+                    cx.quit();
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// 外观或显示设置变了：重新算深浅色，并让所有终端换配色、重新量字体。
+    fn refresh_display(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.dark = display::effective_dark(window);
+        let palette = self.terminal_palette(cx);
+        for t in self.terminals.values() {
+            t.update(cx, |t, cx| {
+                t.set_palette(palette.clone(), cx);
+                t.apply_display(window, cx);
+            });
+        }
+        cx.notify();
     }
 
     /// 在活动会话的终端上执行一个操作。
@@ -1018,13 +1198,6 @@ impl ShellView {
     }
 }
 
-fn is_dark(window: &Window) -> bool {
-    !matches!(
-        window.appearance(),
-        WindowAppearance::Light | WindowAppearance::VibrantLight
-    )
-}
-
 fn axis_coord(axis: SplitAxis, p: gpui::Point<Pixels>) -> f64 {
     axis_coord_f(axis, f64::from(f32::from(p.x)), f64::from(f32::from(p.y)))
 }
@@ -1107,8 +1280,8 @@ impl Render for ShellView {
             .relative()
             .size_full()
             .bg(th.c("bg.window"))
-            .font_family(UI_FONT)
-            .text_size(px(number("font", "ui.body")))
+            .font_family(SharedString::from(display::ui_font_family()))
+            .text_size(px(display::ui_font_size()))
             .text_color(th.c("text.primary"))
             .key_context("Shell")
             .capture_key_down(cx.listener(Self::on_capture_key))
