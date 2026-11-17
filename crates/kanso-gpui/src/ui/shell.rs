@@ -9,7 +9,7 @@
 //! - 会话正常结束（退出码 0）自动关标签，异常结束保留并提示；最后一个标签关闭后退出应用。
 //!
 //! 菜单与对话框（控件在 `widgets/`，内容在 `kanso_gpui::app::{menus, confirm}`）：
-//! - 终端右键、侧栏标签右键、侧栏工具条的“≡”按钮分别弹出终端菜单、标签菜单、应用菜单，
+//! - 终端右键、侧栏标签右键、主窗口顶栏的菜单按钮分别弹出终端菜单、标签菜单、应用菜单，
 //!   菜单项都解码成 [`AppCommand`] 走 `run_command`，与快捷键同一条路径；
 //! - 关闭 / 退出时若有仍在连接 / 运行的会话，弹确认对话框（批量关闭只确认一次）；
 //! - 底部状态栏在 `status_bar.rs`。
@@ -97,6 +97,7 @@ pub(crate) struct ShellView {
     subs: HashMap<SessionId, Subscription>,
     _window_subs: Vec<Subscription>,
     pub(super) sidebar_visible: bool,
+    pub(super) palette: Option<super::toolbar::Palette>,
     pub(super) path_filter: Entity<super::widgets::text_input::TextInput>,
     drag: Option<DividerDrag>,
     /// 当前弹出的右键 / 应用菜单（最上层，同一时间只有一个）。
@@ -107,7 +108,7 @@ pub(crate) struct ShellView {
     dialog_sub: Option<Subscription>,
     pending_close: Option<CloseRequest>,
     /// 右键行为：弹菜单 / 复制或粘贴（terminal.md §8.1）。
-    right_click_menu: bool,
+    pub(super) right_click_menu: bool,
     /// 状态栏时钟文字（整分钟刷新）。
     pub(super) clock: String,
     /// 底部的临时提示（文字、到期时刻）。
@@ -178,6 +179,7 @@ impl ShellView {
             subs: HashMap::new(),
             _window_subs: Vec::new(),
             sidebar_visible: true,
+            palette: None,
             path_filter,
             drag: None,
             menu: None,
@@ -422,6 +424,7 @@ impl ShellView {
         }
         match command {
             AppCommand::NewLocalTab => self.open_tab(window, cx),
+            AppCommand::OpenPalette => self.open_palette(window, cx),
             AppCommand::OpenLauncher => self.open_launcher(window, cx),
             AppCommand::NewSession => self.open_editor(None, window, cx),
             AppCommand::CloseSession => {
@@ -440,6 +443,7 @@ impl ShellView {
             AppCommand::SplitDown => self.split(SplitAxis::Vertical, window, cx),
             AppCommand::ToggleSidebar => {
                 self.sidebar_visible = !self.sidebar_visible;
+                self.sync_focus(window, cx);
                 cx.notify();
             }
             AppCommand::Copy => self.with_active_terminal(cx, |t, cx| t.copy(cx)),
@@ -932,6 +936,9 @@ impl ShellView {
             }
             self.focused = want;
         }
+        if self.modal_open() {
+            return;
+        }
         if let Some(handle) = active
             .and_then(|a| self.terminals.get(&a))
             .map(|t| t.read(cx).focus.clone())
@@ -996,14 +1003,14 @@ impl ShellView {
     pub(super) fn split_area(&self, window: &Window) -> Rect {
         let size = window.viewport_size();
         let x = if self.sidebar_visible {
-            f64::from(number("spacing", "sidebar.defaultWidth"))
+            f64::from(number("spacing", "sidebar.defaultWidth").min(f32::from(size.width) * 0.4))
         } else {
             0.0
         };
         let w = f64::from(f32::from(size.width));
-        // 底部留给状态栏。
-        let h = f64::from(f32::from(size.height) - status_bar_h());
-        Rect::new(x, 0.0, (w - x).max(0.0), h.max(0.0))
+        let top = super::toolbar::HEIGHT;
+        let h = f64::from(f32::from(size.height) - top - status_bar_h());
+        Rect::new(x, f64::from(top), (w - x).max(0.0), h.max(0.0))
     }
 
     fn start_drag(&mut self, divider: &LayoutDivider, ev: &MouseDownEvent, cx: &mut Context<Self>) {
@@ -1293,8 +1300,10 @@ impl Render for ShellView {
             self.log_layout(area, window.scale_factor());
         }
         let panes = self.render_panes(area, th, cx);
-        let sidebar = self.sidebar_visible.then(|| self.render_sidebar(th, cx));
-        let status_bar = self.render_status_bar(th, window);
+        let sidebar = self
+            .sidebar_visible
+            .then(|| self.render_sidebar(area.x as f32, th, cx));
+        let status_bar = self.render_status_bar(th, area);
         let notice = self
             .notice
             .as_ref()
@@ -1318,6 +1327,7 @@ impl Render for ShellView {
             .children(sidebar)
             .children(panes)
             .child(status_bar)
+            .child(self.render_toolbar(th, window, cx))
             .children(notice.map(|text| {
                 div()
                     .absolute()
@@ -1339,10 +1349,14 @@ impl Render for ShellView {
                     )
             }))
             // 最上层：菜单与模态对话框（根元素铺满窗口，遮罩按窗口坐标定位）。
+            .children(self.render_palette(th, window, cx))
             .children(self.menu.clone())
             .children(self.dialog.clone())
             .children(self.launcher.clone())
             .children(self.editor.clone())
             .children(self.prompt.as_ref().map(|(_, d)| d.clone()))
+            .when(!window.is_fullscreen(), |root| {
+                root.child(super::toolbar::window_buttons(th, window))
+            })
     }
 }

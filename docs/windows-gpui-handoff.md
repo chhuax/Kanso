@@ -96,3 +96,14 @@ Windows 原生标题栏与字体栅格化不同，不能声称跨系统逐像素
 - 实际点击通用页模式控件完成深色 / 浅色切换；缩小窗口后通过 Tab 定位到 SSH 表单底部，主体正确滚动且头尾操作区保留。截图分别为 `/tmp/kanso-polish/windows-settings-light-preview.png`、`windows-editor-small-preview.png`。
 - Mac 外框修复独立提交 `97b992f`。本轮提交位于 `codex/windows-debug`，隔离 worktree 为 `/tmp/kanso-polish/review`；共享主目录已由另一个任务切到 Tauri 分支，本轮没有切回或混入它的改动。需要继续 GPUI 时从该分支接手。
 - 最终 Rust CI 日志 `/tmp/kanso-polish/ci-rust-delivery.log`；Windows 368 项测试和最终 build / clippy 通过。完整 CI 的两项环境 / 基线阻断仍按上节记录，不能写成全绿。
+
+## 2026-11-18 Windows 主窗口与命令搜索
+
+在 `codex/windows-debug` 上从 `514be40` 继续。运行 `C:\kt\codex-debug\kanso-chrome.exe` 可以查看本次主窗口。
+
+- GPUI 主窗口改为 34 逻辑像素的单行标题栏。左侧开关控制标签栏，中央 240 × 22 搜索入口与 Ctrl+Shift+P 打开同一面板，右侧提供应用菜单和 Windows 窗口按钮。拖动、最大化、还原、最小化和关闭交由 Windows 处理。
+- 搜索已打开的标签、保存的会话和应用菜单命令，支持名称、会话目标和快捷键文本。方向键、Tab、Shift+Tab 选择，回车执行，Esc 返回终端。文件结果等待 Filer 接入。文件浏览器和时间轴的状态栏入口仍置灰。
+- 标签栏延伸到窗口底部。状态栏与终端同宽，窄窗口收起状态项的文字，为时钟留出空间。
+- Windows 离线 build、clippy --all-targets -D warnings、kanso-gpui --lib 368 项通过。最终二进制的 selftest-20261118024915、settings-test-20261118024927 均退出 0，日志中设备重置为 0。
+- 在 200% 缩放下实际操作窗口和搜索。preview-20261118024941 下有截图及 lt-steps.log，最终脚本退出 0。确认搜索能连接保存的 PowerShell、切回 CMD、打开设置，Esc 后 CMD 执行 echo 并输出 MAIN_WINDOW_OK。507 逻辑像素宽的窗口验证了菜单和键盘搜索。关闭时窗口消失、进程正常结束，GPUI 收尾日志有无效窗口句柄记录。
+- 此轮只改 Rust 及配套资源。cargo xtask ci --skip-apple 通过工作区测试、C ABI、187 条消息、绑定和渠道矩阵，仍在 cargo deny 的已有依赖审查项失败。日志在 /tmp/kanso-polish/main-window-ci.log。

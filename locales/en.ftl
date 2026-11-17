@@ -324,3 +324,9 @@ ui-timeline = Timeline
 ui-interface-font = Interface Font
 
 ui-settings = Settings
+
+ui-search = Search
+
+ui-file-browser = File Browser
+
+ui-search-empty = No matches

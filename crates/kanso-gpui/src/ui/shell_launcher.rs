@@ -23,7 +23,8 @@ use super::widgets::dialog::{Dialog, DialogEvent};
 impl ShellView {
     /// 有浮层（启动器、编辑对话框、提示框）在显示：应用级快捷键让路。
     pub(super) fn modal_open(&self) -> bool {
-        self.launcher.is_some()
+        self.palette.is_some()
+            || self.launcher.is_some()
             || self.editor.is_some()
             || self.prompt.is_some()
             || self.dialog.is_some()
@@ -183,6 +184,7 @@ impl ShellView {
             if self.prompt.as_ref().is_some_and(|(shown, _)| *shown == id) {
                 return;
             }
+            self.palette = None;
             // 队首换了（上一个被核心撤销）：丢掉旧的对话框。
             self.prompt = None;
             self.prompt_sub = None;

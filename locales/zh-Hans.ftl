@@ -318,3 +318,9 @@ ui-timeline = 时间轴
 ui-interface-font = 界面字体
 
 ui-settings = 设置
+
+ui-search = 搜索
+
+ui-file-browser = 文件浏览器
+
+ui-search-empty = 没有匹配结果

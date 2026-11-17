@@ -8,6 +8,9 @@ use gpui::{Context, Render, Window, div, prelude::*, px};
 use kanso_gpui::app::status_bar::{StatusBarModel, StatusTone, fit_directory};
 
 use super::shell::{ShellView, Theme, status_bar_h};
+use super::widgets::icons::icon;
+use kanso_gpui::app::{launcher::render_message, layout::Rect};
+use kanso_types::message::Message;
 
 /// 悬停提示：每行一台服务器及它用的旧算法。
 struct LinesTooltip {
@@ -35,7 +38,13 @@ impl Render for LinesTooltip {
 }
 
 /// 左侧的“开关”条目（暂未接入功能时置灰、不响应）。
-fn toggle_item(id: &'static str, label: &'static str, th: Theme) -> gpui::Stateful<gpui::Div> {
+fn toggle_item(
+    id: &'static str,
+    symbol: &'static str,
+    label: Message,
+    compact: bool,
+    th: Theme,
+) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
         .flex_none()
@@ -43,12 +52,16 @@ fn toggle_item(id: &'static str, label: &'static str, th: Theme) -> gpui::Statef
         .py(px(2.0))
         .rounded(px(kanso_gpui::widgets::style::number("radius", "md")))
         .text_color(th.c("text.secondary"))
-        .opacity(0.5)
-        .child(label)
+        .flex()
+        .items_center()
+        .gap(px(6.0))
+        .opacity(0.65)
+        .child(icon(symbol, 12.0, th.c("text.secondary")))
+        .when(!compact, |item| item.child(render_message(&label)))
 }
 
 impl ShellView {
-    pub(super) fn render_status_bar(&self, th: Theme, window: &Window) -> gpui::AnyElement {
+    pub(super) fn render_status_bar(&self, th: Theme, area: Rect) -> gpui::AnyElement {
         let ws = self.ctl.workspace();
         let active = ws.active_session().and_then(|s| ws.item(s));
         let model = StatusBarModel::build(
@@ -57,7 +70,7 @@ impl ShellView {
             self.ctl.active_legacy_summary(),
             self.clock.clone(),
         );
-        let width = f32::from(window.viewport_size().width);
+        let width = area.width as f32;
         let legacy_visible = model.legacy.is_some();
 
         let status = model.status.map(|(text, tone)| {
@@ -80,7 +93,11 @@ impl ShellView {
                 .flex_none()
                 .whitespace_nowrap()
                 .text_color(th.c("text.secondary"))
-                .child(fit_directory(&d, width, legacy_visible))
+                .flex()
+                .items_center()
+                .gap(px(6.0))
+                .child(icon("folder", 12.0, th.c("text.secondary")))
+                .child(fit_directory(&d, width - 18.0, legacy_visible))
         });
         let legacy = model.legacy.map(|lines| {
             div()
@@ -101,20 +118,33 @@ impl ShellView {
         div()
             .id("status-bar")
             .absolute()
-            .left_0()
+            .left(px(area.x as f32))
             .bottom_0()
-            .w_full()
+            .w(px(width))
+            .overflow_hidden()
             .h(px(status_bar_h()))
             .flex()
             .items_center()
-            .gap(px(16.0))
+            .gap(px(if width < 460. { 6. } else { 16. }))
             .px(px(12.0))
             .bg(th.c("bg.statusBar"))
             .border_t_1()
             .border_color(th.c("border.subtle"))
             .text_size(px(kanso_gpui::widgets::style::number("font", "ui.caption")))
-            .child(toggle_item("status-filer", "文件", th))
-            .child(toggle_item("status-timeline", "时间戳", th))
+            .child(toggle_item(
+                "status-filer",
+                "folder",
+                Message::UiFileBrowser {},
+                width < 460.,
+                th,
+            ))
+            .child(toggle_item(
+                "status-timeline",
+                "clock",
+                Message::UiTimeline {},
+                width < 460.,
+                th,
+            ))
             .children(directory)
             // 状态文字没有内容时也要占住中间的弹性空间，把右侧元素推到最右。
             .child(status.unwrap_or_else(|| div().flex_1()))
