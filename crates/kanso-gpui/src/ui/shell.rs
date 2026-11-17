@@ -1280,7 +1280,9 @@ fn axis_coord_f(axis: SplitAxis, x: f64, y: f64) -> f64 {
 fn closed_banner(connection: &TabConnection) -> Option<String> {
     match connection {
         TabConnection::Closed(Some(CloseNote::Exited { code: Some(c) })) => {
-            Some(t(&Message::UiSessionEndedExitCodePress { code: c as i64 }))
+            Some(t(&Message::UiSessionEndedExitCodePress {
+                code: i64::from(*c),
+            }))
         }
         TabConnection::Closed(Some(CloseNote::Exited { code: None })) => {
             Some(label(Message::UiSessionEndedPressCtrlShift {}).to_owned())

@@ -23,8 +23,8 @@ use kanso_gpui::app::launcher::{
 use kanso_gpui::app::sessions::{EditorField, EncodingOption, SaveOutcome, SessionEditor};
 use kanso_gpui::widgets::dropdown::Item;
 use kanso_gpui::widgets::style::{Appearance, color, number};
+use kanso_types::ProfileId;
 use kanso_types::profile::{AuthMethod, Group, Profile, SessionKind};
-use kanso_types::{ProfileId, message::Message};
 
 use super::log;
 use super::shell::Theme;

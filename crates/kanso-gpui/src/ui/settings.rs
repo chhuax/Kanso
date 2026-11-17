@@ -17,7 +17,7 @@ use gpui::{
     WindowHandle, WindowOptions, div, prelude::*, px, rgba, size,
 };
 use kanso_core::Core;
-use kanso_gpui::app::i18n::{label, t};
+use kanso_gpui::app::i18n::{LanguageSetting, label, t};
 use kanso_gpui::app::settings::{
     AppearanceSettings, BUILTIN_THEMES, CursorShapeSetting, DisplaySettings, GutterMode, Section,
     SettingsStore, ThemeMode, TimelineSettings, clean_font_names, is_monospace, pick_nerd_fallback,
@@ -239,7 +239,7 @@ fn format_lines(v: u32) -> String {
         }
         out.push(ch);
     }
-    t(&Message::UiLines { count: out as i64 })
+    t(&Message::UiLines { lines: out })
 }
 
 fn theme_items() -> Vec<Item> {

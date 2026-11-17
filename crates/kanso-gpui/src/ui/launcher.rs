@@ -495,7 +495,7 @@ impl LauncherView {
             .cursor_pointer()
             .hover(|s| s.bg(th.c("bg.tabHover")).text_color(th.c("text.primary")))
             .child(icon(
-                if label == label(Message::UiEdit2 {}) {
+                if label == self::label(Message::UiEdit2 {}) {
                     "pencil"
                 } else {
                     "ellipsis"

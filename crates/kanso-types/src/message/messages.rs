@@ -473,7 +473,7 @@ messages! {
     /// GPUI 界面文字：系统默认；也可直接输入字体名
     UiSystemDefaultOrTypeFont = "ui-system-default-or-type-font" {},
     /// GPUI 界面文字：… 行
-    UiLines = "ui-lines" { count: i64 },
+    UiLines = "ui-lines" { lines: String },
     /// 小于一秒的命令耗时。
     CommandDurationMilliseconds = "command-duration-milliseconds" { value: String },
     /// 小于一分钟的命令耗时。

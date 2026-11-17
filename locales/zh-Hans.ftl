@@ -593,4 +593,4 @@ ui-search-monospaced-fonts = 搜索等宽字体
 
 ui-system-default-or-type-font = 系统默认；也可直接输入字体名
 
-ui-lines = { $count } 行
+ui-lines = { $lines } 行

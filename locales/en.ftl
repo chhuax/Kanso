@@ -599,4 +599,4 @@ ui-search-monospaced-fonts = Search monospaced fonts
 
 ui-system-default-or-type-font = System default; or type a font name
 
-ui-lines = { $count } lines
+ui-lines = { $lines } lines

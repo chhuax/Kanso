@@ -7,7 +7,7 @@
 //! 暂未实现：拖拽排序、悬停提示。
 
 use gpui::{Context, Hsla, MouseButton, MouseDownEvent, div, point, prelude::*, px, rgb};
-use kanso_gpui::app::i18n::{label, t};
+use kanso_gpui::app::i18n::t;
 use kanso_gpui::app::shortcuts::AppCommand;
 use kanso_gpui::app::status_bar::state_text;
 use kanso_gpui::app::tab::{
