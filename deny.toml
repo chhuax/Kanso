@@ -1,5 +1,17 @@
 # cargo-deny 配置：许可证、依赖来源与重复版本检查。
 
+# 只检查实际发布平台会编译的依赖。不设置时 cargo-deny 按所有目标平台展开依赖图，
+# 只在 wasm32 等我们不发布的平台上才引入的依赖也会被检查，产生与产品无关的告警
+# （例如 russh-util 仅在 wasm32 下依赖的 chrono，RUSTSEC-2026-0543）。
+# 新增发布平台或架构时必须把对应 target 加进来，否则它独有的依赖不会被检查。
+[graph]
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+]
+
 [advisories]
 version = 2
 ignore = [
