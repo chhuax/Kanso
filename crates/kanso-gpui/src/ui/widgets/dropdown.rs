@@ -302,12 +302,9 @@ impl Dropdown {
                     self.nav(cx, |s| s.highlight_last(), ScrollStrategy::Bottom)
                 }
                 "tab" if plain || m.shift => {
+                    // 先收起并把焦点还给收起态按钮，然后让按键冒泡到宿主的焦点链（`focus_chain`）。
                     self.close(window, cx);
-                    if m.shift {
-                        window.focus_prev();
-                    } else {
-                        window.focus_next();
-                    }
+                    return;
                 }
                 _ => {
                     handled = false;
@@ -330,13 +327,8 @@ impl Dropdown {
         // 收起态。
         match key {
             "space" | "enter" if plain => self.open(window, cx),
-            "tab" if plain || m.shift => {
-                if m.shift {
-                    window.focus_prev();
-                } else {
-                    window.focus_next();
-                }
-            }
+            // Tab / Shift+Tab 不处理：冒泡给宿主视图的焦点链（`focus_chain::handle_tab`）。
+            "tab" => return,
             "down" | "up" if m.alt => self.open(window, cx),
             "down" if plain => {
                 let new = self.state.step_selected(1);

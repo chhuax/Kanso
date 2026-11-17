@@ -4,9 +4,9 @@
 //! 禁用的、靠窗口底部的（测试向上翻转）。选中值写日志（`--log-input` 下），自动化脚本据此断言。
 
 use gpui::{
-    App, Application, Bounds, Context, Entity, FocusHandle, Focusable, SharedString, Subscription,
-    TitlebarOptions, Window, WindowAppearance, WindowBounds, WindowOptions, div, prelude::*, px,
-    rgba, size,
+    App, Application, Bounds, Context, Entity, FocusHandle, Focusable, KeyDownEvent, SharedString,
+    Subscription, TitlebarOptions, Window, WindowAppearance, WindowBounds, WindowOptions, div,
+    prelude::*, px, rgba, size,
 };
 use kanso_gpui::widgets::dropdown::Item;
 use kanso_gpui::widgets::style::{Appearance, color};
@@ -150,7 +150,7 @@ fn c(name: &str, a: Appearance) -> gpui::Hsla {
 }
 
 impl Render for DemoView {
-    fn render(&mut self, window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let a = match window.appearance() {
             WindowAppearance::Light | WindowAppearance::VibrantLight => Appearance::Light,
             _ => Appearance::Dark,
@@ -174,6 +174,17 @@ impl Render for DemoView {
             .size_full()
             .bg(c("bg.window", a))
             .text_color(c("text.primary", a))
+            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
+                // 下拉框把 Tab 冒泡上来，由这里的焦点链统一处理（顺序 = 行顺序，跳过禁用项）。
+                let handles: Vec<FocusHandle> = this
+                    .rows
+                    .iter()
+                    .map(|(_, dd)| dd.read(cx).focus_handle(cx))
+                    .collect();
+                if super::widgets::focus_chain::handle_tab(&handles, ev, window) {
+                    cx.stop_propagation();
+                }
+            }))
             .p(px(20.))
             .flex()
             .flex_col()
