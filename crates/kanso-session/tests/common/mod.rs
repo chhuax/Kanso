@@ -105,18 +105,19 @@ pub fn fixture(shell: &str, integration: bool) -> Fixture {
     #[cfg(not(windows))]
     let path = "/usr/bin:/bin:/usr/sbin:/sbin".to_owned();
     #[allow(unused_mut)]
-    let mut env = EnvSnapshot::from_pairs([
-        ("PATH", path),
-        ("HOME", home.to_string_lossy().into_owned()),
-        ("USER", "kanso-test".to_owned()),
-    ]);
+    let mut pairs = vec![
+        ("PATH".to_owned(), path),
+        ("HOME".to_owned(), home.to_string_lossy().into_owned()),
+        ("USER".to_owned(), "kanso-test".to_owned()),
+    ];
     // Windows 的 cmd.exe / PowerShell 需要系统变量才能正常启动。
     #[cfg(windows)]
     for key in ["SystemRoot", "ComSpec", "windir", "TEMP", "TMP"] {
         if let Ok(v) = std::env::var(key) {
-            env = env.apply(&[kanso_pty::EnvChange::set(key, v)]);
+            pairs.push((key.to_owned(), v));
         }
     }
+    let env = EnvSnapshot::from_pairs(pairs);
     let mgr = SessionManager::new(
         ManagerConfig {
             data_dir: tmp.path().join("data"),
