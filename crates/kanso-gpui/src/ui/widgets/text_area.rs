@@ -185,8 +185,10 @@ impl TextArea {
                 }
             }),
         ];
-        let mut state = EditState::default();
-        state.multiline = true;
+        let state = EditState {
+            multiline: true,
+            ..EditState::default()
+        };
         TextArea {
             focus,
             state,

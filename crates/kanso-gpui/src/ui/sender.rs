@@ -8,8 +8,8 @@
 use std::sync::Arc;
 
 use gpui::{
-    App, Context, Entity, EventEmitter, Hsla, MouseButton, MouseDownEvent, Pixels, Point, Render,
-    SharedString, Subscription, Window, div, prelude::*, px, rgba,
+    App, Context, Entity, EventEmitter, MouseButton, MouseDownEvent, Pixels, Point, Render,
+    SharedString, Subscription, Window, div, prelude::*, px,
 };
 use kanso_core::Core;
 use kanso_core::sender::SenderStatus;
@@ -53,10 +53,6 @@ pub(crate) enum SenderEvent {
 }
 
 impl EventEmitter<SenderEvent> for SenderPanel {}
-
-fn hsla(c: kanso_gpui::widgets::style::Rgba8) -> Hsla {
-    rgba(c.to_u32()).into()
-}
 
 /// 悬停提示。
 struct TextTooltip {
@@ -284,12 +280,6 @@ impl SenderPanel {
         self.status = status;
         cx.notify();
         self.running()
-    }
-
-    /// 窗口退出前停止全部任务。
-    pub(crate) fn shutdown(&self) {
-        self.core.sender_stop(false);
-        self.core.sender_stop(true);
     }
 
     /// `--sender-test`：把文字放进命令框并按“运行”。

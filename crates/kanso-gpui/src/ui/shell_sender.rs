@@ -147,19 +147,11 @@ impl ShellView {
         .detach();
     }
 
-    /// 窗口退出前停止全部 Sender 任务。
-    pub(super) fn shutdown_sender(&self, cx: &mut Context<Self>) {
-        self.sender.panel.update(cx, |p, _| p.shutdown());
-    }
-
     /// `--sender-test`：展开面板、向当前会话发一条命令，几秒后检查终端屏幕里是否有输出，日志里打 PASS / FAIL。
     pub(super) fn run_sender_test(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         cx.spawn_in(window, async move |this, cx| {
-            let wait = |ms: u64| {
-                let exec = cx.background_executor().clone();
-                async move { exec.timer(Duration::from_millis(ms)).await }
-            };
-            wait(2500).await;
+            let exec = cx.background_executor().clone();
+            exec.timer(Duration::from_millis(2500)).await;
             let _ = this.update_in(cx, |this, window, cx| {
                 this.toggle_sender(window, cx);
                 this.push_sender_context(cx);
@@ -172,7 +164,7 @@ impl ShellView {
                     this.sender.panel.read(cx).running()
                 ));
             });
-            wait(2500).await;
+            exec.timer(Duration::from_millis(2500)).await;
             let _ = this.update_in(cx, |this, _window, cx| {
                 let screen = this
                     .ctl

@@ -101,10 +101,10 @@ pub(crate) struct ShellView {
     drag: Option<DividerDrag>,
     /// 当前弹出的右键 / 应用菜单（最上层，同一时间只有一个）。
     pub(super) menu: Option<Entity<ContextMenu>>,
-    menu_sub: Option<Subscription>,
+    pub(super) menu_sub: Option<Subscription>,
     /// 当前的关闭 / 退出确认对话框，以及它确认后要执行的关闭请求。
     pub(super) dialog: Option<Entity<Dialog>>,
-    dialog_sub: Option<Subscription>,
+    pub(super) dialog_sub: Option<Subscription>,
     pending_close: Option<CloseRequest>,
     /// 右键行为：弹菜单 / 复制或粘贴（terminal.md §8.1）。
     right_click_menu: bool,
@@ -646,7 +646,7 @@ impl ShellView {
     // ---- 菜单 ----
 
     /// 弹出菜单（替换已有的）。选中项解码成命令执行，关闭后焦点还给活动终端。
-    fn open_menu(
+    pub(super) fn open_menu(
         &mut self,
         items: Vec<MenuItem>,
         anchor: gpui::Point<Pixels>,
@@ -862,7 +862,12 @@ impl ShellView {
         cx.notify();
     }
 
-    fn on_dialog_result(&mut self, r: &DialogResult, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn on_dialog_result(
+        &mut self,
+        r: &DialogResult,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.dialog = None;
         self.dialog_sub = None;
         let pending = self.pending_close.take();

@@ -1210,8 +1210,10 @@ mod tests {
     }
 
     fn ml(text: &str) -> EditState {
-        let mut s = EditState::default();
-        s.multiline = true;
+        let mut s = EditState {
+            multiline: true,
+            ..EditState::default()
+        };
         s.set_text(text);
         s
     }
