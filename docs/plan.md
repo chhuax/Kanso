@@ -87,7 +87,7 @@ P0 完成后，下面这些工作包**可以同时开工**，最多 13 条线，
 | F5 | 时间戳栏、命令分隔线、提示行 chips、活动与 agent 角标 | S2、I1 |
 | F6 | OpenSSH 配置导入 UI、`.kanso` 导入导出 | T3、T8 |
 | F7 | 设置：显示、快捷键、外观模式、终端配色、最低对比度 | T10 |
-| F9 | MCP 服务（仅 Direct）：先由主会话提交 `architecture.md` §16.3 的契约 PR 和 schema 迁移；之后 `kanso-mcp-server` 与 `kanso-mcp`、Swift 设置页与标签标识两条线并行 | S10、I2、F1 |
+| F9 | MCP 服务（仅 Direct）：主会话依次提交 ① 内核契约与 schema 迁移（#16，`architecture.md` §16.3）；② FFI 契约（授权与审计导出、`KansoMcpServer` 对象与回调、mock 服务，§16.2）。之后 Rust 服务（`kanso-mcp-server` 真实实现、`kanso-mcp`、内核中返回 `NotSupported` 的部分）与 Swift 界面（设置页、会话编辑字段、标签标识、状态栏指示器，对着 mock 开发）两条线并行 | S10、I2、F1 |
 | F8 | 本地化全面检查（简中和英文全覆盖）、两种外观下的截图、App Store 素材 | 以上全部 |
 
 ## 6. 阶段 P4：发布（对应 M4）
