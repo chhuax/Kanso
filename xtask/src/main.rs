@@ -217,6 +217,19 @@ fn ci(flags: &[String]) -> ExitCode {
                 "warnings",
             ],
         ));
+        // MCP 服务的渠道限制（非 Direct 一律"不支持"）只在非 Direct 构建里才能测到，
+        // 默认的 `cargo test --workspace` 跑的是 Direct，所以这里按渠道单独跑一遍。
+        steps.push((
+            format!("渠道矩阵 MCP 测试 ({channel})"),
+            vec![
+                "test",
+                "-p",
+                "kanso-mcp-server",
+                "--no-default-features",
+                "--features",
+                channel,
+            ],
+        ));
     }
 
     for (name, args) in &steps {
