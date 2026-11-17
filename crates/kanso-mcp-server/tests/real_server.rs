@@ -209,8 +209,12 @@ impl Client {
     }
 }
 
-fn wait_until(what: &str, mut cond: impl FnMut() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(5);
+fn wait_until(what: &str, cond: impl FnMut() -> bool) {
+    wait_until_for(what, Duration::from_secs(5), cond);
+}
+
+fn wait_until_for(what: &str, limit: Duration, mut cond: impl FnMut() -> bool) {
+    let deadline = Instant::now() + limit;
     while !cond() {
         assert!(Instant::now() < deadline, "timeout waiting for {what}");
         std::thread::sleep(Duration::from_millis(20));
@@ -471,4 +475,100 @@ fn stop_disconnects_clients_and_restart_works() {
         calls[2],
         Call::Status(McpServerStatus::Running { .. })
     ));
+}
+
+#[test]
+fn start_failures_report_failed_and_stop_returns_to_stopped_once() {
+    // 空令牌与 bundle id 不一致都不能启动。
+    for bad in [
+        McpServerConfig {
+            bundle_id: "mock.kanso".into(),
+            token: SecretString::new(""),
+        },
+        McpServerConfig {
+            bundle_id: "other.app".into(),
+            token: SecretString::new(TOKEN),
+        },
+    ] {
+        let f = Fixture::new();
+        let Err(McpServerError::Failed { detail }) = f.server.start(bad) else {
+            panic!("start should fail");
+        };
+        let unavailable = McpServerStatus::Unavailable(McpUnavailable::Failed { detail });
+        assert_eq!(f.server.status(), unavailable);
+        assert_eq!(f.rec.take(), vec![Call::Status(unavailable)]);
+        assert!(!f.dir.path().join("mcp/kanso.sock").exists());
+
+        f.server.stop();
+        assert_eq!(f.server.status(), McpServerStatus::Stopped);
+        assert_eq!(f.rec.take(), vec![Call::Status(McpServerStatus::Stopped)]);
+        f.server.stop();
+        assert!(f.rec.take().is_empty());
+    }
+}
+
+#[test]
+fn start_retries_when_directory_could_not_be_created() {
+    let dir = tempfile::tempdir().unwrap();
+    // 目录位置先被一个普通文件占着，构造时取锁失败。
+    let blocker = dir.path().join("mcp");
+    std::fs::write(&blocker, b"x").unwrap();
+    let rec = Arc::new(Recorder::default());
+    let server = McpServer::new_in_dir(new_core(), rec.clone(), blocker.clone());
+    assert!(matches!(
+        server.start(config(TOKEN)),
+        Err(McpServerError::Failed { .. })
+    ));
+    std::fs::remove_file(&blocker).unwrap();
+    server.start(config(TOKEN)).unwrap();
+    assert!(matches!(server.status(), McpServerStatus::Running { .. }));
+}
+
+#[test]
+fn dropping_a_running_server_removes_socket_and_releases_lock() {
+    let f = Fixture::started();
+    let socket = f.socket();
+    let dir = f.dir.path().join("mcp");
+    drop(f.server);
+    assert!(!std::path::Path::new(&socket).exists());
+    let again = McpServer::new_in_dir(new_core(), Arc::new(Recorder::default()), dir);
+    assert_eq!(again.status(), McpServerStatus::Stopped);
+}
+
+#[test]
+fn version_mismatch_gets_error_reply() {
+    let f = Fixture::started();
+    let stream = UnixStream::connect(f.socket()).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    let mut c = Client {
+        reader: BufReader::new(stream.try_clone().unwrap()),
+        writer: stream,
+    };
+    c.writer
+        .write_all(b"{\"v\":99,\"token\":\"x\",\"tty\":null}\n")
+        .unwrap();
+    c.send(json!({"jsonrpc": "2.0", "id": 3, "method": "initialize", "params": {}}));
+    let resp = c.read();
+    assert_eq!(resp["id"], 3);
+    assert!(
+        resp["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("versions do not match")
+    );
+    assert!(f.server.clients().is_empty());
+}
+
+#[test]
+fn connection_without_initialize_is_released_after_timeout() {
+    let f = Fixture::started();
+    // 握手通过但一直不发 initialize：10 秒后被释放（这个用例要等十几秒）。
+    let mut c = f.connect(TOKEN);
+    wait_until("admitted", || f.server.clients().len() == 1);
+    wait_until_for("init timeout", Duration::from_secs(15), || {
+        f.server.clients().is_empty()
+    });
+    wait_until("connection closed", || c.is_closed());
 }

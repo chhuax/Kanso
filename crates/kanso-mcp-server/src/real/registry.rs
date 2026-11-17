@@ -111,7 +111,11 @@ impl Registry {
         if !g.open {
             return Admission::Closed;
         }
-        if !constant_time_eq(presented.as_bytes(), g.token.expose().as_bytes()) {
+        // 空令牌一律拒绝：否则两边都为空时 constant_time_eq 会放行，等于没有令牌。
+        if presented.is_empty()
+            || g.token.expose().is_empty()
+            || !constant_time_eq(presented.as_bytes(), g.token.expose().as_bytes())
+        {
             return Admission::InvalidToken;
         }
         if g.clients.len() >= MAX_CLIENTS {
@@ -150,19 +154,16 @@ impl Registry {
         self.update(id, |c| c.name = name);
     }
 
-    /// 工具调用计数加一。
-    pub(super) fn add_call(&self, id: u64) {
-        self.update(id, |c| c.calls += 1);
-    }
-
-    /// 客户端当前的名称；已不存在时为空串。
-    pub(super) fn name(&self, id: u64) -> String {
-        let g = self.lock();
-        g.clients
-            .iter()
-            .find(|c| c.info.id == id)
-            .map(|c| c.info.name.clone())
-            .unwrap_or_default()
+    /// 工具调用计数加一，返回客户端当前的名称（审计要用）；客户端已不存在时为空串。
+    pub(super) fn add_call(&self, id: u64) -> String {
+        let mut g = self.lock();
+        let Some(c) = g.clients.iter_mut().find(|c| c.info.id == id) else {
+            return String::new();
+        };
+        c.info.calls += 1;
+        let name = c.info.name.clone();
+        self.notify(&g);
+        name
     }
 
     fn update(&self, id: u64, f: impl FnOnce(&mut McpClientInfo)) {

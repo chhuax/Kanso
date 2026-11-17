@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use kanso_core::Core;
+use kanso_mcp::jsonrpc::MSG_DISABLED;
 use kanso_types::event::{Activity, SessionState};
 use kanso_types::mcp::{McpAccess, McpAuditEntry};
 use kanso_types::profile::{ProfileKind, SessionKind};
@@ -70,14 +71,13 @@ impl KansoHandler {
     {
         let started = Instant::now();
         let at_ms = now_ms();
-        self.shared.registry.add_call(self.client_id);
+        let client = self.shared.registry.add_call(self.client_id);
         let outcome = if self.shared.core.mcp_enabled() {
             work.await
         } else {
             Err(ToolError {
                 code: "MCP_DISABLED",
-                message: "MCP is disabled in Kanso settings. Ask the user to enable it in Settings → MCP."
-                    .to_owned(),
+                message: MSG_DISABLED.to_owned(),
             })
         };
         let (text, error_code) = match &outcome {
@@ -89,7 +89,7 @@ impl KansoHandler {
         };
         self.shared.audit.push(McpAuditEntry {
             at_ms,
-            client: self.shared.registry.name(self.client_id),
+            client,
             mcp_session: self.client_id.to_string(),
             tool: tool.to_owned(),
             profile: None,

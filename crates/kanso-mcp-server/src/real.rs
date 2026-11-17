@@ -7,7 +7,7 @@
 //!
 //! 与 mock 一样，所有 delegate 回调都在持有对应状态锁时发出（状态回调持 `inner`，客户端列表回调持
 //! `Registry` 的锁），回调顺序与状态变化严格一致。回调契约禁止重入，所以持锁回调是安全的。
-//! 加锁顺序固定为 `inner` → `Registry`，连接任务只会拿 `Registry` 的锁。
+//! 加锁顺序固定为 `lifecycle` → `inner` → `Registry`，连接任务只会拿 `Registry` 的锁。
 //!
 //! # 线程
 //!
@@ -52,17 +52,17 @@ struct Shared {
     audit: AuditSink,
 }
 
-/// 单实例锁的结果，`new` 时确定。
+/// 单实例锁的结果。
 enum Lock {
     /// 持有锁；文件要一直保持打开，锁随它释放。
     Held { _file: File, socket: PathBuf },
     /// 另一个实例持有锁。
     Another,
-    /// 目录或锁文件无法创建，`start` 时如实报告。
+    /// 目录或锁文件无法创建，`start` 时先重试一次，仍失败就如实报告。
     Failed(String),
 }
 
-/// 运行中的状态；`stop` 取走它并关闭。
+/// 运行中的状态；停止时被取走并拆除。
 struct Running {
     runtime: Runtime,
     shutdown: CancellationToken,
@@ -80,13 +80,18 @@ pub(crate) struct RealServer {
     core: Arc<Core>,
     delegate: Arc<dyn McpServerDelegate>,
     registry: Arc<Registry>,
+    /// 测试指定的目录；`None` 时按 `core.bundle_id()` 推出。
+    dir: Option<PathBuf>,
+    /// 串行化 `start` / `stop`：`stop` 在释放 `inner` 之后才拆运行时，期间若放任 `start` 进来，
+    /// 会出现两个运行时同时监听同一个 socket。`status()` 等只读方法不走这把锁，不会被拆除过程拖住。
+    /// 加锁顺序：`lifecycle` → `inner` → `Registry`。
+    lifecycle: Mutex<()>,
     inner: Mutex<Inner>,
 }
 
 impl RealServer {
     pub(crate) fn new(core: Arc<Core>, delegate: Arc<dyn McpServerDelegate>) -> RealServer {
-        let paths = McpPaths::for_bundle(core.bundle_id());
-        RealServer::with_paths(core, delegate, paths)
+        RealServer::with_dir(core, delegate, None)
     }
 
     pub(crate) fn in_dir(
@@ -94,43 +99,60 @@ impl RealServer {
         delegate: Arc<dyn McpServerDelegate>,
         dir: PathBuf,
     ) -> RealServer {
-        let paths = McpPaths::in_dir(&dir, core.bundle_id());
-        RealServer::with_paths(core, delegate, Ok(paths))
+        RealServer::with_dir(core, delegate, Some(dir))
     }
 
     /// 构造时就取锁：App 从启动起就要持有它，转发程序靠它区分"未运行"与"开关关闭"。
-    fn with_paths(
+    fn with_dir(
         core: Arc<Core>,
         delegate: Arc<dyn McpServerDelegate>,
-        paths: io::Result<McpPaths>,
+        dir: Option<PathBuf>,
     ) -> RealServer {
-        let lock = match paths.and_then(|p| Ok((instance::acquire(&p)?, p.socket))) {
+        let server = RealServer {
+            registry: Arc::new(Registry::new(delegate.clone())),
+            delegate,
+            dir,
+            lifecycle: Mutex::new(()),
+            inner: Mutex::new(Inner {
+                status: McpServerStatus::Stopped,
+                lock: Lock::Failed(String::new()),
+                running: None,
+            }),
+            core,
+        };
+        let lock = server.acquire_lock();
+        {
+            let mut inner = server.lock();
+            if matches!(lock, Lock::Another) {
+                inner.status = McpServerStatus::Unavailable(McpUnavailable::AnotherInstance);
+            }
+            inner.lock = lock;
+        }
+        server
+    }
+
+    fn acquire_lock(&self) -> Lock {
+        let paths = match &self.dir {
+            Some(dir) => Ok(McpPaths::in_dir(dir, self.core.bundle_id())),
+            None => McpPaths::for_bundle(self.core.bundle_id()),
+        };
+        match paths.and_then(|p| Ok((instance::acquire(&p)?, p.socket))) {
             Ok((Some(file), socket)) => Lock::Held {
                 _file: file,
                 socket,
             },
             Ok((None, _)) => Lock::Another,
             Err(e) => Lock::Failed(format!("cannot prepare mcp directory or lock: {e}")),
-        };
-        let status = match lock {
-            Lock::Another => McpServerStatus::Unavailable(McpUnavailable::AnotherInstance),
-            _ => McpServerStatus::Stopped,
-        };
-        RealServer {
-            core,
-            registry: Arc::new(Registry::new(delegate.clone())),
-            delegate,
-            inner: Mutex::new(Inner {
-                status,
-                lock,
-                running: None,
-            }),
         }
     }
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
         // 状态里没有需要在 panic 后保护的跨字段不变式，中毒后继续使用。
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn lifecycle(&self) -> MutexGuard<'_, ()> {
+        self.lifecycle.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// 设置状态并回调，调用方持有 `inner` 锁（见模块文档）。
@@ -140,9 +162,15 @@ impl RealServer {
     }
 
     pub(crate) fn start(&self, config: McpServerConfig) -> Result<()> {
+        let _lifecycle = self.lifecycle();
+        self.stop_running();
         let mut inner = self.lock();
-        if inner.running.is_some() {
-            self.stop_running(&mut inner);
+        // 目录创建失败可能是暂时的（例如磁盘刚恢复），先重试一次。
+        if matches!(inner.lock, Lock::Failed(_)) {
+            inner.lock = self.acquire_lock();
+            if matches!(inner.lock, Lock::Another) {
+                inner.status = McpServerStatus::Unavailable(McpUnavailable::AnotherInstance);
+            }
         }
         let socket = match &inner.lock {
             Lock::Held { socket, .. } => socket.clone(),
@@ -157,6 +185,19 @@ impl RealServer {
                 return Err(self.fail(&mut inner, detail));
             }
         };
+        // 令牌为空等于没有令牌，不能监听；bundle id 不一致说明宿主传错了配置，
+        // 路径在构造时已经按 core 的 bundle id 定死，不能静默忽略。
+        if config.token.expose().is_empty() {
+            return Err(self.fail(&mut inner, "mcp token is empty".to_owned()));
+        }
+        if config.bundle_id != self.core.bundle_id() {
+            let detail = format!(
+                "bundle id {:?} does not match the core's {:?}",
+                config.bundle_id,
+                self.core.bundle_id()
+            );
+            return Err(self.fail(&mut inner, detail));
+        }
         match self.launch(&socket, config.token) {
             Ok(running) => {
                 let status = McpServerStatus::Running {
@@ -223,30 +264,43 @@ impl RealServer {
         })
     }
 
-    /// 停止运行中的服务，状态改为 `Stopped` 并回调；调用方持有 `inner` 锁且 `running` 为 `Some`。
-    fn stop_running(&self, inner: &mut Inner) {
-        let Some(running) = inner.running.take() else {
-            return;
+    /// 停止运行中的服务；没有运行时什么也不做。调用方持有 `lifecycle` 锁。
+    ///
+    /// 先在 `inner` 锁内取出 `Running`、改状态并回调，**放锁后**再拆除：拆除要等审计与运行时，
+    /// 最长几秒，不能让 `status()` 等方法一直被挡住。
+    fn stop_running(&self) {
+        let running = {
+            let mut inner = self.lock();
+            let Some(running) = inner.running.take() else {
+                return;
+            };
+            self.set_status(&mut inner, McpServerStatus::Stopped);
+            running
         };
+        Self::teardown(&self.registry, running);
+    }
+
+    /// 拆除运行时。顺序有意义：先断开客户端（此后不再有新调用产生审计），
+    /// 再取消关停令牌让审计任务写完队列里剩下的记录，否则正在进行的调用写的审计会因队列已关闭而丢失。
+    fn teardown(registry: &Registry, running: Running) {
+        registry.close();
         running.shutdown.cancel();
-        self.registry.close();
-        // 审计任务收到关停信号后会写完队列里剩下的记录；设上限，数据库卡住时不拖住宿主线程。
+        // 设上限：数据库卡住时不拖住宿主线程。
         let audit = running.audit;
         running.runtime.block_on(async {
             let _ = tokio::time::timeout(AUDIT_FLUSH_TIMEOUT, audit).await;
         });
         running.runtime.shutdown_timeout(RUNTIME_SHUTDOWN_TIMEOUT);
         let _ = fs::remove_file(&running.socket);
-        self.set_status(inner, McpServerStatus::Stopped);
     }
 
     /// 停止后状态回到 `Stopped`。启动失败（`Unavailable(Failed)`）后用户关掉开关时也要回到 `Stopped`，
     /// 否则设置页在开关已关的情况下还一直显示"不可用"。没有拿到锁（`AnotherInstance`）时保持不变。
     pub(crate) fn stop(&self) {
+        let _lifecycle = self.lifecycle();
+        self.stop_running();
         let mut inner = self.lock();
-        if inner.running.is_some() {
-            self.stop_running(&mut inner);
-        } else if matches!(
+        if matches!(
             inner.status,
             McpServerStatus::Unavailable(McpUnavailable::Failed { .. })
         ) {
@@ -268,6 +322,17 @@ impl RealServer {
 
     pub(crate) fn disconnect(&self, client_id: u64) {
         self.registry.remove(client_id);
+    }
+}
+
+impl Drop for RealServer {
+    /// 兜底：宿主退出时应当已经调用过 `stop`；没有的话这里也写完审计、删 socket，
+    /// 不回调（对象已在销毁，宿主不应再收到事件）。
+    fn drop(&mut self) {
+        let inner = self.inner.get_mut().unwrap_or_else(|e| e.into_inner());
+        if let Some(running) = inner.running.take() {
+            Self::teardown(&self.registry, running);
+        }
     }
 }
 

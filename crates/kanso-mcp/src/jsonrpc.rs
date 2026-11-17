@@ -4,6 +4,14 @@
 
 use crate::hello::json_string;
 
+/// JSON-RPC 的"服务端错误"区间（-32000 到 -32099）里的一个码；转发程序与 App 的拒绝回复共用。
+pub const SERVER_ERROR: i32 = -32000;
+/// Kanso 未运行时转发程序回复的说明。
+pub const MSG_NOT_RUNNING: &str = "Kanso is not running. Ask the user to open Kanso.";
+/// 总开关关闭时转发程序与工具调用回复的说明。
+pub const MSG_DISABLED: &str =
+    "MCP is disabled in Kanso settings. Ask the user to enable it in Settings → MCP.";
+
 /// MCP stdio 传输按行分帧：每条消息一行 JSON。取出顶层对象里 `id` 字段的原始 JSON 文本
 /// （数字或字符串，原样保留，回复时照抄）。没有 `id`（通知）或不是 JSON 对象时返回 `None`。
 pub fn request_id(line: &str) -> Option<String> {

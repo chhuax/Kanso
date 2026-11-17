@@ -116,6 +116,7 @@ pub trait McpServerDelegate: Send + Sync {
 #[derive(Clone, Debug)]
 pub struct McpServerConfig {
     /// App 的 bundle id；socket 与单实例锁的路径由它推出，`kanso-mcp` 用同一规则（architecture §16.1）。
+    /// 真实服务构造时就按 `Core::bundle_id()` 取锁，所以这里必须与之一致，不一致时 `start` 返回 `Failed`。
     pub bundle_id: String,
     /// 客户端令牌（spec/mcp.md §1.1）。由宿主保存在钥匙串里，启动时传入。
     pub token: SecretString,

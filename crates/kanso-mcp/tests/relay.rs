@@ -197,3 +197,19 @@ fn wrong_token_is_rejected_through_relay() {
     );
     server.stop();
 }
+
+#[test]
+fn missing_token_is_rejected_through_relay() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_core, server) = started_server(dir.path());
+    // 空串与不设置 KANSO_MCP_TOKEN 等价：转发程序都发送空令牌。
+    let mut relay = Relay::spawn(dir.path(), "");
+    let resp = relay.initialize();
+    assert!(
+        resp["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("Invalid or missing Kanso MCP token")
+    );
+    server.stop();
+}

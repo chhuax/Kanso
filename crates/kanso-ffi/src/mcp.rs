@@ -372,8 +372,8 @@ pub struct KansoMcpServer {
 
 #[uniffi::export]
 impl KansoMcpServer {
-    /// 创建真实服务，与宿主共用 `core`。**F9 完成前** `start` 返回 `NotSupported`；
-    /// 非 Direct 渠道永远如此。
+    /// 创建真实服务，与宿主共用 `core`。构造时就取单实例锁；
+    /// `start` 传入的 bundle id 必须与 `core` 的一致。非 Direct 渠道（及非 Unix 平台）`start` 永远返回 `NotSupported`。
     #[uniffi::constructor]
     pub fn new(core: Arc<KansoCore>, delegate: Arc<dyn FfiMcpServerDelegate>) -> Arc<Self> {
         Arc::new(KansoMcpServer {

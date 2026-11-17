@@ -3,6 +3,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use kanso_mcp::jsonrpc::SERVER_ERROR;
 use kanso_mcp::{hello, jsonrpc};
 use kanso_types::mcp::McpAuditEntry;
 use rmcp::ServiceExt;
@@ -20,14 +21,22 @@ use crate::now_ms;
 
 /// 握手行必须在这段时间内读完，防止空连接占着名额。
 const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
-/// JSON-RPC 的"服务端错误"区间里的码，与转发程序一致。
-const SERVER_ERROR: i32 = -32000;
+/// 令牌校验通过后，客户端必须在这段时间内完成 initialize，否则释放名额。
+/// 令牌已经通过，说明是用户配置过的客户端，所以放宽到 10 秒（启动慢的客户端也够）。
+const INIT_TIMEOUT: Duration = Duration::from_secs(10);
+/// 拒绝时读取第一条请求的长度上限，与 rmcp 的单行上限（16 MiB）一致，
+/// 否则很大的 initialize 收不到错误回复。
+const MAX_REQUEST_LEN: usize = 16 * 1024 * 1024;
 const MSG_INVALID_TOKEN: &str = "Invalid or missing Kanso MCP token. Ask the user to copy the configuration again from Kanso Settings → MCP.";
+const MSG_VERSION_MISMATCH: &str =
+    "Kanso and kanso-mcp versions do not match. Reinstall Kanso or copy the configuration again.";
 const MSG_TOO_MANY: &str = "Too many MCP clients connected to Kanso.";
 
 #[derive(Deserialize)]
 struct Hello {
     v: u32,
+    /// 缺失当作空串，随后按"令牌无效"处理。
+    #[serde(default)]
     token: String,
     /// 阶段 1 只记录；识别客户端所在标签（spec/mcp.md §2.5）在后续阶段使用。
     #[serde(default)]
@@ -52,8 +61,14 @@ pub(super) async fn handle(stream: UnixStream, shared: Arc<Shared>) {
 
     let (read, mut write) = stream.into_split();
     let mut reader = BufReader::new(read);
-    let Ok(Some(hello)) = timeout(HELLO_TIMEOUT, read_hello(&mut reader)).await else {
-        return;
+    let hello = match timeout(HELLO_TIMEOUT, read_hello(&mut reader)).await {
+        Ok(Some(h)) if h.v == hello::VERSION => h,
+        Ok(Some(_)) => {
+            reject(&mut reader, &mut write, MSG_VERSION_MISMATCH).await;
+            return;
+        }
+        // 超时、超长或不是合法的握手：直接断开。
+        _ => return,
     };
     tracing::debug!(pid = ?cred.pid(), tty = ?hello.tty, "mcp connection handshake");
 
@@ -96,10 +111,14 @@ async fn serve(
 ) {
     let handler = KansoHandler::new(shared, id);
     let running = tokio::select! {
-        r = handler.serve((reader, write)) => match r {
-            Ok(running) => running,
-            Err(e) => {
+        r = timeout(INIT_TIMEOUT, handler.serve((reader, write))) => match r {
+            Ok(Ok(running)) => running,
+            Ok(Err(e)) => {
                 tracing::debug!("mcp initialize failed: {e}");
+                return;
+            }
+            Err(_) => {
+                tracing::debug!("mcp initialize timed out");
                 return;
             }
         },
@@ -112,19 +131,19 @@ async fn serve(
     }
 }
 
-/// 读一行（含换行）。超长、提前结束或不是合法握手都返回 `None`。
+/// 读握手行（最多 `hello::MAX_LEN` 字节）。超长、提前结束或 JSON 解析失败返回 `None`；
+/// 版本是否匹配由调用方判断，以便给出原因。
 async fn read_hello(reader: &mut BufReader<OwnedReadHalf>) -> Option<Hello> {
-    let line = read_line(reader).await?;
-    let hello: Hello = serde_json::from_str(&line).ok()?;
-    (hello.v == hello::VERSION).then_some(hello)
+    let line = read_line(reader, hello::MAX_LEN).await?;
+    serde_json::from_str(&line).ok()
 }
 
-/// 最多读 `MAX_LEN` 字节、以换行结尾的一行。
-async fn read_line(reader: &mut BufReader<OwnedReadHalf>) -> Option<String> {
+/// 最多读 `max` 字节、以换行结尾的一行。
+async fn read_line(reader: &mut BufReader<OwnedReadHalf>, max: usize) -> Option<String> {
     let mut buf = Vec::new();
     // `take` 限制的是本次读取的总量；超过上限仍没遇到换行就当作非法输入。
     let n = reader
-        .take(hello::MAX_LEN as u64)
+        .take(max as u64)
         .read_until(b'\n', &mut buf)
         .await
         .ok()?;
@@ -137,7 +156,7 @@ async fn read_line(reader: &mut BufReader<OwnedReadHalf>) -> Option<String> {
 /// 读客户端的第一条请求，回复一个 JSON-RPC 错误后断开。
 /// 转发程序只是原样转发，客户端发出 initialize 后一直在等回复；不回复它只会看到"连接意外断开"。
 async fn reject(reader: &mut BufReader<OwnedReadHalf>, write: &mut OwnedWriteHalf, message: &str) {
-    let Ok(Some(line)) = timeout(HELLO_TIMEOUT, read_line(reader)).await else {
+    let Ok(Some(line)) = timeout(HELLO_TIMEOUT, read_line(reader, MAX_REQUEST_LEN)).await else {
         return;
     };
     let Some(id) = jsonrpc::request_id(&line) else {

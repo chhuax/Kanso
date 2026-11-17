@@ -21,11 +21,9 @@ mod unix {
     use kanso_mcp::paths::McpPaths;
     use kanso_mcp::{DIRECT_BUNDLE_ID, TOKEN_ENV, hello, jsonrpc};
 
-    /// JSON-RPC 的"服务端错误"区间（-32000 到 -32099）里的一个码。
-    const SERVER_ERROR: i32 = -32000;
-    const NOT_RUNNING: &str = "Kanso is not running. Ask the user to open Kanso.";
-    const DISABLED: &str =
-        "MCP is disabled in Kanso settings. Ask the user to enable it in Settings → MCP.";
+    use kanso_mcp::jsonrpc::{
+        MSG_DISABLED as DISABLED, MSG_NOT_RUNNING as NOT_RUNNING, SERVER_ERROR,
+    };
     /// 找带 id 的请求时最多看几行：正常情况下第一行就是 initialize。
     const MAX_LINES_BEFORE_REQUEST: usize = 16;
 
