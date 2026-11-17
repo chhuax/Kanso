@@ -68,6 +68,11 @@ impl ShellView {
         self.close_launcher(window, cx);
         match ev {
             LauncherEvent::Close => {}
+            LauncherEvent::OpenSettings => self.run_command(
+                kanso_gpui::app::shortcuts::AppCommand::OpenSettings,
+                window,
+                cx,
+            ),
             LauncherEvent::OpenLocal => self.open_tab(window, cx),
             LauncherEvent::NewSession => self.open_editor(None, window, cx),
             LauncherEvent::Connect(id) => self.connect_profile(id, window, cx),

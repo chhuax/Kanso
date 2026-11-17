@@ -4,10 +4,10 @@
 //! （状态或 Git 分支）、右侧未读 / 运行指示与关闭按钮。点击在鼠标按下时就切换。
 //! 右键标签行弹出标签菜单（关闭 / 关闭其他 / 左侧 / 右侧 / 全部），标签栏空白处右键打开会话启动器；
 //! 工具条上的“≡”按钮打开窗口级应用菜单（Windows / Linux 没有系统菜单栏）。
-//! 暂未实现：路径搜索框与过滤按钮、拖拽排序、悬停提示。
+//! 暂未实现：拖拽排序、悬停提示。
 
 use gpui::{Context, Hsla, MouseButton, MouseDownEvent, div, point, prelude::*, px, rgb};
-use kanso_gpui::app::shortcuts::{AppCommand, shortcut_text};
+use kanso_gpui::app::shortcuts::AppCommand;
 use kanso_gpui::app::status_bar::state_text;
 use kanso_gpui::app::tab::{
     TabConnection, TabDescriptions, TabItem, TabKind, TabPresentation, truncate_keep_tail,
@@ -15,6 +15,7 @@ use kanso_gpui::app::tab::{
 use kanso_gpui::widgets::style::number;
 
 use super::shell::{ShellView, Theme, status_bar_h};
+use super::widgets::icons::icon;
 
 /// 没有配置颜色的会话从这组色里按 id 稳定取一个（同一个会话每次都是同一个颜色）。
 const SESSION_COLORS: [u32; 8] = [
@@ -30,14 +31,6 @@ fn session_color(item: &TabItem) -> Hsla {
         None => SESSION_COLORS[TabPresentation::color_index(item, SESSION_COLORS.len())],
     };
     rgb(rgb_hex).into()
-}
-
-fn kind_glyph(kind: TabKind) -> &'static str {
-    match kind {
-        TabKind::Local => ">_",
-        TabKind::Ssh => "SH",
-        TabKind::Sftp => "FT",
-    }
 }
 
 impl ShellView {
@@ -58,8 +51,8 @@ impl ShellView {
             .flex()
             .flex_col()
             .gap(px(2.0))
-            .px(px(6.0))
-            .py(px(4.0))
+            .px(px(8.0))
+            .py(px(8.0))
             // 标签栏空白处右键：打开会话启动器（标签行的右键会先拦下，不会走到这里）。
             .on_mouse_down(
                 MouseButton::Right,
@@ -68,10 +61,17 @@ impl ShellView {
                 }),
             );
 
+        let query = self.path_filter.read(cx).text().to_owned();
+        let mut visible_count = 0;
         let mut global_index = 0usize;
         for section in sections {
             let pane = section.pane;
-            if show_headers {
+            if show_headers
+                && section
+                    .tabs
+                    .iter()
+                    .any(|item| TabPresentation::matches_path_filter(item, &query))
+            {
                 let is_active = pane == active_pane;
                 list = list.child(
                     div()
@@ -96,6 +96,12 @@ impl ShellView {
                 );
             }
             for item in &section.tabs {
+                let index = global_index;
+                global_index += 1;
+                if !TabPresentation::matches_path_filter(item, &query) {
+                    continue;
+                }
+                visible_count += 1;
                 let selected = active_session == Some(item.id);
                 // 选中且在活动分屏：完整高亮；选中但分屏不活动：淡一点，表示“该分屏当前显示它”。
                 let in_active_pane = pane == active_pane;
@@ -103,7 +109,7 @@ impl ShellView {
                     truncate_keep_tail(&TabPresentation::primary_title(item, home), title_cells);
                 list = list.child(self.render_row(
                     item,
-                    global_index,
+                    index,
                     title,
                     selected,
                     in_active_pane,
@@ -111,11 +117,16 @@ impl ShellView {
                     th,
                     cx,
                 ));
-                global_index += 1;
             }
         }
 
-        let new_hint = shortcut_text(AppCommand::NewLocalTab).unwrap_or_default();
+        if visible_count == 0 && !query.trim().is_empty() {
+            list = list.child(div().p(px(14.0)).text_color(th.c("text.secondary")).child(
+                kanso_gpui::app::launcher::render_message(
+                    &kanso_types::message::Message::UiNoMatchingPaths {},
+                ),
+            ));
+        }
         div()
             .absolute()
             .left_0()
@@ -127,7 +138,7 @@ impl ShellView {
             .bg(th.c("bg.sidebar"))
             .border_r_1()
             .border_color(th.c("border.subtle"))
-            // 顶部工具条：标题 + 新建按钮。
+            // 顶部工具条：路径筛选 + 应用菜单 + 新建按钮。
             .child(
                 div()
                     .h(px(40.0))
@@ -135,12 +146,13 @@ impl ShellView {
                     .flex()
                     .items_center()
                     .justify_between()
-                    .px(px(14.0))
+                    .px(px(8.0))
                     .child(
                         div()
-                            .text_size(px(number("font", "ui.caption")))
-                            .text_color(th.c("text.secondary"))
-                            .child(format!("会话 · {}", ws.tab_count())),
+                            .flex_1()
+                            .min_w_0()
+                            .mr(px(4.0))
+                            .child(self.path_filter.clone()),
                     )
                     .child(
                         div()
@@ -171,7 +183,7 @@ impl ShellView {
                                             this.open_app_menu(anchor, window, cx)
                                         }),
                                     )
-                                    .child("≡"),
+                                    .child(icon("menu", 15.0, th.c("text.secondary"))),
                             )
                             .child(
                                 div()
@@ -194,22 +206,11 @@ impl ShellView {
                                             this.new_tab_clicked(window, cx)
                                         }),
                                     )
-                                    .child("+"),
+                                    .child(icon("plus", 16.0, th.c("text.secondary"))),
                             ),
                     ),
             )
             .child(list)
-            .child(
-                div()
-                    .flex_none()
-                    .px(px(14.0))
-                    .py(px(8.0))
-                    .border_t_1()
-                    .border_color(th.c("border.subtle"))
-                    .text_size(px(number("font", "ui.caption")))
-                    .text_color(th.c("text.tertiary"))
-                    .child(format!("{new_hint} 新建标签")),
-            )
             .into_any_element()
     }
 
@@ -255,6 +256,7 @@ impl ShellView {
 
         let mut row = div()
             .id(("tab", sid.raw() as usize))
+            .group(gpui::SharedString::from(format!("tab-{}", sid.raw())))
             .relative()
             .h(px(number("spacing", "tabRow.height")))
             .flex_none()
@@ -285,30 +287,33 @@ impl ShellView {
             row = row.child(
                 div()
                     .absolute()
-                    .left(px(0.0))
-                    .top(px(10.0))
-                    .bottom(px(10.0))
+                    .left(px(4.0))
+                    .top(px(9.0))
+                    .bottom(px(9.0))
                     .w(px(3.0))
                     .rounded(px(2.0))
-                    .bg(th.c("accent")),
+                    .bg(accent),
             );
         }
 
         row.child(
-            // 会话色图标。
             div()
                 .flex_none()
-                .w(px(28.0))
-                .h(px(28.0))
+                .w(px(24.0))
+                .h(px(24.0))
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded(px(number("radius", "md")))
-                .bg(Hsla { a: 0.2, ..accent })
-                .text_size(px(11.0))
-                .text_color(accent)
                 .opacity(if closed { 0.5 } else { 1.0 })
-                .child(kind_glyph(item.kind)),
+                .child(icon(
+                    match item.kind {
+                        TabKind::Local => "square-terminal",
+                        TabKind::Ssh => "server",
+                        TabKind::Sftp => "folder",
+                    },
+                    16.0,
+                    th.c("text.secondary"),
+                )),
         )
         .child(
             div()
@@ -339,6 +344,11 @@ impl ShellView {
                 .flex_none()
                 .text_size(px(number("font", "ui.caption")))
                 .text_color(th.c("text.tertiary"))
+                .opacity(0.0)
+                .group_hover(
+                    gpui::SharedString::from(format!("tab-{}", sid.raw())),
+                    |s| s.opacity(1.0),
+                )
                 .child((index + 1).to_string())
         }))
         // 未读完成 / 运行中指示点。
@@ -358,6 +368,11 @@ impl ShellView {
             // 关闭按钮：鼠标按下即关闭，不让按下事件冒泡成“切换标签”。
             div()
                 .id(("close", sid.raw() as usize))
+                .opacity(0.0)
+                .group_hover(
+                    gpui::SharedString::from(format!("tab-{}", sid.raw())),
+                    |s| s.opacity(1.0),
+                )
                 .flex_none()
                 .w(px(20.0))
                 .h(px(20.0))
@@ -375,7 +390,7 @@ impl ShellView {
                         this.close_tab_clicked(sid, window, cx)
                     }),
                 )
-                .child("×"),
+                .child(icon("x", 12.0, th.c("text.secondary"))),
         )
         .into_any_element()
     }

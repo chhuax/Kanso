@@ -153,8 +153,8 @@ mod tests {
 
     #[test]
     fn tr_in_falls_back_to_source() {
-        assert_eq!(tr_in(Lang::ZhHans, "设置"), "设置");
-        assert_eq!(tr_in(Lang::En, "设置"), "Settings");
+        assert_eq!(tr_in(Lang::ZhHans, "语言"), "语言");
+        assert_eq!(tr_in(Lang::En, "语言"), "Language");
         // 表里没有：回落源文。
         assert_eq!(tr_in(Lang::En, "表里一定没有的句子"), "表里一定没有的句子");
     }

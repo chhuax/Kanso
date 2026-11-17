@@ -27,8 +27,10 @@ use kanso_types::{GroupId, ProfileId};
 use super::log;
 use super::shell::Theme;
 use super::widgets::dialog::{Dialog, DialogEvent};
+use super::widgets::icons::icon;
 use super::widgets::menu::{ContextMenu, MenuEvent};
 use super::widgets::text_input::{TextInput, TextInputEvent};
+use kanso_types::message::Message;
 
 /// 浮层宽度（mac 版 360）。
 const PANEL_W: f32 = 360.0;
@@ -43,6 +45,8 @@ const HEADER_ROW_H: f32 = 30.0;
 pub(crate) enum LauncherEvent {
     /// 关闭（Esc、点浮层外）。
     Close,
+    /// 打开设置。
+    OpenSettings,
     /// 新建本地 shell 标签。
     OpenLocal,
     /// 打开新建会话对话框。
@@ -103,7 +107,11 @@ fn appearance(window: &Window) -> Appearance {
 impl LauncherView {
     /// 创建并聚焦搜索框。必须在窗口上下文里创建。
     pub(crate) fn new(core: Arc<Core>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let search = cx.new(|cx| TextInput::new(window, cx).placeholder("搜索已保存的会话"));
+        let search = cx.new(|cx| {
+            TextInput::new(window, cx)
+                .search()
+                .placeholder(logic::render_message(&Message::UiSearchSessions {}))
+        });
         let sub = cx.subscribe_in(
             &search,
             window,
@@ -430,7 +438,7 @@ impl LauncherView {
         &self,
         id: &'static str,
         glyph: &'static str,
-        title: &'static str,
+        title: String,
         th: Theme,
         on_click: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
         cx: &mut Context<Self>,
@@ -438,7 +446,7 @@ impl LauncherView {
         div()
             .id(id)
             .h(px(ACTION_ROW_H))
-            .px(px(14.0))
+            .px(px(16.0))
             .flex()
             .items_center()
             .gap(px(10.0))
@@ -457,7 +465,7 @@ impl LauncherView {
                     .flex()
                     .justify_center()
                     .text_color(th.c("text.secondary"))
-                    .child(glyph),
+                    .child(icon(glyph, 16.0, th.c("text.secondary"))),
             )
             .child(title)
     }
@@ -481,7 +489,15 @@ impl LauncherView {
             .text_color(th.c("text.secondary"))
             .cursor_pointer()
             .hover(|s| s.bg(th.c("bg.tabHover")).text_color(th.c("text.primary")))
-            .child(label)
+            .child(icon(
+                if label == "编辑" {
+                    "pencil"
+                } else {
+                    "ellipsis"
+                },
+                14.0,
+                th.c("text.secondary"),
+            ))
     }
 
     fn render_profile_row(
@@ -496,7 +512,7 @@ impl LauncherView {
         let group_name: gpui::SharedString = format!("row-{index}").into();
         let swatch: Hsla = match p.color {
             Some(c) => rgb((u32::from(c.r) << 16) | (u32::from(c.g) << 8) | u32::from(c.b)).into(),
-            None => th.c("border.strong"),
+            None => gpui::transparent_black(),
         };
         let actions_visible = |s: gpui::StyleRefinement| s.opacity(1.0);
         div()
@@ -504,7 +520,7 @@ impl LauncherView {
             .group(group_name.clone())
             .h(px(PROFILE_ROW_H))
             .flex_none()
-            .px(px(14.0))
+            .px(px(16.0))
             .flex()
             .items_center()
             .gap(px(10.0))
@@ -526,7 +542,15 @@ impl LauncherView {
                     cx.stop_propagation();
                 }),
             )
-            .child(div().w(px(10.0)).h(px(10.0)).rounded_full().bg(swatch))
+            .child(
+                div()
+                    .relative()
+                    .top(px(-7.0))
+                    .w(px(10.0))
+                    .h(px(10.0))
+                    .rounded(px(3.0))
+                    .bg(swatch),
+            )
             .child(
                 div()
                     .flex_1()
@@ -583,7 +607,7 @@ impl LauncherView {
             .id(("group", index))
             .h(px(HEADER_ROW_H))
             .flex_none()
-            .px(px(14.0))
+            .px(px(16.0))
             .flex()
             .items_center()
             .justify_between()
@@ -622,14 +646,14 @@ impl Render for LauncherView {
             .flex_col();
         if rows.is_empty() {
             let text = if self.model.has_any_profile() {
-                "没有匹配的会话"
+                logic::render_message(&Message::UiNoMatchingSessions {})
             } else {
-                "还没有保存的会话。选择“新建会话…”添加一个。"
+                logic::render_message(&Message::UiNoSessions {})
             };
             list = list.child(
                 div()
                     .h(px(72.0))
-                    .px(px(14.0))
+                    .px(px(16.0))
                     .flex()
                     .items_center()
                     .text_color(th.c("text.tertiary"))
@@ -645,12 +669,12 @@ impl Render for LauncherView {
                 LauncherRow::EmptyGroup => div()
                     .h(px(28.0))
                     .flex_none()
-                    .px(px(14.0))
+                    .px(px(16.0))
                     .flex()
                     .items_center()
                     .text_size(px(number("font", "ui.caption")))
                     .text_color(th.c("text.tertiary"))
-                    .child("（空）")
+                    .child(logic::render_message(&Message::UiEmptyGroup {}))
                     .into_any_element(),
             });
         }
@@ -658,13 +682,13 @@ impl Render for LauncherView {
         let saved_header = div()
             .h(px(HEADER_ROW_H))
             .flex_none()
-            .px(px(14.0))
+            .px(px(16.0))
             .flex()
             .items_center()
             .justify_between()
             .text_size(px(number("font", "ui.caption")))
             .text_color(th.c("text.secondary"))
-            .child("已保存的会话")
+            .child(logic::render_message(&Message::UiSavedSessions {}))
             .child(self.small_button("saved-more", "…", th).on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, ev: &MouseDownEvent, window, cx| {
@@ -682,8 +706,8 @@ impl Render for LauncherView {
             .max_h(px(PANEL_MAX_H))
             .flex()
             .flex_col()
-            .py(px(4.0))
-            .rounded(px(number("radius", "lg")))
+            .py(px(8.0))
+            .rounded(px(number("radius", "xl")))
             .border_1()
             .border_color(th.c("border.strong"))
             .bg(th.c("bg.popover"))
@@ -698,27 +722,52 @@ impl Render for LauncherView {
             // 浮层内的点击不能冒泡到外面的"点外部关闭"。
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
-            .child(self.render_action_row(
-                "launcher-local",
-                ">_",
-                "本地 Shell",
-                th,
-                |_this, _w, cx| cx.emit(LauncherEvent::OpenLocal),
-                cx,
-            ))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .child(div().flex_1().child(self.render_action_row(
+                        "launcher-local",
+                        "square-terminal",
+                        logic::render_message(&Message::UiLocalSession {}),
+                        th,
+                        |_this, _w, cx| cx.emit(LauncherEvent::OpenLocal),
+                        cx,
+                    )))
+                    .child(
+                        div()
+                            .id("launcher-settings")
+                            .mr(px(16.0))
+                            .size(px(26.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(6.0))
+                            .cursor_pointer()
+                            .hover(|s| s.bg(th.c("bg.rowHover")))
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(|_, _, _, cx| {
+                                    cx.stop_propagation();
+                                    cx.emit(LauncherEvent::OpenSettings);
+                                }),
+                            )
+                            .child(icon("settings", 16.0, th.c("text.secondary"))),
+                    ),
+            )
             .child(self.render_action_row(
                 "launcher-new",
-                "+",
-                "新建会话…",
+                "plus",
+                format!("{}…", logic::render_message(&Message::UiNewSession {})),
                 th,
                 |_this, _w, cx| cx.emit(LauncherEvent::NewSession),
                 cx,
             ))
             .child(
                 div()
-                    .px(px(10.0))
-                    .pt(px(6.0))
-                    .pb(px(8.0))
+                    .px(px(16.0))
+                    .pt(px(8.0))
+                    .pb(px(12.0))
                     .child(self.search.clone()),
             )
             .child(saved_header)

@@ -3775,6 +3775,8 @@ dependencies = [
  "kanso-l10n",
  "kanso-secret",
  "kanso-types",
+ "log",
+ "raw-window-handle",
  "serde",
  "serde_json",
  "unicode-segmentation",

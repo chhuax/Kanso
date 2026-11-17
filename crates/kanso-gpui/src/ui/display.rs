@@ -140,6 +140,7 @@ pub(crate) fn effective_dark(window: &Window) -> bool {
 
 /// 系统的界面语言偏好（BCP 47，按偏好顺序，如 `zh-CN`、`en-US`）；取不到返回空。
 /// 语言设置选“跟随系统”时交给 `LanguageSetting::resolve`。
+#[allow(unsafe_code)] // Win32 语言列表 API；缓冲区由本函数分配并限定长度。
 pub(crate) fn system_languages() -> Vec<String> {
     use windows_sys::Win32::Globalization::{GetUserPreferredUILanguages, MUI_LANGUAGE_NAME};
     let mut count = 0u32;
@@ -177,4 +178,46 @@ pub(crate) fn apply_language(setting: LanguageSetting) {
     let system = system_languages();
     let refs: Vec<&str> = system.iter().map(String::as_str).collect();
     i18n::set_lang(setting.resolve(&refs));
+}
+
+/// 原生标题栏使用同一套外观色；只更新当前窗口，不改 Windows 全局主题。
+#[allow(unsafe_code)] // DWM 只有原生 API；句柄与参数生命周期由本函数限定。
+pub(crate) fn apply_titlebar(window: &Window) {
+    use kanso_gpui::widgets::style::color;
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows_sys::Win32::Graphics::Dwm::{
+        DWMWA_CAPTION_COLOR, DWMWA_TEXT_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute,
+    };
+    let handle = HasWindowHandle::window_handle(window).expect("GPUI 窗口持有原生句柄");
+    let RawWindowHandle::Win32(handle) = handle.as_raw() else {
+        unreachable!("Windows 前端只使用 Win32 窗口");
+    };
+    let appearance = window_appearance(window);
+    let colorref = |name| {
+        let c = color(name, appearance);
+        u32::from(c.r) | (u32::from(c.g) << 8) | (u32::from(c.b) << 16)
+    };
+    for (attribute, value) in [
+        (
+            DWMWA_USE_IMMERSIVE_DARK_MODE,
+            u32::from(appearance == Appearance::Dark),
+        ),
+        (DWMWA_CAPTION_COLOR, colorref("bg.sidebar")),
+        (DWMWA_TEXT_COLOR, colorref("text.primary")),
+    ] {
+        // 句柄由当前 Window 借出，数值在调用期间有效；三个属性都接收 32 位值。
+        let result = unsafe {
+            DwmSetWindowAttribute(
+                handle.hwnd.get() as _,
+                attribute as _,
+                (&value as *const u32).cast(),
+                std::mem::size_of::<u32>() as u32,
+            )
+        };
+        if result < 0 {
+            super::log(&format!(
+                "标题栏外观更新失败：{attribute} HRESULT={result:#x}"
+            ));
+        }
+    }
 }

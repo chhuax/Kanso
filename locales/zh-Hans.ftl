@@ -1,3 +1,4 @@
+ui-shell-command = 命令行
 command-duration-milliseconds = { $value }ms
 command-duration-seconds = { $value }s
 command-duration-minutes = { $minutes }m { $seconds }s
@@ -194,3 +195,126 @@ sshconfig-import-report = 新增 { $added } 个，更新 { $updated } 个，额�
 ## 凭据存储
 
 secret-store-failed = 无法访问凭据存储：{ $detail }
+ui-local-shell = Shell
+ui-shell-default = 系统默认
+ui-shell-custom = 自定义命令
+ui-filter-path = 按路径筛选
+ui-no-matching-paths = 没有匹配的路径
+
+ui-session = 会话
+
+ui-ssh-connection = SSH 连接
+
+ui-local-session = 本地 Shell
+
+ui-new-session = 新建会话
+
+ui-edit-session = 编辑会话
+
+ui-type = 类型
+
+ui-name = 名称
+
+ui-color = 颜色
+
+ui-group = 分组
+
+ui-start-directory = 起始目录
+
+ui-host = 主机
+
+ui-port = 端口
+
+ui-user = 用户名
+
+ui-authentication = 认证方式
+
+ui-password = 密码
+
+ui-private-key = 私钥
+
+ui-key-passphrase = 私钥口令
+
+ui-jump-host = 跳板机
+
+ui-encoding = 编码
+
+ui-locale = Locale
+
+ui-proxy-command = ProxyCommand
+
+ui-choose = 选择…
+
+ui-cancel = 取消
+
+ui-save = 保存
+
+ui-connect = 连接
+
+ui-automatic = 自动
+
+ui-keep-saved = 留空则保持已保存的值
+
+ui-search-sessions = 搜索已保存的会话
+
+ui-saved-sessions = 已保存的会话
+
+ui-no-sessions = 还没有保存的会话。选择“新建会话…”添加一个。
+
+ui-no-matching-sessions = 没有匹配的会话
+
+ui-empty-group = （空）
+
+ui-general = 通用
+
+ui-display = 显示
+
+ui-appearance = 外观
+
+ui-theme = 模式
+
+ui-light-theme = 浅色终端配色
+
+ui-dark-theme = 深色终端配色
+
+ui-font = 字体
+
+ui-terminal-font = 终端字体
+
+ui-font-size = 字号
+
+ui-line-height = 行距
+
+ui-font-custom = 自定义字体
+
+ui-font-hint = 留空使用系统等宽字体。字体缺少的图标会自动使用已安装的 Nerd Font。
+
+ui-font-probing = 正在检测本机等宽字体…
+
+ui-cursor = 光标
+
+ui-shape = 形状
+
+ui-cursor-blink = 光标闪烁
+
+ui-semantic-color = 语义着色
+
+ui-scrollback = 回滚
+
+ui-scrollback-lines = 回滚行数
+
+ui-scrollback-hint = 调小以后立即丢弃超出的最早的行。
+
+ui-contrast = 对比度
+
+ui-contrast-enabled = 最低对比度保护
+
+ui-contrast-ratio = 对比度比例
+
+ui-contrast-hint = 文字与背景的对比度低于此比例时，会自动调亮或调暗文字。
+
+ui-timeline = 时间轴
+
+ui-interface-font = 界面字体
+
+ui-settings = 设置

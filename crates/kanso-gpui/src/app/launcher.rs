@@ -14,12 +14,9 @@ use crate::widgets::menu::MenuItem;
 
 // ---- 核心消息 ----
 
-/// 界面语言（目前界面只有简体中文）。
-const LANGUAGES: &[&str] = &["zh-Hans"];
-
 /// 把核心的用户级消息渲染成界面文字。
 pub fn render_message(message: &Message) -> String {
-    kanso_l10n::render(message, LANGUAGES)
+    kanso_l10n::render(message, &super::i18n::languages())
 }
 
 /// 核心错误的展示文字：用户级错误渲染其消息，其余给通用提示（英文技术细节只进日志）。
