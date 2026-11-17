@@ -238,6 +238,12 @@ messages! {
     UiContrastRatio = "ui-contrast-ratio" {},
     /// GPUI 设置页面：文字与背景的对比度低于此比例时，会自动调亮或调暗文字。。
     UiContrastHint = "ui-contrast-hint" {},
+    /// 主窗口：搜索。
+    UiSearch = "ui-search" {},
+    /// 主窗口：文件浏览器。
+    UiFileBrowser = "ui-file-browser" {},
+    /// 主窗口：没有匹配结果。
+    UiSearchEmpty = "ui-search-empty" {},
     /// GPUI 设置页面：时间轴。
     UiTimeline = "ui-timeline" {},
     /// GPUI 设置页面：界面字体。

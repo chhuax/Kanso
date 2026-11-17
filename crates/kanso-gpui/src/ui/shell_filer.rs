@@ -159,11 +159,7 @@ impl ShellView {
             return 0.0;
         }
         let total = f32::from(window.viewport_size().width);
-        let sidebar = if self.sidebar_visible {
-            number("spacing", "sidebar.defaultWidth")
-        } else {
-            0.0
-        };
+        let sidebar = self.sidebar_width(window);
         self.filer.layout.effective_width(total - sidebar)
     }
 
@@ -533,17 +529,14 @@ impl ShellView {
         if w <= 0.0 {
             return Vec::new();
         }
-        let x = if self.sidebar_visible {
-            number("spacing", "sidebar.defaultWidth")
-        } else {
-            0.0
-        };
-        let h = f32::from(window.viewport_size().height) - status_bar_h();
+        let x = self.sidebar_width(window);
+        let top = super::toolbar::HEIGHT;
+        let h = f32::from(window.viewport_size().height) - top - status_bar_h();
         let panel = div()
             .id("filer-host")
             .absolute()
             .left(px(x))
-            .top_0()
+            .top(px(top))
             .w(px(w))
             .h(px(h.max(0.0)))
             .border_r_1()
@@ -553,7 +546,7 @@ impl ShellView {
             .id("filer-resize")
             .absolute()
             .left(px(x + w - 3.0))
-            .top_0()
+            .top(px(top))
             .w(px(6.0))
             .h(px(h.max(0.0)))
             .cursor(CursorStyle::ResizeLeftRight)

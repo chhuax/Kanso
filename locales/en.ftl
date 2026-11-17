@@ -808,3 +808,9 @@ ui-xfer-menu-send-1k = Send with XMODEM-1K…
 ui-xfer-menu-receive = Receive with XMODEM…
 ui-xfer-menu-cancel = Cancel Transfer
 ui-xfer-start-failed = Can't start the transfer: { $why }
+
+ui-search = Search
+
+ui-file-browser = File Browser
+
+ui-search-empty = No matches

@@ -802,3 +802,9 @@ ui-xfer-menu-send-1k = 用 XMODEM-1K 发送…
 ui-xfer-menu-receive = 用 XMODEM 接收…
 ui-xfer-menu-cancel = 取消传输
 ui-xfer-start-failed = 无法开始传输：{ $why }
+
+ui-search = 搜索
+
+ui-file-browser = 文件浏览器
+
+ui-search-empty = 没有匹配结果

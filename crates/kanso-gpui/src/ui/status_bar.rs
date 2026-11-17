@@ -1,6 +1,6 @@
 //! 底部状态栏（ui-shell.md §9）：内容与布局规则在 `kanso_gpui::app::status_bar`，这里只画。
 //!
-//! 左侧：Filer 开关、时间戳栏开关（两者的功能还没有接进外壳，先置灰显示，位置与 mac 版一致）、
+//! 左侧：Filer 开关、时间戳栏开关（位置与 mac 版一致）、
 //! 当前目录、状态文字；右侧：Legacy SSH 标记（悬停显示每台服务器用的旧算法）与时钟。
 //! 空间不足时状态文字先让位（被裁掉），再压缩目录（保留末尾）。
 
@@ -10,6 +10,7 @@ use kanso_gpui::app::status_bar::{StatusBarModel, StatusTone, fit_directory};
 use kanso_types::message::Message;
 
 use super::shell::{ShellView, Theme, status_bar_h};
+use super::widgets::icons::icon;
 
 /// 悬停提示：每行一台服务器及它用的旧算法。
 struct LinesTooltip {
@@ -36,10 +37,12 @@ impl Render for LinesTooltip {
     }
 }
 
-/// 左侧的“开关”条目（`on` 为开时用强调色）。
+/// 左侧的“开关”条目（`on` 为开时用强调色；窄窗口只显示图标）。
 fn toggle_item(
     id: &'static str,
-    label: &'static str,
+    symbol: &'static str,
+    label: String,
+    compact: bool,
     th: Theme,
     on: bool,
 ) -> gpui::Stateful<gpui::Div> {
@@ -54,7 +57,15 @@ fn toggle_item(
         } else {
             th.c("text.secondary")
         })
-        .child(label)
+        .flex()
+        .items_center()
+        .gap(px(6.0))
+        .child(icon(
+            symbol,
+            12.0,
+            if on { th.c("accent") } else { th.c("text.secondary") },
+        ))
+        .when(!compact, |item| item.child(label))
 }
 
 impl ShellView {
@@ -74,7 +85,9 @@ impl ShellView {
         );
         // AI 会话里开关只作用于当前会话，所以按活动会话的实际模式判断。
         let timeline_on = self.gutter_policy.is_on(ws.active_session());
-        let width = f32::from(window.viewport_size().width);
+        // 侧栏贴着标题栏下沿一直到窗口底部，状态栏只占侧栏右边的宽度。
+        let sidebar_w = self.sidebar_width(window);
+        let width = f32::from(window.viewport_size().width) - sidebar_w;
         let legacy_visible = model.legacy.is_some();
 
         let status = model.status.map(|(text, tone)| {
@@ -97,7 +110,11 @@ impl ShellView {
                 .flex_none()
                 .whitespace_nowrap()
                 .text_color(th.c("text.secondary"))
-                .child(fit_directory(&d, width, legacy_visible))
+                .flex()
+                .items_center()
+                .gap(px(6.0))
+                .child(icon("folder", 12.0, th.c("text.secondary")))
+                .child(fit_directory(&d, width - 18.0, legacy_visible))
         });
         let legacy = model.legacy.map(|lines| {
             div()
@@ -143,13 +160,14 @@ impl ShellView {
         div()
             .id("status-bar")
             .absolute()
-            .left_0()
+            .left(px(sidebar_w))
             .bottom_0()
-            .w_full()
+            .w(px(width))
+            .overflow_hidden()
             .h(px(status_bar_h()))
             .flex()
             .items_center()
-            .gap(px(16.0))
+            .gap(px(if width < 460. { 6. } else { 16. }))
             .px(px(12.0))
             .bg(th.c("bg.statusBar"))
             .border_t_1()
@@ -159,7 +177,9 @@ impl ShellView {
             .child(
                 toggle_item(
                     "status-timeline",
+                    "clock",
                     label(Message::UiTimestamps {}),
+                    width < 460.,
                     th,
                     timeline_on,
                 )
