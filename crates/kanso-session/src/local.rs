@@ -1158,8 +1158,10 @@ fn spawn_exit_watcher(shared: &Arc<Shared>) {
             if shared.user_closing.load(Ordering::Acquire) || shared.ended.load(Ordering::Acquire) {
                 return;
             }
-            let exited = matches!(lock(&shared.pty).try_wait(), Ok(Some(_)) | Err(_));
+            let waited = lock(&shared.pty).try_wait();
+            let exited = matches!(waited, Ok(Some(_)));
             if exited {
+                tracing::debug!(session = %shared.id, status = ?waited, "exit watcher: shell exited, closing pseudo console");
                 let master = lock(&shared.pty).detach_master();
                 drop(master);
                 return;
