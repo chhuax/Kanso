@@ -26,6 +26,7 @@ pub mod backend;
 pub mod confirm;
 pub mod controller;
 pub mod events;
+pub mod filer_layout;
 pub mod filer_ops;
 pub mod filer_state;
 pub mod filer_text;

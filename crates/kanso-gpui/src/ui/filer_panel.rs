@@ -19,8 +19,8 @@ use std::time::{Duration, Instant};
 
 use futures::StreamExt as _;
 use gpui::{
-    ClipboardItem, Context, Entity, EventEmitter, FocusHandle, Focusable, Pixels, Point,
-    ScrollStrategy, Subscription, Task, UniformListScrollHandle, Window, point, px,
+    AppContext as _, ClipboardItem, Context, Entity, EventEmitter, FocusHandle, Focusable, Pixels,
+    Point, ScrollStrategy, Subscription, Task, UniformListScrollHandle, Window, point, px,
 };
 use kanso_core::Core;
 use kanso_gpui::app::filer_ops::{
@@ -879,7 +879,9 @@ impl FilerPanel {
                             let finish = match r {
                                 Ok(report) => {
                                     if report.already_there > 0 {
-                                        cx.emit(FilerEvent::Notice(t("ui-filer-already-here")));
+                                        cx.emit(FilerEvent::Notice(
+                                            kanso_gpui::app::filer_text::t("ui-filer-already-here"),
+                                        ));
                                     }
                                     Finish::Completed {
                                         skipped: report.skipped_existing,
@@ -1649,7 +1651,7 @@ impl FilerPanel {
                     }
                 }
                 if let Some((name, reason)) = failed {
-                    let what = t("ui-filer-delete");
+                    let what = kanso_gpui::app::filer_text::t("ui-filer-delete");
                     self.report_error(idx, &what, &name, &reason, cx);
                 }
                 self.refresh(idx, cx);
@@ -1685,7 +1687,7 @@ impl FilerPanel {
                     }
                     let _ = this.update(cx, |t, cx| {
                         if let Some((name, reason)) = failed {
-                            let what = t("ui-filer-delete");
+                            let what = kanso_gpui::app::filer_text::t("ui-filer-delete");
                             t.report_error(idx, &what, &name, &reason, cx);
                         }
                         t.refresh(idx, cx);
@@ -1735,7 +1737,7 @@ impl FilerPanel {
         if let Some(pos) = moved {
             self.panes[idx]
                 .scroll
-                .scroll_to_item(pos, ScrollStrategy::Nearest);
+                .scroll_to_item(pos, ScrollStrategy::Top);
             cx.notify();
             return true;
         }

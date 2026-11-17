@@ -96,7 +96,10 @@ mod tests {
         };
         assert_eq!(FilerLayout::from_json(Some(&l.to_json())), l);
         assert_eq!(FilerLayout::from_json(None), FilerLayout::default());
-        assert_eq!(FilerLayout::from_json(Some("not json")), FilerLayout::default());
+        assert_eq!(
+            FilerLayout::from_json(Some("not json")),
+            FilerLayout::default()
+        );
         let wide = FilerLayout::from_json(Some(r#"{"visible":true,"width":9999}"#));
         assert_eq!(wide.width, MAX_WIDTH);
         let thin = FilerLayout::from_json(Some(r#"{"visible":true,"width":1}"#));
@@ -132,7 +135,10 @@ mod tests {
     #[test]
     fn identity_names_local_or_remote() {
         assert_eq!(identity_text(false, "x", None), "本地");
-        assert_eq!(identity_text(true, "prod", Some("10.0.0.5")), "prod · 10.0.0.5");
+        assert_eq!(
+            identity_text(true, "prod", Some("10.0.0.5")),
+            "prod · 10.0.0.5"
+        );
         assert_eq!(identity_text(true, "prod", None), "prod");
         assert_eq!(identity_text(true, "h", Some("h")), "h");
     }

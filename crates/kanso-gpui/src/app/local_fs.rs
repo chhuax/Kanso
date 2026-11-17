@@ -415,8 +415,8 @@ impl CopyState<'_> {
         if !ft.is_file() {
             return Ok(());
         }
-        match fs::symlink_metadata(dst) {
-            Ok(m) => {
+        if let Ok(m) = fs::symlink_metadata(dst) {
+            {
                 if m.file_type().is_symlink() {
                     return Err(LocalError::new(
                         LocalErrorKind::Other,
@@ -445,7 +445,6 @@ impl CopyState<'_> {
                     CopyPolicy::Overwrite => {}
                 }
             }
-            Err(_) => {}
         }
         self.copy_file(src, dst, &meta)
     }

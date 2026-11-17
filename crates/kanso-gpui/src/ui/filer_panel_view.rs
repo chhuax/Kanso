@@ -635,7 +635,6 @@ impl FilerPanel {
                     .children(show_home_button.then(|| {
                         div()
                             .id(("go-home", idx))
-                            .self_start()
                             .px(px(10.0))
                             .py(px(4.0))
                             .rounded(px(number("radius", "md")))
@@ -886,7 +885,7 @@ impl FilerPanel {
             .border_color(th.c("border.subtle"))
             .child(
                 icon_button(
-                    ("mid", 0),
+                    ("mid", 0usize),
                     "upload",
                     t("ui-filer-send-to-remote"),
                     !busy,
@@ -896,7 +895,7 @@ impl FilerPanel {
             )
             .child(
                 icon_button(
-                    ("mid", 1),
+                    ("mid", 1usize),
                     "download",
                     t("ui-filer-get-from-remote"),
                     !busy,
