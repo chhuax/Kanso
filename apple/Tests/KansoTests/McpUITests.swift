@@ -89,6 +89,21 @@ private final class AccessStub: McpAccessStoring, @unchecked Sendable {
     }
 }
 
+/// 转发给 core，但 `setCredential` 一律失败。
+private final class FailingCredentialStore: SessionStore, @unchecked Sendable {
+    struct Failure: Error {}
+    let core: KansoCore
+    init(core: KansoCore) { self.core = core }
+    func profiles() -> [FfiProfile] { core.profiles() }
+    func groups() -> [FfiGroup] { core.groups() }
+    func saveProfile(profile: FfiProfile) throws { try core.saveProfile(profile: profile) }
+    func deleteProfile(id: String) async throws { try await core.deleteProfile(id: id) }
+    func saveGroup(group: FfiGroup) throws { try core.saveGroup(group: group) }
+    func groupDeleteImpact(id: String) throws -> FfiDeleteImpact { try core.groupDeleteImpact(id: id) }
+    func deleteGroup(id: String) async throws { try await core.deleteGroup(id: id) }
+    func setCredential(profile: String, kind: FfiSecretKind, secret: String) async throws { throw Failure() }
+}
+
 private final class McpConflictStub: KeybindingConflictPrompter {
     func confirmReplace(chord: KeyChord, existing: KeyCommand, new: KeyCommand, window: NSWindow?) async -> Bool {
         false
@@ -290,29 +305,32 @@ final class McpUITests: XCTestCase {
         let (coordinator, _, _) = makeCoordinator(schedule: clock)
         try coordinator.setEnabled(true)
         await flush()
-
-        try coordinator.server.debugActivity(sessionId: 7, tool: "kanso_terminal_read")
+        let local = try profile(coordinator.core, named: "Local")
+        let session = try await coordinator.server.debugOpenTab(profileId: local.id)
         await flush()
-        XCTAssertEqual(coordinator.mark(for: 7)?.activityTool, "kanso_terminal_read")
-        XCTAssertEqual(coordinator.mark(for: 7)?.activityClient, "Claude Code (mock)")
 
-        try coordinator.server.debugActivity(sessionId: 7, tool: nil)
+        try coordinator.server.debugActivity(sessionId: session, tool: "kanso_terminal_read")
+        await flush()
+        XCTAssertEqual(coordinator.mark(for: session)?.activityTool, "kanso_terminal_read")
+        XCTAssertEqual(coordinator.mark(for: session)?.activityClient, "Claude Code (mock)")
+
+        try coordinator.server.debugActivity(sessionId: session, tool: nil)
         await flush()
         XCTAssertEqual(clock.delays, [2])
-        XCTAssertEqual(coordinator.mark(for: 7)?.activityTool, "kanso_terminal_read")
+        XCTAssertEqual(coordinator.mark(for: session)?.activityTool, "kanso_terminal_read")
 
-        try coordinator.server.debugActivity(sessionId: 7, tool: "kanso_terminal_write")
+        try coordinator.server.debugActivity(sessionId: session, tool: "kanso_terminal_write")
         await flush()
         XCTAssertTrue(clock.delays.isEmpty)
-        XCTAssertEqual(coordinator.mark(for: 7)?.activityTool, "kanso_terminal_write")
+        XCTAssertEqual(coordinator.mark(for: session)?.activityTool, "kanso_terminal_write")
         clock.fire()
-        XCTAssertEqual(coordinator.mark(for: 7)?.activityTool, "kanso_terminal_write")
+        XCTAssertEqual(coordinator.mark(for: session)?.activityTool, "kanso_terminal_write")
 
-        try coordinator.server.debugActivity(sessionId: 7, tool: nil)
+        try coordinator.server.debugActivity(sessionId: session, tool: nil)
         await flush()
         XCTAssertEqual(clock.delays, [2])
         clock.fire()
-        XCTAssertNil(coordinator.mark(for: 7)?.activityTool)
+        XCTAssertNil(coordinator.mark(for: session)?.activityTool)
     }
 
     func testReleasingASessionRemovesOnlyTheOpenedMark() async throws {
@@ -639,6 +657,110 @@ final class McpUITests: XCTestCase {
         await window.controller.requestClose([opened])
         XCTAssertNil(window.mcp.mark(for: opened))
         XCTAssertTrue(clock.delays.isEmpty, "待执行的清除计时应一并取消")
+    }
+
+    // MARK: - 第二轮审查修复
+
+    func testToggleFailureShowsTheErrorAndSurvivesRefreshes() throws {
+        let keychain = MemoryKeychain()
+        keychain.readFailure = errSecAuthFailed
+        let (coordinator, _, _) = makeCoordinator(keychain: keychain)
+        let page = try XCTUnwrap(makeSettings(mcp: coordinator).mcpViewController)
+        _ = page.view
+        page.enabledRow.toggle()
+        XCTAssertFalse(page.errorLabel.isHidden)
+        XCTAssertFalse(page.errorLabel.stringValue.isEmpty)
+        XCTAssertFalse(page.enabledRow.isChecked)
+        page.viewWillAppear()
+        XCTAssertFalse(page.errorLabel.isHidden, "后续刷新不能清掉错误")
+    }
+
+    func testStartFailureOnEnableIsRecorded() async throws {
+        let (real, _, _) = makeCoordinator(useMockServer: false)
+        try real.setEnabled(true)
+        await flush()
+        XCTAssertNotNil(real.startError)
+    }
+
+    func testUserActionDuringStartupInvalidatesTheBackgroundResult() async throws {
+        let keychain = MemoryKeychain()
+        keychain.items[McpClientToken.account] = Data("old-token".utf8)
+        let (coordinator, _, _) = makeCoordinator(keychain: keychain)
+        try coordinator.core.setMcpEnabled(enabled: true)
+        coordinator.startIfEnabled()
+        // 后台读取还没回到主线程时，用户重新生成了令牌。
+        try coordinator.regenerateToken()
+        let regenerated = try XCTUnwrap(coordinator.cachedToken)
+        await coordinator.startupTask?.value
+        await flush()
+        XCTAssertEqual(coordinator.cachedToken, regenerated)
+        XCTAssertNotEqual(regenerated, "old-token")
+        guard case .stopped = coordinator.status else {
+            return XCTFail("作废的启动不应再 start，实际 \(coordinator.status)")
+        }
+    }
+
+    func testGrantRowWithUnreadableLevelIsDisabledAndDoesNotRaiseTheNotice() throws {
+        let (coordinator, _, _) = makeCoordinator()
+        let web = try profile(coordinator.core, named: "web-01")
+        let stub = AccessStub()
+        stub.failReads = true
+        let page = McpSettingsViewController(mcp: coordinator, accessStore: stub)
+        _ = page.view
+        XCTAssertEqual(page.levelPopup(for: web.id)?.isEnabled, false)
+        XCTAssertNotNil(page.levelErrorLabels[web.id])
+        // 读不到原级别时，批量设置不能把它当作「关闭」而弹敏感信息提示。
+        let group = coordinator.core.groups().first { $0.name == "生产" }
+        page.groupPopup(for: group?.id)?.userSelect(at: McpText.accessIndex(.full) + 1)
+        XCTAssertTrue(page.sensitiveNotice.isHidden)
+    }
+
+    func testLateActivityForAClosedSessionIsIgnored() async throws {
+        let (coordinator, _, _) = makeCoordinator()
+        try coordinator.setEnabled(true)
+        await flush()
+        var batch = McpDelegateBridge.Batch()
+        batch.activities = [(987_654, FfiMcpActivity(clientId: 1, clientName: "x", tool: "t"))]
+        coordinator.apply(batch)
+        XCTAssertNil(coordinator.mark(for: 987_654))
+    }
+
+    func testForgettingAnUnmarkedSessionDoesNotEmitChange() async throws {
+        let (coordinator, _, _) = makeCoordinator()
+        var changes = 0
+        coordinator.addChangeHandler { changes += 1 }
+        coordinator.forget(session: 42)
+        XCTAssertEqual(changes, 0)
+    }
+
+    func testArgsSummaryFoldsAllLineBreaksAndTabs() {
+        XCTAssertEqual(McpText.argsSummary("a\r\nb\rc\td\ne"), "a b c d e")
+    }
+
+    func testBothCredentialAndAccessFailuresAreReported() async throws {
+        let (coordinator, _, _) = makeCoordinator()
+        let stub = AccessStub()
+        stub.failWrites = true
+        let model = SessionEditorModel(
+            store: FailingCredentialStore(core: coordinator.core), showsMcpAccess: true, mcpAccessStore: stub
+        )
+        model.name = "both-fail"
+        model.kind = .ssh
+        model.host = "example.com"
+        model.user = "root"
+        model.auth = .password
+        model.password = "secret"
+        model.mcpAccess = .full
+        let outcome = await model.save()
+        XCTAssertEqual(outcome, .savedButCredentialFailed)
+        let text = model.errorText ?? ""
+        // 用带占位符的本地化键取前缀，才能在中文环境下也对得上。
+        let credentialPrefix = String(localized: "The session was saved, but its credential could not be stored: \("@@")")
+            .replacingOccurrences(of: "@@", with: "")
+        let accessPrefix = String(localized: "The session was saved, but its MCP access level could not be saved: \("@@")")
+            .replacingOccurrences(of: "@@", with: "")
+        XCTAssertTrue(text.contains(credentialPrefix))
+        XCTAssertTrue(text.contains(accessPrefix))
     }
 
     private func tabModel(session: SessionID, mark: McpTabMark?) -> TabRowView.Model {

@@ -39,6 +39,23 @@ class SettingsPageViewController: NSViewController {
         return root
     }
 
+    /// 带滚动的设置页高度上限；内容更高时滚动。键盘快捷键页与 MCP 页共用。
+    static let maxPageHeight: CGFloat = 620
+
+    /// 把已经布好约束的文档视图放进纵向滚动区（overlay 滚动条、无边框、透明背景），文档宽度跟随可视区。
+    func makeScrollView(document: NSView) -> NSScrollView {
+        let scroll = NSScrollView()
+        scroll.documentView = document
+        scroll.drawsBackground = false
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.scrollerStyle = .overlay
+        scroll.borderType = .noBorder
+        document.translatesAutoresizingMaskIntoConstraints = false
+        document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor).isActive = true
+        return scroll
+    }
+
     /// 说明文字（11pt、次要色、可换行）。
     static func caption(_ text: String) -> NSTextField {
         let label = NSTextField(wrappingLabelWithString: text)

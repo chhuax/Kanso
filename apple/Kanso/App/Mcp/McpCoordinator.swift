@@ -56,7 +56,10 @@ enum McpText {
 
     /// 审计行里的参数摘要：折成一行并截断，全文放 toolTip。
     static func argsSummary(_ args: String, limit: Int = 80) -> String {
-        let oneLine = args.replacingOccurrences(of: "\n", with: " ")
+        var oneLine = args
+        for separator in ["\r\n", "\r", "\n", "\t"] {
+            oneLine = oneLine.replacingOccurrences(of: separator, with: " ")
+        }
         return oneLine.count > limit ? String(oneLine.prefix(limit)) + "…" : oneLine
     }
 
@@ -96,6 +99,9 @@ final class McpCoordinator {
     private(set) var startError: String?
     /// 启动时的后台取令牌与 `start` 任务；只为让测试能等待完成。
     private(set) var startupTask: Task<Void, Never>?
+    /// 用户操作（`setEnabled` / `regenerateToken`）的代号。后台取令牌期间代号变了，说明用户已经接管，
+    /// 启动结果整体作废；不能用 `status` 判断，它只靠异步回调更新，会滞后。
+    private var userActionGeneration = 0
     private var openedBy: [UInt64: String] = [:]
     private var activities: [UInt64: FfiMcpActivity] = [:]
     private var activityClears: [UInt64: () -> Void] = [:]
@@ -150,20 +156,21 @@ final class McpCoordinator {
     func startIfEnabled() {
         guard supported, core.mcpEnabled() else { return }
         let tokens = tokens
+        let generation = userActionGeneration
         startupTask = Task { [weak self] in
             let result = await Task.detached { Result { try Self.ensureToken(in: tokens) } }.value
-            self?.finishStartup(result)
+            self?.finishStartup(result, generation: generation)
         }
     }
 
-    private func finishStartup(_ result: Result<String, Error>) {
-        // 等待钥匙串期间用户可能已经关掉开关，或已经手动启动了服务。
-        guard core.mcpEnabled() else { return }
-        if case .running = status { return }
+    private func finishStartup(_ result: Result<String, Error>, generation: Int) {
+        // 等待钥匙串期间用户操作过开关或令牌：以用户操作的结果为准，这次启动整体作废，
+        // 也不能用读到的旧令牌覆盖缓存。
+        guard generation == userActionGeneration, core.mcpEnabled() else { return }
         do {
-            let token = try result.get()
-            cachedToken = token
-            try server.start(bundleId: bundleId, token: token)
+            let fetched = try result.get()
+            if cachedToken == nil { cachedToken = fetched }
+            try server.start(bundleId: bundleId, token: cachedToken ?? fetched)
             startError = nil
         } catch {
             mcpLog.error("MCP startup failed: \(String(describing: error), privacy: .public)")
@@ -187,6 +194,7 @@ final class McpCoordinator {
     /// 打开总开关时 start，关闭时 stop。start 失败不把开关拨回去，页面要留着让用户能关掉。
     func setEnabled(_ enabled: Bool) throws {
         startError = nil
+        userActionGeneration += 1
         if enabled {
             // 用户主动操作，缓存没有时在这里同步取（可能弹授权框，但用户正在等这个结果）。
             let token = try cachedToken ?? Self.ensureToken(in: tokens)
@@ -195,7 +203,10 @@ final class McpCoordinator {
             do {
                 try server.start(bundleId: bundleId, token: token)
             } catch {
-                // 状态由回调变成 Unavailable。
+                // 状态由回调变成 Unavailable；这里再记日志并留下原因，让页面能说明服务没有启动。
+                mcpLog.error("MCP start failed: \(String(describing: error), privacy: .public)")
+                startError = CoreMessageText.text(for: error)
+                emitChange()
             }
         } else {
             try core.setMcpEnabled(enabled: false)
@@ -211,16 +222,19 @@ final class McpCoordinator {
     func regenerateToken() throws {
         let token = McpClientToken.generate()
         try McpClientToken.save(token, to: tokens)
+        userActionGeneration += 1
         cachedToken = token
         server.setToken(token: token)
     }
 
     /// 标签关闭后清掉它的 MCP 标记与待执行的清除计时，避免会话 id 对应的状态一直留着。
     func forget(session: UInt64) {
+        let had = openedBy[session] != nil || activities[session] != nil || activityClears[session] != nil
         openedBy[session] = nil
         activities[session] = nil
         activityClears.removeValue(forKey: session)?()
-        emitChange()
+        // 关闭普通标签不该触发 MCP 刷新。
+        if had { emitChange() }
     }
 
     func apply(_ batch: McpDelegateBridge.Batch) {
@@ -237,6 +251,8 @@ final class McpCoordinator {
             onPlaceSession?(session)
         }
         for (session, activity) in batch.activities {
+            // 与 opened 同样：会话已关闭后迟到的活动事件不能把状态塞回去，否则没人会再清理它。
+            guard core.sessionInfo(sessionId: session) != nil else { continue }
             noteActivity(session: session, activity: activity)
         }
         for session in batch.released {

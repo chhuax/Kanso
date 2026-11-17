@@ -323,7 +323,12 @@ final class SessionEditorModel {
                 try await store.setCredential(profile: profileID, kind: .keyPassphrase, secret: keyPassphrase)
             }
         } catch {
-            errorText = String(localized: "The session was saved, but its credential could not be stored: \(CoreMessageText.text(for: error))")
+            var text = String(localized: "The session was saved, but its credential could not be stored: \(CoreMessageText.text(for: error))")
+            // 两处都失败时都要告诉用户，不能让凭据的提示盖掉访问级别的。
+            if let accessError {
+                text += "\n" + String(localized: "The session was saved, but its MCP access level could not be saved: \(CoreMessageText.text(for: accessError))")
+            }
+            errorText = text
             return .savedButCredentialFailed
         }
         if let accessError {

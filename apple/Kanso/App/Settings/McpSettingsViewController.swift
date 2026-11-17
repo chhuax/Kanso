@@ -8,9 +8,6 @@ import KansoUI
 /// 调用 `relayout()` 同步页面高度和窗口高度。
 @MainActor
 final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDelegate {
-    /// 页面高度上限，与键盘快捷键页一致；内容更高时滚动。
-    static let maxPageHeight: CGFloat = 620
-
     let mcp: McpCoordinator
     /// 授权读写用的存储，默认就是 `mcp.core`；测试注入可失败的替身。
     private let accessStore: any McpAccessStoring
@@ -40,10 +37,15 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
     private let auditStack = NSStackView()
     private var levelPopups: [String: KPopUpField] = [:]
     private var groupPopups: [String: KPopUpField] = [:]
+    /// 读取访问级别失败的行的原因文字（行里下拉框同时被禁用）。
+    private(set) var levelErrorLabels: [String: NSTextField] = [:]
     private var auditRecords: [FfiMcpAuditRecord] = []
     private var auditSessionIDs: [String?] = []
     private let auditPageSize: UInt32 = 20
 
+    private var deminiaturizeObserver: NSObjectProtocol?
+    /// 客户端列表上次渲染时的内容；没变就不重建，避免每次事件都重排整页。
+    private var renderedClients: [FfiMcpClientInfo]?
     private var contentView: NSView?
     private var heightConstraint: NSLayoutConstraint?
 
@@ -69,7 +71,7 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
         pathLabel.textColor = .token(DesignTokens.Color.textSecondary)
         pathLabel.stringValue = mcpHelperPath()
         errorLabel.font = .systemFont(ofSize: DesignTokens.Font.uiCaption)
-        errorLabel.textColor = .systemRed
+        errorLabel.textColor = .token(DesignTokens.Color.statusError)
         errorLabel.isHidden = true
 
         copyClaudeButton.onPress = { [weak self] in self?.copyConfig(.claudeCode) }
@@ -151,6 +153,20 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
     override func viewWillAppear() {
         super.viewWillAppear()
         refreshLive()
+        // 窗口最小化期间事件被跳过；恢复时不会再触发 viewWillAppear，要自己补一次。
+        if let window = view.window {
+            deminiaturizeObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didDeminiaturizeNotification, object: window, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refreshLive() }
+            }
+        }
+    }
+
+    override func viewDidDisappear() {
+        super.viewDidDisappear()
+        if let deminiaturizeObserver { NotificationCenter.default.removeObserver(deminiaturizeObserver) }
+        deminiaturizeObserver = nil
     }
 
     /// 把页面内容放进滚动区。页面高度取内容高度和 `maxPageHeight` 的较小值，由 `relayout()` 维护。
@@ -161,15 +177,8 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
         let document = FlippedView()
         content.translatesAutoresizingMaskIntoConstraints = false
         document.addSubview(content)
-        let scroll = NSScrollView()
-        scroll.documentView = document
-        scroll.drawsBackground = false
-        scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
-        scroll.scrollerStyle = .overlay
-        scroll.borderType = .noBorder
+        let scroll = makeScrollView(document: document)
         scroll.translatesAutoresizingMaskIntoConstraints = false
-        document.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(scroll)
         let height = root.heightAnchor.constraint(equalToConstant: Self.maxPageHeight)
         NSLayoutConstraint.activate([
@@ -179,7 +188,6 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
             scroll.bottomAnchor.constraint(equalTo: root.bottomAnchor),
             scroll.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
             content.topAnchor.constraint(equalTo: document.topAnchor),
             content.bottomAnchor.constraint(equalTo: document.bottomAnchor),
             content.leadingAnchor.constraint(equalTo: document.leadingAnchor),
@@ -197,7 +205,10 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
         contentView.layoutSubtreeIfNeeded()
         let fitted = contentView.fittingSize.height
         guard fitted > 0 else { return }
-        heightConstraint.constant = min(fitted, Self.maxPageHeight)
+        let target = min(fitted, Self.maxPageHeight)
+        // 高度没变就不去动窗口；事件频繁时这里是热路径。
+        guard target != heightConstraint.constant else { return }
+        heightConstraint.constant = target
         (view.window?.windowController as? SettingsWindowController)?.resizeToFitCurrentPage()
     }
 
@@ -224,7 +235,8 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
             try mcp.setEnabled(on)
         } catch {
             enabledRow.isChecked = mcp.core.mcpEnabled()
-            statusLabel.stringValue = CoreMessageText.text(for: error)
+            // 用 errorLabel 而不是 statusLabel：后面的 reloadStatus 会重写状态文字，错误要留到下一次用户操作。
+            showError(CoreMessageText.text(for: error))
         }
         reloadStatus()
         reloadTokenButtons()
@@ -279,10 +291,11 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
     }
 
     private func reloadClients() {
+        guard renderedClients != mcp.clients else { return }
+        renderedClients = mcp.clients
         for view in clientStack.arrangedSubviews { view.removeFromSuperview() }
         if mcp.clients.isEmpty {
             clientStack.addArrangedSubview(SettingsPageViewController.caption(String(localized: "No clients connected.")))
-            relayout()
             return
         }
         for client in mcp.clients {
@@ -304,12 +317,12 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
             row.spacing = DesignTokens.Spacing.sm
             clientStack.addArrangedSubview(row)
         }
-        relayout()
     }
 
     func reloadGrants() {
         for view in grantStack.arrangedSubviews { view.removeFromSuperview() }
         levelPopups.removeAll()
+        levelErrorLabels.removeAll()
         groupPopups.removeAll()
         let profiles = mcp.core.profiles().sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         let groups = mcp.core.groups().sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -357,16 +370,11 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
         grantStack.addArrangedSubview(headerRow)
         batch.widthAnchor.constraint(equalToConstant: 160).isActive = true
         for profile in profiles {
-            let level = (try? accessStore.mcpAccess(profileId: profile.id)) ?? .off
             let popup = KPopUpField()
             popup.setItems(McpText.accessLevels.map(McpText.accessTitle))
-            popup.selectItem(at: McpText.accessIndex(level))
             let profileId = profile.id
             popup.onChange = { [weak self] index in
-                guard let self else { return }
-                let next = McpText.accessLevels[index]
-                let previous = (try? self.accessStore.mcpAccess(profileId: profileId)) ?? .off
-                self.setLevels([profileId], to: next, previous: [profileId: previous])
+                self?.setLevels([profileId], to: McpText.accessLevels[index])
             }
             levelPopups[profile.id] = popup
             let name = NSTextField(labelWithString: profile.name)
@@ -376,18 +384,34 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
             row.orientation = .horizontal
             row.alignment = .centerY
             row.spacing = DesignTokens.Spacing.sm
+            do {
+                popup.selectItem(at: McpText.accessIndex(try accessStore.mcpAccess(profileId: profile.id)))
+            } catch {
+                // 读不到就不能假装是「关闭」：禁用下拉框并说明原因，这一行也不参与敏感信息提示的判断。
+                let reason = CoreMessageText.text(for: error)
+                popup.isEnabled = false
+                let label = NSTextField(labelWithString: String(localized: "Could not read the MCP access level: \(reason)"))
+                label.font = .systemFont(ofSize: DesignTokens.Font.uiCaption)
+                label.textColor = .token(DesignTokens.Color.statusError)
+                label.lineBreakMode = .byTruncatingTail
+                label.toolTip = reason
+                label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+                levelErrorLabels[profile.id] = label
+                row.addArrangedSubview(label)
+            }
             grantStack.addArrangedSubview(row)
             popup.widthAnchor.constraint(equalToConstant: 160).isActive = true
         }
     }
 
     /// 写入授权。失败时下拉框回到实际存储的级别（重新读取），并在页面上显示原因，不让界面停在没生效的值上。
-    private func setLevels(_ ids: [String], to level: FfiMcpAccess, previous: [String: FfiMcpAccess]? = nil) {
+    private func setLevels(_ ids: [String], to level: FfiMcpAccess) {
         showError(nil)
         var raised = false
         var failure: Error?
         for id in ids {
-            let before = previous?[id] ?? ((try? accessStore.mcpAccess(profileId: id)) ?? .off)
+            // 读不到原级别（nil）时不能当作 .off，否则会误弹敏感信息提示。
+            let before = try? accessStore.mcpAccess(profileId: id)
             do {
                 try accessStore.setMcpAccess(profileId: id, level: level)
                 levelPopups[id]?.selectItem(at: McpText.accessIndex(level))
