@@ -182,7 +182,7 @@ impl ShellView {
                 toggle_item(
                     "status-timeline",
                     "clock",
-                    label(Message::UiTimestamps {}),
+                    label(Message::UiTimestamps {}).to_string(),
                     width < 460.,
                     th,
                     timeline_on,

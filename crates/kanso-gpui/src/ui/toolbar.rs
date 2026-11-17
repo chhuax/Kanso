@@ -159,6 +159,10 @@ impl ShellView {
             app_menu(AppMenuState {
                 sidebar_visible: self.sidebar_visible,
                 right_click_menu: self.right_click_menu,
+                sender_visible: self.sender.visible,
+                command_suggestions: self.completion.enabled,
+                filer_visible: self.filer.visible(),
+                git_visible: self.git.visible(),
             }),
             &mut hits,
         );
