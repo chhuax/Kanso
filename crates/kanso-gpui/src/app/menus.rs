@@ -4,7 +4,9 @@
 //!
 //! 本文件不依赖窗口系统，三个平台都能编译与测试。
 
-use kanso_types::SessionId;
+use kanso_types::{Message, SessionId};
+
+use crate::app::sender::t;
 
 use crate::app::shortcuts::{AppCommand, shortcut_text};
 use crate::app::workspace::CloseScope;
@@ -228,9 +230,15 @@ pub fn app_menu(state: AppMenuState) -> Vec<MenuItem> {
                 MenuItem::separator(),
                 item("清除缓冲区", AppCommand::ClearBuffer),
                 MenuItem::separator(),
-                item("命令建议", AppCommand::ToggleCommandSuggestions)
-                    .checked(state.command_suggestions),
-                item("清除命令历史…", AppCommand::ClearCommandHistory),
+                item(
+                    &t(Message::UiMenuCommandSuggestions {}),
+                    AppCommand::ToggleCommandSuggestions,
+                )
+                .checked(state.command_suggestions),
+                item(
+                    &t(Message::UiMenuClearHistory {}),
+                    AppCommand::ClearCommandHistory,
+                ),
                 MenuItem::separator(),
                 item("右键弹出菜单", AppCommand::ToggleRightClickMenu)
                     .checked(state.right_click_menu),
@@ -240,7 +248,8 @@ pub fn app_menu(state: AppMenuState) -> Vec<MenuItem> {
             "视图",
             vec![
                 item("标签栏", AppCommand::ToggleSidebar).checked(state.sidebar_visible),
-                item("Sender", AppCommand::ToggleSender).checked(state.sender_visible),
+                item(&t(Message::UiMenuSender {}), AppCommand::ToggleSender)
+                    .checked(state.sender_visible),
                 MenuItem::separator(),
                 item("向右拆分", AppCommand::SplitRight),
                 item("向下拆分", AppCommand::SplitDown),

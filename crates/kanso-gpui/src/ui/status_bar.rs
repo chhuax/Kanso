@@ -48,7 +48,12 @@ fn toggle_item(id: &'static str, label: &'static str, th: Theme) -> gpui::Statef
 }
 
 impl ShellView {
-    pub(super) fn render_status_bar(&self, th: Theme, window: &Window) -> gpui::AnyElement {
+    pub(super) fn render_status_bar(
+        &self,
+        th: Theme,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
         let ws = self.ctl.workspace();
         let active = ws.active_session().and_then(|s| ws.item(s));
         let model = StatusBarModel::build(
@@ -98,6 +103,31 @@ impl ShellView {
                 })
         });
 
+        // 重复发送在运行而面板收起时，给一个可点击的提示（sender.md D7）。
+        let sender_chip = self
+            .sender
+            .chip
+            .clone()
+            .filter(|_| !self.sender.visible)
+            .map(|text| {
+                div()
+                    .id("status-sender")
+                    .flex_none()
+                    .px(px(6.0))
+                    .rounded(px(8.0))
+                    .border_1()
+                    .border_color(th.c("accent"))
+                    .text_color(th.c("accent"))
+                    .cursor_pointer()
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(|this, _: &gpui::MouseDownEvent, window, cx| {
+                            this.toggle_sender(window, cx)
+                        }),
+                    )
+                    .child(text)
+            });
+
         div()
             .id("status-bar")
             .absolute()
@@ -118,6 +148,7 @@ impl ShellView {
             .children(directory)
             // 状态文字没有内容时也要占住中间的弹性空间，把右侧元素推到最右。
             .child(status.unwrap_or_else(|| div().flex_1()))
+            .children(sender_chip)
             .children(legacy)
             .child(
                 div()

@@ -11,6 +11,7 @@ use std::ffi::OsStr;
 use std::path::PathBuf;
 
 use kanso_core::{CompletionCandidate, CompletionCategory, CompletionSuggestions};
+use kanso_types::Message;
 
 /// 设置表里的键（与 mac 版同一份数据，随 `.kanso` 导出）。
 pub const SETTING_KEY: &str = "completion";
@@ -206,16 +207,17 @@ pub fn replacement_plan(candidate: &CompletionCandidate) -> (u32, &str) {
 }
 
 /// 候选类别的显示文字。
-pub fn category_label(category: CompletionCategory) -> &'static str {
-    match category {
-        CompletionCategory::Directory => "目录",
-        CompletionCategory::File => "文件",
-        CompletionCategory::History => "历史",
-        CompletionCategory::Kubernetes => "Kubernetes",
-        CompletionCategory::Docker => "Docker",
-        CompletionCategory::Git => "Git",
-        CompletionCategory::Systemd => "systemd",
-    }
+pub fn category_label(category: CompletionCategory) -> String {
+    let message = match category {
+        CompletionCategory::Directory => Message::UiCompletionDirectory {},
+        CompletionCategory::File => Message::UiCompletionFile {},
+        CompletionCategory::History => Message::UiCompletionHistory {},
+        CompletionCategory::Kubernetes => Message::UiCompletionKubernetes {},
+        CompletionCategory::Docker => Message::UiCompletionDocker {},
+        CompletionCategory::Git => Message::UiCompletionGit {},
+        CompletionCategory::Systemd => Message::UiCompletionSystemd {},
+    };
+    crate::app::launcher::render_message(&message)
 }
 
 /// 核心给出的结果是否还需要外部数据（目录、工作目录、家目录、Kubernetes 名称）。

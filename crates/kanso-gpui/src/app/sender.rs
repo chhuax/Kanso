@@ -8,7 +8,7 @@
 
 use kanso_core::sender::{SenderRequest, SenderStatus};
 use kanso_types::profile::{Group, LineEnding, Profile, Snippet, SnippetKindScope, SnippetScope};
-use kanso_types::{ProfileId, SessionId, SnippetId};
+use kanso_types::{Message, ProfileId, SessionId, SnippetId};
 
 use crate::app::launcher::render_message;
 use crate::app::tab::TabKind;
@@ -46,6 +46,11 @@ pub const SETTING_COUNT: &str = "sender.count";
 pub const SETTING_SCOPE_LEVEL: &str = "sender.scopeLevel";
 /// 菜单项 id 前缀，外壳据此把菜单结果转给 Sender 面板。
 pub const MENU_PREFIX: &str = "sender:";
+
+/// 渲染一条界面文字。
+pub fn t(message: Message) -> String {
+    render_message(&message)
+}
 
 /// 把面板高度夹进允许范围。
 pub fn clamp_panel_height(height: f32) -> f32 {
@@ -144,11 +149,11 @@ pub fn enter_action(shift: bool, composing: bool) -> EnterAction {
 pub const ENDINGS: [LineEnding; 3] = [LineEnding::Lf, LineEnding::CrLf, LineEnding::None];
 
 /// 行尾的显示文字。
-pub fn ending_label(ending: LineEnding) -> &'static str {
+pub fn ending_label(ending: LineEnding) -> String {
     match ending {
-        LineEnding::None => "不追加行尾",
-        LineEnding::Lf => "LF",
-        LineEnding::CrLf => "CRLF",
+        LineEnding::None => t(Message::UiSenderEndingNone {}),
+        LineEnding::Lf => "LF".to_owned(),
+        LineEnding::CrLf => "CRLF".to_owned(),
     }
 }
 
@@ -326,8 +331,12 @@ pub enum Target {
 /// 目标下拉框的选项文字。
 pub fn target_items(ctx: &SenderContext) -> [String; 2] {
     [
-        format!("当前会话（{}）", ctx.current_count()),
-        format!("全部会话（{}）", ctx.connected_count()),
+        t(Message::UiSenderTargetCurrent {
+            count: ctx.current_count() as i64,
+        }),
+        t(Message::UiSenderTargetAll {
+            count: ctx.connected_count() as i64,
+        }),
     ]
 }
 
@@ -342,10 +351,10 @@ pub enum SendError {
 
 impl SendError {
     /// 提示文字。
-    pub fn text(self) -> &'static str {
+    pub fn text(self) -> String {
         match self {
-            SendError::Empty => "没有可发送的内容",
-            SendError::NoSessions => "没有可发送的会话",
+            SendError::Empty => t(Message::SenderEmptyCommand {}),
+            SendError::NoSessions => t(Message::SenderNoSessions {}),
         }
     }
 }
@@ -401,19 +410,19 @@ pub fn scope_choices(
     groups: &[Group],
 ) -> Vec<ScopeChoice> {
     let mut out = vec![ScopeChoice {
-        title: "全局".to_owned(),
+        title: t(Message::UiSenderScopeGlobal {}),
         scope: SnippetScope::Global,
         level: 0,
     }];
     let Some(tab) = active else { return out };
     match tab.kind {
         TabKind::Ssh => out.push(ScopeChoice {
-            title: "所有 SSH 会话".to_owned(),
+            title: t(Message::UiSenderScopeSsh {}),
             scope: SnippetScope::Kind(SnippetKindScope::Ssh),
             level: 1,
         }),
         TabKind::Local => out.push(ScopeChoice {
-            title: "所有本地 Shell 会话".to_owned(),
+            title: t(Message::UiSenderScopeLocal {}),
             scope: SnippetScope::Kind(SnippetKindScope::Local),
             level: 1,
         }),
@@ -428,13 +437,17 @@ pub fn scope_choices(
             .and_then(|gid| groups.iter().find(|g| g.id == gid))
         {
             out.push(ScopeChoice {
-                title: format!("分组 · {}", group.name),
+                title: t(Message::UiSenderScopeGroup {
+                    name: group.name.clone(),
+                }),
                 scope: SnippetScope::Group(group.id),
                 level: 2,
             });
         }
         out.push(ScopeChoice {
-            title: format!("会话 · {}", profile.name),
+            title: t(Message::UiSenderScopeProfile {
+                name: profile.name.clone(),
+            }),
             scope: SnippetScope::Profile(profile.id),
             level: 3,
         });
@@ -453,23 +466,21 @@ pub fn default_scope_index(choices: &[ScopeChoice], last_level: u8) -> usize {
 /// 已保存命令所属范围的显示文字（悬停提示用）。
 pub fn scope_title(scope: &SnippetScope, profiles: &[Profile], groups: &[Group]) -> String {
     match scope {
-        SnippetScope::Global => "全局".to_owned(),
-        SnippetScope::Kind(SnippetKindScope::Ssh) => "所有 SSH 会话".to_owned(),
-        SnippetScope::Kind(SnippetKindScope::Local) => "所有本地 Shell 会话".to_owned(),
-        SnippetScope::Group(id) => format!(
-            "分组 · {}",
-            groups
+        SnippetScope::Global => t(Message::UiSenderScopeGlobal {}),
+        SnippetScope::Kind(SnippetKindScope::Ssh) => t(Message::UiSenderScopeSsh {}),
+        SnippetScope::Kind(SnippetKindScope::Local) => t(Message::UiSenderScopeLocal {}),
+        SnippetScope::Group(id) => t(Message::UiSenderScopeGroup {
+            name: groups
                 .iter()
                 .find(|g| g.id == *id)
-                .map_or_else(|| id.to_string(), |g| g.name.clone())
-        ),
-        SnippetScope::Profile(id) => format!(
-            "会话 · {}",
-            profiles
+                .map_or_else(|| id.to_string(), |g| g.name.clone()),
+        }),
+        SnippetScope::Profile(id) => t(Message::UiSenderScopeProfile {
+            name: profiles
                 .iter()
                 .find(|p| p.id == *id)
-                .map_or_else(|| id.to_string(), |p| p.name.clone())
-        ),
+                .map_or_else(|| id.to_string(), |p| p.name.clone()),
+        }),
     }
 }
 
@@ -526,35 +537,47 @@ pub struct RepeatInfo {
 
 /// 运行条的一行文字（sender.md §5.3）。
 pub fn repeat_bar_text(info: &RepeatInfo, status: &SenderStatus) -> String {
-    format!(
-        "重复发送：{} · 每 {} 秒 · {} · {}",
-        info.title,
-        info.interval,
-        info.target,
-        progress_text(status)
-    )
+    t(Message::UiSenderRepeatBar {
+        title: info.title.clone(),
+        interval: i64::from(info.interval),
+        dest: info.target.clone(),
+        progress: progress_text(status),
+    })
 }
 
 /// 进度：已走轮次（有限次显示总数）加倒计时 / 正在发送。
 pub fn progress_text(status: &SenderStatus) -> String {
     let rounds = if status.count == 0 {
-        format!("已发 {} 轮", status.rounds)
+        t(Message::UiSenderRounds {
+            rounds: i64::from(status.rounds),
+        })
     } else {
-        format!("已发 {} / {} 轮", status.rounds, status.count)
+        t(Message::UiSenderRoundsOf {
+            rounds: i64::from(status.rounds),
+            count: i64::from(status.count),
+        })
     };
     if status.next_in_ms == 0 {
-        format!("{rounds} · 正在发送")
+        t(Message::UiSenderSending { progress: rounds })
     } else {
-        format!("{rounds} · {} 秒后发送", status.next_in_ms.div_ceil(1000))
+        t(Message::UiSenderNextIn {
+            progress: rounds,
+            wait: status.next_in_ms.div_ceil(1000) as i64,
+        })
     }
 }
 
 /// 状态栏里的“重复发送运行中”提示（面板收起时显示，D7）。
 pub fn running_chip_text(status: &SenderStatus) -> String {
     if status.count == 0 {
-        format!("重复发送 · {} 轮", status.rounds)
+        t(Message::UiSenderChip {
+            rounds: i64::from(status.rounds),
+        })
     } else {
-        format!("重复发送 · {}/{}", status.rounds, status.count)
+        t(Message::UiSenderChipOf {
+            rounds: i64::from(status.rounds),
+            count: i64::from(status.count),
+        })
     }
 }
 
@@ -569,7 +592,7 @@ pub fn notice_text(status: &SenderStatus) -> Option<String> {
             .iter()
             .map(render_message)
             .collect::<Vec<_>>()
-            .join("；"),
+            .join(&t(Message::UiSenderJoin {})),
     )
 }
 
@@ -648,13 +671,22 @@ pub fn snippet_menu(snippet: &Snippet, choices: &[ScopeChoice]) -> Vec<MenuItem>
         })
         .collect();
     vec![
-        MenuItem::action(encode_action(&SnippetAction::Edit(id)), "编辑"),
-        MenuItem::action(encode_action(&SnippetAction::Repeat(id)), "重复发送"),
+        MenuItem::action(
+            encode_action(&SnippetAction::Edit(id)),
+            t(Message::UiSenderMenuEdit {}),
+        ),
+        MenuItem::action(
+            encode_action(&SnippetAction::Repeat(id)),
+            t(Message::UiSenderMenuRepeat {}),
+        ),
         MenuItem::separator(),
-        MenuItem::submenu("行尾", endings),
-        MenuItem::submenu("作用域", scopes),
+        MenuItem::submenu(t(Message::UiSenderMenuEnding {}), endings),
+        MenuItem::submenu(t(Message::UiSenderMenuScope {}), scopes),
         MenuItem::separator(),
-        MenuItem::action(encode_action(&SnippetAction::Delete(id)), "删除"),
+        MenuItem::action(
+            encode_action(&SnippetAction::Delete(id)),
+            t(Message::UiSenderMenuDelete {}),
+        ),
     ]
 }
 

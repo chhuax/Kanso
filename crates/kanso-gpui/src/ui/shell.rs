@@ -135,6 +135,10 @@ pub(crate) struct ShellView {
     /// 正在显示的连接提示框（主机密钥 / 密码 / 二次验证）。
     pub(super) prompt: Option<(PromptId, Entity<Dialog>)>,
     pub(super) prompt_sub: Option<Subscription>,
+    /// 底部 Sender 面板（`ui/shell_sender.rs`）。
+    pub(super) sender: super::shell_sender::SenderState,
+    /// 命令补全（`ui/shell_completion.rs`）。
+    pub(super) completion: super::shell_completion::CompletionCtl,
 }
 
 impl ShellView {
@@ -171,6 +175,15 @@ impl ShellView {
                 _ => {}
             }
         });
+        let sender_panel = cx.new(|cx| super::sender::SenderPanel::new(core.clone(), window, cx));
+        let sender_sub = cx.subscribe_in(
+            &sender_panel,
+            window,
+            |this, _p, ev: &super::sender::SenderEvent, window, cx| {
+                this.on_sender_event(ev, window, cx)
+            },
+        );
+        let completion = super::shell_completion::CompletionCtl::load(&core);
         let mut this = ShellView {
             ctl: AppController::new(core.clone(), home),
             core,
@@ -204,6 +217,8 @@ impl ShellView {
             editor_sub: None,
             prompt: None,
             prompt_sub: None,
+            sender: super::shell_sender::SenderState::new(sender_panel),
+            completion,
         };
 
         // 点窗口关闭按钮：有仍在连接的会话先确认（spec §8）。
@@ -287,7 +302,7 @@ impl ShellView {
                 this.refresh_display(window, cx);
             },
         );
-        this._window_subs = vec![activation, appearance, settings_sub, filter_sub];
+        this._window_subs = vec![activation, appearance, settings_sub, filter_sub, sender_sub];
         {
             let m = this.settings.read(cx);
             log(&format!(
@@ -305,6 +320,9 @@ impl ShellView {
 
         if super::SETTINGS_TEST.load(Ordering::Relaxed) {
             this.run_settings_test(window, cx);
+        }
+        if super::SENDER_TEST.load(Ordering::Relaxed) {
+            this.run_sender_test(window, cx);
         }
 
         // 第一个标签。
@@ -386,6 +404,7 @@ impl ShellView {
                     t.update(cx, |t, cx| t.pull_frame(cx));
                 }
             }
+            self.completion_refresh(window, cx);
         }
         if fx.prompt {
             self.sync_prompt(window, cx);
@@ -464,6 +483,9 @@ impl ShellView {
                 }
             }
             AppCommand::OpenSettings => self.open_settings(cx),
+            AppCommand::ToggleSender => self.toggle_sender(window, cx),
+            AppCommand::ToggleCommandSuggestions => self.toggle_completion(window, cx),
+            AppCommand::ClearCommandHistory => self.request_clear_history(window, cx),
             AppCommand::ZoomIn => self.zoom(1.0, cx),
             AppCommand::ZoomOut => self.zoom(-1.0, cx),
             AppCommand::ZoomReset => self.settings.update(cx, |m, cx| {
@@ -643,6 +665,12 @@ impl ShellView {
                     this.menu_sub = None;
                     this.sync_focus(window, cx);
                     if let MenuEvent::Activate(id) = ev {
+                        if id.starts_with(kanso_gpui::app::sender::MENU_PREFIX) {
+                            let panel = this.sender.panel.clone();
+                            panel.update(cx, |p, cx| p.on_menu_action(id, window, cx));
+                            cx.notify();
+                            return;
+                        }
                         match decode(id) {
                             Some(command) => this.run_command(command, window, cx),
                             None => log(&format!("未知菜单项 {id}")),
@@ -697,6 +725,8 @@ impl ShellView {
         let items = app_menu(AppMenuState {
             sidebar_visible: self.sidebar_visible,
             right_click_menu: self.right_click_menu,
+            sender_visible: self.sender.visible,
+            command_suggestions: self.completion.enabled,
         });
         self.open_menu(items, anchor, window, cx);
     }
@@ -837,6 +867,14 @@ impl ShellView {
         self.dialog_sub = None;
         let pending = self.pending_close.take();
         let confirmed = is_confirmed(r);
+        if std::mem::take(&mut self.completion.pending_clear) {
+            if confirmed {
+                self.clear_history(cx);
+            }
+            self.sync_focus(window, cx);
+            cx.notify();
+            return;
+        }
         log(&format!("关闭确认结果：确认={confirmed} {}", r.log_line()));
         match pending {
             Some(req) if confirmed && req.quit => cx.quit(),
@@ -856,6 +894,7 @@ impl ShellView {
         cx: &mut Context<Self>,
     ) {
         let closed = self.ctl.close_sessions(sessions);
+        self.completion_reset();
         for id in closed {
             self.terminals.remove(&id);
             self.subs.remove(&id);
@@ -978,6 +1017,10 @@ impl ShellView {
             is_held: ev.is_held,
         };
         let Some(command) = lookup(&input) else {
+            // 不是应用级快捷键：先问命令补全弹窗要不要这个键。
+            if self.completion_intercept(ev, window, cx) {
+                cx.stop_propagation();
+            }
             return;
         };
         cx.stop_propagation();
@@ -1002,7 +1045,7 @@ impl ShellView {
         };
         let w = f64::from(f32::from(size.width));
         // 底部留给状态栏。
-        let h = f64::from(f32::from(size.height) - status_bar_h());
+        let h = f64::from(f32::from(size.height) - status_bar_h() - self.sender_total_height());
         Rect::new(x, 0.0, (w - x).max(0.0), h.max(0.0))
     }
 
@@ -1014,6 +1057,9 @@ impl ShellView {
     }
 
     fn on_mouse_move(&mut self, ev: &MouseMoveEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self.sender_mouse_move(ev, cx) {
+            return;
+        }
         let Some(drag) = self.drag.clone() else {
             return;
         };
@@ -1046,6 +1092,7 @@ impl ShellView {
     }
 
     fn on_mouse_up(&mut self, _ev: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        self.sender.drag = None;
         if self.drag.take().is_some() {
             cx.notify();
         }
@@ -1294,7 +1341,12 @@ impl Render for ShellView {
         }
         let panes = self.render_panes(area, th, cx);
         let sidebar = self.sidebar_visible.then(|| self.render_sidebar(th, cx));
-        let status_bar = self.render_status_bar(th, window);
+        let status_bar = self.render_status_bar(th, window, cx);
+        if self.sender.visible {
+            self.push_sender_context(cx);
+        }
+        let sender_els = self.render_sender(area, th, cx);
+        let completion_el = self.render_completion(area, th, cx);
         let notice = self
             .notice
             .as_ref()
@@ -1339,6 +1391,8 @@ impl Render for ShellView {
                     )
             }))
             // 最上层：菜单与模态对话框（根元素铺满窗口，遮罩按窗口坐标定位）。
+            .children(sender_els)
+            .children(completion_el)
             .children(self.menu.clone())
             .children(self.dialog.clone())
             .children(self.launcher.clone())

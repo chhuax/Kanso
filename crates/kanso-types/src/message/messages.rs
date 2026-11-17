@@ -72,6 +72,124 @@ macro_rules! messages {
 }
 
 messages! {
+    /// Sender 面板标题。
+    UiSenderTitle = "ui-sender-title" {},
+    /// Sender：运行。
+    UiSenderRun = "ui-sender-run" {},
+    /// Sender：停止。
+    UiSenderStop = "ui-sender-stop" {},
+    /// Sender：清空。
+    UiSenderClear = "ui-sender-clear" {},
+    /// Sender：重复发送。
+    UiSenderRepeat = "ui-sender-repeat" {},
+    /// Sender：保存。
+    UiSenderSave = "ui-sender-save" {},
+    /// Sender：更新。
+    UiSenderUpdate = "ui-sender-update" {},
+    /// Sender：取消编辑。
+    UiSenderCancelEdit = "ui-sender-cancel-edit" {},
+    /// Sender：名称框占位。
+    UiSenderNamePlaceholder = "ui-sender-name-placeholder" {},
+    /// Sender：命令框占位。
+    UiSenderInputPlaceholder = "ui-sender-input-placeholder" {},
+    /// Sender：重复间隔。
+    UiSenderInterval = "ui-sender-interval" {},
+    /// Sender：重复次数。
+    UiSenderCount = "ui-sender-count" {},
+    /// Sender：命令库为空。
+    UiSenderLibraryEmpty = "ui-sender-library-empty" {},
+    /// Sender：没有适用于当前会话的命令。
+    UiSenderLibraryNone = "ui-sender-library-none" {},
+    /// Sender：上一页。
+    UiSenderPrevPage = "ui-sender-prev-page" {},
+    /// Sender：下一页。
+    UiSenderNextPage = "ui-sender-next-page" {},
+    /// Sender：不追加行尾。
+    UiSenderEndingNone = "ui-sender-ending-none" {},
+    /// Sender：当前会话目标。
+    UiSenderTargetCurrent = "ui-sender-target-current" { count: i64 },
+    /// Sender：全部会话目标。
+    UiSenderTargetAll = "ui-sender-target-all" { count: i64 },
+    /// Sender：运行条里的全部会话。
+    UiSenderTargetAllLabel = "ui-sender-target-all-label" {},
+    /// Sender：运行条里的当前会话。
+    UiSenderTargetCurrentLabel = "ui-sender-target-current-label" { name: String },
+    /// Sender：全局范围。
+    UiSenderScopeGlobal = "ui-sender-scope-global" {},
+    /// Sender：SSH 类型范围。
+    UiSenderScopeSsh = "ui-sender-scope-ssh" {},
+    /// Sender：本地 Shell 类型范围。
+    UiSenderScopeLocal = "ui-sender-scope-local" {},
+    /// Sender：分组范围。
+    UiSenderScopeGroup = "ui-sender-scope-group" { name: String },
+    /// Sender：会话范围。
+    UiSenderScopeProfile = "ui-sender-scope-profile" { name: String },
+    /// Sender 菜单：编辑。
+    UiSenderMenuEdit = "ui-sender-menu-edit" {},
+    /// Sender 菜单：重复发送。
+    UiSenderMenuRepeat = "ui-sender-menu-repeat" {},
+    /// Sender 菜单：行尾。
+    UiSenderMenuEnding = "ui-sender-menu-ending" {},
+    /// Sender 菜单：作用域。
+    UiSenderMenuScope = "ui-sender-menu-scope" {},
+    /// Sender 菜单：删除。
+    UiSenderMenuDelete = "ui-sender-menu-delete" {},
+    /// Sender：无限次的已发轮数。
+    UiSenderRounds = "ui-sender-rounds" { rounds: i64 },
+    /// Sender：有限次的已发轮数。
+    UiSenderRoundsOf = "ui-sender-rounds-of" { rounds: i64, count: i64 },
+    /// Sender：正在发送。
+    UiSenderSending = "ui-sender-sending" { progress: String },
+    /// Sender：倒计时。
+    UiSenderNextIn = "ui-sender-next-in" { progress: String, wait: i64 },
+    /// Sender：重复任务运行条。
+    UiSenderRepeatBar = "ui-sender-repeat-bar" { title: String, interval: i64, dest: String, progress: String },
+    /// 状态栏：重复发送运行中（无限次）。
+    UiSenderChip = "ui-sender-chip" { rounds: i64 },
+    /// 状态栏：重复发送运行中（有限次）。
+    UiSenderChipOf = "ui-sender-chip-of" { rounds: i64, count: i64 },
+    /// Sender：多条提示之间的分隔。
+    UiSenderJoin = "ui-sender-join" {},
+    /// Sender：保存失败。
+    UiSenderSaveFailed = "ui-sender-save-failed" { detail: String },
+    /// Sender：更新失败。
+    UiSenderUpdateFailed = "ui-sender-update-failed" { detail: String },
+    /// Sender：删除失败。
+    UiSenderDeleteFailed = "ui-sender-delete-failed" { detail: String },
+    /// Sender：发送失败。
+    UiSenderSendFailed = "ui-sender-send-failed" { detail: String },
+    /// Sender：命令库已满。
+    UiSenderLimit = "ui-sender-limit" { max: i64 },
+    /// 补全类别：目录。
+    UiCompletionDirectory = "ui-completion-directory" {},
+    /// 补全类别：文件。
+    UiCompletionFile = "ui-completion-file" {},
+    /// 补全类别：历史。
+    UiCompletionHistory = "ui-completion-history" {},
+    /// 补全类别：Kubernetes。
+    UiCompletionKubernetes = "ui-completion-kubernetes" {},
+    /// 补全类别：Docker。
+    UiCompletionDocker = "ui-completion-docker" {},
+    /// 补全类别：Git。
+    UiCompletionGit = "ui-completion-git" {},
+    /// 补全类别：systemd。
+    UiCompletionSystemd = "ui-completion-systemd" {},
+    /// 菜单：命令建议。
+    UiMenuCommandSuggestions = "ui-menu-command-suggestions" {},
+    /// 菜单：清除命令历史。
+    UiMenuClearHistory = "ui-menu-clear-history" {},
+    /// 菜单：Sender。
+    UiMenuSender = "ui-menu-sender" {},
+    /// 清除命令历史对话框标题。
+    UiHistoryClearTitle = "ui-history-clear-title" {},
+    /// 清除命令历史对话框正文。
+    UiHistoryClearBody = "ui-history-clear-body" {},
+    /// 清除命令历史按钮。
+    UiHistoryClearConfirm = "ui-history-clear-confirm" {},
+    /// 取消按钮。
+    UiHistoryClearCancel = "ui-history-clear-cancel" {},
+    /// 清除命令历史失败。
+    UiHistoryClearFailed = "ui-history-clear-failed" { detail: String },
     /// GPUI 设置页面：通用。
     UiGeneral = "ui-general" {},
     /// GPUI 设置页面：显示。
