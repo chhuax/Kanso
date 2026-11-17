@@ -438,7 +438,12 @@ impl ShellView {
                 cx.notify();
             }
             AppCommand::Quit => self.request_quit(window, cx),
-            AppCommand::EditSession(id) => self.open_editor(Some(id), window, cx),
+            AppCommand::EditSession(id) => {
+                let profile = self.ctl.workspace().item(id).and_then(|i| i.profile);
+                if let Some(p) = profile {
+                    self.open_editor(Some(p), window, cx);
+                }
+            }
             AppCommand::OpenSettings => self.open_settings(cx),
             AppCommand::ZoomIn => self.zoom(1.0, cx),
             AppCommand::ZoomOut => self.zoom(-1.0, cx),
