@@ -12,6 +12,8 @@
 //! - [`events`]：核心事件到工作区更新的映射、传输计数、按帧取脏会话。
 //! - [`controller`]：把工作区、事件、提示队列与核心调用串起来的应用控制器。
 //! - [`prompts`]：提示队列与状态机（主机密钥变更、密码 / 口令、keyboard-interactive）。
+//! - [`prompt_dialogs`]：提示 → 对话框规格 / 对话框结果 → 应答。
+//! - [`launcher`]：启动器与编辑对话框的视图辅助（行展开、菜单项、确认文案）。
 //! - [`sessions`]：会话启动器模型与会话编辑模型。
 //! - [`shortcuts`]：应用级快捷键表。
 //! - [`shell`]：窗口外壳的纯逻辑（分隔条拖动换算、关闭二次确认）。
@@ -19,7 +21,9 @@
 pub mod backend;
 pub mod controller;
 pub mod events;
+pub mod launcher;
 pub mod layout;
+pub mod prompt_dialogs;
 pub mod prompts;
 pub mod sessions;
 pub mod shell;

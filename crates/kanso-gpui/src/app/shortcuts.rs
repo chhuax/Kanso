@@ -15,6 +15,10 @@ use crate::keys::KeyInput;
 pub enum AppCommand {
     /// 在当前分屏新开一个本地 shell 标签。
     NewLocalTab,
+    /// 打开会话启动器浮层（＋ 按钮同款）。
+    OpenLauncher,
+    /// 打开新建会话对话框（ui-shell.md §7：Alt+N）。
+    NewSession,
     /// 关闭当前会话（本地 shell 有前台命令时需要确认）。
     CloseSession,
     /// 当前分屏的下一个标签（循环）。
@@ -74,6 +78,9 @@ const fn b(ctrl: bool, alt: bool, shift: bool, key: &'static str, command: AppCo
 pub const DEFAULT_BINDINGS: &[Binding] = &[
     // 标签
     b(true, false, true, "t", AppCommand::NewLocalTab),
+    // 规格没有给启动器单独的键；Ctrl+Shift+O 与 Ctrl+Shift+T / W 同属「会话」组。
+    b(true, false, true, "o", AppCommand::OpenLauncher),
+    b(false, true, false, "n", AppCommand::NewSession),
     b(true, false, true, "w", AppCommand::CloseSession),
     b(false, true, false, "]", AppCommand::NextTab),
     b(false, true, false, "[", AppCommand::PrevTab),
@@ -179,6 +186,11 @@ mod tests {
         assert_eq!(
             press("9", false, true, false),
             Some(AppCommand::SelectTab(8))
+        );
+        assert_eq!(press("n", false, true, false), Some(AppCommand::NewSession));
+        assert_eq!(
+            press("o", true, false, true),
+            Some(AppCommand::OpenLauncher)
         );
         assert_eq!(press("tab", true, false, false), Some(AppCommand::NextTab));
         assert_eq!(press("tab", true, false, true), Some(AppCommand::PrevTab));

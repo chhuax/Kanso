@@ -15,10 +15,13 @@ mod demo_input;
 mod demo_menu;
 mod element;
 mod filer;
+mod launcher;
 mod memory;
 mod selftest;
+mod session_editor;
 mod sftp_bench;
 mod shell;
+mod shell_launcher;
 mod shell_selftest;
 mod sidebar;
 mod tz;
@@ -363,6 +366,8 @@ pub fn run() -> i32 {
     let mut rx = Some(rx);
     Application::new().run(move |cx: &mut App| {
         log("GPUI 应用循环已启动");
+        // 启动器 / 编辑对话框 / 提示框里的输入框需要这组按键绑定。
+        widgets::text_input::bind_keys(cx);
         let bounds = Bounds::centered(None, size(px(1120.0), px(680.0)), cx);
         cx.on_window_closed(|cx| {
             if cx.windows().is_empty() {

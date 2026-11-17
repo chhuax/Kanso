@@ -188,6 +188,11 @@ impl Dropdown {
         cx.notify();
     }
 
+    /// 浮层是否展开（宿主据此决定 Tab / Esc 归谁）。
+    pub fn is_open(&self) -> bool {
+        self.state.is_open()
+    }
+
     /// 把焦点交给下拉框。
     #[allow(dead_code)]
     pub fn focus(&self, window: &mut Window) {
