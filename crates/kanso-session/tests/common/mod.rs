@@ -100,11 +100,23 @@ pub fn fixture(shell: &str, integration: bool) -> Fixture {
     std::fs::create_dir_all(&ceiling).unwrap();
     std::fs::write(ceiling.join("HEAD"), "not-a-git-repository\n").unwrap();
     let rec = Arc::new(Recorder::default());
-    let env = EnvSnapshot::from_pairs([
-        ("PATH", "/usr/bin:/bin:/usr/sbin:/sbin".to_owned()),
+    #[cfg(windows)]
+    let path = std::env::var("PATH").unwrap_or_default();
+    #[cfg(not(windows))]
+    let path = "/usr/bin:/bin:/usr/sbin:/sbin".to_owned();
+    #[allow(unused_mut)]
+    let mut env = EnvSnapshot::from_pairs([
+        ("PATH", path),
         ("HOME", home.to_string_lossy().into_owned()),
         ("USER", "kanso-test".to_owned()),
     ]);
+    // Windows 的 cmd.exe / PowerShell 需要系统变量才能正常启动。
+    #[cfg(windows)]
+    for key in ["SystemRoot", "ComSpec", "windir", "TEMP", "TMP"] {
+        if let Ok(v) = std::env::var(key) {
+            env = env.apply(&[kanso_pty::EnvChange::set(key, v)]);
+        }
+    }
     let mgr = SessionManager::new(
         ManagerConfig {
             data_dir: tmp.path().join("data"),

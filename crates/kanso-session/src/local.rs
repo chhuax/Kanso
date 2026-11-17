@@ -456,6 +456,9 @@ impl LocalSession {
             }
         };
 
+        #[cfg(windows)]
+        spawn_exit_watcher(&shared);
+
         // 定时线程放在读写线程之后：前面任何一步失败都会提前返回，不会留下没人关闭的定时线程。
         // 会话结束时 `Shared::finish` 会关闭 hub 让它退出。
         shared
@@ -1136,6 +1139,36 @@ fn handle_term_event(shared: &Shared, state: &mut ReaderState, event: &TermEvent
         // OSC 52（程序请求写系统剪贴板）：先忽略。任何能往终端输出文字的程序（包括 `cat` 一个恶意文件）
         // 都能触发它，默认放行就等于让远端随意改写用户的剪贴板；需要先定授权策略（询问 / 白名单）。
         TermEvent::ClipboardStore(_) => {}
+    }
+}
+
+/// Windows 专用：等 shell 进程退出，然后关闭伪控制台。
+///
+/// ConPTY 的已知行为：子进程退出后只要 `ClosePseudoConsole` 没被调用，输出管道就不会 EOF，
+/// 读线程会一直阻塞、会话永远不结束。关闭伪控制台会先把残留输出送到读端再关管道，
+/// 所以 shell 退出前的最后输出不会丢。用轮询 `try_wait` 而不是阻塞 `wait`，理由同 `on_eof`
+/// （不长时间占着 PTY 锁）；主端在锁外丢弃，因为关闭可能阻塞到输出被读走。
+/// 用户主动关闭时 `user_closing` 已置位，这里直接退出，由 `kill` 流程负责收尾。
+#[cfg(windows)]
+fn spawn_exit_watcher(shared: &Arc<Shared>) {
+    let shared = Arc::clone(shared);
+    let name = format!("kanso-pty-exit-{}", shared.id);
+    let work = move || {
+        loop {
+            if shared.user_closing.load(Ordering::Acquire) || shared.ended.load(Ordering::Acquire) {
+                return;
+            }
+            let exited = matches!(lock(&shared.pty).try_wait(), Ok(Some(_)) | Err(_));
+            if exited {
+                let master = lock(&shared.pty).detach_master();
+                drop(master);
+                return;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+    };
+    if let Err(e) = thread::Builder::new().name(name).spawn(work) {
+        tracing::error!(error = %e, "failed to spawn exit watcher thread");
     }
 }
 
