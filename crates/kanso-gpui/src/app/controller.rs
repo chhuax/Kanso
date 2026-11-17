@@ -92,6 +92,8 @@ pub struct AppController<B: AppBackend + Clone> {
     visible: BTreeSet<SessionId>,
     legacy: HashMap<SessionId, Vec<LegacyHop>>,
     notices: VecDeque<Notice>,
+    /// 已结束且应自动关掉标签的会话（见 [`TabConnection::closes_tab_automatically`]），UI 每次处理完事件后取走。
+    auto_close: Vec<SessionId>,
     home_dir: String,
     shut_down: bool,
 }
@@ -108,6 +110,7 @@ impl<B: AppBackend + Clone> AppController<B> {
             visible: BTreeSet::new(),
             legacy: HashMap::new(),
             notices: VecDeque::new(),
+            auto_close: Vec::new(),
             home_dir: home_dir.into(),
             shut_down: false,
         }
@@ -205,9 +208,21 @@ impl<B: AppBackend + Clone> AppController<B> {
         let update = SessionUpdate::from_event(&event);
         if apply_update(&update, &mut self.workspace, &mut self.transfers) {
             fx.chrome = true;
+            if let SessionUpdate::Connection(id, connection) = &update
+                && connection.closes_tab_automatically()
+                && !self.auto_close.contains(id)
+            {
+                self.auto_close.push(*id);
+            }
             self.sync_visibility();
         }
         fx
+    }
+
+    /// 取走“会话已正常结束、应自动关闭标签”的会话（shell 输入 `exit` 等）。
+    /// 视图对返回的会话调用 [`close_sessions`](Self::close_sessions)；已被用户关掉的会话不会出现在这里。
+    pub fn take_auto_close(&mut self) -> Vec<SessionId> {
+        std::mem::take(&mut self.auto_close)
     }
 
     /// 每帧取一次：自上次以来变脏的会话（升序、去重）。
@@ -354,6 +369,7 @@ impl<B: AppBackend + Clone> AppController<B> {
             self.legacy.remove(id);
             self.dirty.forget(*id);
             self.visible.remove(id);
+            self.auto_close.retain(|x| x != id);
             closed.push(*id);
         }
         if !closed.is_empty() {
@@ -536,6 +552,49 @@ mod tests {
         );
         assert_eq!(fake.0.borrow().visible_calls, vec![(id, true)]);
         assert_eq!(fake.0.borrow().opened, vec![OpenTarget::DefaultLocalShell]);
+    }
+
+    #[test]
+    fn clean_exit_queues_automatic_close_but_failure_keeps_the_tab() {
+        let (mut c, _fake) = controller();
+        let a = c.open_local_shell(None, GRID).unwrap();
+        let b = c.open_local_shell(None, GRID).unwrap();
+        let d = c.open_local_shell(None, GRID).unwrap();
+        c.handle_event(state(
+            a.raw(),
+            SessionState::Closed(CloseReason::Exited { code: Some(0) }),
+        ));
+        c.handle_event(state(
+            b.raw(),
+            SessionState::Closed(CloseReason::Exited { code: Some(2) }),
+        ));
+        c.handle_event(state(d.raw(), SessionState::Closed(CloseReason::ByUser)));
+        let queued = c.take_auto_close();
+        assert_eq!(queued, vec![a, d]);
+        assert!(c.take_auto_close().is_empty(), "取走后清空");
+        // 非零退出的标签还在，并带着退出码说明。
+        assert_eq!(
+            c.workspace().item(b).unwrap().connection,
+            TabConnection::Closed(Some(CloseNote::Exited { code: Some(2) }))
+        );
+        let closed = c.close_sessions(&queued);
+        assert_eq!(closed, queued);
+        assert_eq!(c.workspace().tab_count(), 1);
+    }
+
+    #[test]
+    fn closing_by_user_first_drops_the_pending_automatic_close() {
+        let (mut c, _fake) = controller();
+        let a = c.open_local_shell(None, GRID).unwrap();
+        c.handle_event(state(
+            a.raw(),
+            SessionState::Closed(CloseReason::Exited { code: Some(0) }),
+        ));
+        c.close_sessions(&[a]);
+        assert!(c.take_auto_close().is_empty());
+        // 迟到的事件：标签已不在，不再入队。
+        c.handle_event(state(a.raw(), SessionState::Closed(CloseReason::ByUser)));
+        assert!(c.take_auto_close().is_empty());
     }
 
     #[test]

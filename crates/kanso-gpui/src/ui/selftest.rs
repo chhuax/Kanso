@@ -1,15 +1,14 @@
 //! `--selftest`：在真实窗口里端到端验证“会话 → 帧 → 渲染数据”这条链，
 //! 并直接驱动输入法状态机与回滚。通过返回退出码 0，失败（含超时）返回 1，结果写进日志。
 
-use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use gpui::Context;
 use kanso_types::input::Modifiers;
 use kanso_types::{CellSide, ViewportPoint};
 
-use super::view::TerminalView;
-use super::{EXIT_CODE, KEEP_OPEN, START, log};
+use super::view::{TerminalEvent, TerminalView};
+use super::{START, log};
 
 pub(crate) struct SelfTest {
     stage: u8,
@@ -32,6 +31,7 @@ impl TerminalView {
         self.screen.iter().filter(|r| r.contains(needle)).count()
     }
 
+    /// 终端阶段结束：记录结果并通知外壳（`TerminalEvent::SelfTestFinished`），由外壳接着做多标签 / 分屏阶段。
     fn selftest_finish(&mut self, ok: bool, cx: &mut Context<Self>) {
         let results = self
             .selftest
@@ -46,19 +46,12 @@ impl TerminalView {
             log(&format!("  {i:02}| {row}"));
         }
         log(&format!(
-            "SELFTEST {}（总耗时 {} ms，{}）",
+            "selftest 终端阶段 {}（{} ms）",
             if ok { "PASS" } else { "FAIL" },
             START.get().map_or(0, |s| s.elapsed().as_millis()),
-            self.memory_line()
         ));
-        if !ok {
-            EXIT_CODE.store(1, Ordering::SeqCst);
-        }
-        if ok && KEEP_OPEN.load(Ordering::Relaxed) {
-            self.selftest = None;
-            return;
-        }
-        cx.quit();
+        self.selftest = None;
+        cx.emit(TerminalEvent::SelfTestFinished(ok));
     }
 
     /// 每 150 ms 推进一步。返回 `false` 表示自检已结束，定时器可以停。
@@ -148,7 +141,7 @@ impl TerminalView {
                         &format!("滚轮回滚：display_offset={offset}，最新行已滚出可见区"),
                     );
                     self.selftest_finish(true, cx);
-                    return self.selftest.is_some();
+                    return false;
                 }
             }
             _ => return false,

@@ -69,6 +69,18 @@ impl From<&SessionState> for TabConnection {
     }
 }
 
+impl TabConnection {
+    /// 会话结束后是否自动关掉标签：用户主动关闭、shell 正常退出（退出码 0）。
+    /// 非零退出码、被信号终止、出错都保留标签，让用户看到原因（local-shell.md §7：shell 自己退出要提示退出码）。
+    pub fn closes_tab_automatically(&self) -> bool {
+        matches!(
+            self,
+            TabConnection::Closed(None)
+                | TabConnection::Closed(Some(CloseNote::Exited { code: Some(0) }))
+        )
+    }
+}
+
 /// 会话当前活动。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TabActivity {
@@ -270,6 +282,33 @@ impl TabPresentation {
     }
 }
 
+/// 标签主标题过长时保留末尾（路径最有辨识度的是最后几段），前面用 `…` 代替。
+/// `max_cells` 按终端单元格宽度算（中日韩字符占 2 格）；不超长原样返回。
+pub fn truncate_keep_tail(s: &str, max_cells: usize) -> String {
+    use unicode_width::UnicodeWidthChar;
+    let width = |c: char| c.width().unwrap_or(0);
+    let total: usize = s.chars().map(width).sum();
+    if total <= max_cells {
+        return s.to_owned();
+    }
+    if max_cells == 0 {
+        return String::new();
+    }
+    // 省略号占 1 格，其余留给末尾。
+    let budget = max_cells - 1;
+    let mut used = 0;
+    let mut start = s.len();
+    for (i, c) in s.char_indices().rev() {
+        let w = width(c);
+        if used + w > budget {
+            break;
+        }
+        used += w;
+        start = i;
+    }
+    format!("…{}", &s[start..])
+}
+
 /// FNV-1a 64 位哈希（按 UTF-8 字节）。跨进程、跨版本稳定。
 pub fn fnv1a64(s: &str) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
@@ -408,6 +447,29 @@ mod tests {
         let mut t = TabItem::new(SessionId::from_raw(1), TabKind::Local, "Local");
         t.cwd = cwd.map(str::to_owned);
         t
+    }
+
+    #[test]
+    fn truncate_keeps_the_tail_with_ellipsis() {
+        assert_eq!(truncate_keep_tail("short", 10), "short");
+        assert_eq!(truncate_keep_tail("exactly10!", 10), "exactly10!");
+        assert_eq!(truncate_keep_tail("~/work/project/src", 10), "…oject/src");
+        assert_eq!(truncate_keep_tail("abcdef", 1), "…");
+        assert_eq!(truncate_keep_tail("abcdef", 0), "");
+        // 宽字符占 2 格，不能把一个字符劈开。
+        assert_eq!(truncate_keep_tail("项目目录文档", 7), "…录文档");
+        assert_eq!(truncate_keep_tail("项目目录文档", 6), "…文档");
+    }
+
+    #[test]
+    fn automatic_close_rules() {
+        let exited = |code| TabConnection::Closed(Some(CloseNote::Exited { code }));
+        assert!(TabConnection::Closed(None).closes_tab_automatically());
+        assert!(exited(Some(0)).closes_tab_automatically());
+        assert!(!exited(Some(1)).closes_tab_automatically());
+        assert!(!exited(None).closes_tab_automatically());
+        assert!(!TabConnection::Connected.closes_tab_automatically());
+        assert!(!TabConnection::Connecting.closes_tab_automatically());
     }
 
     fn ssh() -> TabItem {

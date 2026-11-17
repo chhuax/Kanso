@@ -2,9 +2,11 @@
 //!
 //! 结构：
 //! - 本文件：命令行参数、日志与计时、核心装配、`run`；
+//! - `shell`：窗口根视图（应用控制器 + 每个会话一个终端视图，分屏区、分隔条拖动、快捷键）；
+//! - `sidebar`：左侧竖向标签栏；
 //! - `view`：终端视图实体（持有会话，处理按键 / 鼠标 / 滚轮 / 输入法，`EntityInputHandler` 实现）；
 //! - `element`：自绘元素（度量字体、算行列数、画背景 / 文字 / 光标 / 预编辑）；
-//! - `selftest`：`--selftest` 自检；
+//! - `selftest` / `shell_selftest`：`--selftest` 自检（终端阶段 + 多标签 / 分屏阶段）；
 //! - `memory`：进程内存读数（日志用）。
 
 mod demo_input;
@@ -13,6 +15,9 @@ mod filer;
 mod memory;
 mod selftest;
 mod sftp_bench;
+mod shell;
+mod shell_selftest;
+mod sidebar;
 mod tz;
 mod view;
 mod widgets;
@@ -30,7 +35,7 @@ use gpui::{
 use kanso_core::{Core, CoreConfig, EventSink, Platform};
 use kanso_types::CoreEvent;
 
-use view::TerminalView;
+use shell::ShellView;
 
 /// 进程启动时刻，所有计时日志以它为零点。
 pub(crate) static START: OnceLock<Instant> = OnceLock::new();
@@ -327,27 +332,14 @@ pub fn run() -> i32 {
         };
     }
 
-    let session = match core.open_session(
-        kanso_core::OpenTarget::DefaultLocalShell,
-        kanso_types::GridSize {
-            cols: 100,
-            rows: 30,
-        },
-    ) {
-        Ok(s) => s,
-        Err(e) => {
-            log(&format!("打开本地会话失败：{e}"));
-            return 1;
-        }
-    };
-    log(&format!("本地会话已打开（{session:?}）"));
-
     let core_for_ui = core.clone();
-    let selftest = args.selftest;
-    let timeout = args.timeout_secs;
+    let selftest = args
+        .selftest
+        .then(|| std::time::Duration::from_secs(args.timeout_secs));
+    let mut rx = Some(rx);
     Application::new().run(move |cx: &mut App| {
         log("GPUI 应用循环已启动");
-        let bounds = Bounds::centered(None, size(px(960.0), px(600.0)), cx);
+        let bounds = Bounds::centered(None, size(px(1120.0), px(680.0)), cx);
         cx.on_window_closed(|cx| {
             if cx.windows().is_empty() {
                 cx.quit();
@@ -364,9 +356,8 @@ pub fn run() -> i32 {
                 ..Default::default()
             },
             move |window, cx| {
-                cx.new(|cx| {
-                    TerminalView::new(core_for_ui, session, rx, selftest, timeout, window, cx)
-                })
+                let rx = rx.take().expect("窗口只创建一次");
+                cx.new(|cx| ShellView::new(core_for_ui, rx, selftest, window, cx))
             },
         );
         match opened {

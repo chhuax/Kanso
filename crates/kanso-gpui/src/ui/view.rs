@@ -5,12 +5,10 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use futures::StreamExt as _;
-use futures::channel::mpsc::UnboundedReceiver;
 use gpui::{
-    App, Bounds, ClipboardItem, Context, EntityInputHandler, FocusHandle, Focusable, KeyDownEvent,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollWheelEvent,
-    UTF16Selection, Window, div, point, prelude::*, px, rgb, size,
+    App, Bounds, ClipboardItem, Context, EntityInputHandler, EventEmitter, FocusHandle, Focusable,
+    KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point,
+    ScrollWheelEvent, UTF16Selection, Window, div, point, prelude::*, px, rgb, size,
 };
 use kanso_core::Core;
 use kanso_frame::Frame;
@@ -18,7 +16,7 @@ use kanso_types::input::{
     Key, KeyEvent, KeyEventKind, Modifiers, MouseButton as KButton, MouseEvent, MouseEventKind,
     PasteContent,
 };
-use kanso_types::{CellSide, CoreEvent, GridSize, SessionId, ViewportPoint};
+use kanso_types::{CellSide, GridSize, SessionId, ViewportPoint};
 
 use kanso_gpui::ime::ImeState;
 use kanso_gpui::keys::{KeyAction, KeyInput, classify_key};
@@ -28,7 +26,7 @@ use kanso_gpui::theme::Palette;
 
 use super::element::{TerminalElement, base_font};
 use super::selftest::SelfTest;
-use super::{EXIT_CODE, LOG_INPUT, log, memory};
+use super::{LOG_INPUT, log};
 
 /// 终端区域四周的内边距（逻辑像素）。
 pub(crate) const PAD: f32 = 6.0;
@@ -72,6 +70,12 @@ fn kmods(m: &gpui::Modifiers) -> Modifiers {
     }
 }
 
+/// 终端视图向外壳报告的事件。
+pub(crate) enum TerminalEvent {
+    /// 终端阶段的自检结束（`true` 为通过）。
+    SelfTestFinished(bool),
+}
+
 pub(crate) struct TerminalView {
     pub core: Arc<Core>,
     pub session: SessionId,
@@ -89,16 +93,22 @@ pub(crate) struct TerminalView {
     pub origin: Option<Point<Pixels>>,
     pub first_painted: bool,
     pub selftest: Option<SelfTest>,
+    /// 是否维护整屏文本 `screen`（自检用）。
+    pub track_screen: bool,
     left_down: bool,
 }
 
+impl EventEmitter<TerminalEvent> for TerminalView {}
+
 impl TerminalView {
+    /// 创建终端视图。核心事件由外壳（`ShellView`）统一接收，按会话把“有新帧”转给对应视图的
+    /// [`pull_frame`](Self::pull_frame)；焦点也由外壳分配。
     pub(crate) fn new(
         core: Arc<Core>,
         session: SessionId,
-        mut rx: UnboundedReceiver<CoreEvent>,
-        selftest: bool,
-        timeout_secs: u64,
+        selftest: Option<Duration>,
+        track_screen: bool,
+        dark: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -111,31 +121,8 @@ impl TerminalView {
             window.scale_factor()
         ));
         let focus = cx.focus_handle();
-        window.focus(&focus);
-        let _ = core.focus(session, true);
 
-        // 核心事件 → UI 线程。核心保证每帧最多唤醒一次（TerminalDirty 合并）。
-        cx.spawn(async move |this, cx| {
-            while let Some(ev) = rx.next().await {
-                if this.update(cx, |t, cx| t.on_core_event(ev, cx)).is_err() {
-                    break;
-                }
-            }
-        })
-        .detach();
-
-        cx.observe_window_activation(window, |this, window, cx| {
-            let active = window.is_window_active();
-            let _ = this.core.focus(this.session, active);
-            if !active {
-                // 失焦丢弃组字，不上屏（checklist 场景 5）。
-                this.ime.cancel();
-            }
-            cx.notify();
-        })
-        .detach();
-
-        let st = selftest.then(|| SelfTest::new(Duration::from_secs(timeout_secs)));
+        let st = selftest.map(SelfTest::new);
         if st.is_some() {
             cx.spawn(async move |this, cx| {
                 loop {
@@ -155,7 +142,7 @@ impl TerminalView {
             core,
             session,
             focus,
-            palette: Arc::new(Palette::kanso_dark()),
+            palette: Arc::new(palette_for(dark)),
             frame: None,
             grid: None,
             screen: Vec::new(),
@@ -168,28 +155,35 @@ impl TerminalView {
             origin: None,
             first_painted: false,
             selftest: st,
+            track_screen,
             left_down: false,
         }
     }
 
-    // ---- 核心事件与帧 ----
-
-    fn on_core_event(&mut self, ev: CoreEvent, cx: &mut Context<Self>) {
-        match ev {
-            CoreEvent::TerminalDirty { session } if session == self.session => self.pull_frame(cx),
-            CoreEvent::SessionStateChanged { session, state } if session == self.session => {
-                log(&format!("会话状态：{state:?}"));
-                if let kanso_types::event::SessionState::Closed(reason) = state {
-                    log(&format!("会话已关闭（{reason:?}），退出应用"));
-                    if self.selftest.is_some() {
-                        EXIT_CODE.store(1, Ordering::SeqCst);
-                    }
-                    cx.quit();
-                }
-            }
-            _ => {}
+    /// 窗口激活状态变化：失焦丢弃组字，不上屏（checklist 场景 5）。
+    pub(crate) fn on_window_activation(&mut self, active: bool, cx: &mut Context<Self>) {
+        if !active {
+            self.ime.cancel();
         }
+        cx.notify();
     }
+
+    /// 跟随系统深浅色换配色，并用最近一帧重建渲染数据。
+    pub(crate) fn set_dark(&mut self, dark: bool, cx: &mut Context<Self>) {
+        let palette = palette_for(dark);
+        if *self.palette == palette {
+            return;
+        }
+        self.palette = Arc::new(palette);
+        if let Some(frame) = &self.frame
+            && let Ok(view) = frame.view()
+        {
+            self.grid = Some(Arc::new(build_render_grid(&view, &self.palette)));
+        }
+        cx.notify();
+    }
+
+    // ---- 核心事件与帧 ----
 
     pub(crate) fn pull_frame(&mut self, cx: &mut Context<Self>) {
         let Some(frame) = self.core.take_frame(self.session, &mut self.frame) else {
@@ -198,7 +192,7 @@ impl TerminalView {
         match frame.view() {
             Ok(view) => {
                 self.grid = Some(Arc::new(build_render_grid(&view, &self.palette)));
-                if self.selftest.is_some() {
+                if self.track_screen || self.selftest.is_some() {
                     self.screen = screen_text(&view);
                 }
             }
@@ -485,10 +479,6 @@ impl TerminalView {
             log(&format!("scroll 失败：{e}"));
         }
     }
-
-    pub(crate) fn memory_line(&self) -> String {
-        memory::describe()
-    }
 }
 
 impl Focusable for TerminalView {
@@ -622,6 +612,15 @@ impl EntityInputHandler for TerminalView {
         _cx: &mut Context<Self>,
     ) -> Option<usize> {
         None
+    }
+}
+
+/// 深色 / 浅色对应的终端配色。
+pub(crate) fn palette_for(dark: bool) -> Palette {
+    if dark {
+        Palette::kanso_dark()
+    } else {
+        Palette::kanso_light()
     }
 }
 
