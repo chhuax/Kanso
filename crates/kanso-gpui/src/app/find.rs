@@ -4,6 +4,9 @@
 //! 这里只维护查找栏自己的状态；每个会话一个 [`FindState`]，互不干扰。
 
 use kanso_core::{SearchQuery, SearchStatus};
+use kanso_types::message::Message;
+
+use crate::app::launcher::render_message;
 
 /// 新输出到来时刷新计数的最小间隔（毫秒）。
 pub const REFRESH_INTERVAL_MS: u64 = 250;
@@ -132,8 +135,8 @@ impl FindState {
     pub fn status_text(&self) -> String {
         match self.result {
             FindResult::Idle => String::new(),
-            FindResult::InvalidRegex => "无效的正则表达式".to_owned(),
-            FindResult::Found { total: 0, .. } => "无结果".to_owned(),
+            FindResult::InvalidRegex => render_message(&Message::UiFindInvalidRegex {}),
+            FindResult::Found { total: 0, .. } => render_message(&Message::UiFindNoResults {}),
             FindResult::Found {
                 total,
                 current: Some(c),

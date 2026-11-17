@@ -624,6 +624,20 @@ ui-files = 文件
 
 ui-timestamps = 时间戳
 
+ui-find-placeholder = 查找
+
+ui-find-no-results = 无结果
+
+ui-find-invalid-regex = 无效的正则表达式
+
+ui-copy-command = 复制命令
+
+ui-copy-output = 复制输出
+
+ui-copied = 已复制
+
+ui-link-unsupported = 不支持打开这种链接
+
 ui-new-group-2 = 新建分组
 
 ui-group-name = 分组名称

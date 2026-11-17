@@ -167,9 +167,15 @@ pub fn terminal_menu(has_selection: bool, block: Option<BlockMenu>) -> Vec<MenuI
     let copy = item(label(Message::UiCopy {}), AppCommand::Copy);
     let mut items = vec![if has_selection { copy } else { copy.disabled() }];
     if let Some(b) = block {
-        let cmd = item("复制命令", AppCommand::CopyBlockCommand);
+        let cmd = item(
+            label(Message::UiCopyCommand {}),
+            AppCommand::CopyBlockCommand,
+        );
         items.push(if b.copy_command { cmd } else { cmd.disabled() });
-        items.push(item("复制输出", AppCommand::CopyBlockOutput));
+        items.push(item(
+            label(Message::UiCopyOutput {}),
+            AppCommand::CopyBlockOutput,
+        ));
     }
     items.extend([
         item(label(Message::UiPaste {}), AppCommand::Paste),

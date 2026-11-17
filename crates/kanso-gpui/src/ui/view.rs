@@ -454,7 +454,11 @@ impl TerminalView {
         {
             Some(text) => {
                 cx.write_to_clipboard(ClipboardItem::new_string(text));
-                cx.emit(TerminalEvent::Notice("已复制".to_owned()));
+                cx.emit(TerminalEvent::Notice(
+                    kanso_gpui::app::launcher::render_message(
+                        &kanso_types::message::Message::UiCopied {},
+                    ),
+                ));
             }
             None => log(&format!("块 {id} 没有可复制的内容")),
         }
@@ -679,7 +683,11 @@ impl TerminalView {
             cx.open_url(&link.url);
         } else {
             log(&format!("拒绝打开不受信任协议的链接 {}", link.url));
-            cx.emit(TerminalEvent::Notice("不支持打开这种链接".to_owned()));
+            cx.emit(TerminalEvent::Notice(
+                kanso_gpui::app::launcher::render_message(
+                    &kanso_types::message::Message::UiLinkUnsupported {},
+                ),
+            ));
         }
         true
     }

@@ -630,6 +630,20 @@ ui-files = Files
 
 ui-timestamps = Timestamps
 
+ui-find-placeholder = Find
+
+ui-find-no-results = No results
+
+ui-find-invalid-regex = Invalid regular expression
+
+ui-copy-command = Copy command
+
+ui-copy-output = Copy output
+
+ui-copied = Copied
+
+ui-link-unsupported = This kind of link can't be opened
+
 ui-new-group-2 = New Group
 
 ui-group-name = Group name

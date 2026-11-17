@@ -562,6 +562,20 @@ messages! {
     UiFiles = "ui-files" {},
     /// GPUI 界面文字：时间戳
     UiTimestamps = "ui-timestamps" {},
+    /// GPUI 界面文字：查找
+    UiFindPlaceholder = "ui-find-placeholder" {},
+    /// GPUI 界面文字：无结果
+    UiFindNoResults = "ui-find-no-results" {},
+    /// GPUI 界面文字：无效的正则表达式
+    UiFindInvalidRegex = "ui-find-invalid-regex" {},
+    /// GPUI 界面文字：复制命令
+    UiCopyCommand = "ui-copy-command" {},
+    /// GPUI 界面文字：复制输出
+    UiCopyOutput = "ui-copy-output" {},
+    /// GPUI 界面文字：已复制
+    UiCopied = "ui-copied" {},
+    /// GPUI 界面文字：不支持打开这种链接
+    UiLinkUnsupported = "ui-link-unsupported" {},
     /// GPUI 界面文字：新建分组
     UiNewGroup2 = "ui-new-group-2" {},
     /// GPUI 界面文字：分组名称
