@@ -223,7 +223,7 @@ impl ShellView {
                     if self.st_rows(t3, "KT_SPLIT_D", cx) != 0 {
                         return self.st_fail("下方窗格的输入串到了上方窗格".into(), cx);
                     }
-                    self.st_pass("向下拆分：三个窗格同时显示，各自的 shell 独立往返");
+                    self.st_note("PASS 向下拆分：三个窗格同时显示，各自的 shell 独立往返".into());
                     // 几何：三个窗格互不重叠、都不小于最小边长。
                     let area = self.split_area(window);
                     let frames = self
