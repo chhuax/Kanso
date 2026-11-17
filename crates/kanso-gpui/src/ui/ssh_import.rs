@@ -33,8 +33,8 @@ use super::widgets::dropdown::{Dropdown, DropdownEvent};
 /// 对话框向宿主发出的事件。
 #[derive(Clone, Debug)]
 pub(crate) enum SshImportEvent {
-    /// 关闭；`changed` 为真表示已经导入过（会话库变了）。
-    Close { changed: bool },
+    /// 关闭。
+    Close,
 }
 
 /// 对话框所处阶段。
@@ -75,8 +75,6 @@ pub(crate) struct SshImportView {
     phase: Phase,
     /// 导入失败的原因（对话框保持打开让用户重试）。
     error: Option<String>,
-    /// 已经导入成功过。
-    changed: bool,
     groups: Vec<Group>,
     group: Entity<Dropdown>,
     scroll: ScrollHandle,
@@ -136,7 +134,6 @@ impl SshImportView {
             model: SshImportModel::new(home),
             phase: Phase::Scanning,
             error: None,
-            changed: false,
             groups,
             group,
             scroll: ScrollHandle::new(),
@@ -196,7 +193,6 @@ impl SshImportView {
             this.update_in(cx, |this, _window, cx| {
                 match result {
                     Ok(report) => {
-                        this.changed = true;
                         this.phase = Phase::Done(ssh_import_result(&report));
                     }
                     Err(e) => {
@@ -238,9 +234,7 @@ impl SshImportView {
         if matches!(self.phase, Phase::Importing) {
             return;
         }
-        cx.emit(SshImportEvent::Close {
-            changed: self.changed,
-        });
+        cx.emit(SshImportEvent::Close);
     }
 
     // ---- 键盘 ----
@@ -494,6 +488,7 @@ impl SshImportView {
             .into_any_element()
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn button(
         &self,
         id: &'static str,

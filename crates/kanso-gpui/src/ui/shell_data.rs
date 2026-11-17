@@ -176,7 +176,7 @@ impl ShellView {
         self.ssh_import_sub = Some(cx.subscribe_in(
             &view,
             window,
-            |this, _v, SshImportEvent::Close { .. }: &SshImportEvent, window, cx| {
+            |this, _v, SshImportEvent::Close: &SshImportEvent, window, cx| {
                 this.ssh_import = None;
                 this.ssh_import_sub = None;
                 this.sync_focus(window, cx);
