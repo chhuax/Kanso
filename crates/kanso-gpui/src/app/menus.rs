@@ -6,6 +6,7 @@
 
 use kanso_types::SessionId;
 
+use crate::app::filer_text::t;
 use crate::app::shortcuts::{AppCommand, shortcut_text};
 use crate::app::workspace::CloseScope;
 use crate::widgets::menu::MenuItem;
@@ -40,6 +41,12 @@ pub fn encode(command: AppCommand) -> String {
         AppCommand::ZoomIn => "zoom-in".into(),
         AppCommand::ZoomOut => "zoom-out".into(),
         AppCommand::ZoomReset => "zoom-reset".into(),
+        AppCommand::ToggleFiler => "toggle-filer".into(),
+        AppCommand::LocateFiler => "locate-filer".into(),
+        AppCommand::XmodemSend => "xmodem-send".into(),
+        AppCommand::XmodemSend1K => "xmodem-send-1k".into(),
+        AppCommand::XmodemReceive => "xmodem-receive".into(),
+        AppCommand::CancelTerminalTransfer => "cancel-terminal-transfer".into(),
     }
 }
 
@@ -100,6 +107,12 @@ pub fn decode(id: &str) -> Option<AppCommand> {
         "zoom-in" => AppCommand::ZoomIn,
         "zoom-out" => AppCommand::ZoomOut,
         "zoom-reset" => AppCommand::ZoomReset,
+        "toggle-filer" => AppCommand::ToggleFiler,
+        "locate-filer" => AppCommand::LocateFiler,
+        "xmodem-send" => AppCommand::XmodemSend,
+        "xmodem-send-1k" => AppCommand::XmodemSend1K,
+        "xmodem-receive" => AppCommand::XmodemReceive,
+        "cancel-terminal-transfer" => AppCommand::CancelTerminalTransfer,
         _ => return None,
     })
 }
@@ -135,6 +148,8 @@ pub fn terminal_menu(has_selection: bool) -> Vec<MenuItem> {
         item("粘贴", AppCommand::Paste),
         item("全选", AppCommand::SelectAll),
         item("清除缓冲区", AppCommand::ClearBuffer),
+        MenuItem::separator(),
+        item(&t("ui-filer-menu-locate"), AppCommand::LocateFiler),
         MenuItem::separator(),
         item("向右拆分", AppCommand::SplitRight),
         item("向下拆分", AppCommand::SplitDown),
@@ -188,6 +203,8 @@ pub struct AppMenuState {
     pub sidebar_visible: bool,
     /// 右键是否弹菜单（否则为“复制或粘贴”）。
     pub right_click_menu: bool,
+    /// Filer 是否显示。
+    pub filer_visible: bool,
 }
 
 /// 窗口级应用菜单（Windows / Linux 没有系统菜单栏，spec §6 末段：放在应用内）。
@@ -207,6 +224,20 @@ pub fn app_menu(state: AppMenuState) -> Vec<MenuItem> {
                 item("下一个分屏", AppCommand::NextPane),
                 MenuItem::separator(),
                 item("关闭会话", AppCommand::CloseSession),
+                MenuItem::separator(),
+                MenuItem::submenu(
+                    t("ui-xfer-menu"),
+                    vec![
+                        item(&t("ui-xfer-menu-send"), AppCommand::XmodemSend),
+                        item(&t("ui-xfer-menu-send-1k"), AppCommand::XmodemSend1K),
+                        item(&t("ui-xfer-menu-receive"), AppCommand::XmodemReceive),
+                        MenuItem::separator(),
+                        item(
+                            &t("ui-xfer-menu-cancel"),
+                            AppCommand::CancelTerminalTransfer,
+                        ),
+                    ],
+                ),
             ],
         ),
         MenuItem::submenu(
@@ -226,6 +257,8 @@ pub fn app_menu(state: AppMenuState) -> Vec<MenuItem> {
             "视图",
             vec![
                 item("标签栏", AppCommand::ToggleSidebar).checked(state.sidebar_visible),
+                item(&t("ui-filer-menu-view"), AppCommand::ToggleFiler)
+                    .checked(state.filer_visible),
                 MenuItem::separator(),
                 item("向右拆分", AppCommand::SplitRight),
                 item("向下拆分", AppCommand::SplitDown),
@@ -298,6 +331,12 @@ mod tests {
             AppCommand::NewSession,
             AppCommand::ZoomIn,
             AppCommand::ZoomOut,
+            AppCommand::ToggleFiler,
+            AppCommand::LocateFiler,
+            AppCommand::XmodemSend,
+            AppCommand::XmodemSend1K,
+            AppCommand::XmodemReceive,
+            AppCommand::CancelTerminalTransfer,
             AppCommand::ZoomReset,
         ];
         for c in cmds {
@@ -320,6 +359,7 @@ mod tests {
         let state = AppMenuState {
             sidebar_visible: true,
             right_click_menu: true,
+            filer_visible: false,
         };
         for items in [terminal_menu(true), tab_menu(ctx), app_menu(state)] {
             for (id, _, label, _) in all(&items) {
@@ -388,6 +428,7 @@ mod tests {
         let items = app_menu(AppMenuState {
             sidebar_visible: false,
             right_click_menu: true,
+            filer_visible: true,
         });
         let flat = all(&items);
         for want in [
@@ -399,6 +440,10 @@ mod tests {
             "select-all",
             "clear-buffer",
             "toggle-sidebar",
+            "toggle-filer",
+            "xmodem-send",
+            "xmodem-receive",
+            "cancel-terminal-transfer",
             "split-right",
             "open-settings",
             "quit",

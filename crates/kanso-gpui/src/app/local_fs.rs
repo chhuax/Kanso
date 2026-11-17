@@ -12,6 +12,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use kanso_types::fs::DirEntry;
 
+use crate::app::filer_text::{t, tf};
+
 /// 错误分类。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LocalErrorKind {
@@ -51,12 +53,12 @@ impl LocalError {
     /// 给用户看的原因（不含路径；路径由调用方拼在前面）。
     pub fn text(&self) -> String {
         match self.kind {
-            LocalErrorKind::NotFound => "不存在".to_owned(),
-            LocalErrorKind::PermissionDenied => "没有权限".to_owned(),
-            LocalErrorKind::NotADirectory => "不是目录".to_owned(),
-            LocalErrorKind::AlreadyExists => "已经存在".to_owned(),
-            LocalErrorKind::NotEmpty => "目录不是空的，只能删除空目录".to_owned(),
-            LocalErrorKind::Cancelled => "已取消".to_owned(),
+            LocalErrorKind::NotFound => t("ui-filer-err-not-found"),
+            LocalErrorKind::PermissionDenied => t("ui-filer-err-denied"),
+            LocalErrorKind::NotADirectory => t("ui-filer-err-not-dir"),
+            LocalErrorKind::AlreadyExists => t("ui-filer-err-exists"),
+            LocalErrorKind::NotEmpty => t("ui-filer-err-not-empty"),
+            LocalErrorKind::Cancelled => t("ui-filer-err-cancelled"),
             LocalErrorKind::Other => self.detail.clone(),
         }
     }
@@ -117,7 +119,10 @@ fn entry_of(path: &Path, name: String, file_type: Option<fs::FileType>) -> DirEn
         path: path.to_string_lossy().into_owned(),
         is_dir,
         is_symlink,
-        size: followed.as_ref().filter(|m| !m.is_dir()).map_or(0, |m| m.len()),
+        size: followed
+            .as_ref()
+            .filter(|m| !m.is_dir())
+            .map_or(0, |m| m.len()),
         mtime_ms: followed.as_ref().and_then(mtime_ms),
         permissions: followed.as_ref().and_then(permissions),
         owner: None,
@@ -134,7 +139,10 @@ pub fn list_dir_streaming(
 ) -> Result<()> {
     let meta = fs::metadata(dir)?;
     if !meta.is_dir() {
-        return Err(LocalError::new(LocalErrorKind::NotADirectory, "不是目录"));
+        return Err(LocalError::new(
+            LocalErrorKind::NotADirectory,
+            t("ui-filer-err-not-dir"),
+        ));
     }
     let rd = fs::read_dir(dir)?;
     let mut buf = Vec::with_capacity(batch.min(4096));
@@ -177,7 +185,7 @@ pub fn drives() -> Vec<DirEntry> {
             }
             fs::metadata(&root).ok()?;
             Some(DirEntry {
-                name: format!("本地磁盘 ({c}:)"),
+                name: tf("ui-filer-drive", &[("letter", &c.to_string())]),
                 path: root,
                 is_dir: true,
                 is_symlink: false,
@@ -213,7 +221,10 @@ pub fn rename(from: &Path, to: &Path) -> Result<()> {
             == to.to_string_lossy().to_lowercase()
             && from != to;
         if !same_ignoring_case {
-            return Err(LocalError::new(LocalErrorKind::AlreadyExists, "已经存在"));
+            return Err(LocalError::new(
+                LocalErrorKind::AlreadyExists,
+                t("ui-filer-err-exists"),
+            ));
         }
     }
     fs::rename(from, to).map_err(Into::into)
@@ -222,14 +233,14 @@ pub fn rename(from: &Path, to: &Path) -> Result<()> {
 /// 删除：文件、空目录或链接本身（不跟随，不删目标）；非空目录保留并报 `NotEmpty`。
 pub fn remove(path: &Path) -> Result<()> {
     let meta = fs::symlink_metadata(path)?;
-    let t = meta.file_type();
-    if t.is_symlink() {
+    let ft = meta.file_type();
+    if ft.is_symlink() {
         // Windows 的目录链接要用 remove_dir。
         return fs::remove_file(path)
             .or_else(|_| fs::remove_dir(path))
             .map_err(Into::into);
     }
-    if t.is_dir() {
+    if ft.is_dir() {
         return fs::remove_dir(path).map_err(Into::into);
     }
     fs::remove_file(path).map_err(Into::into)
@@ -313,7 +324,7 @@ pub fn check_copy(src: &Path, dest_dir: &Path) -> Result<bool> {
     if meta.is_dir() && is_same_or_descendant(dest_dir, src) {
         return Err(LocalError::new(
             LocalErrorKind::Other,
-            "不能把目录复制到它自己或它的子目录里",
+            t("ui-filer-err-copy-into-self"),
         ));
     }
     Ok(true)
@@ -340,7 +351,10 @@ pub fn copy_into(
     (state.progress)(0, total);
     for src in sources {
         if state.cancel.load(Ordering::Relaxed) {
-            return Err(LocalError::new(LocalErrorKind::Cancelled, "已取消"));
+            return Err(LocalError::new(
+                LocalErrorKind::Cancelled,
+                t("ui-filer-err-cancelled"),
+            ));
         }
         if !check_copy(src, dest_dir)? {
             state.report.already_there += 1;
@@ -348,7 +362,7 @@ pub fn copy_into(
         }
         let name = src
             .file_name()
-            .ok_or_else(|| LocalError::new(LocalErrorKind::Other, "无法取得名称"))?;
+            .ok_or_else(|| LocalError::new(LocalErrorKind::Other, t("ui-filer-err-no-name")))?;
         state.copy_item(src, &dest_dir.join(name))?;
     }
     (state.progress)(state.done, total);
@@ -369,21 +383,26 @@ const CHUNK: usize = 256 * 1024;
 impl CopyState<'_> {
     fn copy_item(&mut self, src: &Path, dst: &Path) -> Result<()> {
         let meta = fs::symlink_metadata(src)?;
-        let t = meta.file_type();
-        if t.is_symlink() {
+        let ft = meta.file_type();
+        if ft.is_symlink() {
             // 本地复制不通过链接写到目录外，也不展开链接：跳过。
             return Ok(());
         }
-        if t.is_dir() {
+        if ft.is_dir() {
             match fs::symlink_metadata(dst) {
                 Ok(m) if m.is_dir() => {}
                 Ok(m) if m.file_type().is_symlink() => {
                     return Err(LocalError::new(
                         LocalErrorKind::Other,
-                        "目标位置是符号链接，已拒绝写入",
+                        t("ui-filer-err-target-link"),
                     ));
                 }
-                Ok(_) => return Err(LocalError::new(LocalErrorKind::AlreadyExists, "已经存在")),
+                Ok(_) => {
+                    return Err(LocalError::new(
+                        LocalErrorKind::AlreadyExists,
+                        t("ui-filer-err-exists"),
+                    ));
+                }
                 Err(_) => fs::create_dir(dst)?,
             }
             let mut children: Vec<_> = fs::read_dir(src)?.flatten().collect();
@@ -393,7 +412,7 @@ impl CopyState<'_> {
             }
             return Ok(());
         }
-        if !t.is_file() {
+        if !ft.is_file() {
             return Ok(());
         }
         match fs::symlink_metadata(dst) {
@@ -401,18 +420,21 @@ impl CopyState<'_> {
                 if m.file_type().is_symlink() {
                     return Err(LocalError::new(
                         LocalErrorKind::Other,
-                        "目标位置是符号链接，已拒绝写入",
+                        t("ui-filer-err-target-link"),
                     ));
                 }
                 if m.is_dir() {
                     return Err(LocalError::new(
                         LocalErrorKind::AlreadyExists,
-                        "目标位置已有同名目录",
+                        t("ui-filer-err-target-dir"),
                     ));
                 }
                 match self.policy {
                     CopyPolicy::Fail => {
-                        return Err(LocalError::new(LocalErrorKind::AlreadyExists, "已经存在"));
+                        return Err(LocalError::new(
+                            LocalErrorKind::AlreadyExists,
+                            t("ui-filer-err-exists"),
+                        ));
                     }
                     CopyPolicy::Skip => {
                         self.report.skipped_existing += 1;
@@ -435,7 +457,10 @@ impl CopyState<'_> {
         let result = (|| -> Result<()> {
             loop {
                 if self.cancel.load(Ordering::Relaxed) {
-                    return Err(LocalError::new(LocalErrorKind::Cancelled, "已取消"));
+                    return Err(LocalError::new(
+                        LocalErrorKind::Cancelled,
+                        t("ui-filer-err-cancelled"),
+                    ));
                 }
                 let n = input.read(&mut buf)?;
                 if n == 0 {
@@ -538,7 +563,10 @@ mod tests {
         rename(&d.join("new"), &d.join("renamed")).unwrap();
         assert!(d.join("renamed").exists());
         mkdir(&d.join("dir")).unwrap();
-        assert_eq!(mkdir(&d.join("dir")).unwrap_err().kind, LocalErrorKind::AlreadyExists);
+        assert_eq!(
+            mkdir(&d.join("dir")).unwrap_err().kind,
+            LocalErrorKind::AlreadyExists
+        );
         fs::remove_dir_all(&d).unwrap();
     }
 
@@ -553,7 +581,10 @@ mod tests {
         remove(&d.join("full").join("x")).unwrap();
         remove(&d.join("full")).unwrap();
         assert!(!d.join("full").exists());
-        assert_eq!(remove(&d.join("full")).unwrap_err().kind, LocalErrorKind::NotFound);
+        assert_eq!(
+            remove(&d.join("full")).unwrap_err().kind,
+            LocalErrorKind::NotFound
+        );
         fs::remove_dir_all(&d).unwrap();
     }
 
@@ -637,7 +668,14 @@ mod tests {
         fs::write(d.join("f"), b"content").unwrap();
         let cancel = AtomicBool::new(false);
         // 文件已经在目标目录：跳过，源内容不被截断。
-        let r = copy_into(&[d.join("f")], &d, CopyPolicy::Overwrite, &cancel, &mut noop()).unwrap();
+        let r = copy_into(
+            &[d.join("f")],
+            &d,
+            CopyPolicy::Overwrite,
+            &cancel,
+            &mut noop(),
+        )
+        .unwrap();
         assert_eq!(r.already_there, 1);
         assert_eq!(fs::read(d.join("f")).unwrap(), b"content");
         // 目录复制进自己的后代：拒绝。
@@ -679,8 +717,14 @@ mod tests {
                 cancel.store(true, Ordering::Relaxed);
             }
         };
-        let e = copy_into(&[src.join("big")], &dst, CopyPolicy::Overwrite, &cancel, &mut cb)
-            .unwrap_err();
+        let e = copy_into(
+            &[src.join("big")],
+            &dst,
+            CopyPolicy::Overwrite,
+            &cancel,
+            &mut cb,
+        )
+        .unwrap_err();
         assert_eq!(e.kind, LocalErrorKind::Cancelled);
         assert!(!dst.join("big").exists());
         assert!(seen >= 1);

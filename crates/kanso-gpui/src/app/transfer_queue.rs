@@ -13,6 +13,7 @@ use std::collections::VecDeque;
 use kanso_types::TransferId;
 use kanso_types::transfer::ConflictPolicy;
 
+use crate::app::filer_text::{t, tf};
 use crate::filer::format_size;
 
 /// 传输方向 / 操作类型（进度条文字据此区分）。
@@ -28,12 +29,12 @@ pub enum Kind {
 
 impl Kind {
     /// 进度条上的操作文字。
-    pub fn label(self) -> &'static str {
-        match self {
-            Kind::Upload => "上传",
-            Kind::Download => "下载",
-            Kind::Copy => "复制",
-        }
+    pub fn label(self) -> String {
+        t(match self {
+            Kind::Upload => "ui-filer-op-upload",
+            Kind::Download => "ui-filer-op-download",
+            Kind::Copy => "ui-filer-op-copy",
+        })
     }
 }
 
@@ -58,8 +59,8 @@ pub struct Busy;
 
 impl Busy {
     /// 提示文字。
-    pub fn text(self) -> &'static str {
-        "正在处理，请等待当前传输完成"
+    pub fn text(self) -> String {
+        t("ui-filer-busy")
     }
 }
 
@@ -297,12 +298,8 @@ impl TransferQueue {
 
     /// 推进：没有当前项时取下一项开始；整批处理完时给出结果。
     pub fn next_action(&mut self) -> Action {
-        if let Some(c) = &self.current {
-            return if c.awaiting {
-                Action::Wait
-            } else {
-                Action::Wait
-            };
+        if self.current.is_some() {
+            return Action::Wait;
         }
         let Some(item) = self.pending.pop_front() else {
             return Action::Wait;
@@ -422,19 +419,32 @@ impl TransferQueue {
 
     fn conclude(&mut self, end: BatchEnd, now_ms: u64, cur: Option<&Current>) -> Action {
         let title = match (&end, cur) {
-            (BatchEnd::Done, _) => format!("完成：{} 项", self.batch_done),
-            (BatchEnd::Cancelled, _) => "已取消".to_owned(),
-            (BatchEnd::Failed(t), Some(c)) => format!("{}失败：{}", c.item.kind.label(), t),
-            (BatchEnd::Failed(t), None) => t.clone(),
+            (BatchEnd::Done, _) => tf(
+                "ui-filer-batch-done",
+                &[("count", &self.batch_done.to_string())],
+            ),
+            (BatchEnd::Cancelled, _) => t("ui-filer-cancelled"),
+            (BatchEnd::Failed(why), Some(c)) => tf(
+                "ui-filer-op-failed",
+                &[("op", &c.item.kind.label()), ("reason", why)],
+            ),
+            (BatchEnd::Failed(why), None) => why.clone(),
         };
         let finish = match &end {
             BatchEnd::Done => BarFinish::Done,
             BatchEnd::Cancelled => BarFinish::Cancelled,
-            BatchEnd::Failed(t) => {
+            BatchEnd::Failed(why) => {
                 // 详细原因留在错误区域，短提示消失后也不丢。
                 self.error = Some(match cur {
-                    Some(c) => format!("{} {}：{}", c.item.kind.label(), c.item.name, t),
-                    None => t.clone(),
+                    Some(c) => tf(
+                        "ui-filer-op-error",
+                        &[
+                            ("op", &c.item.kind.label()),
+                            ("name", &c.item.name),
+                            ("reason", why),
+                        ],
+                    ),
+                    None => why.clone(),
                 });
                 BarFinish::Failed
             }
@@ -510,7 +520,7 @@ impl TransferQueue {
                 return Some(Bar {
                     title,
                     fraction: None,
-                    detail: "等待处理同名文件…".to_owned(),
+                    detail: t("ui-filer-awaiting-conflict"),
                     cancellable: true,
                     finish: None,
                 });
@@ -547,7 +557,7 @@ impl TransferQueue {
             title: title.clone(),
             fraction: matches!(finish, BarFinish::Done).then_some(1.0),
             detail: if self.skipped > 0 {
-                format!("跳过 {} 个同名项", self.skipped)
+                tf("ui-filer-skipped", &[("count", &self.skipped.to_string())])
             } else {
                 String::new()
             },

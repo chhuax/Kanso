@@ -48,7 +48,12 @@ fn toggle_item(id: &'static str, label: &'static str, th: Theme) -> gpui::Statef
 }
 
 impl ShellView {
-    pub(super) fn render_status_bar(&self, th: Theme, window: &Window) -> gpui::AnyElement {
+    pub(super) fn render_status_bar(
+        &self,
+        th: Theme,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
         let ws = self.ctl.workspace();
         let active = ws.active_session().and_then(|s| ws.item(s));
         let model = StatusBarModel::build(
@@ -113,7 +118,7 @@ impl ShellView {
             .border_t_1()
             .border_color(th.c("border.subtle"))
             .text_size(px(kanso_gpui::widgets::style::number("font", "ui.caption")))
-            .child(toggle_item("status-filer", "文件", th))
+            .child(self.filer_toggle_item(th, cx))
             .child(toggle_item("status-timeline", "时间戳", th))
             .children(directory)
             // 状态文字没有内容时也要占住中间的弹性空间，把右侧元素推到最右。

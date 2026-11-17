@@ -12,7 +12,6 @@ use kanso_gpui::app::controller::FALLBACK_GRID;
 use kanso_gpui::app::launcher::core_error_text;
 use kanso_gpui::app::prompt_dialogs::{response_for, spec_for};
 use kanso_types::ProfileId;
-use kanso_types::profile::SessionKind;
 
 use super::launcher::{LauncherEvent, LauncherView};
 use super::log;
@@ -27,6 +26,7 @@ impl ShellView {
             || self.editor.is_some()
             || self.prompt.is_some()
             || self.dialog.is_some()
+            || self.filer.dialog.is_some()
             || self.menu.is_some()
     }
 
@@ -144,14 +144,10 @@ impl ShellView {
             self.show_notice_str("这个会话已经不存在", cx);
             return;
         };
-        if profile.kind.kind() == SessionKind::Sftp {
-            self.show_notice_str("SFTP 会话需要文件面板，主窗口暂时还不能打开它", cx);
-            return;
-        }
         match self.ctl.open_profile(id, None, FALLBACK_GRID) {
             Ok(sid) => {
                 log(&format!("已连接会话“{}”（{sid:?}）", profile.name));
-                self.attach_terminal(sid, window, cx);
+                self.attach_session(sid, window, cx);
                 self.after_change(window, cx);
             }
             Err(e) => {
@@ -187,7 +183,11 @@ impl ShellView {
             self.prompt = None;
             self.prompt_sub = None;
             let Some(spec) = spec_for(&dialog) else {
-                log("收到文件传输类提问，主窗口暂不支持，按取消回答");
+                // 文件传输类提问（ZMODEM / XMODEM）：系统文件选择器，选完应答。
+                if let kanso_gpui::app::prompts::PromptDialog::Transfer(request) = &dialog {
+                    self.begin_transfer_picker(id, request.clone(), window, cx);
+                    return;
+                }
                 self.ctl.prompts_mut().cancel();
                 continue;
             };

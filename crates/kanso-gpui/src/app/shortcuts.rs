@@ -66,6 +66,18 @@ pub enum AppCommand {
     ZoomOut,
     /// 终端字号恢复默认。
     ZoomReset,
+    /// 显示 / 隐藏 Filer（视图菜单；用已记住的浏览位置）。
+    ToggleFiler,
+    /// 在 Filer 中显示活动 shell 的工作目录（Ctrl+Shift+J，filer.md §2）。
+    LocateFiler,
+    /// 用 XMODEM（128 字节块）发送文件。
+    XmodemSend,
+    /// 用 XMODEM-1K 发送文件。
+    XmodemSend1K,
+    /// 用 XMODEM 接收文件。
+    XmodemReceive,
+    /// 取消活动会话正在进行的终端内传输（ZMODEM / XMODEM）。
+    CancelTerminalTransfer,
 }
 
 impl AppCommand {
@@ -139,6 +151,9 @@ pub const DEFAULT_BINDINGS: &[Binding] = &[
     b(false, true, false, "9", AppCommand::SelectTab(8)),
     // 面板显隐（spec 里 Ctrl+Alt+← 对应标签栏）。
     b(true, true, false, "left", AppCommand::ToggleSidebar),
+    b(true, true, false, "right", AppCommand::ToggleFiler),
+    // 定位终端目录：mac 是 ⌘J，Windows 用 Ctrl+Shift+J（ui-shell.md §7）。
+    b(true, false, true, "j", AppCommand::LocateFiler),
     // 清屏（ui-shell.md §7）。
     b(false, true, false, "k", AppCommand::ClearBuffer),
     // 设置：mac 是 ⌘,，Windows 沿用 Ctrl+,（VS Code、Windows Terminal 同样的习惯）。

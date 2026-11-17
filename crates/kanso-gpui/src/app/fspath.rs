@@ -139,18 +139,6 @@ pub enum NameError {
     InvalidChar(char),
 }
 
-impl NameError {
-    /// 给用户看的原因。
-    pub fn text(self) -> String {
-        match self {
-            NameError::Empty => "名称不能为空".to_owned(),
-            NameError::Reserved => "名称不能是 . 或 ..".to_owned(),
-            NameError::HasSeparator => "名称不能包含目录分隔符，只能是当前目录里的一个项目".to_owned(),
-            NameError::InvalidChar(c) => format!("名称不能包含字符 {c:?}"),
-        }
-    }
-}
-
 /// 校验并整理新建 / 重命名的名称：去掉首尾空白，必须是当前目录的一个直接子项。
 pub fn validate_child_name(style: PathStyle, raw: &str) -> Result<String, NameError> {
     let name = raw.trim();
@@ -234,7 +222,12 @@ pub fn resolve_input(style: PathStyle, current: &str, input: &str, home: Option<
     let input = match (home, input) {
         (Some(h), "~") => h.to_owned(),
         (Some(h), s) if s.starts_with("~/") || s.starts_with("~\\") => {
-            format!("{}{}{}", h.trim_end_matches(['/', '\\']), style.sep(), &s[2..])
+            format!(
+                "{}{}{}",
+                h.trim_end_matches(['/', '\\']),
+                style.sep(),
+                &s[2..]
+            )
         }
         _ => input.to_owned(),
     };
@@ -301,7 +294,7 @@ pub fn breadcrumbs(style: PathStyle, path: &str) -> Vec<Crumb> {
         }
         PathStyle::Windows => {
             out.push(Crumb {
-                label: "此电脑".to_owned(),
+                label: crate::app::filer_text::t("ui-filer-this-pc"),
                 path: THIS_PC.to_owned(),
             });
             let p = win_norm(path);
@@ -394,9 +387,15 @@ mod tests {
 
     #[test]
     fn relative_input_is_based_on_the_current_directory() {
-        assert_eq!(resolve_input(Posix, "/srv/app", "logs", None), "/srv/app/logs");
+        assert_eq!(
+            resolve_input(Posix, "/srv/app", "logs", None),
+            "/srv/app/logs"
+        );
         assert_eq!(resolve_input(Posix, "/srv/app", "../etc", None), "/srv/etc");
-        assert_eq!(resolve_input(Posix, "/srv/app", "/var//log/", None), "/var/log");
+        assert_eq!(
+            resolve_input(Posix, "/srv/app", "/var//log/", None),
+            "/var/log"
+        );
         assert_eq!(resolve_input(Posix, "/srv/app", "", None), "/srv/app");
         // `..` 越不过根。
         assert_eq!(resolve_input(Posix, "/", "../..", None), "/");
@@ -404,7 +403,10 @@ mod tests {
             resolve_input(Posix, "/x", "~/docs", Some("/home/me")),
             "/home/me/docs"
         );
-        assert_eq!(resolve_input(Posix, "/x", "~", Some("/home/me")), "/home/me");
+        assert_eq!(
+            resolve_input(Posix, "/x", "~", Some("/home/me")),
+            "/home/me"
+        );
         // 没有家目录信息（远端）时 `~` 当普通名称。
         assert_eq!(resolve_input(Posix, "/x", "~", None), "/x/~");
     }

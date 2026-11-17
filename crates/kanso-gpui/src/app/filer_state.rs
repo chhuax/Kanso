@@ -8,6 +8,7 @@ use std::collections::{BTreeSet, HashMap};
 
 use kanso_types::SessionId;
 
+use crate::app::filer_text::{t, tf, tn};
 use crate::filer::{DirModel, Row, format_mtime, format_size};
 
 // ---- 选中 ----
@@ -161,11 +162,15 @@ impl Selection {
 
     /// 丢掉已经不在模型里的编号（隐藏过滤改变后调用）。
     pub fn retain_visible(&mut self, model: &DirModel) {
-        self.ids.retain(|&id| model.visible_position_of(id).is_some());
+        self.ids
+            .retain(|&id| model.visible_position_of(id).is_some());
         if self.cursor.is_some_and(|c| !self.ids.contains(&c)) {
             self.cursor = self.ids.iter().next().copied();
         }
-        if self.anchor.is_some_and(|a| model.visible_position_of(a).is_none()) {
+        if self
+            .anchor
+            .is_some_and(|a| model.visible_position_of(a).is_none())
+        {
             self.anchor = self.cursor;
         }
     }
@@ -373,20 +378,30 @@ pub fn counts(model: &DirModel) -> (usize, usize, usize) {
 pub fn stats_text(model: &DirModel, phase: &Phase) -> String {
     let n = model.visible_len();
     match phase {
-        Phase::Connecting => "正在连接…".to_owned(),
-        Phase::Loading => format!("正在读取… 已收到 {n} 项"),
+        Phase::Connecting => t("ui-filer-connecting"),
+        Phase::Loading => tn("ui-filer-loading", n),
         Phase::Idle => String::new(),
-        Phase::Disconnected => format!("连接已断开（列表已过期，共 {n} 项）"),
+        Phase::Disconnected => tn("ui-filer-disconnected-stats", n),
         Phase::Ready | Phase::Failed => {
             if n == 0 {
-                return "0 项".to_owned();
+                return tn("ui-filer-empty", 0);
             }
             let (d, f, l) = counts(model);
-            let mut s = format!("{n} 项：{d} 个目录，{f} 个文件");
-            if l > 0 {
-                s.push_str(&format!("，{l} 个链接"));
-            }
-            s
+            let key = if l > 0 {
+                "ui-filer-stats-links"
+            } else {
+                "ui-filer-stats"
+            };
+            let (n, d, f, l) = (n.to_string(), d.to_string(), f.to_string(), l.to_string());
+            tf(
+                key,
+                &[
+                    ("total", n.as_str()),
+                    ("dirs", d.as_str()),
+                    ("files", f.as_str()),
+                    ("links", l.as_str()),
+                ],
+            )
         }
     }
 }
@@ -416,23 +431,31 @@ pub fn size_text(row: &Row) -> String {
 /// 悬停说明：完整路径、类型；普通文件附大小；有权限时显示八进制权限，属主 / 属组缺失不编造。
 pub fn row_tooltip(row: &Row) -> String {
     let kind = if row.is_symlink {
-        "链接"
+        t("ui-filer-kind-link")
     } else if row.is_dir {
-        "目录"
+        t("ui-filer-kind-dir")
     } else {
-        "文件"
+        t("ui-filer-kind-file")
     };
-    let mut lines = vec![row.path.clone(), format!("类型：{kind}")];
+    let mut lines = vec![
+        row.path.clone(),
+        tf("ui-filer-tip-kind", &[("kind", &kind)]),
+    ];
     if !row.is_dir && !row.is_symlink {
-        lines.push(format!("大小：{}", size_text(row)));
+        lines.push(tf("ui-filer-tip-size", &[("size", &size_text(row))]));
     }
     if let Some(p) = row.permissions {
-        lines.push(format!("权限：{:04o}", p & 0o7777));
+        lines.push(tf(
+            "ui-filer-tip-perm",
+            &[("perm", &format!("{:04o}", p & 0o7777))],
+        ));
     }
     match (&row.owner, &row.group) {
-        (Some(o), Some(g)) => lines.push(format!("属主：{o}:{g}")),
-        (Some(o), None) => lines.push(format!("属主：{o}")),
-        (None, Some(g)) => lines.push(format!("属组：{g}")),
+        (Some(o), Some(g)) => {
+            lines.push(tf("ui-filer-tip-owner", &[("owner", &format!("{o}:{g}"))]))
+        }
+        (Some(o), None) => lines.push(tf("ui-filer-tip-owner", &[("owner", o)])),
+        (None, Some(g)) => lines.push(tf("ui-filer-tip-group", &[("group", g)])),
         (None, None) => {}
     }
     lines.join("\n")
@@ -503,7 +526,10 @@ mod tests {
         assert_eq!(s.step(-1, &m, false), Some(3));
         s.select_all(&m);
         assert_eq!(s.len(), 4);
-        assert_eq!(Selection::default().step(1, &DirModel::default(), false), None);
+        assert_eq!(
+            Selection::default().step(1, &DirModel::default(), false),
+            None
+        );
     }
 
     #[test]
@@ -634,7 +660,10 @@ mod tests {
             entry("l", false, true),
         ]);
         assert_eq!(stats_text(&m, &Phase::Loading), "正在读取… 已收到 3 项");
-        assert_eq!(stats_text(&m, &Phase::Ready), "3 项：1 个目录，1 个文件，1 个链接");
+        assert_eq!(
+            stats_text(&m, &Phase::Ready),
+            "3 项：1 个目录，1 个文件，1 个链接"
+        );
         assert_eq!(stats_text(&DirModel::default(), &Phase::Ready), "0 项");
     }
 

@@ -830,7 +830,10 @@ mod tests {
             .collect();
         assert_eq!(names, vec!["src", "a.txt"]);
         // 之后到达的批次同样被过滤。
-        m.push_batch(vec![entry(".cache", true, 0, Some(1)), entry("b", true, 0, Some(1))]);
+        m.push_batch(vec![
+            entry(".cache", true, 0, Some(1)),
+            entry("b", true, 0, Some(1)),
+        ]);
         assert_eq!(m.visible_len(), 3);
         m.set_hide_hidden(false);
         assert_eq!(m.visible_len(), 6);
