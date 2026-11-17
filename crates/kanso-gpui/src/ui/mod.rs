@@ -8,6 +8,7 @@
 //! - `memory`：进程内存读数（日志用）。
 
 mod demo_input;
+mod demo_menu;
 mod element;
 mod filer;
 mod memory;
@@ -72,6 +73,8 @@ pub(crate) struct Args {
     pub sftp_bench: bool,
     /// `--demo-input`：只打开输入框演示窗口（不启动核心）。
     pub demo_input: bool,
+    /// `--demo-menu`：只打开右键菜单演示窗口（不启动核心）。
+    pub demo_menu: bool,
 }
 
 fn parse_args() -> Args {
@@ -89,6 +92,7 @@ fn parse_args() -> Args {
         expect_count: None,
         sftp_bench: false,
         demo_input: false,
+        demo_menu: false,
     };
     let mut explicit_log = false;
     let mut it = std::env::args().skip(1);
@@ -108,6 +112,7 @@ fn parse_args() -> Args {
             "--expect-count" => args.expect_count = it.next().and_then(|v| v.parse().ok()),
             "--sftp-bench" => args.sftp_bench = true,
             "--demo-input" => args.demo_input = true,
+            "--demo-menu" => args.demo_menu = true,
             "--timeout" => {
                 if let Some(v) = it.next().and_then(|v| v.parse().ok()) {
                     args.timeout_secs = v;
@@ -307,6 +312,9 @@ pub fn run() -> i32 {
 
     if args.demo_input {
         return demo_input::run();
+    }
+    if args.demo_menu {
+        return demo_menu::run();
     }
 
     let (tx, rx) = unbounded::<CoreEvent>();
