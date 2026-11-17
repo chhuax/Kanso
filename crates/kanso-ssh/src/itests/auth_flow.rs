@@ -6,7 +6,7 @@ use std::time::Duration;
 use kanso_types::profile::AuthMethod as ProfileAuthMethod;
 use kanso_types::prompt::CredentialKind;
 use kanso_types::secret::SecretString;
-use russh::MethodKind::{KeyboardInteractive, Password, PublicKey};
+use russh::MethodKind::{HostBased, KeyboardInteractive, Password, PublicKey};
 use russh::keys::ssh_key::LineEnding;
 use russh::keys::{Algorithm, HashAlg, PrivateKey, PrivateKeyWithHashAlg};
 
@@ -347,8 +347,8 @@ async fn partial_success_without_usable_method_does_not_say_wrong_password() {
         methods: methods(&[PublicKey, Password]),
         pubkeys: vec![key.public_key().clone()],
         pubkey_partial: true,
-        // 服务器接着只愿意接受 password：本客户端的"私钥"方式不会再去试。
-        after_partial: methods(&[Password]),
+        // 服务器接着只愿意接受本客户端不支持的 hostbased。
+        after_partial: methods(&[HostBased]),
         ..Policy::default()
     }))
     .await;
@@ -361,12 +361,81 @@ async fn partial_success_without_usable_method_does_not_say_wrong_password() {
     .await;
     match &e {
         SshError::AuthPartialSuccess { methods, user, .. } => {
-            assert_eq!(methods, &["password".to_owned()]);
+            assert_eq!(methods, &["hostbased".to_owned()]);
             assert_eq!(user, "tester");
         }
         other => panic!("{other:?}"),
     }
     assert_eq!(e.to_message().key(), "auth-partial-success");
+}
+
+/// 只开 password + publickey 的堡垒机：私钥不在授权列表里时，像 OpenSSH 一样改问密码。
+fn bastion_without_kbd() -> Policy {
+    Policy {
+        methods: methods(&[PublicKey, Password]),
+        pubkeys: vec![ed25519_key(60).public_key().clone()],
+        password: Some("pw".into()),
+        ..Policy::default()
+    }
+}
+
+#[tokio::test]
+async fn rejected_key_falls_back_to_password_prompt() {
+    let server = TestServer::start(server_with(bastion_without_kbd())).await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = key_file(&dir, "id", &ed25519_key(61));
+    let i = Scripted::new().cred(Some(("pw", true)));
+    let c = connect(params(&server, AuthMethod::PublicKey { path }), &i)
+        .await
+        .unwrap();
+    assert_eq!(*i.cred_requests.lock().unwrap(), [CredentialKind::Password]);
+    assert_eq!(
+        c.remember,
+        [RememberedCredential {
+            kind: CredentialKind::Password,
+            secret: SecretString::new("pw")
+        }]
+    );
+}
+
+#[tokio::test]
+async fn rejected_key_then_wrong_password_reports_password_failure() {
+    let server = TestServer::start(server_with(bastion_without_kbd())).await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = key_file(&dir, "id", &ed25519_key(62));
+    let e = connect_err(
+        params(&server, AuthMethod::PublicKey { path }),
+        &Scripted::new().cred(Some(("bad", false))),
+    )
+    .await;
+    match &e {
+        SshError::AuthFailed { method, .. } => assert_eq!(*method, ProfileAuthMethod::Password),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn rejected_key_password_then_verification_code() {
+    let server = TestServer::start(server_with(Policy {
+        password_partial: true,
+        after_partial: methods(&[KeyboardInteractive]),
+        kbd: vec![KbdRoundSpec::question("Verification code: ", false)],
+        kbd_expect: vec![Some(vec!["123456".into()])],
+        ..bastion_without_kbd()
+    }))
+    .await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = key_file(&dir, "id", &ed25519_key(63));
+    let i = Scripted::new()
+        .cred(Some(("pw", false)))
+        .answers(&["123456"]);
+    connect(params(&server, AuthMethod::PublicKey { path }), &i)
+        .await
+        .unwrap();
+    assert_eq!(
+        server.stats.with(|o| o.kbd_answers.clone()),
+        [vec!["123456".to_owned()]]
+    );
 }
 
 #[tokio::test]

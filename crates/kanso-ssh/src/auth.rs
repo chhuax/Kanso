@@ -201,14 +201,41 @@ pub(crate) async fn authenticate<I: Interaction>(
         return Ok(remember);
     }
 
-    // 4. 报错。
+    // 4. 私钥 / agent 没通过、服务器也没有 keyboard-interactive、但还接受 password：
+    // 与 OpenSSH 一样回退到密码。不少堡垒机只开 password + publickey，
+    // 本地默认私钥不在它的授权列表里时，用户实际是要输密码。
+    let mut fell_back_to_password = false;
+    if *ctx.method != AuthMethod::Password
+        && !handle.is_closed()
+        && pending.remaining.contains(&MethodKind::Password)
+    {
+        fell_back_to_password = true;
+        let (attempt, _) = try_password(handle, ctx, pending, &mut remember).await?;
+        pending = match attempt {
+            Attempt::Success => return Ok(remember),
+            Attempt::Failed(p) => p,
+        };
+        // 密码通过但还要第二因素（partial success）时，服务器可能接着给 keyboard-interactive。
+        if !handle.is_closed() && pending.remaining.contains(&MethodKind::KeyboardInteractive) {
+            keyboard_interactive(handle, ctx, None).await?;
+            return Ok(remember);
+        }
+    }
+
+    // 5. 报错。
     if let Some(e) = lost(handle, ctx).await {
         return Err(e);
     }
-    Err(final_error(ctx, &pending))
+    // 回退到密码后仍失败，报的是密码错误，而不是"私钥被拒"。
+    let method = if fell_back_to_password {
+        &AuthMethod::Password
+    } else {
+        ctx.method
+    };
+    Err(final_error(ctx, method, &pending))
 }
 
-fn final_error<I>(ctx: &AuthContext<'_, I>, pending: &Pending) -> SshError {
+fn final_error<I>(ctx: &AuthContext<'_, I>, method: &AuthMethod, pending: &Pending) -> SshError {
     let endpoint = ctx.endpoint.clone();
     let user = ctx.user.to_owned();
     if pending.partial {
@@ -219,7 +246,7 @@ fn final_error<I>(ctx: &AuthContext<'_, I>, pending: &Pending) -> SshError {
             methods: method_names(&pending.remaining),
         };
     }
-    match ctx.method {
+    match method {
         AuthMethod::Password => SshError::AuthFailed {
             endpoint,
             user,
