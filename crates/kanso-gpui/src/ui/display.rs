@@ -23,6 +23,8 @@ struct State {
     line_height: f32,
     ui_family: String,
     ui_size: f32,
+    /// 最低对比度保护的目标比值；关闭为 `None`。
+    min_contrast: Option<f64>,
 }
 
 static STATE: RwLock<State> = RwLock::new(State {
@@ -32,6 +34,7 @@ static STATE: RwLock<State> = RwLock::new(State {
     line_height: 1.2,
     ui_family: String::new(),
     ui_size: DisplaySettings::DEFAULT_UI_FONT_SIZE as f32,
+    min_contrast: None,
 });
 
 /// 0 跟随系统，1 强制浅色，2 强制深色。
@@ -54,6 +57,8 @@ pub(crate) fn apply(display: &DisplaySettings, mode: ThemeMode, nerd: Option<Str
     s.line_height = display.line_height as f32;
     s.ui_family = display.ui_font_family.trim().to_owned();
     s.ui_size = display.ui_font_size as f32;
+    s.min_contrast = (display.minimum_contrast_enabled && display.minimum_contrast_ratio > 1.0)
+        .then_some(display.minimum_contrast_ratio);
 }
 
 fn read() -> std::sync::RwLockReadGuard<'static, State> {
@@ -63,6 +68,11 @@ fn read() -> std::sync::RwLockReadGuard<'static, State> {
 /// 终端字号（逻辑像素）。
 pub(crate) fn terminal_font_size() -> f32 {
     read().term_size
+}
+
+/// 最低对比度保护的目标比值；关闭时为 `None`（terminal.md §15）。
+pub(crate) fn min_contrast() -> Option<f64> {
+    read().min_contrast
 }
 
 /// 行距倍数。

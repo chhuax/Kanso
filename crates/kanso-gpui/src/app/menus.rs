@@ -6,6 +6,7 @@
 
 use kanso_types::SessionId;
 
+use crate::app::blocks::BlockMenu;
 use crate::app::shortcuts::{AppCommand, shortcut_text};
 use crate::app::workspace::CloseScope;
 use crate::widgets::menu::MenuItem;
@@ -40,6 +41,14 @@ pub fn encode(command: AppCommand) -> String {
         AppCommand::ZoomIn => "zoom-in".into(),
         AppCommand::ZoomOut => "zoom-out".into(),
         AppCommand::ZoomReset => "zoom-reset".into(),
+        AppCommand::Find => "find".into(),
+        AppCommand::FindNext => "find-next".into(),
+        AppCommand::FindPrev => "find-prev".into(),
+        AppCommand::PrevBlock => "prev-block".into(),
+        AppCommand::NextBlock => "next-block".into(),
+        AppCommand::ToggleTimeline => "toggle-timeline".into(),
+        AppCommand::CopyBlockCommand => "copy-block-command".into(),
+        AppCommand::CopyBlockOutput => "copy-block-output".into(),
     }
 }
 
@@ -100,6 +109,14 @@ pub fn decode(id: &str) -> Option<AppCommand> {
         "zoom-in" => AppCommand::ZoomIn,
         "zoom-out" => AppCommand::ZoomOut,
         "zoom-reset" => AppCommand::ZoomReset,
+        "find" => AppCommand::Find,
+        "find-next" => AppCommand::FindNext,
+        "find-prev" => AppCommand::FindPrev,
+        "prev-block" => AppCommand::PrevBlock,
+        "next-block" => AppCommand::NextBlock,
+        "toggle-timeline" => AppCommand::ToggleTimeline,
+        "copy-block-command" => AppCommand::CopyBlockCommand,
+        "copy-block-output" => AppCommand::CopyBlockOutput,
         _ => return None,
     })
 }
@@ -128,17 +145,25 @@ fn item(label: &str, command: AppCommand) -> MenuItem {
 
 /// 终端右键菜单（terminal.md §8.1：复制、粘贴、全选、清除缓冲区；再加拆分）。
 /// 没有选区时“复制”禁用。（“在 Filer 中显示工作目录”等 Filer 接进外壳后再加。）
-pub fn terminal_menu(has_selection: bool) -> Vec<MenuItem> {
+///
+/// `block` 不为空（右键点在有命令的命令块内，command-blocks.md §3）时在“复制”组后增加“复制命令 / 复制输出”。
+pub fn terminal_menu(has_selection: bool, block: Option<BlockMenu>) -> Vec<MenuItem> {
     let copy = item("复制", AppCommand::Copy);
-    vec![
-        if has_selection { copy } else { copy.disabled() },
+    let mut items = vec![if has_selection { copy } else { copy.disabled() }];
+    if let Some(b) = block {
+        let cmd = item("复制命令", AppCommand::CopyBlockCommand);
+        items.push(if b.copy_command { cmd } else { cmd.disabled() });
+        items.push(item("复制输出", AppCommand::CopyBlockOutput));
+    }
+    items.extend([
         item("粘贴", AppCommand::Paste),
         item("全选", AppCommand::SelectAll),
         item("清除缓冲区", AppCommand::ClearBuffer),
         MenuItem::separator(),
         item("向右拆分", AppCommand::SplitRight),
         item("向下拆分", AppCommand::SplitDown),
-    ]
+    ]);
+    items
 }
 
 /// 标签右键菜单所需的上下文。
@@ -321,7 +346,11 @@ mod tests {
             sidebar_visible: true,
             right_click_menu: true,
         };
-        for items in [terminal_menu(true), tab_menu(ctx), app_menu(state)] {
+        for items in [
+            terminal_menu(true, Some(BlockMenu { copy_command: true })),
+            tab_menu(ctx),
+            app_menu(state),
+        ] {
             for (id, _, label, _) in all(&items) {
                 assert!(decode(&id).is_some(), "{label} 的 id {id} 无法解码");
             }
@@ -331,14 +360,17 @@ mod tests {
     #[test]
     fn terminal_menu_copy_needs_a_selection() {
         let copy = |sel| {
-            all(&terminal_menu(sel))
+            all(&terminal_menu(sel, None))
                 .into_iter()
                 .find(|a| a.0 == "copy")
                 .map(|a| a.1)
         };
         assert_eq!(copy(false), Some(false));
         assert_eq!(copy(true), Some(true));
-        let ids: Vec<_> = all(&terminal_menu(true)).into_iter().map(|a| a.0).collect();
+        let ids: Vec<_> = all(&terminal_menu(true, None))
+            .into_iter()
+            .map(|a| a.0)
+            .collect();
         for want in [
             "paste",
             "select-all",
@@ -348,6 +380,22 @@ mod tests {
         ] {
             assert!(ids.iter().any(|i| i == want), "缺少 {want}");
         }
+    }
+
+    #[test]
+    fn terminal_menu_block_items_only_inside_blocks() {
+        let ids = |m: Vec<MenuItem>| all(&m).into_iter().map(|a| a.0).collect::<Vec<_>>();
+        assert!(!ids(terminal_menu(false, None)).contains(&"copy-block-output".to_owned()));
+        let with = terminal_menu(
+            false,
+            Some(BlockMenu {
+                copy_command: false,
+            }),
+        );
+        let a = all(&with);
+        let enabled = |id: &str| a.iter().find(|x| x.0 == id).map(|x| x.1);
+        assert_eq!(enabled("copy-block-command"), Some(false));
+        assert_eq!(enabled("copy-block-output"), Some(true));
     }
 
     #[test]

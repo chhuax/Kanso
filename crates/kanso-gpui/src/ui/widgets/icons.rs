@@ -9,6 +9,7 @@ impl AssetSource for Icons {
         let bytes: &'static [u8] = match path {
             "icons/check.svg" => include_bytes!("../../../assets/icons/check.svg"),
             "icons/chevron-down.svg" => include_bytes!("../../../assets/icons/chevron-down.svg"),
+            "icons/chevron-up.svg" => include_bytes!("../../../assets/icons/chevron-up.svg"),
             "icons/clock.svg" => include_bytes!("../../../assets/icons/clock.svg"),
             "icons/ellipsis.svg" => include_bytes!("../../../assets/icons/ellipsis.svg"),
             "icons/folder.svg" => include_bytes!("../../../assets/icons/folder.svg"),

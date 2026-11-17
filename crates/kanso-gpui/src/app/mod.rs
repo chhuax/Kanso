@@ -20,14 +20,19 @@
 //! - [`shell`]：窗口外壳的纯逻辑（分隔条拖动换算）。
 //! - [`menus`]：终端 / 标签右键菜单与窗口级应用菜单的内容，菜单项 id 与 [`shortcuts::AppCommand`] 互转。
 //! - [`confirm`]：关闭 / 退出确认对话框的内容与结果判断。
+//! - [`find`] / [`gutter`] / [`blocks`] / [`links`]：终端内查找、时间戳 / 行号栏、命令块、链接的纯逻辑。
 //! - [`status_bar`]：状态栏的内容模型、时钟格式与刷新对齐、目录截断。
 
 pub mod backend;
+pub mod blocks;
 pub mod confirm;
 pub mod controller;
 pub mod events;
+pub mod find;
+pub mod gutter;
 pub mod launcher;
 pub mod layout;
+pub mod links;
 pub mod menus;
 pub mod prompt_dialogs;
 pub mod prompts;

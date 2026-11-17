@@ -11,6 +11,7 @@
 //! - `selftest` / `shell_selftest`：`--selftest` 自检（终端阶段 + 多标签 / 分屏阶段）；
 //! - `memory`：进程内存读数（日志用）。
 
+mod decor;
 mod demo_dialog;
 mod demo_dropdown;
 mod demo_input;
@@ -18,6 +19,7 @@ mod demo_menu;
 mod display;
 mod element;
 mod filer;
+mod find_bar;
 mod launcher;
 mod memory;
 mod selftest;
@@ -29,6 +31,7 @@ mod shell_launcher;
 mod shell_selftest;
 mod sidebar;
 mod status_bar;
+mod term_selftest;
 mod tz;
 mod view;
 mod widgets;
@@ -58,6 +61,8 @@ pub(crate) static LOG_INPUT: AtomicBool = AtomicBool::new(false);
 pub(crate) static KEEP_OPEN: AtomicBool = AtomicBool::new(false);
 /// `--settings-test`：外壳启动后自动走一遍显示设置（开窗口、改字号 / 行距 / 字体 / 外观），把结果写进日志。
 pub(crate) static SETTINGS_TEST: AtomicBool = AtomicBool::new(false);
+/// `--term-test`：外壳启动后自动走一遍终端显示功能（查找、时间戳栏、链接、块跳转），把 PASS / FAIL 写进日志。
+pub(crate) static TERM_TEST: AtomicBool = AtomicBool::new(false);
 static LOG_FILE: OnceLock<Mutex<std::fs::File>> = OnceLock::new();
 
 /// 应用标识：凭据管理器条目前缀与数据目录名，发布后不能改。
@@ -147,6 +152,7 @@ fn parse_args() -> Args {
             "--log-input" => LOG_INPUT.store(true, Ordering::Relaxed),
             "--keep" => KEEP_OPEN.store(true, Ordering::Relaxed),
             "--settings-test" => SETTINGS_TEST.store(true, Ordering::Relaxed),
+            "--term-test" => TERM_TEST.store(true, Ordering::Relaxed),
             "--sftp" => match it
                 .next()
                 .and_then(|v| kanso_gpui::filer::SftpSpec::parse(&v))

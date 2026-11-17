@@ -34,21 +34,34 @@ impl Render for LinesTooltip {
     }
 }
 
-/// 左侧的“开关”条目（暂未接入功能时置灰、不响应）。
-fn toggle_item(id: &'static str, label: &'static str, th: Theme) -> gpui::Stateful<gpui::Div> {
+/// 左侧的“开关”条目（`on` 为开时用强调色）。
+fn toggle_item(
+    id: &'static str,
+    label: &'static str,
+    th: Theme,
+    on: bool,
+) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
         .flex_none()
         .px(px(6.0))
         .py(px(2.0))
         .rounded(px(kanso_gpui::widgets::style::number("radius", "md")))
-        .text_color(th.c("text.secondary"))
-        .opacity(0.5)
+        .text_color(if on {
+            th.c("accent")
+        } else {
+            th.c("text.secondary")
+        })
         .child(label)
 }
 
 impl ShellView {
-    pub(super) fn render_status_bar(&self, th: Theme, window: &Window) -> gpui::AnyElement {
+    pub(super) fn render_status_bar(
+        &self,
+        th: Theme,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
         let ws = self.ctl.workspace();
         let active = ws.active_session().and_then(|s| ws.item(s));
         let model = StatusBarModel::build(
@@ -57,6 +70,8 @@ impl ShellView {
             self.ctl.active_legacy_summary(),
             self.clock.clone(),
         );
+        // AI 会话里开关只作用于当前会话，所以按活动会话的实际模式判断。
+        let timeline_on = self.gutter_policy.is_on(ws.active_session());
         let width = f32::from(window.viewport_size().width);
         let legacy_visible = model.legacy.is_some();
 
@@ -113,8 +128,14 @@ impl ShellView {
             .border_t_1()
             .border_color(th.c("border.subtle"))
             .text_size(px(kanso_gpui::widgets::style::number("font", "ui.caption")))
-            .child(toggle_item("status-filer", "文件", th))
-            .child(toggle_item("status-timeline", "时间戳", th))
+            // Filer 开关的功能还没有接进外壳，先置灰显示。
+            .child(toggle_item("status-filer", "文件", th, false).opacity(0.5))
+            .child(
+                toggle_item("status-timeline", "时间戳", th, timeline_on)
+                    .cursor_pointer()
+                    .hover(|d| d.bg(th.c("bg.rowHover")))
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_timeline(cx))),
+            )
             .children(directory)
             // 状态文字没有内容时也要占住中间的弹性空间，把右侧元素推到最右。
             .child(status.unwrap_or_else(|| div().flex_1()))
