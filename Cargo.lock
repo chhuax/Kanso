@@ -1736,7 +1736,11 @@ dependencies = [
 name = "kanso-mcp"
 version = "1.0.2"
 dependencies = [
+ "kanso-core",
+ "kanso-mcp-server",
+ "kanso-types",
  "libc",
+ "serde_json",
  "tempfile",
 ]
 
@@ -1752,7 +1756,9 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
+ "tokio-util",
  "tracing",
 ]
 

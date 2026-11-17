@@ -22,6 +22,14 @@ libc.workspace = true
 [dev-dependencies]
 tempfile.workspace = true
 
+# 端到端测试用真实服务（mock core）。kanso-mcp-server 反过来依赖本 crate 的库，
+# dev-dependency 形成的环 Cargo 允许；服务只在 Unix 上存在，所以限定平台。
+[target.'cfg(unix)'.dev-dependencies]
+kanso-mcp-server = { workspace = true, features = ["direct"] }
+kanso-core.workspace = true
+kanso-types.workspace = true
+serde_json.workspace = true
+
 # 需要直接调 libc（flock、getpwuid_r、confstr、取控制终端），因此不继承 workspace lints，
 # 显式列出与 workspace 相同的规则，仅把 unsafe_code 放开为 allow；每处 unsafe 写 SAFETY 注释。
 [lints.rust]

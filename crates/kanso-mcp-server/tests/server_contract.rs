@@ -1,11 +1,12 @@
-//! `McpServer` 公开接口的契约测试：mock 服务的回调顺序，真实服务在 F9 之前报告"不支持"。
+//! `McpServer` 公开接口的契约测试：mock 服务的回调顺序，以及不支持的渠道 / 平台的表现。
+//! 真实服务的测试在 `real_server.rs`。
 
 use std::sync::{Arc, Mutex};
 
 use kanso_core::{CollectingEventSink, Core, Platform};
 use kanso_mcp_server::{
     McpActivity, McpClientInfo, McpServer, McpServerConfig, McpServerDelegate, McpServerError,
-    McpServerStatus, McpUnavailable,
+    McpServerStatus,
 };
 use kanso_types::SessionId;
 use kanso_types::secret::SecretString;
@@ -71,10 +72,10 @@ fn mock() -> (Arc<Core>, Arc<Recorder>, McpServer) {
     (core, rec, server)
 }
 
-#[cfg(feature = "direct")]
+#[cfg(all(feature = "direct", unix))]
 const MOCK_CLIENT: &str = "Claude Code (mock)";
 
-#[cfg(feature = "direct")]
+#[cfg(all(feature = "direct", unix))]
 #[test]
 fn mock_start_stop_and_token_rotation() {
     let (_core, rec, server) = mock();
@@ -115,7 +116,7 @@ fn mock_start_stop_and_token_rotation() {
     assert!(rec.take().is_empty());
 }
 
-#[cfg(feature = "direct")]
+#[cfg(all(feature = "direct", unix))]
 #[test]
 fn mock_open_tab_activity_and_release_on_disconnect() {
     let (core, rec, server) = mock();
@@ -165,29 +166,7 @@ fn mock_open_tab_activity_and_release_on_disconnect() {
     assert!(core.sessions().iter().any(|s| s.id == tab));
 }
 
-#[cfg(feature = "direct")]
-#[test]
-fn real_server_reports_not_supported_until_f9() {
-    let core = Arc::new(Core::new_mock(Platform::for_tests(Arc::new(
-        CollectingEventSink::new(),
-    ))));
-    let rec = Arc::new(Recorder::default());
-    let server = McpServer::new(core, rec.clone());
-    assert_eq!(server.status(), McpServerStatus::Stopped);
-    assert_eq!(server.start(config()), Err(McpServerError::NotSupported));
-    let unavailable = McpServerStatus::Unavailable(McpUnavailable::NotSupported);
-    assert_eq!(server.status(), unavailable);
-    assert_eq!(rec.take(), vec![Call::Status(unavailable)]);
-    assert!(server.clients().is_empty());
-    // 启动失败后用户关掉开关：状态回到 Stopped 并回调，设置页不会一直显示"不可用"。
-    server.stop();
-    assert_eq!(server.status(), McpServerStatus::Stopped);
-    assert_eq!(rec.take(), vec![Call::Status(McpServerStatus::Stopped)]);
-    server.stop();
-    assert!(rec.take().is_empty());
-}
-
-#[cfg(feature = "direct")]
+#[cfg(all(feature = "direct", unix))]
 #[test]
 fn refused_open_still_counts_as_a_call() {
     let (core, rec, server) = mock();
@@ -213,11 +192,11 @@ fn refused_open_still_counts_as_a_call() {
 
 /// 非 Direct 渠道：两种构造都"不支持"，状态一开始就是 Unavailable，宿主不必调用 start 就能决定隐藏页面。
 /// 运行：`cargo test -p kanso-mcp-server --no-default-features --features mas`。
-#[cfg(not(feature = "direct"))]
+#[cfg(not(all(feature = "direct", unix)))]
 #[test]
 fn non_direct_channels_are_unsupported_from_the_start() {
     assert!(!kanso_mcp_server::supported());
-    let unavailable = McpServerStatus::Unavailable(McpUnavailable::NotSupported);
+    let unavailable = McpServerStatus::Unavailable(kanso_mcp_server::McpUnavailable::NotSupported);
     let (_core, rec, server) = mock();
     assert_eq!(server.status(), unavailable);
     assert_eq!(server.start(config()), Err(McpServerError::NotSupported));

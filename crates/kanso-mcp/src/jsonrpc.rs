@@ -118,7 +118,10 @@ mod tests {
 
     #[test]
     fn notifications_and_garbage_have_no_id() {
-        assert_eq!(request_id(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#), None);
+        assert_eq!(
+            request_id(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#),
+            None
+        );
         assert_eq!(request_id("not json"), None);
         assert_eq!(request_id(""), None);
     }

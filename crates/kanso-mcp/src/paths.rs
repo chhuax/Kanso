@@ -25,7 +25,10 @@ impl McpPaths {
     /// 家目录取自用户数据库（`getpwuid_r`），**不读 `$HOME`**：转发程序由 AI 工具启动，
     /// 环境变量可能被工具改写，读 `$HOME` 可能和 App 算出不同的路径。
     pub fn for_bundle(bundle_id: &str) -> io::Result<McpPaths> {
-        Ok(McpPaths::in_dir(&base_dir(&home_dir()?, bundle_id), bundle_id))
+        Ok(McpPaths::in_dir(
+            &base_dir(&home_dir()?, bundle_id),
+            bundle_id,
+        ))
     }
 
     /// 以给定目录为基础推出路径；测试用临时目录，产品代码用 [`McpPaths::for_bundle`]。
@@ -110,8 +113,14 @@ mod tests {
     #[test]
     fn short_paths_stay_in_dir() {
         let p = McpPaths::in_dir(Path::new("/Users/a/Library/Application Support/x/mcp"), "x");
-        assert_eq!(p.lock, Path::new("/Users/a/Library/Application Support/x/mcp/kanso.lock"));
-        assert_eq!(p.socket, Path::new("/Users/a/Library/Application Support/x/mcp/kanso.sock"));
+        assert_eq!(
+            p.lock,
+            Path::new("/Users/a/Library/Application Support/x/mcp/kanso.lock")
+        );
+        assert_eq!(
+            p.socket,
+            Path::new("/Users/a/Library/Application Support/x/mcp/kanso.sock")
+        );
     }
 
     #[test]

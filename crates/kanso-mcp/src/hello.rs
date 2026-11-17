@@ -47,7 +47,10 @@ mod tests {
             encode("abc", Some("/dev/ttys003")),
             "{\"v\":1,\"token\":\"abc\",\"tty\":\"/dev/ttys003\"}\n"
         );
-        assert_eq!(encode("abc", None), "{\"v\":1,\"token\":\"abc\",\"tty\":null}\n");
+        assert_eq!(
+            encode("abc", None),
+            "{\"v\":1,\"token\":\"abc\",\"tty\":null}\n"
+        );
     }
 
     #[test]

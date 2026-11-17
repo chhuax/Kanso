@@ -9,11 +9,13 @@
 //! 实现分两种：
 //! - **mock**（[`McpServer::new_mock`]）：不监听 socket，`start` 后模拟一个已连接的客户端；
 //!   另有 `debug_*` 方法让界面能触发"打开标签""MCP 活动"等回调。
-//! - **真实**（[`McpServer::new`]）：**尚未实现（F9）**，`start` 返回 [`McpServerError::NotSupported`]。
+//! - **真实**（[`McpServer::new`]）：监听本机 Unix socket，实现 MCP 协议、令牌校验与审计（architecture §16）。
+//!   构造时就拿单实例锁；目前只提供 `kanso_list_sessions` 一个工具（F9 阶段 1）。
 //!
-//! 非 Direct 渠道（[`supported`] 为假）两种构造都得到"不支持"的服务：状态恒为
+//! 非 Direct 渠道、以及非 Unix 平台（[`supported`] 为假）两种构造都得到"不支持"的服务：状态恒为
 //! `Unavailable(NotSupported)`，`start` 返回 `NotSupported`（spec/mcp.md §11）。
-//! 这一限制在编译期生效：非 Direct 构建里 mock 与真实实现的代码都不参与编译。
+//! 这一限制在编译期生效：此时 mock 与真实实现的代码都不参与编译。非 Unix 平台只为让工作区能在
+//! Windows 上通过编译与 CI，产品只在 macOS 上提供 MCP。
 //!
 //! # 回调约定
 //!
@@ -21,9 +23,9 @@
 //! 只做"投递到主线程"，且不得在回调里同步调用 [`McpServer`] 或 `Core` 的方法（可能死锁）。
 
 mod client_config;
-#[cfg(feature = "direct")]
+#[cfg(all(feature = "direct", unix))]
 mod mock;
-#[cfg(feature = "direct")]
+#[cfg(all(feature = "direct", unix))]
 mod real;
 
 use std::sync::Arc;
@@ -152,25 +154,25 @@ impl std::error::Error for McpServerError {}
 /// 结果简写。
 pub type Result<T> = std::result::Result<T, McpServerError>;
 
-/// 当前构建是否提供 MCP 服务：只有 Direct 渠道提供（spec/mcp.md §11）。
+/// 当前构建是否提供 MCP 服务：只有 Direct 渠道、且在 Unix 平台上提供（spec/mcp.md §11）。
 ///
 /// 宿主**只用它**决定是否显示设置 → MCP 页面，不能靠 `start` 的结果或状态判断：
 /// `start` 只在总开关打开时才调用，而开关就在那个页面上；Direct 构建里 `start` 失败
-/// （包括 F9 完成前的 `NotSupported`）应当在页面上显示错误，而不是把页面藏起来，否则用户再也关不掉开关。
+/// （例如拿不到单实例锁）应当在页面上显示错误，而不是把页面藏起来，否则用户再也关不掉开关。
 pub const fn supported() -> bool {
-    cfg!(feature = "direct")
+    cfg!(all(feature = "direct", unix))
 }
 
-/// 渠道限制在**编译期**生效：非 Direct 构建里 `mock` 与 `real` 两个模块根本不参与编译，
-/// F9 往 `real` 里加的 socket 监听、rmcp 等依赖不会被链接进 MAS / Setapp（architecture §16）。
+/// 渠道限制在**编译期**生效：非 Direct（或非 Unix）构建里 `mock` 与 `real` 两个模块根本不参与编译，
+/// socket 监听、rmcp 等依赖不会被链接进 MAS / Setapp（architecture §16）。
 enum Backend {
-    #[cfg(feature = "direct")]
+    #[cfg(all(feature = "direct", unix))]
     Mock(mock::MockServer),
-    #[cfg(feature = "direct")]
+    #[cfg(all(feature = "direct", unix))]
     Real(real::RealServer),
-    /// 非 Direct 渠道：状态恒为 `Unavailable(NotSupported)`，所有操作返回 `NotSupported` 或空。
+    /// 非 Direct 渠道（或非 Unix 平台）：状态恒为 `Unavailable(NotSupported)`，所有操作返回 `NotSupported` 或空。
     /// 持有回调，是为了让 `start` 失败时也按契约回调一次状态。
-    #[cfg_attr(feature = "direct", allow(dead_code))]
+    #[cfg_attr(all(feature = "direct", unix), allow(dead_code))]
     Unsupported(Arc<dyn McpServerDelegate>),
 }
 
@@ -185,11 +187,14 @@ pub struct McpServer {
 }
 
 impl McpServer {
-    /// 创建真实服务（尚未实现，见模块文档）。`core` 与宿主使用的是同一个 core。
+    /// 创建真实服务。`core` 与宿主使用的是同一个 core。
+    ///
+    /// 构造时就创建目录并取得单实例锁，并一直持有到进程结束（architecture §16.1：转发程序靠它区分
+    /// "App 未运行"与"开关关闭"）。拿不到锁时状态恒为 `Unavailable(AnotherInstance)`。
     pub fn new(core: Arc<Core>, delegate: Arc<dyn McpServerDelegate>) -> McpServer {
-        #[cfg(feature = "direct")]
+        #[cfg(all(feature = "direct", unix))]
         let backend = Backend::Real(real::RealServer::new(core, delegate));
-        #[cfg(not(feature = "direct"))]
+        #[cfg(not(all(feature = "direct", unix)))]
         let backend = {
             let _ = core;
             Backend::Unsupported(delegate)
@@ -197,12 +202,25 @@ impl McpServer {
         McpServer { backend }
     }
 
+    /// 同 [`McpServer::new`]，但目录由调用方指定，仅供测试使用（避免碰真实的用户目录）。
+    #[doc(hidden)]
+    #[cfg(all(feature = "direct", unix))]
+    pub fn new_in_dir(
+        core: Arc<Core>,
+        delegate: Arc<dyn McpServerDelegate>,
+        dir: std::path::PathBuf,
+    ) -> McpServer {
+        McpServer {
+            backend: Backend::Real(real::RealServer::in_dir(core, delegate, dir)),
+        }
+    }
+
     /// 创建 mock 服务，供 Swift 界面开发与截图测试。通常与 `Core::new_mock` 配套使用。
     /// 渠道规则与真实服务相同：非 Direct 构建同样"不支持"，界面在各渠道下的表现与真实情况一致。
     pub fn new_mock(core: Arc<Core>, delegate: Arc<dyn McpServerDelegate>) -> McpServer {
-        #[cfg(feature = "direct")]
+        #[cfg(all(feature = "direct", unix))]
         let backend = Backend::Mock(mock::MockServer::new(core, delegate));
-        #[cfg(not(feature = "direct"))]
+        #[cfg(not(all(feature = "direct", unix)))]
         let backend = {
             let _ = core;
             Backend::Unsupported(delegate)
@@ -217,9 +235,9 @@ impl McpServer {
     ///   失败时状态同步变为对应的 `Unavailable`，并回调 `on_status_changed`（各渠道一致）。
     pub fn start(&self, config: McpServerConfig) -> Result<()> {
         match &self.backend {
-            #[cfg(feature = "direct")]
+            #[cfg(all(feature = "direct", unix))]
             Backend::Mock(b) => b.start(config),
-            #[cfg(feature = "direct")]
+            #[cfg(all(feature = "direct", unix))]
             Backend::Real(b) => b.start(config),
             Backend::Unsupported(delegate) => {
                 let _ = config;
@@ -234,9 +252,9 @@ impl McpServer {
     /// 状态有变化时回调 `on_status_changed`。
     pub fn stop(&self) {
         match &self.backend {
-            #[cfg(feature = "direct")]
+            #[cfg(all(feature = "direct", unix))]
             Backend::Mock(b) => b.stop(),
-            #[cfg(feature = "direct")]
+            #[cfg(all(feature = "direct", unix))]
             Backend::Real(b) => b.stop(),
             Backend::Unsupported(_) => {}
         }
@@ -246,9 +264,9 @@ impl McpServer {
     /// 没有运行时什么也不做：下次 `start` 以传入的配置为准，宿主应传入钥匙串里的最新令牌。
     pub fn set_token(&self, token: SecretString) {
         match &self.backend {
-            #[cfg(feature = "direct")]
+            #[cfg(all(feature = "direct", unix))]
             Backend::Mock(b) => b.set_token(token),
-            #[cfg(feature = "direct")]
+            #[cfg(all(feature = "direct", unix))]
             Backend::Real(b) => b.set_token(token),
             Backend::Unsupported(_) => {
                 let _ = token;
@@ -259,9 +277,9 @@ impl McpServer {
     /// 当前状态。
     pub fn status(&self) -> McpServerStatus {
         match &self.backend {
-            #[cfg(feature = "direct")]
+            #[cfg(all(feature = "direct", unix))]
             Backend::Mock(b) => b.status(),
-            #[cfg(feature = "direct")]
+            #[cfg(all(feature = "direct", unix))]
             Backend::Real(b) => b.status(),
             Backend::Unsupported(_) => UNSUPPORTED,
         }
@@ -270,9 +288,9 @@ impl McpServer {
     /// 当前已连接的客户端。
     pub fn clients(&self) -> Vec<McpClientInfo> {
         match &self.backend {
-            #[cfg(feature = "direct")]
+            #[cfg(all(feature = "direct", unix))]
             Backend::Mock(b) => b.clients(),
-            #[cfg(feature = "direct")]
+            #[cfg(all(feature = "direct", unix))]
             Backend::Real(b) => b.clients(),
             Backend::Unsupported(_) => Vec::new(),
         }
@@ -281,9 +299,9 @@ impl McpServer {
     /// 断开指定客户端；不存在时忽略。
     pub fn disconnect(&self, client_id: u64) {
         match &self.backend {
-            #[cfg(feature = "direct")]
+            #[cfg(all(feature = "direct", unix))]
             Backend::Mock(b) => b.disconnect(client_id),
-            #[cfg(feature = "direct")]
+            #[cfg(all(feature = "direct", unix))]
             Backend::Real(b) => b.disconnect(client_id),
             Backend::Unsupported(_) => {
                 let _ = client_id;
@@ -296,9 +314,9 @@ impl McpServer {
     /// 用于界面开发时检验"不抢焦点"的标签摆放。真实服务返回 `NotSupported`。
     pub async fn debug_open_tab(&self, profile: ProfileId) -> Result<SessionId> {
         match &self.backend {
-            #[cfg(feature = "direct")]
+            #[cfg(all(feature = "direct", unix))]
             Backend::Mock(b) => b.debug_open_tab(profile).await,
-            #[cfg(feature = "direct")]
+            #[cfg(all(feature = "direct", unix))]
             Backend::Real(_) => Err(McpServerError::NotSupported),
             Backend::Unsupported(_) => {
                 let _ = profile;
@@ -311,9 +329,9 @@ impl McpServer {
     /// 回调 `on_activity`。真实服务返回 `NotSupported`。
     pub fn debug_activity(&self, session: SessionId, tool: Option<String>) -> Result<()> {
         match &self.backend {
-            #[cfg(feature = "direct")]
+            #[cfg(all(feature = "direct", unix))]
             Backend::Mock(b) => b.debug_activity(session, tool),
-            #[cfg(feature = "direct")]
+            #[cfg(all(feature = "direct", unix))]
             Backend::Real(_) => Err(McpServerError::NotSupported),
             Backend::Unsupported(_) => {
                 let _ = (session, tool);
@@ -324,7 +342,7 @@ impl McpServer {
 }
 
 /// 当前 Unix 毫秒。
-#[cfg(feature = "direct")]
+#[cfg(all(feature = "direct", unix))]
 pub(crate) fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
