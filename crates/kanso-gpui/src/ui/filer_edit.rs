@@ -1120,7 +1120,7 @@ impl FilerPanel {
     pub(crate) fn session_of_pane(&self, idx: usize) -> Option<SessionId> {
         self.by_session
             .iter()
-            .find(|(_, &i)| i == idx)
+            .find(|&(_, &i)| i == idx)
             .map(|(s, _)| *s)
     }
 }
