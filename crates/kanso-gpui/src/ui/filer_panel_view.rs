@@ -8,10 +8,11 @@ use gpui::{
 use kanso_gpui::app::filer_state::{
     Phase, date_text, datetime_text, row_tooltip, size_text, stats_text,
 };
-use kanso_gpui::app::filer_text::{t, tf};
+use kanso_gpui::app::filer_text::msg;
 use kanso_gpui::app::fspath::{self, is_hidden_name};
 use kanso_gpui::app::transfer_queue::{Bar, BarFinish};
 use kanso_gpui::widgets::style::number;
+use kanso_types::message::Message;
 
 use super::display;
 use super::filer_panel::{FilerEvent, FilerPanel, PanelMode, Source};
@@ -146,8 +147,11 @@ impl FilerPanel {
 
         // ---- 头部：来源标识 ----
         let badge = match phase {
-            Phase::Disconnected => Some((t("ui-filer-disconnected-badge"), th.c("status.error"))),
-            Phase::Connecting => Some((t("ui-filer-connecting"), th.c("text.secondary"))),
+            Phase::Disconnected => Some((
+                msg(Message::UiFilerDisconnectedBadge {}),
+                th.c("status.error"),
+            )),
+            Phase::Connecting => Some((msg(Message::UiFilerConnecting {}), th.c("text.secondary"))),
             _ => None,
         };
         let header = div()
@@ -195,7 +199,7 @@ impl FilerPanel {
                     icon_button(
                         loc_id("t-folder"),
                         "folder-plus",
-                        t("ui-filer-new-folder"),
+                        msg(Message::UiFilerNewFolder {}),
                         can_write,
                         th,
                     )
@@ -208,7 +212,7 @@ impl FilerPanel {
                     icon_button(
                         loc_id("t-rename"),
                         "pencil",
-                        t("ui-filer-rename"),
+                        msg(Message::UiFilerRename {}),
                         can_write && single_sel,
                         th,
                     )
@@ -220,8 +224,8 @@ impl FilerPanel {
                 .child(
                     icon_button(
                         loc_id("t-delete"),
-                        "trash-2",
-                        t("ui-filer-delete"),
+                        "trash",
+                        msg(Message::UiFilerDelete {}),
                         can_write && has_sel,
                         th,
                     )
@@ -236,7 +240,7 @@ impl FilerPanel {
                     icon_button(
                         loc_id("t-file"),
                         "file-plus",
-                        t("ui-filer-new-file"),
+                        msg(Message::UiFilerNewFile {}),
                         can_write,
                         th,
                     )
@@ -248,7 +252,7 @@ impl FilerPanel {
                     icon_button(
                         loc_id("t-folder"),
                         "folder-plus",
-                        t("ui-filer-new-folder"),
+                        msg(Message::UiFilerNewFolder {}),
                         can_write,
                         th,
                     )
@@ -261,9 +265,9 @@ impl FilerPanel {
                         loc_id("t-upload"),
                         "upload",
                         if remote {
-                            t("ui-filer-tip-upload")
+                            msg(Message::UiFilerTipUpload {})
                         } else {
-                            t("ui-filer-tip-upload-remote-only")
+                            msg(Message::UiFilerTipUploadRemoteOnly {})
                         },
                         remote && can_write,
                         th,
@@ -280,9 +284,9 @@ impl FilerPanel {
                         loc_id("t-download"),
                         "download",
                         if remote {
-                            t("ui-filer-menu-download")
+                            msg(Message::UiFilerMenuDownload {})
                         } else {
-                            t("ui-filer-tip-upload-remote-only")
+                            msg(Message::UiFilerTipUploadRemoteOnly {})
                         },
                         remote && has_sel && !busy,
                         th,
@@ -292,8 +296,8 @@ impl FilerPanel {
                 .child(
                     icon_button(
                         loc_id("t-delete"),
-                        "trash-2",
-                        t("ui-filer-delete"),
+                        "trash",
+                        msg(Message::UiFilerDelete {}),
                         can_write && has_sel,
                         th,
                     )
@@ -306,7 +310,7 @@ impl FilerPanel {
                 icon_button(
                     loc_id("t-hidden"),
                     "eye",
-                    t("ui-filer-tip-hidden"),
+                    msg(Message::UiFilerTipHidden {}),
                     true,
                     th,
                 )
@@ -317,7 +321,7 @@ impl FilerPanel {
                 icon_button(
                     loc_id("t-refresh"),
                     "refresh-cw",
-                    t("ui-filer-refresh"),
+                    msg(Message::UiFilerRefresh {}),
                     true,
                     th,
                 )
@@ -328,7 +332,7 @@ impl FilerPanel {
                 icon_button(
                     loc_id("t-locate"),
                     "crosshair",
-                    t("ui-filer-tip-locate"),
+                    msg(Message::UiFilerTipLocate {}),
                     true,
                     th,
                 )
@@ -345,12 +349,24 @@ impl FilerPanel {
             .items_center()
             .gap(px(2.0))
             .child(
-                icon_button(loc_id("p-up"), "arrow-up", t("ui-filer-tip-up"), true, th)
-                    .on_click(cx.listener(move |this, _, _, cx| this.go_up(idx, cx))),
+                icon_button(
+                    loc_id("p-up"),
+                    "arrow-up",
+                    msg(Message::UiFilerTipUp {}),
+                    true,
+                    th,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.go_up(idx, cx))),
             )
             .child(
-                icon_button(loc_id("p-home"), "house", t("ui-filer-tip-home"), true, th)
-                    .on_click(cx.listener(move |this, _, _, cx| this.go_home(idx, cx))),
+                icon_button(
+                    loc_id("p-home"),
+                    "house",
+                    msg(Message::UiFilerTipHome {}),
+                    true,
+                    th,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.go_home(idx, cx))),
             )
             .child(
                 div()
@@ -410,7 +426,7 @@ impl FilerPanel {
                 .text_size(px(number("font", "ui.caption")))
                 .text_color(th.c("text.tertiary"))
                 .child(div().w(px(16.0)).flex_none())
-                .child(div().flex_1().child(t("ui-filer-col-name")));
+                .child(div().flex_1().child(msg(Message::UiFilerColName {})));
             if dual {
                 h = h
                     .child(
@@ -418,11 +434,21 @@ impl FilerPanel {
                             .w(px(72.0))
                             .flex_none()
                             .text_right()
-                            .child(t("ui-filer-col-size")),
+                            .child(msg(Message::UiFilerColSize {})),
                     )
-                    .child(div().w(px(116.0)).flex_none().child(t("ui-filer-col-time")));
+                    .child(
+                        div()
+                            .w(px(116.0))
+                            .flex_none()
+                            .child(msg(Message::UiFilerColTime {})),
+                    );
             } else {
-                h = h.child(div().w(px(78.0)).flex_none().child(t("ui-filer-col-date")));
+                h = h.child(
+                    div()
+                        .w(px(78.0))
+                        .flex_none()
+                        .child(msg(Message::UiFilerColDate {})),
+                );
             }
             h
         };
@@ -559,16 +585,20 @@ impl FilerPanel {
             } else {
                 match (&p.browse.phase, &p.browse.error) {
                     (Phase::Failed, Some(e)) => (
-                        Some(tf(
-                            "ui-filer-open-failed",
-                            &[("target", &e.target), ("reason", &e.text)],
-                        )),
+                        Some(msg(Message::UiFilerOpenFailed {
+                            dest: e.target.to_string(),
+                            why: e.text.to_string(),
+                        })),
                         th.c("status.error"),
                     ),
-                    (Phase::Ready, _) => (Some(t("ui-filer-folder-empty")), th.c("text.tertiary")),
-                    (Phase::Disconnected, _) => {
-                        (Some(t("ui-filer-disconnected-badge")), th.c("status.error"))
-                    }
+                    (Phase::Ready, _) => (
+                        Some(msg(Message::UiFilerFolderEmpty {})),
+                        th.c("text.tertiary"),
+                    ),
+                    (Phase::Disconnected, _) => (
+                        Some(msg(Message::UiFilerDisconnectedBadge {})),
+                        th.c("status.error"),
+                    ),
                     _ => (None, th.c("text.secondary")),
                 }
             }
@@ -580,11 +610,13 @@ impl FilerPanel {
             match (&p.browse.error, visible > 0) {
                 (Some(e), true) => Some(format!(
                     "{} {}",
-                    tf(
-                        "ui-filer-open-failed",
-                        &[("target", &e.target), ("reason", &e.text)]
-                    ),
-                    tf("ui-filer-still-showing", &[("path", &p.browse.path)])
+                    msg(Message::UiFilerOpenFailed {
+                        dest: e.target.to_string(),
+                        why: e.text.to_string()
+                    }),
+                    msg(Message::UiFilerStillShowing {
+                        path: p.browse.path.to_string()
+                    })
                 )),
                 _ => None,
             }
@@ -643,7 +675,7 @@ impl FilerPanel {
                             .bg(th.c("bg.buttonSecondary"))
                             .text_color(th.c("text.primary"))
                             .cursor_pointer()
-                            .child(t("ui-filer-go-home"))
+                            .child(msg(Message::UiFilerGoHome {}))
                             .on_click(cx.listener(move |this, _, _, cx| this.go_home(idx, cx)))
                     }))
             }));
@@ -718,12 +750,18 @@ impl FilerPanel {
                     .text_color(th.c("status.error"))
                     .child(div().flex_1().min_w_0().child(err.to_owned()))
                     .child(
-                        icon_button(("err-x", qidx), "x", t("ui-filer-dismiss"), true, th)
-                            .size(px(18.0))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.dismiss_error(qidx);
-                                cx.notify();
-                            })),
+                        icon_button(
+                            ("err-x", qidx),
+                            "x",
+                            msg(Message::UiFilerDismiss {}),
+                            true,
+                            th,
+                        )
+                        .size(px(18.0))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.dismiss_error(qidx);
+                            cx.notify();
+                        })),
                     )
                     .into_any_element(),
             );
@@ -797,7 +835,7 @@ impl FilerPanel {
                         icon_button(
                             ("xfer-cancel", qidx),
                             "x",
-                            t("ui-filer-tip-cancel"),
+                            msg(Message::UiFilerTipCancel {}),
                             true,
                             th,
                         )
@@ -824,10 +862,10 @@ impl FilerPanel {
         let (text, accepted) = match reason {
             Some(r) => (r, false),
             None => (
-                t(if remote {
-                    "ui-filer-drop-upload"
+                msg(if remote {
+                    Message::UiFilerDropUpload {}
                 } else {
-                    "ui-filer-drop-copy"
+                    Message::UiFilerDropCopy {}
                 }),
                 true,
             ),
@@ -887,7 +925,7 @@ impl FilerPanel {
                 icon_button(
                     ("mid", 0usize),
                     "upload",
-                    t("ui-filer-send-to-remote"),
+                    msg(Message::UiFilerSendToRemote {}),
                     !busy,
                     th,
                 )
@@ -897,7 +935,7 @@ impl FilerPanel {
                 icon_button(
                     ("mid", 1usize),
                     "download",
-                    t("ui-filer-get-from-remote"),
+                    msg(Message::UiFilerGetFromRemote {}),
                     !busy,
                     th,
                 )
@@ -931,7 +969,7 @@ impl Render for FilerPanel {
                 .items_center()
                 .justify_center()
                 .text_color(th.c("text.tertiary"))
-                .child(t("ui-filer-no-session"))
+                .child(msg(Message::UiFilerNoSession {}))
                 .into_any_element();
         }
         match self.mode {

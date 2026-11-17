@@ -2,10 +2,11 @@
 //! 删除确认、新建 / 重命名的名称输入、同名冲突（覆盖 / 跳过 / 取消，可应用于其余）。
 //! 只生成 [`DialogSpec`] 并把 [`DialogResult`] 翻译成决定，不碰窗口系统，三个平台都能测试。
 
-use crate::app::filer_text::{t, tf, tn};
+use crate::app::filer_text::msg;
 use crate::app::fspath::{NameError, PathStyle, validate_child_name};
 use crate::app::transfer_queue::{Conflict, Decision};
 use crate::widgets::dialog::{ButtonSpec, DialogResult, DialogSpec, InputSpec};
+use kanso_types::message::Message;
 
 /// 确认 / 通用按钮：取消。
 pub const BTN_CANCEL: &str = "cancel";
@@ -54,30 +55,47 @@ pub fn delete_spec(targets: &[DeleteTarget], location: &str) -> DialogSpec {
     let mut spec;
     if let [one] = targets {
         let (title, note) = if one.is_symlink {
-            ("ui-filer-delete-link", "ui-filer-delete-link-note")
+            (
+                Message::UiFilerDeleteLink {},
+                Message::UiFilerDeleteLinkNote {},
+            )
         } else if one.is_dir {
-            ("ui-filer-delete-dir", "ui-filer-delete-dir-note")
+            (
+                Message::UiFilerDeleteDir {},
+                Message::UiFilerDeleteDirNote {},
+            )
         } else {
-            ("ui-filer-delete-file", "ui-filer-delete-file-note")
+            (
+                Message::UiFilerDeleteFile {},
+                Message::UiFilerDeleteFileNote {},
+            )
         };
-        spec = DialogSpec::new(&t(title))
-            .text(&tf("ui-filer-delete-where", &[("location", location)]))
+        spec = DialogSpec::new(&msg(title))
+            .text(&msg(Message::UiFilerDeleteWhere {
+                location: location.to_string(),
+            }))
             .text(&one.name)
             .code(&one.path)
-            .text(&t(note));
+            .text(&msg(note));
     } else {
-        spec = DialogSpec::new(&tn("ui-filer-delete-many", targets.len()))
-            .text(&tf("ui-filer-delete-where", &[("location", location)]));
+        spec = DialogSpec::new(&msg(Message::UiFilerDeleteMany {
+            count: (targets.len()) as i64,
+        }))
+        .text(&msg(Message::UiFilerDeleteWhere {
+            location: location.to_string(),
+        }));
         for target in targets.iter().take(6) {
             spec = spec.code(&target.path);
         }
         if targets.len() > 6 {
-            spec = spec.text(&tn("ui-filer-delete-more", targets.len() - 6));
+            spec = spec.text(&msg(Message::UiFilerDeleteMore {
+                count: (targets.len() - 6) as i64,
+            }));
         }
-        spec = spec.text(&t("ui-filer-delete-many-note"));
+        spec = spec.text(&msg(Message::UiFilerDeleteManyNote {}));
     }
-    spec.button(ButtonSpec::secondary(BTN_CANCEL, &t("ui-filer-cancel")).cancel())
-        .button(ButtonSpec::danger(BTN_DELETE, &t("ui-filer-delete")).default_button())
+    spec.button(ButtonSpec::secondary(BTN_CANCEL, &msg(Message::UiFilerCancel {})).cancel())
+        .button(ButtonSpec::danger(BTN_DELETE, &msg(Message::UiFilerDelete {})).default_button())
         .dismiss_on_scrim()
 }
 
@@ -89,18 +107,19 @@ pub fn delete_confirmed(result: &DialogResult) -> bool {
 /// 新建 / 重命名的名称输入框。`error` 非空时显示在输入框上方（上一次提交被拒绝的原因）。
 pub fn name_spec(kind: NameKind, initial: &str, location: &str, error: Option<&str>) -> DialogSpec {
     let title = match kind {
-        NameKind::NewFile => "ui-filer-new-file",
-        NameKind::NewFolder => "ui-filer-new-folder",
-        NameKind::Rename => "ui-filer-rename",
+        NameKind::NewFile => Message::UiFilerNewFile {},
+        NameKind::NewFolder => Message::UiFilerNewFolder {},
+        NameKind::Rename => Message::UiFilerRename {},
     };
-    let mut spec =
-        DialogSpec::new(&t(title)).text(&tf("ui-filer-name-where", &[("location", location)]));
+    let mut spec = DialogSpec::new(&msg(title)).text(&msg(Message::UiFilerNameWhere {
+        location: location.to_string(),
+    }));
     if let Some(e) = error {
         spec = spec.text(e);
     }
-    spec.input(InputSpec::new(NAME_FIELD, &t("ui-filer-name")).initial(initial))
-        .button(ButtonSpec::secondary(BTN_CANCEL, &t("ui-filer-cancel")).cancel())
-        .button(ButtonSpec::primary(BTN_OK, &t("ui-filer-ok")).default_button())
+    spec.input(InputSpec::new(NAME_FIELD, &msg(Message::UiFilerName {})).initial(initial))
+        .button(ButtonSpec::secondary(BTN_CANCEL, &msg(Message::UiFilerCancel {})).cancel())
+        .button(ButtonSpec::primary(BTN_OK, &msg(Message::UiFilerOk {})).default_button())
 }
 
 /// 名称对话框的结果。
@@ -134,39 +153,49 @@ pub fn parse_name(style: PathStyle, result: &DialogResult, old: Option<&str>) ->
 /// 名称错误的用户可读文字。
 pub fn name_error_text(e: NameError) -> String {
     match e {
-        NameError::Empty => t("ui-filer-name-empty"),
-        NameError::Reserved => t("ui-filer-name-reserved"),
-        NameError::HasSeparator => t("ui-filer-name-separator"),
-        NameError::InvalidChar(c) => tf("ui-filer-name-invalid-char", &[("ch", &c.to_string())]),
+        NameError::Empty => msg(Message::UiFilerNameEmpty {}),
+        NameError::Reserved => msg(Message::UiFilerNameReserved {}),
+        NameError::HasSeparator => msg(Message::UiFilerNameSeparator {}),
+        NameError::InvalidChar(c) => msg(Message::UiFilerNameInvalidChar {
+            ch: (c.to_string()).to_string(),
+        }),
     }
 }
 
 /// 同名冲突对话框：覆盖 / 跳过 / 取消；本批还有其余项时再给“全部”两个按钮（应用于其余冲突）。
 /// 目录同名默认合并，合并时其中的同名文件仍按所选处理。
 pub fn conflict_spec(c: &Conflict) -> DialogSpec {
-    let mut spec = DialogSpec::new(&t("ui-filer-conflict-title"))
-        .text(&tf(
-            if c.item.is_dir {
-                "ui-filer-conflict-dir"
-            } else {
-                "ui-filer-conflict-file"
-            },
-            &[("name", &c.item.name)],
-        ))
+    let mut spec = DialogSpec::new(&msg(Message::UiFilerConflictTitle {}))
+        .text(&msg(if c.item.is_dir {
+            Message::UiFilerConflictDir {
+                name: c.item.name.clone(),
+            }
+        } else {
+            Message::UiFilerConflictFile {
+                name: c.item.name.clone(),
+            }
+        }))
         .code(&c.item.dest_dir);
     if c.item.is_dir {
-        spec = spec.text(&t("ui-filer-conflict-merge-note"));
+        spec = spec.text(&msg(Message::UiFilerConflictMergeNote {}));
     }
-    spec = spec.button(ButtonSpec::secondary(BTN_CANCEL, &t("ui-filer-cancel")).cancel());
-    spec = spec.button(ButtonSpec::secondary(BTN_SKIP, &t("ui-filer-skip")).default_button());
+    spec = spec.button(ButtonSpec::secondary(BTN_CANCEL, &msg(Message::UiFilerCancel {})).cancel());
+    spec = spec
+        .button(ButtonSpec::secondary(BTN_SKIP, &msg(Message::UiFilerSkip {})).default_button());
     if c.remaining > 0 {
-        spec = spec.button(ButtonSpec::secondary(BTN_SKIP_ALL, &t("ui-filer-skip-all")));
+        spec = spec.button(ButtonSpec::secondary(
+            BTN_SKIP_ALL,
+            &msg(Message::UiFilerSkipAll {}),
+        ));
     }
-    spec = spec.button(ButtonSpec::danger(BTN_OVERWRITE, &t("ui-filer-overwrite")));
+    spec = spec.button(ButtonSpec::danger(
+        BTN_OVERWRITE,
+        &msg(Message::UiFilerOverwrite {}),
+    ));
     if c.remaining > 0 {
         spec = spec.button(ButtonSpec::danger(
             BTN_OVERWRITE_ALL,
-            &t("ui-filer-overwrite-all"),
+            &msg(Message::UiFilerOverwriteAll {}),
         ));
     }
     spec

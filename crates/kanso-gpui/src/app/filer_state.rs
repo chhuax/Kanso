@@ -8,8 +8,9 @@ use std::collections::{BTreeSet, HashMap};
 
 use kanso_types::SessionId;
 
-use crate::app::filer_text::{t, tf, tn};
+use crate::app::filer_text::msg;
 use crate::filer::{DirModel, Row, format_mtime, format_size};
+use kanso_types::message::Message;
 
 // ---- 选中 ----
 
@@ -378,30 +379,26 @@ pub fn counts(model: &DirModel) -> (usize, usize, usize) {
 pub fn stats_text(model: &DirModel, phase: &Phase) -> String {
     let n = model.visible_len();
     match phase {
-        Phase::Connecting => t("ui-filer-connecting"),
-        Phase::Loading => tn("ui-filer-loading", n),
+        Phase::Connecting => msg(Message::UiFilerConnecting {}),
+        Phase::Loading => msg(Message::UiFilerLoading { count: n as i64 }),
         Phase::Idle => String::new(),
-        Phase::Disconnected => tn("ui-filer-disconnected-stats", n),
+        Phase::Disconnected => msg(Message::UiFilerDisconnectedStats { count: n as i64 }),
         Phase::Ready | Phase::Failed => {
             if n == 0 {
-                return tn("ui-filer-empty", 0);
+                return msg(Message::UiFilerEmpty { count: 0 });
             }
             let (d, f, l) = counts(model);
-            let key = if l > 0 {
-                "ui-filer-stats-links"
+            let (items, dirs, files) = (n.to_string(), d.to_string(), f.to_string());
+            if l > 0 {
+                msg(Message::UiFilerStatsLinks {
+                    items,
+                    dirs,
+                    files,
+                    links: l.to_string(),
+                })
             } else {
-                "ui-filer-stats"
-            };
-            let (n, d, f, l) = (n.to_string(), d.to_string(), f.to_string(), l.to_string());
-            tf(
-                key,
-                &[
-                    ("total", n.as_str()),
-                    ("dirs", d.as_str()),
-                    ("files", f.as_str()),
-                    ("links", l.as_str()),
-                ],
-            )
+                msg(Message::UiFilerStats { items, dirs, files })
+            }
         }
     }
 }
@@ -431,31 +428,38 @@ pub fn size_text(row: &Row) -> String {
 /// 悬停说明：完整路径、类型；普通文件附大小；有权限时显示八进制权限，属主 / 属组缺失不编造。
 pub fn row_tooltip(row: &Row) -> String {
     let kind = if row.is_symlink {
-        t("ui-filer-kind-link")
+        msg(Message::UiFilerKindLink {})
     } else if row.is_dir {
-        t("ui-filer-kind-dir")
+        msg(Message::UiFilerKindDir {})
     } else {
-        t("ui-filer-kind-file")
+        msg(Message::UiFilerKindFile {})
     };
     let mut lines = vec![
         row.path.clone(),
-        tf("ui-filer-tip-kind", &[("kind", &kind)]),
+        msg(Message::UiFilerTipKind {
+            kind: kind.to_string(),
+        }),
     ];
     if !row.is_dir && !row.is_symlink {
-        lines.push(tf("ui-filer-tip-size", &[("size", &size_text(row))]));
+        lines.push(msg(Message::UiFilerTipSize {
+            amount: (size_text(row)).to_string(),
+        }));
     }
     if let Some(p) = row.permissions {
-        lines.push(tf(
-            "ui-filer-tip-perm",
-            &[("perm", &format!("{:04o}", p & 0o7777))],
-        ));
+        lines.push(msg(Message::UiFilerTipPerm {
+            perm: (format!("{:04o}", p & 0o7777)).to_string(),
+        }));
     }
     match (&row.owner, &row.group) {
-        (Some(o), Some(g)) => {
-            lines.push(tf("ui-filer-tip-owner", &[("owner", &format!("{o}:{g}"))]))
-        }
-        (Some(o), None) => lines.push(tf("ui-filer-tip-owner", &[("owner", o)])),
-        (None, Some(g)) => lines.push(tf("ui-filer-tip-group", &[("group", g)])),
+        (Some(o), Some(g)) => lines.push(msg(Message::UiFilerTipOwner {
+            owner: (format!("{o}:{g}")).to_string(),
+        })),
+        (Some(o), None) => lines.push(msg(Message::UiFilerTipOwner {
+            owner: o.to_string(),
+        })),
+        (None, Some(g)) => lines.push(msg(Message::UiFilerTipGroup {
+            group: g.to_string(),
+        })),
         (None, None) => {}
     }
     lines.join("\n")

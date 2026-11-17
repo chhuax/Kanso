@@ -28,7 +28,7 @@ use kanso_gpui::app::filer_ops::{
     delete_spec, name_error_text, name_spec, parse_name,
 };
 use kanso_gpui::app::filer_state::{Browse, Phase, Selection};
-use kanso_gpui::app::filer_text::{t, tf};
+use kanso_gpui::app::filer_text::msg;
 use kanso_gpui::app::fspath::{self, PathStyle};
 use kanso_gpui::app::launcher::core_error_text;
 use kanso_gpui::app::local_fs::{self, CopyPolicy, LocalErrorKind};
@@ -39,6 +39,7 @@ use kanso_gpui::filer::{BatchBuffer, DirModel, ListEnd, Sort};
 use kanso_gpui::widgets::dialog::{DialogResult, DialogSpec};
 use kanso_gpui::widgets::menu::MenuItem;
 use kanso_types::event::{SessionState, TransferOutcome};
+use kanso_types::message::Message;
 use kanso_types::transfer::ConflictPolicy;
 use kanso_types::{CoreEvent, SessionId};
 
@@ -176,7 +177,7 @@ impl FilerPanel {
     ) -> Self {
         let mut p = FilerPanel::new(core, PanelMode::Dual, cx);
         p.add_pane(Source::Remote(session), identity, window, cx);
-        p.add_pane(Source::Local, t("ui-filer-local"), window, cx);
+        p.add_pane(Source::Local, msg(Message::UiFilerLocal {}), window, cx);
         p.start_pane(0, None, cx);
         p.start_pane(1, None, cx);
         p
@@ -789,7 +790,7 @@ impl FilerPanel {
         match item.kind {
             Kind::Upload | Kind::Download => {
                 let Some(session) = self.session_of(self.remote_idx(qidx)) else {
-                    return Err(t("ui-filer-not-remote"));
+                    return Err(msg(Message::UiFilerNotRemote {}));
                 };
                 let r = if item.kind == Kind::Upload {
                     self.core
@@ -870,7 +871,9 @@ impl FilerPanel {
                                 Ok(report) => {
                                     if report.already_there > 0 {
                                         cx.emit(FilerEvent::Notice(
-                                            kanso_gpui::app::filer_text::t("ui-filer-already-here"),
+                                            kanso_gpui::app::filer_text::msg(
+                                                Message::UiFilerAlreadyHere {},
+                                            ),
                                         ));
                                     }
                                     Finish::Completed {
@@ -919,10 +922,9 @@ impl FilerPanel {
         if let BatchEnd::Failed(text) = end {
             cx.emit(FilerEvent::Notice(text.clone()));
         } else if skipped > 0 {
-            cx.emit(FilerEvent::Notice(tf(
-                "ui-filer-skipped",
-                &[("count", &skipped.to_string())],
-            )));
+            cx.emit(FilerEvent::Notice(msg(Message::UiFilerSkipped {
+                count: i64::from(skipped),
+            })));
         }
         // 收尾进度条的收起：排一次延时重绘。
         self.schedule_linger(cx);
@@ -1000,13 +1002,13 @@ impl FilerPanel {
     fn write_block_reason(&self, idx: usize) -> Option<String> {
         let p = &self.panes[idx];
         if fspath::is_virtual_root(p.style, &p.browse.path) && p.source == Source::Local {
-            return Some(t("ui-filer-no-write-this-pc"));
+            return Some(msg(Message::UiFilerNoWriteThisPc {}));
         }
         if matches!(p.browse.phase, Phase::Disconnected) {
-            return Some(t("ui-filer-disconnected-write"));
+            return Some(msg(Message::UiFilerDisconnectedWrite {}));
         }
         if !p.browse.can_write() {
-            return Some(t("ui-filer-no-dir-open"));
+            return Some(msg(Message::UiFilerNoDirOpen {}));
         }
         None
     }
@@ -1077,7 +1079,7 @@ impl FilerPanel {
         }
         let idx = self.shown;
         let Some(p) = self.panes.get(idx) else {
-            cx.emit(FilerEvent::Notice(t("ui-filer-no-dir-open")));
+            cx.emit(FilerEvent::Notice(msg(Message::UiFilerNoDirOpen {})));
             return;
         };
         if let Some(r) = self.write_block_reason(idx) {
@@ -1097,7 +1099,7 @@ impl FilerPanel {
     /// 为什么现在不能接收拖入；能接收返回 `None`（绘制“放下以上传 / 复制到这里”的提示用）。
     pub(crate) fn drop_block_reason(&self) -> Option<String> {
         if self.mode != PanelMode::Aux || self.panes.get(self.shown).is_none() {
-            return Some(t("ui-filer-no-dir-open"));
+            return Some(msg(Message::UiFilerNoDirOpen {}));
         }
         if self.panes[self.shown].queue.is_busy() {
             return Some(kanso_gpui::app::transfer_queue::Busy.text());
@@ -1224,10 +1226,10 @@ impl FilerPanel {
                     self.navigate(idx, row.path, cx);
                 }
                 Ok(_) => cx.open_with_system(Path::new(&row.path)),
-                Err(e) => cx.emit(FilerEvent::Notice(tf(
-                    "ui-filer-link-broken",
-                    &[("name", &row.name), ("reason", &e.to_string())],
-                ))),
+                Err(e) => cx.emit(FilerEvent::Notice(msg(Message::UiFilerLinkBroken {
+                    name: row.name.to_string(),
+                    why: (e.to_string()).to_string(),
+                }))),
             }
             return;
         }
@@ -1236,7 +1238,9 @@ impl FilerPanel {
         } else if self.panes[idx].source == Source::Local && self.mode == PanelMode::Aux {
             cx.open_with_system(Path::new(&row.path));
         } else if self.panes[idx].source != Source::Local && self.mode == PanelMode::Aux {
-            cx.emit(FilerEvent::Notice(t("ui-filer-remote-edit-unsupported")));
+            cx.emit(FilerEvent::Notice(msg(
+                Message::UiFilerRemoteEditUnsupported {},
+            )));
         }
     }
 
@@ -1269,33 +1273,39 @@ impl FilerPanel {
         let writable = self.write_block_reason(idx).is_none();
         let mut items = vec![MenuItem::action(
             format!("filer:{idx}:open"),
-            t("ui-filer-menu-open"),
+            msg(Message::UiFilerMenuOpen {}),
         )];
         if aux && !row.is_dir && !row.is_symlink && !remote {
             items.push(MenuItem::action(
                 format!("filer:{idx}:open-with"),
-                t("ui-filer-menu-open-with"),
+                msg(Message::UiFilerMenuOpenWith {}),
             ));
         }
         if remote {
             items.push(MenuItem::action(
                 format!("filer:{idx}:download"),
-                t("ui-filer-menu-download"),
+                msg(Message::UiFilerMenuDownload {}),
             ));
         }
         items.push(MenuItem::separator());
         items.push(MenuItem::action(
             format!("filer:{idx}:copy-path"),
-            t("ui-filer-menu-copy-path"),
+            msg(Message::UiFilerMenuCopyPath {}),
         ));
         items.push(MenuItem::action(
             format!("filer:{idx}:copy-name"),
-            t("ui-filer-menu-copy-name"),
+            msg(Message::UiFilerMenuCopyName {}),
         ));
         items.push(MenuItem::separator());
-        let rename = MenuItem::action(format!("filer:{idx}:rename"), t("ui-filer-rename"));
+        let rename = MenuItem::action(
+            format!("filer:{idx}:rename"),
+            msg(Message::UiFilerRename {}),
+        );
         items.push(if writable { rename } else { rename.disabled() });
-        let delete = MenuItem::action(format!("filer:{idx}:delete"), t("ui-filer-delete"));
+        let delete = MenuItem::action(
+            format!("filer:{idx}:delete"),
+            msg(Message::UiFilerDelete {}),
+        );
         items.push(if writable { delete } else { delete.disabled() });
         cx.emit(FilerEvent::Menu { items, position });
         cx.notify();
@@ -1317,32 +1327,32 @@ impl FilerPanel {
         let mut items = vec![
             gate(MenuItem::action(
                 format!("filer:{idx}:new-file"),
-                t("ui-filer-new-file"),
+                msg(Message::UiFilerNewFile {}),
             )),
             gate(MenuItem::action(
                 format!("filer:{idx}:new-folder"),
-                t("ui-filer-new-folder"),
+                msg(Message::UiFilerNewFolder {}),
             )),
         ];
         if remote && self.mode == PanelMode::Aux {
             items.push(MenuItem::separator());
             items.push(gate(MenuItem::action(
                 format!("filer:{idx}:upload-files"),
-                t("ui-filer-upload-files"),
+                msg(Message::UiFilerUploadFiles {}),
             )));
             items.push(gate(MenuItem::action(
                 format!("filer:{idx}:upload-dirs"),
-                t("ui-filer-upload-dirs"),
+                msg(Message::UiFilerUploadDirs {}),
             )));
         }
         items.push(MenuItem::separator());
         items.push(MenuItem::action(
             format!("filer:{idx}:copy-dir"),
-            t("ui-filer-menu-copy-dir"),
+            msg(Message::UiFilerMenuCopyDir {}),
         ));
         items.push(MenuItem::action(
             format!("filer:{idx}:refresh"),
-            t("ui-filer-refresh"),
+            msg(Message::UiFilerRefresh {}),
         ));
         cx.emit(FilerEvent::Menu { items, position });
     }
@@ -1357,11 +1367,11 @@ impl FilerPanel {
         let items = vec![
             MenuItem::action(
                 format!("filer:{idx}:upload-files"),
-                t("ui-filer-upload-files"),
+                msg(Message::UiFilerUploadFiles {}),
             ),
             MenuItem::action(
                 format!("filer:{idx}:upload-dirs"),
-                t("ui-filer-upload-dirs"),
+                msg(Message::UiFilerUploadDirs {}),
             ),
         ];
         cx.emit(FilerEvent::Menu { items, position });
@@ -1557,15 +1567,12 @@ impl FilerPanel {
         reason: &str,
         cx: &mut Context<Self>,
     ) {
-        let text = tf(
-            "ui-filer-op-error-at",
-            &[
-                ("what", what),
-                ("name", name),
-                ("where", &self.location_label(idx)),
-                ("reason", reason),
-            ],
-        );
+        let text = msg(Message::UiFilerOpErrorAt {
+            what: what.to_string(),
+            name: name.to_string(),
+            place: (self.location_label(idx)).to_string(),
+            why: reason.to_string(),
+        });
         cx.emit(FilerEvent::Notice(text));
     }
 
@@ -1582,10 +1589,10 @@ impl FilerPanel {
             (p.source, p.style, p.browse.path.clone())
         };
         let target = fspath::join(style, &dir, &name);
-        let what = t(match kind {
-            NameKind::NewFile => "ui-filer-new-file",
-            NameKind::NewFolder => "ui-filer-new-folder",
-            NameKind::Rename => "ui-filer-rename",
+        let what = msg(match kind {
+            NameKind::NewFile => Message::UiFilerNewFile {},
+            NameKind::NewFolder => Message::UiFilerNewFolder {},
+            NameKind::Rename => Message::UiFilerRename {},
         });
         match source {
             Source::Local => {
@@ -1641,7 +1648,7 @@ impl FilerPanel {
                     }
                 }
                 if let Some((name, reason)) = failed {
-                    let what = kanso_gpui::app::filer_text::t("ui-filer-delete");
+                    let what = kanso_gpui::app::filer_text::msg(Message::UiFilerDelete {});
                     self.report_error(idx, &what, &name, &reason, cx);
                 }
                 self.refresh(idx, cx);
@@ -1662,7 +1669,7 @@ impl FilerPanel {
                                     .sftp_remove(session, &tg.path, true)
                                     .await
                                     .map_err(|e| core_error_text(&e)),
-                                Ok(false) => Err(t("ui-filer-err-not-empty")),
+                                Ok(false) => Err(msg(Message::UiFilerErrNotEmpty {})),
                                 Err(e) => Err(e),
                             }
                         } else {
@@ -1677,7 +1684,7 @@ impl FilerPanel {
                     }
                     let _ = this.update(cx, |t, cx| {
                         if let Some((name, reason)) = failed {
-                            let what = kanso_gpui::app::filer_text::t("ui-filer-delete");
+                            let what = kanso_gpui::app::filer_text::msg(Message::UiFilerDelete {});
                             t.report_error(idx, &what, &name, &reason, cx);
                         }
                         t.refresh(idx, cx);

@@ -12,7 +12,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use kanso_types::fs::DirEntry;
 
-use crate::app::filer_text::{t, tf};
+use crate::app::filer_text::msg;
+use kanso_types::message::Message;
 
 /// 错误分类。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -53,12 +54,12 @@ impl LocalError {
     /// 给用户看的原因（不含路径；路径由调用方拼在前面）。
     pub fn text(&self) -> String {
         match self.kind {
-            LocalErrorKind::NotFound => t("ui-filer-err-not-found"),
-            LocalErrorKind::PermissionDenied => t("ui-filer-err-denied"),
-            LocalErrorKind::NotADirectory => t("ui-filer-err-not-dir"),
-            LocalErrorKind::AlreadyExists => t("ui-filer-err-exists"),
-            LocalErrorKind::NotEmpty => t("ui-filer-err-not-empty"),
-            LocalErrorKind::Cancelled => t("ui-filer-err-cancelled"),
+            LocalErrorKind::NotFound => msg(Message::UiFilerErrNotFound {}),
+            LocalErrorKind::PermissionDenied => msg(Message::UiFilerErrDenied {}),
+            LocalErrorKind::NotADirectory => msg(Message::UiFilerErrNotDir {}),
+            LocalErrorKind::AlreadyExists => msg(Message::UiFilerErrExists {}),
+            LocalErrorKind::NotEmpty => msg(Message::UiFilerErrNotEmpty {}),
+            LocalErrorKind::Cancelled => msg(Message::UiFilerErrCancelled {}),
             LocalErrorKind::Other => self.detail.clone(),
         }
     }
@@ -141,7 +142,7 @@ pub fn list_dir_streaming(
     if !meta.is_dir() {
         return Err(LocalError::new(
             LocalErrorKind::NotADirectory,
-            t("ui-filer-err-not-dir"),
+            msg(Message::UiFilerErrNotDir {}),
         ));
     }
     let rd = fs::read_dir(dir)?;
@@ -185,7 +186,9 @@ pub fn drives() -> Vec<DirEntry> {
             }
             fs::metadata(&root).ok()?;
             Some(DirEntry {
-                name: tf("ui-filer-drive", &[("letter", &c.to_string())]),
+                name: msg(Message::UiFilerDrive {
+                    letter: (c.to_string()).to_string(),
+                }),
                 path: root,
                 is_dir: true,
                 is_symlink: false,
@@ -223,7 +226,7 @@ pub fn rename(from: &Path, to: &Path) -> Result<()> {
         if !same_ignoring_case {
             return Err(LocalError::new(
                 LocalErrorKind::AlreadyExists,
-                t("ui-filer-err-exists"),
+                msg(Message::UiFilerErrExists {}),
             ));
         }
     }
@@ -324,7 +327,7 @@ pub fn check_copy(src: &Path, dest_dir: &Path) -> Result<bool> {
     if meta.is_dir() && is_same_or_descendant(dest_dir, src) {
         return Err(LocalError::new(
             LocalErrorKind::Other,
-            t("ui-filer-err-copy-into-self"),
+            msg(Message::UiFilerErrCopyIntoSelf {}),
         ));
     }
     Ok(true)
@@ -353,16 +356,16 @@ pub fn copy_into(
         if state.cancel.load(Ordering::Relaxed) {
             return Err(LocalError::new(
                 LocalErrorKind::Cancelled,
-                t("ui-filer-err-cancelled"),
+                msg(Message::UiFilerErrCancelled {}),
             ));
         }
         if !check_copy(src, dest_dir)? {
             state.report.already_there += 1;
             continue;
         }
-        let name = src
-            .file_name()
-            .ok_or_else(|| LocalError::new(LocalErrorKind::Other, t("ui-filer-err-no-name")))?;
+        let name = src.file_name().ok_or_else(|| {
+            LocalError::new(LocalErrorKind::Other, msg(Message::UiFilerErrNoName {}))
+        })?;
         state.copy_item(src, &dest_dir.join(name))?;
     }
     (state.progress)(state.done, total);
@@ -394,13 +397,13 @@ impl CopyState<'_> {
                 Ok(m) if m.file_type().is_symlink() => {
                     return Err(LocalError::new(
                         LocalErrorKind::Other,
-                        t("ui-filer-err-target-link"),
+                        msg(Message::UiFilerErrTargetLink {}),
                     ));
                 }
                 Ok(_) => {
                     return Err(LocalError::new(
                         LocalErrorKind::AlreadyExists,
-                        t("ui-filer-err-exists"),
+                        msg(Message::UiFilerErrExists {}),
                     ));
                 }
                 Err(_) => fs::create_dir(dst)?,
@@ -420,20 +423,20 @@ impl CopyState<'_> {
                 if m.file_type().is_symlink() {
                     return Err(LocalError::new(
                         LocalErrorKind::Other,
-                        t("ui-filer-err-target-link"),
+                        msg(Message::UiFilerErrTargetLink {}),
                     ));
                 }
                 if m.is_dir() {
                     return Err(LocalError::new(
                         LocalErrorKind::AlreadyExists,
-                        t("ui-filer-err-target-dir"),
+                        msg(Message::UiFilerErrTargetDir {}),
                     ));
                 }
                 match self.policy {
                     CopyPolicy::Fail => {
                         return Err(LocalError::new(
                             LocalErrorKind::AlreadyExists,
-                            t("ui-filer-err-exists"),
+                            msg(Message::UiFilerErrExists {}),
                         ));
                     }
                     CopyPolicy::Skip => {
@@ -458,7 +461,7 @@ impl CopyState<'_> {
                 if self.cancel.load(Ordering::Relaxed) {
                     return Err(LocalError::new(
                         LocalErrorKind::Cancelled,
-                        t("ui-filer-err-cancelled"),
+                        msg(Message::UiFilerErrCancelled {}),
                     ));
                 }
                 let n = input.read(&mut buf)?;

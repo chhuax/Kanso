@@ -5,7 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::app::filer_text::{t, tf};
+use crate::app::filer_text::msg;
+use kanso_types::message::Message;
 
 /// 设置表里的键。
 pub const SETTING_KEY: &str = "gpui.filer";
@@ -76,10 +77,13 @@ impl FilerLayout {
 /// 面板标题里的来源标识：本地显示“本地”，远端显示“会话名 · 主机”（主机未知时只有会话名）。
 pub fn identity_text(remote: bool, name: &str, host: Option<&str>) -> String {
     if !remote {
-        return t("ui-filer-local");
+        return msg(Message::UiFilerLocal {});
     }
     match host.filter(|h| !h.is_empty() && *h != name) {
-        Some(h) => tf("ui-filer-identity", &[("name", name), ("host", h)]),
+        Some(h) => msg(Message::UiFilerIdentity {
+            name: name.to_string(),
+            host: h.to_string(),
+        }),
         None => name.to_owned(),
     }
 }

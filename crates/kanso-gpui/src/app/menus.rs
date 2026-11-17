@@ -6,10 +6,11 @@
 
 use kanso_types::SessionId;
 
-use crate::app::filer_text::t;
+use crate::app::filer_text::msg;
 use crate::app::shortcuts::{AppCommand, shortcut_text};
 use crate::app::workspace::CloseScope;
 use crate::widgets::menu::MenuItem;
+use kanso_types::message::Message;
 
 /// 命令 → 菜单项 `id`。
 pub fn encode(command: AppCommand) -> String {
@@ -149,7 +150,7 @@ pub fn terminal_menu(has_selection: bool) -> Vec<MenuItem> {
         item("全选", AppCommand::SelectAll),
         item("清除缓冲区", AppCommand::ClearBuffer),
         MenuItem::separator(),
-        item(&t("ui-filer-menu-locate"), AppCommand::LocateFiler),
+        item(&msg(Message::UiFilerMenuLocate {}), AppCommand::LocateFiler),
         MenuItem::separator(),
         item("向右拆分", AppCommand::SplitRight),
         item("向下拆分", AppCommand::SplitDown),
@@ -226,14 +227,17 @@ pub fn app_menu(state: AppMenuState) -> Vec<MenuItem> {
                 item("关闭会话", AppCommand::CloseSession),
                 MenuItem::separator(),
                 MenuItem::submenu(
-                    t("ui-xfer-menu"),
+                    msg(Message::UiXferMenu {}),
                     vec![
-                        item(&t("ui-xfer-menu-send"), AppCommand::XmodemSend),
-                        item(&t("ui-xfer-menu-send-1k"), AppCommand::XmodemSend1K),
-                        item(&t("ui-xfer-menu-receive"), AppCommand::XmodemReceive),
+                        item(&msg(Message::UiXferMenuSend {}), AppCommand::XmodemSend),
+                        item(&msg(Message::UiXferMenuSend1k {}), AppCommand::XmodemSend1K),
+                        item(
+                            &msg(Message::UiXferMenuReceive {}),
+                            AppCommand::XmodemReceive,
+                        ),
                         MenuItem::separator(),
                         item(
-                            &t("ui-xfer-menu-cancel"),
+                            &msg(Message::UiXferMenuCancel {}),
                             AppCommand::CancelTerminalTransfer,
                         ),
                     ],
@@ -257,7 +261,7 @@ pub fn app_menu(state: AppMenuState) -> Vec<MenuItem> {
             "视图",
             vec![
                 item("标签栏", AppCommand::ToggleSidebar).checked(state.sidebar_visible),
-                item(&t("ui-filer-menu-view"), AppCommand::ToggleFiler)
+                item(&msg(Message::UiFilerMenuView {}), AppCommand::ToggleFiler)
                     .checked(state.filer_visible),
                 MenuItem::separator(),
                 item("向右拆分", AppCommand::SplitRight),

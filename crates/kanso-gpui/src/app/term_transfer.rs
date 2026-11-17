@@ -9,11 +9,12 @@ use kanso_types::prompt::{PromptRequest, PromptResponse};
 use kanso_types::transfer::XferProtocol;
 use kanso_types::{SessionId, TransferId};
 
-use crate::app::filer_text::{t, tf};
+use crate::app::filer_text::msg;
 use crate::app::transfer_queue::{
     Bar, BarFinish, DONE_LINGER_MS, FAIL_LINGER_MS, Finish, SpeedMeter,
 };
 use crate::filer::format_size;
+use kanso_types::message::Message;
 
 /// 系统文件选择器的用法。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,7 +40,7 @@ pub fn picker_plan(request: &PromptRequest) -> Option<PickerPlan> {
             suggested_name: suggested_name.clone(),
         }),
         PromptRequest::XmodemSaveFile => Some(PickerPlan::Save {
-            suggested_name: t("ui-xfer-default-name"),
+            suggested_name: msg(Message::UiXferDefaultName {}),
         }),
         _ => None,
     }
@@ -48,19 +49,21 @@ pub fn picker_plan(request: &PromptRequest) -> Option<PickerPlan> {
 /// 打开选择器前给用户的一句说明（状态栏提示）：谁要发什么、该选什么。
 pub fn picker_hint(request: &PromptRequest) -> Option<String> {
     match request {
-        PromptRequest::ZmodemPickFiles => Some(t("ui-xfer-hint-pick-files")),
-        PromptRequest::XmodemPickFile => Some(t("ui-xfer-hint-pick-file")),
+        PromptRequest::ZmodemPickFiles => Some(msg(Message::UiXferHintPickFiles {})),
+        PromptRequest::XmodemPickFile => Some(msg(Message::UiXferHintPickFile {})),
         PromptRequest::ZmodemSaveFile {
             suggested_name,
             size,
         } => Some(match size {
-            Some(s) => tf(
-                "ui-xfer-hint-save-sized",
-                &[("name", suggested_name), ("size", &format_size(*s))],
-            ),
-            None => tf("ui-xfer-hint-save", &[("name", suggested_name)]),
+            Some(s) => msg(Message::UiXferHintSaveSized {
+                name: suggested_name.to_string(),
+                amount: (format_size(*s)).to_string(),
+            }),
+            None => msg(Message::UiXferHintSave {
+                name: suggested_name.to_string(),
+            }),
         }),
-        PromptRequest::XmodemSaveFile => Some(t("ui-xfer-hint-xmodem-save")),
+        PromptRequest::XmodemSaveFile => Some(msg(Message::UiXferHintXmodemSave {})),
         _ => None,
     }
 }
@@ -175,11 +178,14 @@ impl TermTransfers {
     ) -> Option<SessionId> {
         let i = self.items.iter_mut().find(|i| i.id == id)?;
         let (kind, text) = match finish {
-            Finish::Completed { .. } => (BarFinish::Done, t("ui-xfer-done")),
-            Finish::Cancelled => (BarFinish::Cancelled, t("ui-xfer-cancelled")),
-            Finish::Failed { text, .. } => {
-                (BarFinish::Failed, tf("ui-xfer-failed", &[("reason", text)]))
-            }
+            Finish::Completed { .. } => (BarFinish::Done, msg(Message::UiXferDone {})),
+            Finish::Cancelled => (BarFinish::Cancelled, msg(Message::UiXferCancelled {})),
+            Finish::Failed { text, .. } => (
+                BarFinish::Failed,
+                msg(Message::UiXferFailed {
+                    why: text.to_string(),
+                }),
+            ),
         };
         i.finished = Some((kind, now_ms, text));
         Some(i.session)
@@ -218,8 +224,8 @@ impl TermTransfers {
     pub fn bar(&self, session: SessionId, now_ms: u64) -> Option<Bar> {
         let i = self.items.iter().find(|i| i.session == session)?;
         let verb = match i.direction {
-            TransferDirection::Upload => t("ui-xfer-send"),
-            TransferDirection::Download => t("ui-xfer-receive"),
+            TransferDirection::Upload => msg(Message::UiXferSend {}),
+            TransferDirection::Download => msg(Message::UiXferReceive {}),
         };
         let title = format!("{} {} {}", protocol_name(i.protocol), verb, i.name);
         if let Some((kind, at, text)) = &i.finished {

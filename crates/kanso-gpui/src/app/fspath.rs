@@ -294,7 +294,7 @@ pub fn breadcrumbs(style: PathStyle, path: &str) -> Vec<Crumb> {
         }
         PathStyle::Windows => {
             out.push(Crumb {
-                label: crate::app::filer_text::t("ui-filer-this-pc"),
+                label: crate::app::filer_text::msg(kanso_types::message::Message::UiFilerThisPc {}),
                 path: THIS_PC.to_owned(),
             });
             let p = win_norm(path);

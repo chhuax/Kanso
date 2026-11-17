@@ -18,7 +18,7 @@ use gpui::{
 use kanso_core::{Core, XmodemBlock};
 use kanso_gpui::app::filer_layout::{FilerLayout, SETTING_KEY, identity_text};
 use kanso_gpui::app::filer_state::{Locator, cwd_host_is_local};
-use kanso_gpui::app::filer_text::{t, tf};
+use kanso_gpui::app::filer_text::msg;
 use kanso_gpui::app::launcher::{core_error_text, render_message};
 use kanso_gpui::app::tab::{TabConnection, TabKind};
 use kanso_gpui::app::term_transfer::PickerPlan;
@@ -28,6 +28,7 @@ use kanso_gpui::widgets::dialog::DialogSpec;
 use kanso_gpui::widgets::menu::MenuItem;
 use kanso_gpui::widgets::style::number;
 use kanso_types::event::TransferOutcome;
+use kanso_types::message::Message;
 use kanso_types::profile::ProfileKind;
 use kanso_types::prompt::PromptRequest;
 use kanso_types::transfer::XferProtocol;
@@ -222,7 +223,7 @@ impl ShellView {
     fn attach_sftp(&mut self, sid: SessionId, window: &mut Window, cx: &mut Context<Self>) {
         let identity = self
             .filer_identity(sid)
-            .map_or_else(|| t("ui-filer-local"), |(_, i)| i);
+            .map_or_else(|| msg(Message::UiFilerLocal {}), |(_, i)| i);
         let core = self.core.clone();
         let panel = cx.new(|cx| FilerPanel::new_dual(core, sid, identity, window, cx));
         let sub = cx.subscribe_in(
@@ -339,7 +340,7 @@ impl ShellView {
     /// 视图菜单 / Ctrl+Alt+→：显示或隐藏，使用已记住的浏览位置。
     pub(super) fn toggle_filer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.active_filer_kind() == Some(TabKind::Sftp) {
-            self.show_notice(t("ui-filer-status-already-open"), cx);
+            self.show_notice(msg(Message::UiFilerStatusAlreadyOpen {}), cx);
             return;
         }
         self.filer.layout.visible = !self.filer.layout.visible;
@@ -374,14 +375,14 @@ impl ShellView {
             } else {
                 th.c("text.secondary")
             })
-            .child(t("ui-filer-status-label"));
+            .child(msg(Message::UiFilerStatusLabel {}));
         if sftp {
             // 双栏文件浏览器已经在当前标签打开：开关不可操作并说明原因。
             return el
                 .opacity(0.5)
                 .tooltip(move |_w, cx| {
                     cx.new(|_| SimpleTip {
-                        text: t("ui-filer-status-already-open").into(),
+                        text: msg(Message::UiFilerStatusAlreadyOpen {}).into(),
                         th,
                     })
                     .into()
@@ -405,18 +406,18 @@ impl ShellView {
         cx: &mut Context<Self>,
     ) {
         let Some(sid) = self.ctl.workspace().active_session() else {
-            self.show_notice(t("ui-filer-locate-no-session"), cx);
+            self.show_notice(msg(Message::UiFilerLocateNoSession {}), cx);
             return;
         };
         let Some(item) = self.ctl.workspace().item(sid).cloned() else {
             return;
         };
         if item.kind == TabKind::Sftp {
-            self.show_notice(t("ui-filer-locate-sftp"), cx);
+            self.show_notice(msg(Message::UiFilerLocateSftp {}), cx);
             return;
         }
         if !matches!(item.connection, TabConnection::Connected) {
-            self.show_notice(t("ui-filer-locate-not-connected"), cx);
+            self.show_notice(msg(Message::UiFilerLocateNotConnected {}), cx);
             return;
         }
         if item.kind == TabKind::Local {
@@ -424,7 +425,12 @@ impl ShellView {
             let refs: Vec<&str> = names.iter().map(String::as_str).collect();
             if !cwd_host_is_local(item.cwd_host.as_deref(), &refs) {
                 let host = item.cwd_host.clone().unwrap_or_default();
-                self.show_notice(tf("ui-filer-locate-foreign-host", &[("host", &host)]), cx);
+                self.show_notice(
+                    msg(Message::UiFilerLocateForeignHost {
+                        host: host.to_string(),
+                    }),
+                    cx,
+                );
                 return;
             }
         }
@@ -471,14 +477,19 @@ impl ShellView {
                 self.filer
                     .panel
                     .update(cx, |p, cx| p.navigate_session(sid, shown, window, cx));
-                self.show_notice(tf("ui-filer-located", &[("path", &path)]), cx);
+                self.show_notice(
+                    msg(Message::UiFilerLocated {
+                        path: path.to_string(),
+                    }),
+                    cx,
+                );
             }
             Err(e) => {
                 self.show_notice(
-                    tf(
-                        "ui-filer-locate-failed",
-                        &[("name", &name), ("reason", &core_error_text(&e))],
-                    ),
+                    msg(Message::UiFilerLocateFailed {
+                        name: name.to_string(),
+                        why: (core_error_text(&e)).to_string(),
+                    }),
                     cx,
                 );
             }
@@ -647,7 +658,12 @@ impl ShellView {
                     {
                         term_finished = true;
                         if let Finish::Failed { text, .. } = &finish {
-                            self.show_notice(tf("ui-xfer-failed", &[("reason", text)]), cx);
+                            self.show_notice(
+                                msg(Message::UiXferFailed {
+                                    why: text.to_string(),
+                                }),
+                                cx,
+                            );
                         }
                     }
                 }
@@ -845,7 +861,9 @@ impl ShellView {
         };
         if let Err(e) = self.core.xmodem_start(sid, block) {
             self.show_notice(
-                tf("ui-xfer-start-failed", &[("reason", &core_error_text(&e))]),
+                msg(Message::UiXferStartFailed {
+                    why: (core_error_text(&e)).to_string(),
+                }),
                 cx,
             );
         }

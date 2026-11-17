@@ -13,8 +13,9 @@ use std::collections::VecDeque;
 use kanso_types::TransferId;
 use kanso_types::transfer::ConflictPolicy;
 
-use crate::app::filer_text::{t, tf};
+use crate::app::filer_text::msg;
 use crate::filer::format_size;
+use kanso_types::message::Message;
 
 /// 传输方向 / 操作类型（进度条文字据此区分）。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -30,10 +31,10 @@ pub enum Kind {
 impl Kind {
     /// 进度条上的操作文字。
     pub fn label(self) -> String {
-        t(match self {
-            Kind::Upload => "ui-filer-op-upload",
-            Kind::Download => "ui-filer-op-download",
-            Kind::Copy => "ui-filer-op-copy",
+        msg(match self {
+            Kind::Upload => Message::UiFilerOpUpload {},
+            Kind::Download => Message::UiFilerOpDownload {},
+            Kind::Copy => Message::UiFilerOpCopy {},
         })
     }
 }
@@ -60,7 +61,7 @@ pub struct Busy;
 impl Busy {
     /// 提示文字。
     pub fn text(self) -> String {
-        t("ui-filer-busy")
+        msg(Message::UiFilerBusy {})
     }
 }
 
@@ -419,15 +420,14 @@ impl TransferQueue {
 
     fn conclude(&mut self, end: BatchEnd, now_ms: u64, cur: Option<&Current>) -> Action {
         let title = match (&end, cur) {
-            (BatchEnd::Done, _) => tf(
-                "ui-filer-batch-done",
-                &[("count", &self.batch_done.to_string())],
-            ),
-            (BatchEnd::Cancelled, _) => t("ui-filer-cancelled"),
-            (BatchEnd::Failed(why), Some(c)) => tf(
-                "ui-filer-op-failed",
-                &[("op", &c.item.kind.label()), ("reason", why)],
-            ),
+            (BatchEnd::Done, _) => msg(Message::UiFilerBatchDone {
+                count: self.batch_done as i64,
+            }),
+            (BatchEnd::Cancelled, _) => msg(Message::UiFilerCancelled {}),
+            (BatchEnd::Failed(why), Some(c)) => msg(Message::UiFilerOpFailed {
+                action: (c.item.kind.label()).to_string(),
+                why: why.to_string(),
+            }),
             (BatchEnd::Failed(why), None) => why.clone(),
         };
         let finish = match &end {
@@ -436,14 +436,11 @@ impl TransferQueue {
             BatchEnd::Failed(why) => {
                 // 详细原因留在错误区域，短提示消失后也不丢。
                 self.error = Some(match cur {
-                    Some(c) => tf(
-                        "ui-filer-op-error",
-                        &[
-                            ("op", &c.item.kind.label()),
-                            ("name", &c.item.name),
-                            ("reason", why),
-                        ],
-                    ),
+                    Some(c) => msg(Message::UiFilerOpError {
+                        action: (c.item.kind.label()).to_string(),
+                        name: c.item.name.to_string(),
+                        why: why.to_string(),
+                    }),
                     None => why.clone(),
                 });
                 BarFinish::Failed
@@ -520,7 +517,7 @@ impl TransferQueue {
                 return Some(Bar {
                     title,
                     fraction: None,
-                    detail: t("ui-filer-awaiting-conflict"),
+                    detail: msg(Message::UiFilerAwaitingConflict {}),
                     cancellable: true,
                     finish: None,
                 });
@@ -557,7 +554,9 @@ impl TransferQueue {
             title: title.clone(),
             fraction: matches!(finish, BarFinish::Done).then_some(1.0),
             detail: if self.skipped > 0 {
-                tf("ui-filer-skipped", &[("count", &self.skipped.to_string())])
+                msg(Message::UiFilerSkipped {
+                    count: i64::from(self.skipped),
+                })
             } else {
                 String::new()
             },
