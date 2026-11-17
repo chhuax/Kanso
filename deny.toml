@@ -34,6 +34,11 @@ ignore = [
     { id = "RUSTSEC-2026-0370", reason = "zvariant 维护状态告警，仅 Linux 的 Secret Service 后端使用；等 secret-service 6 正式版" },
     { id = "RUSTSEC-2026-0371", reason = "zbus_names 维护状态告警，同上" },
     { id = "RUSTSEC-2026-0372", reason = "zvariant_derive 维护状态告警，同上" },
+    # chrono（停止维护，维护状态告警而不是漏洞）：MCP 官方 SDK rmcp 在原生平台上无条件依赖它
+    # （数据模型直接使用 chrono::DateTime），并为 schemars 打开了 chrono04。只随 Direct 渠道的
+    # kanso-mcp-server 编译进产品（MAS / Setapp 不启用 rmcp）。不自己实现 MCP 协议，换取协议合规由官方 SDK 负责。
+    # 经用户确认（2026-11-17）。rmcp 换掉 chrono 后删除本条。
+    { id = "RUSTSEC-2026-0543", reason = "chrono 维护状态告警，经 rmcp 进入 Direct 版；等 rmcp 换掉 chrono" },
 ]
 
 [licenses]

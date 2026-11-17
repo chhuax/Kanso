@@ -1,0 +1,33 @@
+[package]
+name = "kanso-mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "AI 工具以 stdio 启动的转发程序：把 MCP 字节流原样转给正在运行的 Kanso（architecture §16.1）"
+
+# 库部分是路径规则与握手格式的唯一来源，kanso-mcp-server 依赖它，两端不会各写一套。
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "kanso-mcp"
+path = "src/main.rs"
+
+# 只依赖 std 与 libc：体积和启动时间都要小，也不碰 tokio、serde（architecture §16.2）。
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+# 需要直接调 libc（flock、getpwuid_r、confstr、取控制终端），因此不继承 workspace lints，
+# 显式列出与 workspace 相同的规则，仅把 unsafe_code 放开为 allow；每处 unsafe 写 SAFETY 注释。
+[lints.rust]
+missing_docs = "warn"
+unsafe_op_in_unsafe_fn = "deny"
+unsafe_code = "allow"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

@@ -399,6 +399,9 @@ impl Drop for McpClaim<'_> {
     }
 }
 
+/// mock core 的 bundle id。用不会与真实 App 冲突的值，MCP 服务的锁与 socket 路径也就不会撞上真实 App。
+const MOCK_BUNDLE_ID: &str = "mock.kanso";
+
 /// 具体实现。见模块文档“为什么用枚举分发”。
 enum Backend {
     Mock(MockCore),
@@ -415,6 +418,8 @@ pub struct Core {
     sender_clock: std::time::Instant,
     /// MCP 授权变化的通知器，与后端共用同一个，见 [`Core::mcp_policy_watch`]。
     mcp_policy: crate::mcp::PolicyNotifier,
+    /// 构造时的 bundle id，见 [`Core::bundle_id`]。
+    bundle_id: String,
 }
 
 // 编译期断言：FFI 层与多线程宿主依赖 Core 可跨线程共享。
@@ -438,7 +443,9 @@ impl Core {
     ///   返回 `NotSupported`、空集合或 `None`，具体见各方法的文档与 `RealCore` 的模块文档。
     pub fn new(config: CoreConfig, platform: Platform) -> Result<Core> {
         let mcp_policy = crate::mcp::PolicyNotifier::new();
+        let bundle_id = config.bundle_id.clone();
         Ok(Core {
+            bundle_id,
             backend: Backend::Real(Box::new(RealCore::new(
                 config,
                 platform,
@@ -464,7 +471,9 @@ impl Core {
     ) -> Result<Core> {
         let env = kanso_session::EnvSnapshot::from_pairs(base_env);
         let mcp_policy = crate::mcp::PolicyNotifier::new();
+        let bundle_id = config.bundle_id.clone();
         Ok(Core {
+            bundle_id,
             backend: Backend::Real(Box::new(RealCore::new(
                 config,
                 platform,
@@ -485,11 +494,20 @@ impl Core {
     pub fn new_mock(platform: Platform) -> Core {
         let mcp_policy = crate::mcp::PolicyNotifier::new();
         Core {
+            bundle_id: MOCK_BUNDLE_ID.to_owned(),
             backend: Backend::Mock(MockCore::new(platform, mcp_policy.clone())),
             sender: Default::default(),
             sender_clock: std::time::Instant::now(),
             mcp_policy,
         }
+    }
+
+    /// 构造时传入的 bundle id（mock core 为 `mock.kanso`）。
+    ///
+    /// MCP 服务用它推出单实例锁与 socket 的路径（architecture §16.1）。服务必须在 App 启动时就持有锁，
+    /// 而那时还没有调用 `start`，所以从 core 取，而不是等 `start` 的参数。
+    pub fn bundle_id(&self) -> &str {
+        &self.bundle_id
     }
 
     /// 关闭 core：停止后台任务（传输、连接）、刷盘。
