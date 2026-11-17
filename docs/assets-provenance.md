@@ -6,6 +6,7 @@
 | 素材 | 位置 | 来源 | 作者 / 许可 | 登记日期 |
 |---|---|---|---|---|
 | 应用图标（全部尺寸，16–1024 px） | `apple/Kanso/Resources/Assets.xcassets/AppIcon.appiconset/` | 作者提供的图标；原始登记为从已安装的 Kanso 0.2.1 的 `icon.icns` 用 `iconutil -c iconset` 拆出 | chhuax 拥有版权；与 EdgeTerm 上游代码无关。名称及应用图标不在 GPL 授权范围内 | 2026-11-13 |
+| Windows 应用图标 | `crates/kanso-gpui/windows/kanso.ico`、`installer.ico` | 由上一行的应用图标 `icon_512x512@2x.png`（1024 px）用 `tools/gen-windows-icons.py` 缩放生成，未引入新素材 | 同上，chhuax 拥有版权；名称及应用图标不在 GPL 授权范围内 | 2026-11-18 |
 | AI 工具图标 | `apple/Kanso/Resources/Assets.xcassets/AgentIcons`、`design/agent-icons` | LobeHub 图标库 `@lobehub/icons-static-svg` 1.102.0，https://github.com/lobehub/lobe-icons | MIT；Copyright (c) 2023 LobeHub；各品牌标识属于其所有者，仅用于标示正在运行的工具；许可全文见 `../THIRD_PARTY_NOTICES.md` | 2026-11-16 |
 | Git 分支图标 | `apple/Kanso/Resources/Assets.xcassets/GitBranch.imageset` | Lucide 图标库 `lucide-static` 1.73.0 的 `git-branch`，https://github.com/lucide-icons/lucide | ISC；Copyright (c) Lucide Icons and Contributors；许可全文见 `../THIRD_PARTY_NOTICES.md` | 2026-11-16 |
 | 终端上下文图标（分支、文件夹、Node 六边形） | `apple/Packages/TerminalKit/Sources/TerminalKit/GlyphAtlas.swift` | Lucide 官方 `icons/git-branch.svg`、`icons/folder.svg`、`icons/hexagon.svg`，https://github.com/lucide-icons/lucide/tree/main/icons ；按 SVG 坐标用 CoreGraphics 绘制 | ISC；Copyright (c) Lucide Icons and Contributors；复用 `../THIRD_PARTY_NOTICES.md` 中的 Lucide 许可声明，无新增依赖 | 2026-11-16 |
