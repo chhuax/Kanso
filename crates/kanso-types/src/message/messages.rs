@@ -72,6 +72,124 @@ macro_rules! messages {
 }
 
 messages! {
+    /// GPUI 设置页面：通用。
+    UiGeneral = "ui-general" {},
+    /// GPUI 设置页面：显示。
+    UiDisplay = "ui-display" {},
+    /// GPUI 设置页面：外观。
+    UiAppearance = "ui-appearance" {},
+    /// GPUI 设置页面：模式。
+    UiTheme = "ui-theme" {},
+    /// GPUI 设置页面：浅色终端配色。
+    UiLightTheme = "ui-light-theme" {},
+    /// GPUI 设置页面：深色终端配色。
+    UiDarkTheme = "ui-dark-theme" {},
+    /// GPUI 设置页面：字体。
+    UiFont = "ui-font" {},
+    /// GPUI 设置页面：终端字体。
+    UiTerminalFont = "ui-terminal-font" {},
+    /// GPUI 设置页面：字号。
+    UiFontSize = "ui-font-size" {},
+    /// GPUI 设置页面：行距。
+    UiLineHeight = "ui-line-height" {},
+    /// GPUI 设置页面：自定义字体。
+    UiFontCustom = "ui-font-custom" {},
+    /// GPUI 设置页面：留空使用系统等宽字体。字体缺少的图标会自动使用已安装的 Nerd Font。。
+    UiFontHint = "ui-font-hint" {},
+    /// GPUI 设置页面：正在检测本机等宽字体…。
+    UiFontProbing = "ui-font-probing" {},
+    /// GPUI 设置页面：光标。
+    UiCursor = "ui-cursor" {},
+    /// GPUI 设置页面：形状。
+    UiShape = "ui-shape" {},
+    /// GPUI 设置页面：光标闪烁。
+    UiCursorBlink = "ui-cursor-blink" {},
+    /// GPUI 设置页面：语义着色。
+    UiSemanticColor = "ui-semantic-color" {},
+    /// GPUI 设置页面：回滚。
+    UiScrollback = "ui-scrollback" {},
+    /// GPUI 设置页面：回滚行数。
+    UiScrollbackLines = "ui-scrollback-lines" {},
+    /// GPUI 设置页面：调小以后立即丢弃超出的最早的行。。
+    UiScrollbackHint = "ui-scrollback-hint" {},
+    /// GPUI 设置页面：对比度。
+    UiContrast = "ui-contrast" {},
+    /// GPUI 设置页面：最低对比度保护。
+    UiContrastEnabled = "ui-contrast-enabled" {},
+    /// GPUI 设置页面：对比度比例。
+    UiContrastRatio = "ui-contrast-ratio" {},
+    /// GPUI 设置页面：文字与背景的对比度低于此比例时，会自动调亮或调暗文字。。
+    UiContrastHint = "ui-contrast-hint" {},
+    /// GPUI 设置页面：时间轴。
+    UiTimeline = "ui-timeline" {},
+    /// GPUI 设置页面：界面字体。
+    UiInterfaceFont = "ui-interface-font" {},
+    /// GPUI 设置页面：设置。
+    UiSettings = "ui-settings" {},
+    /// GPUI 会话页面：会话。
+    UiSession = "ui-session" {},
+    /// GPUI 会话页面：SSH 连接。
+    UiSshConnection = "ui-ssh-connection" {},
+    /// GPUI 会话页面：本地 Shell。
+    UiLocalSession = "ui-local-session" {},
+    /// GPUI 会话页面：新建会话。
+    UiNewSession = "ui-new-session" {},
+    /// GPUI 会话页面：编辑会话。
+    UiEditSession = "ui-edit-session" {},
+    /// GPUI 会话页面：类型。
+    UiType = "ui-type" {},
+    /// GPUI 会话页面：名称。
+    UiName = "ui-name" {},
+    /// GPUI 会话页面：颜色。
+    UiColor = "ui-color" {},
+    /// GPUI 会话页面：分组。
+    UiGroup = "ui-group" {},
+    /// GPUI 会话页面：起始目录。
+    UiStartDirectory = "ui-start-directory" {},
+    /// GPUI 会话页面：主机。
+    UiHost = "ui-host" {},
+    /// GPUI 会话页面：端口。
+    UiPort = "ui-port" {},
+    /// GPUI 会话页面：用户名。
+    UiUser = "ui-user" {},
+    /// GPUI 会话页面：认证方式。
+    UiAuthentication = "ui-authentication" {},
+    /// GPUI 会话页面：密码。
+    UiPassword = "ui-password" {},
+    /// GPUI 会话页面：私钥。
+    UiPrivateKey = "ui-private-key" {},
+    /// GPUI 会话页面：私钥口令。
+    UiKeyPassphrase = "ui-key-passphrase" {},
+    /// GPUI 会话页面：跳板机。
+    UiJumpHost = "ui-jump-host" {},
+    /// GPUI 会话页面：编码。
+    UiEncoding = "ui-encoding" {},
+    /// GPUI 会话页面：Locale。
+    UiLocale = "ui-locale" {},
+    /// GPUI 会话页面：ProxyCommand。
+    UiProxyCommand = "ui-proxy-command" {},
+    /// GPUI 会话页面：选择…。
+    UiChoose = "ui-choose" {},
+    /// GPUI 会话页面：取消。
+    UiCancel = "ui-cancel" {},
+    /// GPUI 会话页面：保存。
+    UiSave = "ui-save" {},
+    /// GPUI 会话页面：连接。
+    UiConnect = "ui-connect" {},
+    /// GPUI 会话页面：自动。
+    UiAutomatic = "ui-automatic" {},
+    /// GPUI 会话页面：留空则保持已保存的值。
+    UiKeepSaved = "ui-keep-saved" {},
+    /// GPUI 会话页面：搜索已保存的会话。
+    UiSearchSessions = "ui-search-sessions" {},
+    /// GPUI 会话页面：已保存的会话。
+    UiSavedSessions = "ui-saved-sessions" {},
+    /// GPUI 会话页面：还没有保存的会话。选择“新建会话…”添加一个。。
+    UiNoSessions = "ui-no-sessions" {},
+    /// GPUI 会话页面：没有匹配的会话。
+    UiNoMatchingSessions = "ui-no-matching-sessions" {},
+    /// GPUI 会话页面：（空）。
+    UiEmptyGroup = "ui-empty-group" {},
     /// Windows 本地会话的 Shell 选择。
     UiLocalShell = "ui-local-shell" {},
     /// 使用平台默认 Shell。

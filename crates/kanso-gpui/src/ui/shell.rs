@@ -153,11 +153,11 @@ impl ShellView {
         let dark = display::effective_dark(window);
         display::apply_titlebar(window);
         let path_filter = cx.new(|cx| {
-            super::widgets::text_input::TextInput::new(window, cx).placeholder(
-                kanso_gpui::app::launcher::render_message(
+            super::widgets::text_input::TextInput::new(window, cx)
+                .search()
+                .placeholder(kanso_gpui::app::launcher::render_message(
                     &kanso_types::message::Message::UiFilterPath {},
-                ),
-            )
+                ))
         });
         let filter_sub = cx.subscribe_in(&path_filter, window, |this, input, ev, window, cx| {
             use super::widgets::text_input::TextInputEvent;

@@ -28,7 +28,10 @@ use kanso_gpui::widgets::style::{Appearance, color, number};
 use super::display;
 use super::log;
 use super::widgets::dropdown::{Dropdown, DropdownEvent};
+use super::widgets::icons::icon;
 use super::widgets::text_input::{TextInput, TextInputEvent};
+use kanso_gpui::app::launcher::render_message;
+use kanso_types::message::Message;
 
 /// 回滚行数下拉里的预设。
 const SCROLLBACK_PRESETS: [u32; 7] = [1_000, 5_000, 10_000, 20_000, 50_000, 100_000, 1_000_000];
@@ -137,12 +140,12 @@ pub(crate) fn open_window(
     {
         return Some(handle);
     }
-    let bounds = Bounds::centered(None, size(px(600.0), px(720.0)), cx);
+    let bounds = Bounds::centered(None, size(px(560.0), px(760.0)), cx);
     let opened = cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: Some(TitlebarOptions {
-                title: Some("设置".into()),
+                title: Some(render_message(&Message::UiSettings {}).into()),
                 ..Default::default()
             }),
             ..Default::default()
@@ -164,6 +167,7 @@ pub(crate) fn open_window(
 /// 设置窗口根视图。
 pub(crate) struct SettingsView {
     titlebar_dark: Option<bool>,
+    page: usize,
     model: Entity<SettingsModel>,
     focus: FocusHandle,
     term_font: Entity<Dropdown>,
@@ -174,6 +178,7 @@ pub(crate) struct SettingsView {
     ui_font_input: Entity<TextInput>,
     ui_names: Vec<String>,
     scrollback: Entity<Dropdown>,
+    mode: Entity<Dropdown>,
     light_theme: Entity<Dropdown>,
     dark_theme: Entity<Dropdown>,
     /// 等宽字体还在后台探测。
@@ -265,6 +270,7 @@ impl SettingsView {
         let ui_font = cx.new(|cx| {
             Dropdown::new(window, cx)
                 .items(ui_items)
+                .button_label(render_message(&Message::UiChoose {}))
                 .filterable("搜索字体")
                 .selected(ui_sel)
         });
@@ -273,6 +279,7 @@ impl SettingsView {
         let term_font = cx.new(|cx| {
             Dropdown::new(window, cx)
                 .items(term_items)
+                .button_label(render_message(&Message::UiChoose {}))
                 .filterable("搜索等宽字体")
                 .selected(term_sel)
         });
@@ -288,6 +295,21 @@ impl SettingsView {
         });
         let (_, sb_items, sb_sel) = scrollback_items(display.scrollback_lines);
         let scrollback = cx.new(|cx| Dropdown::new(window, cx).items(sb_items).selected(sb_sel));
+        let mode = cx.new(|cx| {
+            Dropdown::new(window, cx)
+                .items(
+                    ThemeMode::ALL
+                        .iter()
+                        .map(|m| Item::option(m.label()))
+                        .collect(),
+                )
+                .selected(
+                    ThemeMode::ALL
+                        .iter()
+                        .position(|m| *m == appearance.mode)
+                        .unwrap_or(0),
+                )
+        });
         let light_theme = cx.new(|cx| {
             Dropdown::new(window, cx)
                 .items(theme_items())
@@ -300,6 +322,13 @@ impl SettingsView {
         });
 
         let mut subs: Vec<Subscription> = Vec::new();
+        subs.push(cx.subscribe(&mode, |this, _, ev: &DropdownEvent, cx| {
+            if let DropdownEvent::Change(i) = ev {
+                this.model.update(cx, |m, cx| {
+                    m.update_appearance(cx, |a| a.mode = ThemeMode::ALL[*i])
+                });
+            }
+        }));
         // 模型变化（含快捷键缩放）→ 重绘并同步控件。
         subs.push(cx.observe(&model, |this, _, cx| this.sync_widgets(cx)));
         // 窗口外观变化（跟随系统时）→ 重绘。
@@ -370,6 +399,7 @@ impl SettingsView {
 
         let this = SettingsView {
             titlebar_dark: None,
+            page: 0,
             model,
             focus: cx.focus_handle(),
             term_font,
@@ -379,6 +409,7 @@ impl SettingsView {
             ui_font_input,
             ui_names,
             scrollback,
+            mode,
             light_theme,
             dark_theme,
             probing: true,
@@ -489,6 +520,9 @@ impl SettingsView {
                 dd.set_selected(Some(sel), cx);
             });
         }
+        self.mode.update(cx, |dd, cx| {
+            dd.set_selected(ThemeMode::ALL.iter().position(|m| *m == a.mode), cx)
+        });
         self.light_theme.update(cx, |dd, cx| {
             dd.set_selected(Some(theme_index(&a.light_theme, 0)), cx)
         });
@@ -509,42 +543,40 @@ impl Th {
     }
 }
 
-fn card(th: &Th, title: &str, rows: Vec<AnyElement>) -> AnyElement {
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(2.0))
-        .p(px(number("spacing", "md")))
-        .rounded(px(number("radius", "lg")))
-        .bg(th.c("bg.card"))
-        .border_1()
-        .border_color(th.c("border.card"))
-        .child(
-            div()
-                .pb(px(4.0))
-                .text_size(px(number("font", "ui.caption")))
-                .text_color(th.c("text.secondary"))
-                .child(title.to_owned()),
-        )
-        .children(rows)
-        .into_any_element()
+fn card(th: &Th, title: &str, symbol: &'static str, rows: Vec<AnyElement>) -> AnyElement {
+    super::widgets::card::card(
+        super::shell::Theme { appearance: th.0 },
+        title,
+        symbol,
+        rows,
+    )
+    .into_any_element()
 }
 
 fn row(th: &Th, label: &str, control: impl IntoElement) -> AnyElement {
     div()
+        .flex_1()
+        .min_w_0()
         .flex()
-        .items_center()
-        .justify_between()
-        .gap(px(12.0))
-        .min_h(px(number("spacing", "field.height") + 4.0))
+        .flex_col()
+        .gap(px(4.0))
         .child(
             div()
-                .flex_none()
-                .w(px(120.0))
-                .text_color(th.c("text.primary"))
+                .text_size(px(11.0))
+                .text_color(th.c("text.secondary"))
                 .child(label.to_owned()),
         )
-        .child(div().flex_1().flex().justify_end().child(control))
+        .child(control)
+        .into_any_element()
+}
+
+fn check_row(th: &Th, label: String, control: AnyElement) -> AnyElement {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(8.0))
+        .child(control)
+        .child(div().text_color(th.c("text.primary")).child(label))
         .into_any_element()
 }
 
@@ -574,8 +606,12 @@ fn segmented(
             div()
                 .id((id, i))
                 .px(px(12.0))
-                .h(px(24.0))
+                .w(px(112.0))
+                .h(px(52.0))
                 .flex()
+                .flex_col()
+                .justify_center()
+                .gap(px(3.0))
                 .items_center()
                 .rounded(px(number("radius", "md")))
                 .cursor_pointer()
@@ -583,12 +619,12 @@ fn segmented(
                 .border_color(if on {
                     th.c("border.segmentSelected")
                 } else {
-                    gpui::transparent_black()
+                    th.c("border.subtle")
                 })
                 .bg(if on {
                     th.c("bg.segmentSelected")
                 } else {
-                    gpui::transparent_black()
+                    th.c("bg.field")
                 })
                 .text_color(if on {
                     th.c("text.primary")
@@ -600,18 +636,22 @@ fn segmented(
                     MouseButton::Left,
                     cx.listener(move |this, _: &MouseDownEvent, _w, cx| on_pick(this, i, cx)),
                 )
+                .when(id == "shape", |d| {
+                    d.child(icon(
+                        ["square", "underline", "text-cursor"][i],
+                        18.0,
+                        th.c(if on { "accent" } else { "text.secondary" }),
+                    ))
+                })
+                .text_size(px(12.0))
+                .font_weight(gpui::FontWeight::SEMIBOLD)
                 .child((*label).to_owned())
                 .into_any_element()
         })
         .collect();
     div()
         .flex()
-        .gap(px(2.0))
-        .p(px(2.0))
-        .rounded(px(number("radius", "lg")))
-        .bg(th.c("bg.field"))
-        .border_1()
-        .border_color(th.c("border.field"))
+        .gap(px(8.0))
         .children(buttons)
         .into_any_element()
 }
@@ -647,15 +687,22 @@ fn stepper(
         .flex()
         .items_center()
         .gap(px(8.0))
-        .child(button(-1, "−", cx))
         .child(
             div()
-                .min_w(px(48.0))
+                .w(px(68.0))
+                .h(px(30.0))
+                .px(px(10.0))
+                .rounded(px(6.0))
+                .bg(th.c("bg.field"))
+                .border_1()
+                .border_color(th.c("border.field"))
                 .flex()
-                .justify_center()
+                .items_center()
+                .justify_end()
                 .text_color(th.c("text.primary"))
                 .child(value),
         )
+        .child(button(-1, "−", cx))
         .child(button(1, "+", cx))
         .into_any_element()
 }
@@ -693,7 +740,9 @@ fn checkbox(
             MouseButton::Left,
             cx.listener(move |this, _: &MouseDownEvent, _w, cx| on_toggle(this, !checked, cx)),
         )
-        .child(if checked { "✓" } else { "" })
+        .when(checked, |d| {
+            d.child(icon("check", 13.0, th.c("text.onAccent")))
+        })
         .into_any_element()
 }
 
@@ -709,74 +758,73 @@ impl Render for SettingsView {
             self.titlebar_dark = Some(dark);
         }
         let th = Th(display::window_appearance(window));
-        let (d, a, t) = {
+        let (d, t) = {
             let m = self.model.read(cx);
-            (m.display().clone(), m.appearance().clone(), *m.timeline())
+            (m.display().clone(), *m.timeline())
         };
 
         // 外观
-        let mode_idx = ThemeMode::ALL
-            .iter()
-            .position(|m| *m == a.mode)
-            .unwrap_or(0);
         let appearance_card = card(
             &th,
-            "外观",
+            &render_message(&Message::UiAppearance {}),
+            "sun-moon",
             vec![
                 row(
                     &th,
-                    "主题",
-                    segmented(
-                        &th,
-                        cx,
-                        "mode",
-                        &ThemeMode::ALL.map(ThemeMode::label),
-                        mode_idx,
-                        |this, i, cx| {
-                            this.model.update(cx, |m, cx| {
-                                m.update_appearance(cx, |a| a.mode = ThemeMode::ALL[i])
-                            })
-                        },
-                    ),
+                    &render_message(&Message::UiTheme {}),
+                    self.mode.clone(),
                 ),
-                row(&th, "浅色终端配色", boxed(self.light_theme.clone(), 220.0)),
-                row(&th, "深色终端配色", boxed(self.dark_theme.clone(), 220.0)),
+                row(
+                    &th,
+                    &render_message(&Message::UiLightTheme {}),
+                    boxed(self.light_theme.clone(), 220.0),
+                ),
+                row(
+                    &th,
+                    &render_message(&Message::UiDarkTheme {}),
+                    boxed(self.dark_theme.clone(), 220.0),
+                ),
             ],
         );
 
-        // 终端字体
+        // 字体字段与字号并排，尺寸对照 Mac 的 KCard。
         let font_card = card(
             &th,
-            "终端字体",
+            &render_message(&Message::UiFont {}),
+            "type",
             vec![
-                row(&th, "字体", boxed(self.term_font.clone(), 300.0)),
-                row(&th, "手动输入", boxed(self.term_font_input.clone(), 300.0)),
-                caption(
-                    &th,
-                    if self.probing {
-                        "正在检测本机等宽字体…装了 Nerd Font 时，缺少的图标字形自动回退到它。"
-                    } else {
-                        "只列出等宽字体。装了 Nerd Font 时，缺少的图标字形自动回退到它。"
-                    },
-                ),
-                row(
-                    &th,
-                    "字号",
-                    stepper(
+                div()
+                    .flex()
+                    .items_start()
+                    .gap(px(12.0))
+                    .child(row(
                         &th,
-                        cx,
-                        "fsize",
-                        format!("{}", d.font_size),
-                        |this, s, cx| {
-                            this.model.update(cx, |m, cx| {
-                                m.update_display(cx, |d| d.font_size = d.zoomed(f64::from(s)))
-                            })
-                        },
-                    ),
-                ),
+                        &render_message(&Message::UiTerminalFont {}),
+                        div()
+                            .flex()
+                            .gap(px(8.0))
+                            .child(div().flex_1().min_w_0().child(self.term_font_input.clone()))
+                            .child(boxed(self.term_font.clone(), 80.0)),
+                    ))
+                    .child(div().flex_none().child(row(
+                        &th,
+                        &render_message(&Message::UiFontSize {}),
+                        stepper(
+                            &th,
+                            cx,
+                            "fsize",
+                            format!("{}", d.font_size),
+                            |this, s, cx| {
+                                this.model.update(cx, |m, cx| {
+                                    m.update_display(cx, |d| d.font_size = d.zoomed(f64::from(s)))
+                                })
+                            },
+                        ),
+                    )))
+                    .into_any_element(),
                 row(
                     &th,
-                    "行距",
+                    &render_message(&Message::UiLineHeight {}),
                     stepper(
                         &th,
                         cx,
@@ -794,6 +842,14 @@ impl Render for SettingsView {
                         },
                     ),
                 ),
+                caption(
+                    &th,
+                    &render_message(&if self.probing {
+                        Message::UiFontProbing {}
+                    } else {
+                        Message::UiFontHint {}
+                    }),
+                ),
             ],
         );
 
@@ -804,11 +860,12 @@ impl Render for SettingsView {
             .unwrap_or(0);
         let cursor_card = card(
             &th,
-            "光标",
+            &render_message(&Message::UiCursor {}),
+            "text-cursor",
             vec![
                 row(
                     &th,
-                    "形状",
+                    &render_message(&Message::UiShape {}),
                     segmented(
                         &th,
                         cx,
@@ -824,17 +881,17 @@ impl Render for SettingsView {
                         },
                     ),
                 ),
-                row(
+                check_row(
                     &th,
-                    "闪烁",
+                    render_message(&Message::UiCursorBlink {}),
                     checkbox(&th, cx, "blink", d.cursor_blink, |this, on, cx| {
                         this.model
                             .update(cx, |m, cx| m.update_display(cx, |d| d.cursor_blink = on))
                     }),
                 ),
-                row(
+                check_row(
                     &th,
-                    "语义着色",
+                    render_message(&Message::UiSemanticColor {}),
                     checkbox(&th, cx, "semantic", d.semantic_coloring, |this, on, cx| {
                         this.model.update(cx, |m, cx| {
                             m.update_display(cx, |d| d.semantic_coloring = on)
@@ -847,10 +904,15 @@ impl Render for SettingsView {
         // 回滚
         let scroll_card = card(
             &th,
-            "回滚",
+            &render_message(&Message::UiScrollback {}),
+            "list",
             vec![
-                row(&th, "回滚行数", boxed(self.scrollback.clone(), 220.0)),
-                caption(&th, "调小以后立即丢弃超出的最早的行。"),
+                row(
+                    &th,
+                    &render_message(&Message::UiScrollbackLines {}),
+                    boxed(self.scrollback.clone(), 220.0),
+                ),
+                caption(&th, &render_message(&Message::UiScrollbackHint {})),
             ],
         );
 
@@ -861,10 +923,11 @@ impl Render for SettingsView {
             .unwrap_or(0);
         let timeline_card = card(
             &th,
-            "时间戳与行号栏",
+            &render_message(&Message::UiTimeline {}),
+            "clock",
             vec![row(
                 &th,
-                "显示",
+                &render_message(&Message::UiDisplay {}),
                 segmented(
                     &th,
                     cx,
@@ -883,13 +946,22 @@ impl Render for SettingsView {
         // 界面字体
         let ui_card = card(
             &th,
-            "界面字体",
+            &render_message(&Message::UiInterfaceFont {}),
+            "type",
             vec![
-                row(&th, "字体", boxed(self.ui_font.clone(), 300.0)),
-                row(&th, "手动输入", boxed(self.ui_font_input.clone(), 300.0)),
                 row(
                     &th,
-                    "字号",
+                    &render_message(&Message::UiFont {}),
+                    boxed(self.ui_font.clone(), 300.0),
+                ),
+                row(
+                    &th,
+                    &render_message(&Message::UiFontCustom {}),
+                    boxed(self.ui_font_input.clone(), 300.0),
+                ),
+                row(
+                    &th,
+                    &render_message(&Message::UiFontSize {}),
                     stepper(
                         &th,
                         cx,
@@ -910,30 +982,121 @@ impl Render for SettingsView {
             ],
         );
 
+        let contrast_card = card(
+            &th,
+            &render_message(&Message::UiContrast {}),
+            "palette",
+            vec![
+                check_row(
+                    &th,
+                    render_message(&Message::UiContrastEnabled {}),
+                    checkbox(
+                        &th,
+                        cx,
+                        "contrast",
+                        d.minimum_contrast_enabled,
+                        |this, on, cx| {
+                            this.model.update(cx, |m, cx| {
+                                m.update_display(cx, |d| d.minimum_contrast_enabled = on)
+                            })
+                        },
+                    ),
+                ),
+                row(
+                    &th,
+                    &render_message(&Message::UiContrastRatio {}),
+                    stepper(
+                        &th,
+                        cx,
+                        "contrast-ratio",
+                        format!("{:.1}", d.minimum_contrast_ratio),
+                        |this, s, cx| {
+                            this.model.update(cx, |m, cx| {
+                                m.update_display(cx, |d| {
+                                    d.minimum_contrast_ratio = (d.minimum_contrast_ratio
+                                        + f64::from(s) * 0.5)
+                                        .clamp(1.0, 21.0)
+                                })
+                            })
+                        },
+                    ),
+                ),
+                caption(&th, &render_message(&Message::UiContrastHint {})),
+            ],
+        );
+        let mut toolbar = div()
+            .flex_none()
+            .h(px(68.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .gap(px(8.0))
+            .bg(th.c("bg.sidebar"))
+            .border_b_1()
+            .border_color(th.c("border.subtle"));
+        for (i, title, symbol) in [
+            (0, Message::UiGeneral {}, "sun-moon"),
+            (1, Message::UiDisplay {}, "type"),
+        ] {
+            toolbar = toolbar.child(
+                div()
+                    .id(("settings-tab", i))
+                    .w(px(72.0))
+                    .h(px(54.0))
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .justify_center()
+                    .gap(px(3.0))
+                    .rounded(px(8.0))
+                    .text_size(px(12.0))
+                    .text_color(th.c("text.secondary"))
+                    .when(self.page == i, |d| {
+                        d.bg(th.c("bg.tabSelected"))
+                            .text_color(th.c("text.primary"))
+                    })
+                    .cursor_pointer()
+                    .hover(|s| s.bg(th.c("bg.rowHover")))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _, _, cx| {
+                            this.page = i;
+                            cx.notify();
+                        }),
+                    )
+                    .child(icon(symbol, 22.0, th.c("text.secondary")))
+                    .child(render_message(&title)),
+            );
+        }
+        let cards = if self.page == 0 {
+            vec![appearance_card, timeline_card, ui_card]
+        } else {
+            vec![font_card, cursor_card, scroll_card, contrast_card]
+        };
         div()
             .size_full()
+            .flex()
+            .flex_col()
             .bg(th.c("bg.window"))
             .font_family(SharedString::from(display::ui_font_family()))
             .text_size(px(display::ui_font_size()))
             .text_color(th.c("text.primary"))
             .track_focus(&self.focus)
+            .child(toolbar)
             .child(
                 div()
                     .id("settings-scroll")
-                    .size_full()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
                     .overflow_y_scroll()
                     .child(
                         div()
                             .flex()
                             .flex_col()
-                            .gap(px(12.0))
+                            .gap(px(16.0))
                             .p(px(20.0))
-                            .child(appearance_card)
-                            .child(font_card)
-                            .child(cursor_card)
-                            .child(scroll_card)
-                            .child(timeline_card)
-                            .child(ui_card),
+                            .children(cards),
                     ),
             )
     }

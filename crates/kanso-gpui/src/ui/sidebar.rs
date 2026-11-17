@@ -7,7 +7,7 @@
 //! 暂未实现：拖拽排序、悬停提示。
 
 use gpui::{Context, Hsla, MouseButton, MouseDownEvent, div, point, prelude::*, px, rgb};
-use kanso_gpui::app::shortcuts::{AppCommand, shortcut_text};
+use kanso_gpui::app::shortcuts::AppCommand;
 use kanso_gpui::app::status_bar::state_text;
 use kanso_gpui::app::tab::{
     TabConnection, TabDescriptions, TabItem, TabKind, TabPresentation, truncate_keep_tail,
@@ -15,6 +15,7 @@ use kanso_gpui::app::tab::{
 use kanso_gpui::widgets::style::number;
 
 use super::shell::{ShellView, Theme, status_bar_h};
+use super::widgets::icons::icon;
 
 /// 没有配置颜色的会话从这组色里按 id 稳定取一个（同一个会话每次都是同一个颜色）。
 const SESSION_COLORS: [u32; 8] = [
@@ -30,62 +31,6 @@ fn session_color(item: &TabItem) -> Hsla {
         None => SESSION_COLORS[TabPresentation::color_index(item, SESSION_COLORS.len())],
     };
     rgb(rgb_hex).into()
-}
-
-/// 与 Mac 版一样用小尺寸线条图标，通过基础矩形和字形绘制。
-fn kind_icon(kind: TabKind, color: Hsla) -> impl gpui::IntoElement {
-    let outline = || {
-        div()
-            .absolute()
-            .border_1()
-            .border_color(color)
-            .rounded(px(2.0))
-    };
-    let icon = div().relative().w(px(18.0)).h(px(18.0)).text_color(color);
-    match kind {
-        TabKind::Local => icon
-            .child(outline().left_0().top(px(3.0)).w(px(18.0)).h(px(13.0)))
-            .child(
-                div()
-                    .absolute()
-                    .left(px(3.0))
-                    .top(px(1.0))
-                    .font_family("Consolas")
-                    .text_size(px(12.0))
-                    .child(">"),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .left(px(10.0))
-                    .top(px(12.0))
-                    .w(px(4.0))
-                    .h(px(1.0))
-                    .bg(color),
-            ),
-        TabKind::Ssh => icon
-            .child(outline().left_0().top(px(2.0)).w(px(18.0)).h(px(6.0)))
-            .child(outline().left_0().top(px(10.0)).w(px(18.0)).h(px(6.0)))
-            .child(
-                div()
-                    .absolute()
-                    .left(px(3.0))
-                    .top(px(4.0))
-                    .size(px(2.0))
-                    .bg(color),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .left(px(3.0))
-                    .top(px(12.0))
-                    .size(px(2.0))
-                    .bg(color),
-            ),
-        TabKind::Sftp => icon
-            .child(outline().left_0().top(px(3.0)).w(px(8.0)).h(px(5.0)))
-            .child(outline().left_0().top(px(6.0)).w(px(18.0)).h(px(10.0))),
-    }
 }
 
 impl ShellView {
@@ -106,8 +51,8 @@ impl ShellView {
             .flex()
             .flex_col()
             .gap(px(2.0))
-            .px(px(4.0))
-            .py(px(4.0))
+            .px(px(8.0))
+            .py(px(8.0))
             // 标签栏空白处右键：打开会话启动器（标签行的右键会先拦下，不会走到这里）。
             .on_mouse_down(
                 MouseButton::Right,
@@ -182,7 +127,6 @@ impl ShellView {
                 ),
             ));
         }
-        let new_hint = shortcut_text(AppCommand::NewLocalTab).unwrap_or_default();
         div()
             .absolute()
             .left_0()
@@ -239,7 +183,7 @@ impl ShellView {
                                             this.open_app_menu(anchor, window, cx)
                                         }),
                                     )
-                                    .child("≡"),
+                                    .child(icon("menu", 15.0, th.c("text.secondary"))),
                             )
                             .child(
                                 div()
@@ -262,22 +206,11 @@ impl ShellView {
                                             this.new_tab_clicked(window, cx)
                                         }),
                                     )
-                                    .child("+"),
+                                    .child(icon("plus", 16.0, th.c("text.secondary"))),
                             ),
                     ),
             )
             .child(list)
-            .child(
-                div()
-                    .flex_none()
-                    .px(px(14.0))
-                    .py(px(8.0))
-                    .border_t_1()
-                    .border_color(th.c("border.subtle"))
-                    .text_size(px(number("font", "ui.caption")))
-                    .text_color(th.c("text.tertiary"))
-                    .child(format!("{new_hint} 新建标签")),
-            )
             .into_any_element()
     }
 
@@ -355,11 +288,11 @@ impl ShellView {
                 div()
                     .absolute()
                     .left(px(4.0))
-                    .top(px(10.0))
-                    .bottom(px(10.0))
+                    .top(px(9.0))
+                    .bottom(px(9.0))
                     .w(px(3.0))
                     .rounded(px(2.0))
-                    .bg(th.c("accent")),
+                    .bg(accent),
             );
         }
 
@@ -372,7 +305,15 @@ impl ShellView {
                 .items_center()
                 .justify_center()
                 .opacity(if closed { 0.5 } else { 1.0 })
-                .child(kind_icon(item.kind, accent)),
+                .child(icon(
+                    match item.kind {
+                        TabKind::Local => "square-terminal",
+                        TabKind::Ssh => "server",
+                        TabKind::Sftp => "folder",
+                    },
+                    16.0,
+                    th.c("text.secondary"),
+                )),
         )
         .child(
             div()
@@ -449,7 +390,7 @@ impl ShellView {
                         this.close_tab_clicked(sid, window, cx)
                     }),
                 )
-                .child("×"),
+                .child(icon("x", 12.0, th.c("text.secondary"))),
         )
         .into_any_element()
     }

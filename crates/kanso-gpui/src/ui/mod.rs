@@ -287,53 +287,55 @@ fn run_sftp(
     });
     let core_for_ui = core.clone();
     let mut rx = Some(rx);
-    Application::new().run(move |cx: &mut App| {
-        log("GPUI 应用循环已启动");
-        let bounds = Bounds::centered(None, size(px(900.0), px(640.0)), cx);
-        cx.on_window_closed(|cx| {
-            if cx.windows().is_empty() {
-                cx.quit();
-            }
-        })
-        .detach();
-        let opened = cx.open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                titlebar: Some(TitlebarOptions {
-                    title: Some("Kanso 文件".into()),
+    Application::new()
+        .with_assets(widgets::icons::Icons)
+        .run(move |cx: &mut App| {
+            log("GPUI 应用循环已启动");
+            let bounds = Bounds::centered(None, size(px(900.0), px(640.0)), cx);
+            cx.on_window_closed(|cx| {
+                if cx.windows().is_empty() {
+                    cx.quit();
+                }
+            })
+            .detach();
+            let opened = cx.open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    titlebar: Some(TitlebarOptions {
+                        title: Some("Kanso 文件".into()),
+                        ..Default::default()
+                    }),
                     ..Default::default()
-                }),
-                ..Default::default()
-            },
-            move |window, cx| {
-                let rx = rx.take().expect("窗口只创建一次");
-                cx.new(|cx| {
-                    filer::FilerView::new(
-                        core_for_ui,
-                        session,
-                        rx,
-                        label,
-                        initial,
-                        connect_start,
-                        selftest,
-                        window,
-                        cx,
-                    )
-                })
-            },
-        );
-        match opened {
-            Ok(_) => {
-                log("窗口已创建");
-                cx.activate(true);
+                },
+                move |window, cx| {
+                    let rx = rx.take().expect("窗口只创建一次");
+                    cx.new(|cx| {
+                        filer::FilerView::new(
+                            core_for_ui,
+                            session,
+                            rx,
+                            label,
+                            initial,
+                            connect_start,
+                            selftest,
+                            window,
+                            cx,
+                        )
+                    })
+                },
+            );
+            match opened {
+                Ok(_) => {
+                    log("窗口已创建");
+                    cx.activate(true);
+                }
+                Err(e) => {
+                    log(&format!("创建窗口失败：{e}"));
+                    EXIT_CODE.store(1, Ordering::SeqCst);
+                    cx.quit();
+                }
             }
-            Err(e) => {
-                log(&format!("创建窗口失败：{e}"));
-                EXIT_CODE.store(1, Ordering::SeqCst);
-                cx.quit();
-            }
-        }
-    });
+        });
     core.close_session(session);
     core.shutdown();
     log(&format!("退出，进程内存 {}", memory::describe()));
@@ -396,48 +398,50 @@ pub fn run() -> i32 {
         .selftest
         .then(|| std::time::Duration::from_secs(args.timeout_secs));
     let mut rx = Some(rx);
-    Application::new().run(move |cx: &mut App| {
-        log("GPUI 应用循环已启动");
-        // 启动器 / 编辑对话框 / 提示框里的输入框需要这组按键绑定。
-        widgets::text_input::bind_keys(cx);
-        let bounds = Bounds::centered(None, size(px(1120.0), px(680.0)), cx);
-        // 主窗口关闭就退出（设置窗口是附属窗口，不能让它把进程留住）。
-        cx.on_window_closed(|cx| {
-            if !cx
-                .windows()
-                .iter()
-                .any(|w| w.downcast::<ShellView>().is_some())
-            {
-                cx.quit();
-            }
-        })
-        .detach();
-        let opened = cx.open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                titlebar: Some(TitlebarOptions {
-                    title: Some("Kanso".into()),
+    Application::new()
+        .with_assets(widgets::icons::Icons)
+        .run(move |cx: &mut App| {
+            log("GPUI 应用循环已启动");
+            // 启动器 / 编辑对话框 / 提示框里的输入框需要这组按键绑定。
+            widgets::text_input::bind_keys(cx);
+            let bounds = Bounds::centered(None, size(px(1120.0), px(680.0)), cx);
+            // 主窗口关闭就退出（设置窗口是附属窗口，不能让它把进程留住）。
+            cx.on_window_closed(|cx| {
+                if !cx
+                    .windows()
+                    .iter()
+                    .any(|w| w.downcast::<ShellView>().is_some())
+                {
+                    cx.quit();
+                }
+            })
+            .detach();
+            let opened = cx.open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    titlebar: Some(TitlebarOptions {
+                        title: Some("Kanso".into()),
+                        ..Default::default()
+                    }),
                     ..Default::default()
-                }),
-                ..Default::default()
-            },
-            move |window, cx| {
-                let rx = rx.take().expect("窗口只创建一次");
-                cx.new(|cx| ShellView::new(core_for_ui, rx, selftest, window, cx))
-            },
-        );
-        match opened {
-            Ok(_) => {
-                log("窗口已创建");
-                cx.activate(true);
+                },
+                move |window, cx| {
+                    let rx = rx.take().expect("窗口只创建一次");
+                    cx.new(|cx| ShellView::new(core_for_ui, rx, selftest, window, cx))
+                },
+            );
+            match opened {
+                Ok(_) => {
+                    log("窗口已创建");
+                    cx.activate(true);
+                }
+                Err(e) => {
+                    log(&format!("创建窗口失败：{e}"));
+                    EXIT_CODE.store(1, Ordering::SeqCst);
+                    cx.quit();
+                }
             }
-            Err(e) => {
-                log(&format!("创建窗口失败：{e}"));
-                EXIT_CODE.store(1, Ordering::SeqCst);
-                cx.quit();
-            }
-        }
-    });
+        });
     core.shutdown();
     log(&format!("退出，进程内存 {}", memory::describe()));
     EXIT_CODE.load(Ordering::SeqCst)

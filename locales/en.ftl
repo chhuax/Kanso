@@ -206,3 +206,121 @@ ui-shell-default = System default
 ui-shell-custom = Custom command
 ui-filter-path = Filter by path
 ui-no-matching-paths = No matching paths
+
+ui-session = Session
+
+ui-ssh-connection = SSH Connection
+
+ui-local-session = Local Shell
+
+ui-new-session = New Session
+
+ui-edit-session = Edit Session
+
+ui-type = Type
+
+ui-name = Name
+
+ui-color = Color
+
+ui-group = Group
+
+ui-start-directory = Start Directory
+
+ui-host = Host
+
+ui-port = Port
+
+ui-user = User
+
+ui-authentication = Authentication
+
+ui-password = Password
+
+ui-private-key = Private Key
+
+ui-key-passphrase = Key Passphrase
+
+ui-jump-host = Jump Host
+
+ui-encoding = Encoding
+
+ui-locale = Locale
+
+ui-proxy-command = ProxyCommand
+
+ui-choose = Choose…
+
+ui-cancel = Cancel
+
+ui-save = Save
+
+ui-connect = Connect
+
+ui-automatic = Automatic
+
+ui-keep-saved = Leave empty to keep the saved value
+
+ui-search-sessions = Search saved sessions
+
+ui-saved-sessions = Saved Sessions
+
+ui-no-sessions = No saved sessions yet. Choose “New Session…” to add one.
+
+ui-no-matching-sessions = No matching sessions
+
+ui-empty-group = (Empty)
+
+ui-general = General
+
+ui-display = Display
+
+ui-appearance = Appearance
+
+ui-theme = Mode
+
+ui-light-theme = Light terminal theme
+
+ui-dark-theme = Dark terminal theme
+
+ui-font = Font
+
+ui-terminal-font = Terminal Font
+
+ui-font-size = Font Size
+
+ui-line-height = Line Height
+
+ui-font-custom = Custom font
+
+ui-font-hint = Leave empty to use the system monospaced font. Missing icons use an installed Nerd Font automatically.
+
+ui-font-probing = Detecting installed monospaced fonts…
+
+ui-cursor = Cursor
+
+ui-shape = Shape
+
+ui-cursor-blink = Blinking cursor
+
+ui-semantic-color = Semantic coloring
+
+ui-scrollback = Scrollback
+
+ui-scrollback-lines = Scrollback Lines
+
+ui-scrollback-hint = Lowering this discards the oldest lines immediately.
+
+ui-contrast = Contrast
+
+ui-contrast-enabled = Minimum contrast protection
+
+ui-contrast-ratio = Contrast Ratio
+
+ui-contrast-hint = Text below this contrast ratio is lightened or darkened automatically.
+
+ui-timeline = Timeline
+
+ui-interface-font = Interface Font
+
+ui-settings = Settings
