@@ -4,10 +4,10 @@
 //! 认证方式决定显示密码还是私钥、跳板机与 ProxyCommand 互斥。校验以核心为准，这里只把错误原样显示。
 //! 密码与私钥口令只在内存里，保存成功后清空，写入走 `kanso-secret`（经 `Core::set_credential`）。
 //!
-//! 键盘：Tab / Shift+Tab 只在对话框内循环（字段 → 按钮 → 回到第一个）；回车 = 保存并连接；Esc = 取消。
+//! 键盘：Tab / Shift+Tab 只在对话框内循环（字段 → 按钮 → 回到第一个）；回车 = 保存；Esc = 取消。
 //! 点遮罩不关闭（与 mac sheet 一致）。色板只支持鼠标点选。
 
-use std::sync::Arc;
+use std::{cell::Cell, rc::Rc, sync::Arc};
 
 use gpui::{
     App, BoxShadow, Context, Entity, EventEmitter, FocusHandle, Focusable, Hsla, KeyDownEvent,
@@ -21,8 +21,8 @@ use kanso_gpui::app::launcher::{
 use kanso_gpui::app::sessions::{EditorField, EncodingOption, SaveOutcome, SessionEditor};
 use kanso_gpui::widgets::dropdown::Item;
 use kanso_gpui::widgets::style::{Appearance, color, number};
-use kanso_types::ProfileId;
 use kanso_types::profile::{AuthMethod, Group, Profile, SessionKind};
+use kanso_types::{ProfileId, message::Message};
 
 use super::log;
 use super::shell::Theme;
@@ -65,6 +65,7 @@ enum Text {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Pick {
     Kind,
+    Shell,
     Group,
     Auth,
     Jump,
@@ -83,7 +84,6 @@ enum Stop {
 enum Row {
     Kind,
     Name,
-    Color,
     Group,
     Shell,
     StartDir,
@@ -102,7 +102,7 @@ fn row_of(stop: Stop) -> Row {
         Stop::Pick(Pick::Kind) => Row::Kind,
         Stop::Text(Text::Name) => Row::Name,
         Stop::Pick(Pick::Group) => Row::Group,
-        Stop::Text(Text::Shell) => Row::Shell,
+        Stop::Text(Text::Shell) | Stop::Pick(Pick::Shell) => Row::Shell,
         Stop::Text(Text::StartDir) => Row::StartDir,
         Stop::Text(Text::Host | Text::Port) => Row::HostPort,
         Stop::Text(Text::User) | Stop::Pick(Pick::Auth) => Row::UserAuth,
@@ -150,7 +150,9 @@ pub(crate) struct SessionEditorView {
     key_passphrase: Entity<TextInput>,
     proxy: Entity<TextInput>,
     locale: Entity<TextInput>,
-    kind: Entity<Dropdown>,
+    kind: FocusHandle,
+    shell_pick: Entity<Dropdown>,
+    shell_commands: Vec<String>,
     group: Entity<Dropdown>,
     auth: Entity<Dropdown>,
     jump: Entity<Dropdown>,
@@ -160,7 +162,7 @@ pub(crate) struct SessionEditorView {
     root: FocusHandle,
     scroll: ScrollHandle,
     /// 上一帧画出的行（按 Tab 聚焦字段时据此滚动到可见）。
-    rows: Vec<Row>,
+    rows: Vec<(Row, Rc<Cell<gpui::Bounds<gpui::Pixels>>>)>,
     _subs: Vec<Subscription>,
 }
 
@@ -234,7 +236,7 @@ impl SessionEditorView {
                 window,
                 move |this, _i, ev: &TextInputEvent, window, cx| match ev {
                     TextInputEvent::Change(s) => this.on_text(t, s, cx),
-                    TextInputEvent::Submit(_) => this.activate(Btn::Connect, window, cx),
+                    TextInputEvent::Submit(_) => this.activate(Btn::Save, window, cx),
                     TextInputEvent::Escape => this.cancel(cx),
                     _ => {}
                 },
@@ -242,49 +244,49 @@ impl SessionEditorView {
             input
         };
         let keep = if is_editing {
-            "留空则不修改已保存的值"
+            render_message(&Message::UiKeepSaved {})
         } else {
-            ""
+            String::new()
         };
         let name = text(Text::Name, &model.name, "", false, window, cx);
         let shell = text(
             Text::Shell,
             &model.shell_command,
-            "留空使用默认 Shell",
+            "cmd.exe",
             false,
             window,
             cx,
         );
-        let start_dir = text(
-            Text::StartDir,
-            &model.start_dir,
-            "留空使用用户主目录",
-            false,
-            window,
-            cx,
-        );
-        let host = text(Text::Host, &model.host, "", false, window, cx);
+        let start_dir = text(Text::StartDir, &model.start_dir, "~", false, window, cx);
+        let host = text(Text::Host, &model.host, "example.com", false, window, cx);
         let port = text(Text::Port, &model.port_text, "22", false, window, cx);
-        let user = text(Text::User, &model.user, "", false, window, cx);
-        let password = text(Text::Password, "", keep, true, window, cx);
+        let user = text(Text::User, &model.user, "user", false, window, cx);
+        let password = text(Text::Password, "", &keep, true, window, cx);
         let key_path = text(
             Text::KeyPath,
             &model.key_path,
-            "例如 C:\\Users\\你\\.ssh\\id_ed25519",
+            "~/.ssh/id_ed25519",
             false,
             window,
             cx,
         );
-        let key_passphrase = text(Text::KeyPassphrase, "", keep, true, window, cx);
+        let key_passphrase = text(Text::KeyPassphrase, "", &keep, true, window, cx);
         let proxy = text(
             Text::Proxy,
             &model.proxy_command,
-            "例如 ssh -W %h:%p 跳板机",
+            "ssh -W %h:%p gateway",
             false,
             window,
             cx,
         );
-        let locale = text(Text::Locale, &model.locale, "自动", false, window, cx);
+        let locale = text(
+            Text::Locale,
+            &model.locale,
+            &render_message(&Message::UiAutomatic {}),
+            false,
+            window,
+            cx,
+        );
 
         let mut dropdown = |p: Pick,
                             items: Vec<Item>,
@@ -304,13 +306,34 @@ impl SessionEditorView {
             ));
             dd
         };
-        let kind = dropdown(
-            Pick::Kind,
-            KINDS.iter().map(|k| Item::option(kind_label(*k))).collect(),
-            KINDS.iter().position(|k| *k == model.kind).unwrap_or(0),
-            window,
-            cx,
-        );
+        let kind = cx.focus_handle().tab_stop(true);
+        // 系统自带 Shell 始终可选；PowerShell 7 只在安装路径里存在时显示。
+        let mut shell_commands = vec![String::new(), "cmd.exe".into(), "powershell.exe".into()];
+        let mut shell_items = vec![
+            Item::option(render_message(&Message::UiShellDefault {})),
+            Item::option("CMD"),
+            Item::option("Windows PowerShell"),
+        ];
+        let mut paths: Vec<_> = std::env::var_os("PATH")
+            .map(|p| std::env::split_paths(&p).collect())
+            .unwrap_or_default();
+        if let Some(dir) = std::env::var_os("ProgramFiles") {
+            paths.push(std::path::PathBuf::from(dir).join("PowerShell/7"));
+        }
+        if let Some(path) = paths
+            .into_iter()
+            .map(|p| p.join("pwsh.exe"))
+            .find(|p| p.is_file())
+        {
+            shell_items.push(Item::option("PowerShell 7"));
+            shell_commands.push(format!("\"{}\"", path.display()));
+        }
+        let shell_selected = shell_commands
+            .iter()
+            .position(|s| s.eq_ignore_ascii_case(model.shell_command.trim()))
+            .unwrap_or(shell_commands.len());
+        shell_items.push(Item::option(render_message(&Message::UiShellCustom {})));
+        let shell_pick = dropdown(Pick::Shell, shell_items, shell_selected, window, cx);
         let group = dropdown(
             Pick::Group,
             std::iter::once(Item::option("不分组"))
@@ -381,6 +404,8 @@ impl SessionEditorView {
             proxy,
             locale,
             kind,
+            shell_pick,
+            shell_commands,
             group,
             auth,
             jump,
@@ -430,7 +455,16 @@ impl SessionEditorView {
         let v = value.to_owned();
         match field {
             Text::Name => m.name = v,
-            Text::Shell => m.shell_command = v,
+            Text::Shell => {
+                let selected = self
+                    .shell_commands
+                    .iter()
+                    .position(|s| s.eq_ignore_ascii_case(v.trim()))
+                    .unwrap_or(self.shell_commands.len());
+                m.shell_command = v;
+                self.shell_pick
+                    .update(cx, |d, cx| d.set_selected(Some(selected), cx));
+            }
             Text::StartDir => m.start_dir = v,
             Text::Host => m.host = v,
             Text::Port => {
@@ -458,6 +492,12 @@ impl SessionEditorView {
         let Some(m) = self.model.as_mut() else { return };
         match pick {
             Pick::Kind => m.kind = KINDS[index.min(KINDS.len() - 1)],
+            Pick::Shell => {
+                if let Some(command) = self.shell_commands.get(index) {
+                    m.shell_command = command.clone();
+                    self.shell.update(cx, |t, cx| t.set_text(command, cx));
+                }
+            }
             Pick::Group => {
                 m.group = index
                     .checked_sub(1)
@@ -596,7 +636,8 @@ impl SessionEditorView {
 
     fn pick_entity(&self, p: Pick) -> &Entity<Dropdown> {
         match p {
-            Pick::Kind => &self.kind,
+            Pick::Kind => unreachable!("类型使用分段卡片，不是下拉框"),
+            Pick::Shell => &self.shell_pick,
             Pick::Group => &self.group,
             Pick::Auth => &self.auth,
             Pick::Jump => &self.jump,
@@ -611,6 +652,7 @@ impl SessionEditorView {
             (F::Kind, Stop::Pick(Pick::Kind)),
             (F::Name, Stop::Text(Text::Name)),
             (F::Group, Stop::Pick(Pick::Group)),
+            (F::ShellCommand, Stop::Pick(Pick::Shell)),
             (F::ShellCommand, Stop::Text(Text::Shell)),
             (F::StartDir, Stop::Text(Text::StartDir)),
             (F::Host, Stop::Text(Text::Host)),
@@ -632,6 +674,7 @@ impl SessionEditorView {
     fn stop_handle(&self, s: Stop, cx: &App) -> FocusHandle {
         match s {
             Stop::Text(t) => self.text_entity(t).read(cx).focus_handle(cx),
+            Stop::Pick(Pick::Kind) => self.kind.clone(),
             Stop::Pick(p) => self.pick_entity(p).read(cx).focus_handle(cx),
         }
     }
@@ -670,7 +713,7 @@ impl SessionEditorView {
 
     fn any_dropdown_open(&self, cx: &App) -> bool {
         [
-            Pick::Kind,
+            Pick::Shell,
             Pick::Group,
             Pick::Auth,
             Pick::Jump,
@@ -712,9 +755,20 @@ impl SessionEditorView {
         };
         let target = ring[next];
         if let Ok(stop) = target
-            && let Some(i) = self.rows.iter().position(|r| *r == row_of(stop))
+            && let Some((_, bounds)) = self.rows.iter().find(|(r, _)| *r == row_of(stop))
         {
-            self.scroll.scroll_to_item(i);
+            let row = bounds.get();
+            let viewport = self.scroll.bounds();
+            let dy = if row.top() < viewport.top() {
+                viewport.top() - row.top()
+            } else if row.bottom() > viewport.bottom() {
+                viewport.bottom() - row.bottom()
+            } else {
+                px(0.0)
+            };
+            let mut offset = self.scroll.offset();
+            offset.y += dy;
+            self.scroll.set_offset(offset);
         }
         window.focus(&self.handle_of(target, cx));
         cx.notify();
@@ -724,6 +778,25 @@ impl SessionEditorView {
     fn on_capture_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let m = &ev.keystroke.modifiers;
         if self.saving || m.control || m.alt || m.platform || self.composing(cx) {
+            return;
+        }
+        if self.kind.is_focused(window)
+            && matches!(
+                ev.keystroke.key.as_str(),
+                "left" | "right" | "up" | "down" | "space"
+            )
+        {
+            let current = self
+                .model
+                .as_ref()
+                .map_or(0, |m| KINDS.iter().position(|k| *k == m.kind).unwrap_or(0));
+            let delta = if matches!(ev.keystroke.key.as_str(), "left" | "up") {
+                2
+            } else {
+                1
+            };
+            self.on_pick(Pick::Kind, (current + delta) % KINDS.len(), cx);
+            cx.stop_propagation();
             return;
         }
         match ev.keystroke.key.as_str() {
@@ -761,14 +834,14 @@ impl SessionEditorView {
 
     // ---- 绘制 ----
 
-    fn label(&self, th: Theme, text: &'static str) -> gpui::Div {
+    fn label(&self, th: Theme, text: &str) -> gpui::Div {
         div()
             .text_size(px(number("font", "ui.caption")))
             .text_color(th.c("text.secondary"))
-            .child(text)
+            .child(text.to_owned())
     }
 
-    fn field(&self, th: Theme, label: &'static str, control: impl IntoElement) -> gpui::Div {
+    fn field(&self, th: Theme, label: &str, control: impl IntoElement) -> gpui::Div {
         div()
             .flex_1()
             .min_w_0()
@@ -780,7 +853,14 @@ impl SessionEditorView {
     }
 
     fn render_palette(&self, th: Theme, cx: &mut Context<Self>) -> gpui::Div {
-        let mut grid = div().flex().flex_row().flex_wrap().gap(px(6.0));
+        let mut grid = div()
+            .w(px(224.0))
+            .h(px(56.0))
+            .flex()
+            .flex_row()
+            .flex_wrap()
+            .gap(px(6.0))
+            .p(px(3.0));
         for (i, c) in self.color_options.iter().copied().enumerate() {
             let selected = self.color == Some(c);
             let fill: Hsla =
@@ -814,7 +894,7 @@ impl SessionEditorView {
     fn render_button(
         &self,
         btn: Btn,
-        label: &'static str,
+        label: String,
         primary: bool,
         window: &Window,
         th: Theme,
@@ -836,9 +916,10 @@ impl SessionEditorView {
             .id(("editor-button", btn as usize))
             .track_focus(&handle)
             .cursor_pointer()
-            .min_w(px(84.0))
+            .min_w(px(64.0))
             .h(px(30.0))
-            .px(px(16.0))
+            .px(px(12.0))
+            .gap(px(6.0))
             .flex()
             .items_center()
             .justify_center()
@@ -863,6 +944,13 @@ impl SessionEditorView {
                     this.activate(btn, window, cx);
                 }
             }))
+            .when(btn != Btn::Cancel, |d| {
+                d.child(super::widgets::icons::icon(
+                    if btn == Btn::Save { "save" } else { "plug" },
+                    14.0,
+                    fg,
+                ))
+            })
             .child(label)
     }
 }
@@ -885,176 +973,257 @@ impl Render for SessionEditorView {
         }
         use EditorField as F;
 
-        let mut rows: Vec<(Row, gpui::AnyElement)> = vec![
+        use super::widgets::{card::card, icons::icon};
+        let tr = |m: Message| render_message(&m);
+        let selected = self.model.as_ref().map(|m| m.kind).unwrap_or(KINDS[0]);
+        let mut kinds = div()
+            .id("session-kinds")
+            .track_focus(&self.kind)
+            .flex()
+            .gap(px(8.0));
+        for (i, kind) in KINDS.iter().copied().enumerate() {
+            let on = selected == kind;
+            let symbol = ["square-terminal", "server", "folder"][i];
+            kinds = kinds.child(
+                div()
+                    .id(("session-kind", i))
+                    .w(px(112.0))
+                    .h(px(52.0))
+                    .flex_none()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .justify_center()
+                    .gap(px(3.0))
+                    .rounded(px(10.0))
+                    .border_1()
+                    .border_color(th.c(if on {
+                        "border.segmentSelected"
+                    } else {
+                        "border.subtle"
+                    }))
+                    .bg(th.c(if on { "bg.segmentSelected" } else { "bg.field" }))
+                    .text_size(px(12.0))
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .text_color(th.c(if on { "text.primary" } else { "text.secondary" }))
+                    .when(on && self.kind.is_focused(window), |d| {
+                        d.border_color(th.c("accent"))
+                    })
+                    .cursor_pointer()
+                    .hover(|s| s.border_color(th.c("accent")))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _, window, cx| {
+                            if !this.saving {
+                                window.focus(&this.kind);
+                                this.on_pick(Pick::Kind, i, cx);
+                            }
+                        }),
+                    )
+                    .child(icon(
+                        symbol,
+                        18.0,
+                        th.c(if on { "accent" } else { "text.secondary" }),
+                    ))
+                    .child(kind_label(kind)),
+            );
+        }
+        let pair = |a: gpui::Div, b: gpui::Div| div().flex().gap(px(12.0)).child(a).child(b);
+        let mut rows = vec![
             (
                 Row::Kind,
-                self.field(th, "类型", self.kind.clone()).into_any_element(),
+                self.field(th, &tr(Message::UiType {}), kinds)
+                    .into_any_element(),
             ),
             (
                 Row::Name,
-                self.field(th, "名称", self.name.clone()).into_any_element(),
-            ),
-            (
-                Row::Color,
-                self.field(
-                    th,
-                    "颜色（再次点击已选颜色可取消）",
-                    self.render_palette(th, cx),
+                pair(
+                    self.field(th, &tr(Message::UiName {}), self.name.clone()),
+                    self.field(th, &tr(Message::UiColor {}), self.render_palette(th, cx)),
                 )
                 .into_any_element(),
             ),
             (
                 Row::Group,
-                self.field(th, "分组", self.group.clone())
+                self.field(th, &tr(Message::UiGroup {}), self.group.clone())
                     .into_any_element(),
             ),
         ];
+        let session_len = rows.len();
         if self.vis(F::ShellCommand) {
             rows.push((
                 Row::Shell,
-                self.field(th, "Shell 命令行", self.shell.clone())
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(12.0))
+                    .child(self.field(th, &tr(Message::UiLocalShell {}), self.shell_pick.clone()))
+                    .child(self.field(th, &tr(Message::UiShellCommand {}), self.shell.clone()))
                     .into_any_element(),
             ));
             rows.push((
                 Row::StartDir,
-                self.field(th, "起始目录", self.start_dir.clone())
-                    .into_any_element(),
+                self.field(
+                    th,
+                    &tr(Message::UiStartDirectory {}),
+                    self.start_dir.clone(),
+                )
+                .into_any_element(),
             ));
         }
         if self.vis(F::Host) {
             rows.push((
                 Row::HostPort,
-                div()
-                    .flex()
-                    .flex_row()
-                    .gap(px(12.0))
-                    .child(self.field(th, "主机", self.host.clone()))
-                    .child(
-                        self.field(th, "端口", self.port.clone())
-                            .flex_none()
-                            .w(px(110.0)),
-                    )
-                    .into_any_element(),
+                pair(
+                    self.field(th, &tr(Message::UiHost {}), self.host.clone()),
+                    self.field(th, &tr(Message::UiPort {}), self.port.clone()),
+                )
+                .into_any_element(),
             ));
             rows.push((
                 Row::UserAuth,
-                div()
-                    .flex()
-                    .flex_row()
-                    .gap(px(12.0))
-                    .child(self.field(th, "用户名", self.user.clone()))
-                    .child(self.field(th, "认证方式", self.auth.clone()))
-                    .into_any_element(),
+                pair(
+                    self.field(th, &tr(Message::UiUser {}), self.user.clone()),
+                    self.field(th, &tr(Message::UiAuthentication {}), self.auth.clone()),
+                )
+                .into_any_element(),
             ));
         }
         if self.vis(F::Password) {
             rows.push((
                 Row::Password,
-                self.field(th, "密码", self.password.clone())
+                self.field(th, &tr(Message::UiPassword {}), self.password.clone())
                     .into_any_element(),
             ));
         }
         if self.vis(F::KeyPath) {
+            let browse = div()
+                .id("browse-key")
+                .flex_none()
+                .h(px(30.0))
+                .px(px(12.0))
+                .flex()
+                .items_center()
+                .rounded(px(6.0))
+                .border_1()
+                .border_color(th.c("border.strong"))
+                .bg(th.c("bg.buttonSecondary"))
+                .cursor_pointer()
+                .hover(|s| s.opacity(0.88))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, window, cx| this.browse_key(window, cx)),
+                )
+                .child(tr(Message::UiChoose {}));
             rows.push((
                 Row::KeyPath,
                 self.field(
                     th,
-                    "私钥文件",
+                    &tr(Message::UiPrivateKey {}),
                     div()
                         .flex()
-                        .flex_row()
                         .gap(px(8.0))
                         .child(div().flex_1().min_w_0().child(self.key_path.clone()))
-                        .child(
-                            div()
-                                .id("browse-key")
-                                .flex_none()
-                                .h(px(number("spacing", "field.height")))
-                                .px(px(12.0))
-                                .flex()
-                                .items_center()
-                                .rounded(px(number("radius", "md")))
-                                .border_1()
-                                .border_color(th.c("border.strong"))
-                                .bg(th.c("bg.buttonSecondary"))
-                                .cursor_pointer()
-                                .hover(|s| s.opacity(0.88))
-                                .on_mouse_down(
-                                    MouseButton::Left,
-                                    cx.listener(|this, _: &MouseDownEvent, window, cx| {
-                                        this.browse_key(window, cx)
-                                    }),
-                                )
-                                .child("选择…"),
-                        ),
+                        .child(browse),
                 )
                 .into_any_element(),
             ));
             rows.push((
                 Row::KeyPassphrase,
-                self.field(th, "私钥口令", self.key_passphrase.clone())
-                    .into_any_element(),
+                self.field(
+                    th,
+                    &tr(Message::UiKeyPassphrase {}),
+                    self.key_passphrase.clone(),
+                )
+                .into_any_element(),
             ));
         }
         if self.vis(F::Jump) {
             rows.push((
                 Row::Jump,
-                self.field(th, "跳板机", self.jump.clone())
+                self.field(th, &tr(Message::UiJumpHost {}), self.jump.clone())
                     .into_any_element(),
             ));
         }
         if self.vis(F::ProxyCommand) {
             rows.push((
                 Row::Proxy,
-                self.field(th, "ProxyCommand（与跳板机二选一）", self.proxy.clone())
+                self.field(th, &tr(Message::UiProxyCommand {}), self.proxy.clone())
                     .into_any_element(),
             ));
         }
         if self.vis(F::Encoding) {
             rows.push((
                 Row::EncodingLocale,
-                div()
-                    .flex()
-                    .flex_row()
-                    .gap(px(12.0))
-                    .child(self.field(th, "编码", self.encoding.clone()))
-                    .child(self.field(th, "Locale", self.locale.clone()))
-                    .into_any_element(),
+                pair(
+                    self.field(th, &tr(Message::UiEncoding {}), self.encoding.clone()),
+                    self.field(th, &tr(Message::UiLocale {}), self.locale.clone()),
+                )
+                .into_any_element(),
             ));
         }
-        self.rows = rows.iter().map(|(r, _)| *r).collect();
-
+        self.rows.clear();
+        let mut elements = Vec::new();
+        for (row, content) in rows {
+            let bounds = Rc::new(Cell::new(gpui::Bounds::default()));
+            self.rows.push((row, bounds.clone()));
+            elements.push(
+                div()
+                    .relative()
+                    .flex_none()
+                    .w_full()
+                    .child(content)
+                    .child(
+                        gpui::canvas(move |rect, _, _| bounds.set(rect), |_, _, _, _| {})
+                            .absolute()
+                            .size_full(),
+                    )
+                    .into_any_element(),
+            );
+        }
+        let connection_rows = elements.split_off(session_len);
         let viewport = window.viewport_size();
-        let max_h = (f32::from(viewport.height) - 48.0).max(240.0);
+        let max_h = (f32::from(viewport.height) - 48.0).clamp(240.0, 680.0);
         let body = div()
             .id("editor-body")
-            .flex_1()
             .min_h_0()
             .overflow_y_scroll()
             .track_scroll(&self.scroll)
             .flex()
             .flex_col()
-            .gap(px(12.0))
-            .pr(px(4.0))
-            .children(rows.into_iter().map(|(_, e)| e));
-
-        let title = if self.editing {
-            "编辑会话"
+            .gap(px(16.0))
+            .p(px(20.0))
+            .child(card(th, tr(Message::UiSession {}), "tag", elements))
+            .child(card(
+                th,
+                tr(if self.vis(F::Host) {
+                    Message::UiSshConnection {}
+                } else {
+                    Message::UiLocalSession {}
+                }),
+                if self.vis(F::Host) {
+                    "server"
+                } else {
+                    "square-terminal"
+                },
+                connection_rows,
+            ));
+        let title = tr(if self.editing {
+            Message::UiEditSession {}
         } else {
-            "新建会话"
-        };
+            Message::UiNewSession {}
+        });
         let card = div()
             .id("session-editor-card")
             .w(px(560.0))
             .max_w_full()
             .max_h(px(max_h))
-            .p(px(20.0))
             .flex()
             .flex_col()
-            .gap(px(12.0))
             .rounded(px(12.0))
+            .overflow_hidden()
             .border_1()
-            .border_color(th.c("border.strong"))
+            .border_color(th.c("border.subtle"))
             .bg(th.c("bg.dialog"))
             .text_color(th.c("text.primary"))
             .text_size(px(number("font", "ui.body")))
@@ -1064,31 +1233,93 @@ impl Render for SessionEditorView {
                 blur_radius: px(24.0),
                 spread_radius: px(0.0),
             }])
-            // 卡片内的点击不能冒泡到遮罩。
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(
                 div()
-                    .text_size(px(number("font", "ui.title")))
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .child(title),
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap(px(12.0))
+                    .px(px(20.0))
+                    .py(px(14.0))
+                    .border_b_1()
+                    .border_color(th.c("border.subtle"))
+                    .child(
+                        div()
+                            .size(px(32.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(8.0))
+                            .bg(th.c("bg.segmentSelected"))
+                            .border_1()
+                            .border_color(th.c("border.segmentSelected"))
+                            .child(icon("server", 16.0, th.c("accent"))),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_size(px(15.0))
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .child(title),
+                    )
+                    .child(
+                        div()
+                            .id("editor-close")
+                            .size(px(26.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(6.0))
+                            .cursor_pointer()
+                            .hover(|s| s.bg(th.c("bg.rowHover")))
+                            .on_click(cx.listener(|this, _, _, cx| this.cancel(cx)))
+                            .child(icon("x", 14.0, th.c("text.secondary"))),
+                    ),
             )
             .child(body)
-            .children(self.error.clone().map(|e| {
-                div()
-                    .text_size(px(12.0))
-                    .text_color(th.c("status.error"))
-                    .child(e)
-            }))
             .child(
                 div()
-                    .mt(px(4.0))
+                    .flex_none()
                     .flex()
-                    .flex_row()
-                    .justify_end()
+                    .items_center()
                     .gap(px(8.0))
-                    .child(self.render_button(Btn::Cancel, "取消", false, window, th, cx))
-                    .child(self.render_button(Btn::Save, "保存", false, window, th, cx))
-                    .child(self.render_button(Btn::Connect, "保存并连接", true, window, th, cx)),
+                    .px(px(20.0))
+                    .py(px(14.0))
+                    .border_t_1()
+                    .border_color(th.c("border.subtle"))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_size(px(11.0))
+                            .text_color(th.c("status.error"))
+                            .children(self.error.clone()),
+                    )
+                    .child(self.render_button(
+                        Btn::Cancel,
+                        tr(Message::UiCancel {}),
+                        false,
+                        window,
+                        th,
+                        cx,
+                    ))
+                    .child(self.render_button(
+                        Btn::Save,
+                        tr(Message::UiSave {}),
+                        false,
+                        window,
+                        th,
+                        cx,
+                    ))
+                    .child(self.render_button(
+                        Btn::Connect,
+                        tr(Message::UiConnect {}),
+                        true,
+                        window,
+                        th,
+                        cx,
+                    )),
             );
 
         div()

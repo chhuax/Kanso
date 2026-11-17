@@ -226,6 +226,8 @@ fn write_notices() -> Result<(), Box<dyn Error>> {
          The private keys under `crates/kanso-ssh/src/itests/data` are intentionally public \
          test fixtures, used only by isolated tests. Never use them as real credentials.\n",
     );
+    text.push_str("\n## Windows GPUI icons\n\nSource: Lucide Icons, revision `149eba0aea48178a5ab1efe2c701de1da94f4be8`.\n\nLocation: `crates/kanso-gpui/assets/icons`.\n\n");
+    text.push_str(include_str!("../../crates/kanso-gpui/assets/icons/LICENSE"));
     fs::write("THIRD_PARTY_NOTICES.md", text)?;
     Ok(())
 }

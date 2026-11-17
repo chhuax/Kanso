@@ -126,7 +126,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         filerController.view = NSView()
 
         let sidebarController = TabSidebarViewController(controller: controller)
-        sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarController)
+        // macOS 26 自动给系统侧栏套上内缩圆角外框，和贴边的标签栏布局不符。
+        // 仅在 26 使用普通分栏；27 及其它版本、单个标签的圆角均保持原样。
+        if ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 26 {
+            sidebarItem = NSSplitViewItem(viewController: sidebarController)
+            sidebarItem.preferredThicknessFraction = 0.15
+            sidebarItem.holdingPriority = NSLayoutConstraint.Priority(261)
+        } else {
+            sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarController)
+        }
         sidebarItem.minimumThickness = DesignTokens.Spacing.sidebarMinWidth
         sidebarItem.canCollapse = true
         splitController.addSplitViewItem(sidebarItem)
@@ -291,6 +299,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("MainWindowController 只支持代码创建")
+    }
+
+    /// 普通分栏首次布局完成后再应用默认宽度，避免系统把侧栏拉宽。
+    override func showWindow(_ sender: Any?) {
+        super.showWindow(sender)
+        if ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 26 {
+            splitController.view.layoutSubtreeIfNeeded()
+            applyDefaultSidebarWidthIfNeeded()
+        }
     }
 
     /// 创建 core。真实 core 的数据目录是 `~/Library/Application Support/<bundle id>/`，目录不存在由 core 创建。

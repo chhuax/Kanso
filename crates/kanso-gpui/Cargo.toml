@@ -28,10 +28,14 @@ unicode-segmentation = "1"
 # 用 crates.io 的发布版（Apache-2.0），不用 git 依赖；`=` 固定版本，升级要重新评估许可证与体积。
 [target.'cfg(windows)'.dependencies]
 gpui = "=0.2.2"
+# 接收 GPUI 的图形后端诊断，写入同一份运行日志（MIT / Apache-2.0）。
+log = "0.4"
+# 获取当前窗口句柄，让原生标题栏跟随应用外观（MIT / Apache-2.0 / Zlib）。
+raw-window-handle = "0.6"
 # 核心事件从工作线程投递到 UI 线程的无界通道（MIT / Apache-2.0）。
 futures = { workspace = true, features = ["executor"] }
 # 读取进程工作集内存做启动日志，只用 psapi / 进程句柄两个特性（MIT / Apache-2.0；与 kanso-secret 同一个 crate）。
-windows-sys = { workspace = true, features = ["Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_System_Time"] }
+windows-sys = { workspace = true, features = ["Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_System_Time", "Win32_Graphics_Dwm"] }
 
 [features]
 default = ["direct"]
