@@ -117,9 +117,10 @@ final class TabRowView: NSView {
         needsDisplay = true
     }
 
-    /// 右侧状态标记：命令 / AI 运行中、未读完成、已断开。悬停时让位给快捷键与关闭按钮。
+    /// MCP 打开标记当前是否显示。
     var showsMcpOpenedMark: Bool { !mcpOpenedMark.isHidden }
 
+    /// 右侧状态标记：命令 / AI 运行中、未读完成、已断开。悬停时让位给快捷键与关闭按钮。
     private var statusMarker: (color: NSColor, hollow: Bool)? {
         if model.mcp?.activityTool != nil { return (.token(DesignTokens.Color.accent), false) }
         if isDisconnected { return (.token(DesignTokens.Color.statusDisconnected), true) }

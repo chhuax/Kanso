@@ -1,5 +1,6 @@
 import AppKit
 import KansoBridge
+import KansoUI
 import OSLog
 import PlatformMac
 
@@ -53,6 +54,12 @@ enum McpText {
         return names[profileId] ?? String(localized: "Deleted session")
     }
 
+    /// 审计行里的参数摘要：折成一行并截断，全文放 toolTip。
+    static func argsSummary(_ args: String, limit: Int = 80) -> String {
+        let oneLine = args.replacingOccurrences(of: "\n", with: " ")
+        return oneLine.count > limit ? String(oneLine.prefix(limit)) + "…" : oneLine
+    }
+
     static func unavailableReason(_ reason: FfiMcpUnavailable) -> String {
         switch reason {
         case .notSupported:
@@ -82,6 +89,13 @@ final class McpCoordinator {
 
     private(set) var status: FfiMcpServerStatus = .stopped
     private(set) var clients: [FfiMcpClientInfo] = []
+    /// 令牌缓存。钥匙串读取可能阻塞在系统授权框上，所以只在后台线程或用户主动操作时读，
+    /// 其余路径（页面刷新、MCP 事件处理）一律用这份缓存。nil 表示还没读到或还没生成。
+    private(set) var cachedToken: String?
+    /// 开关已打开但服务没能启动时的原因（取令牌失败或 `start` 抛错）；启动成功或开关改动后清空。
+    private(set) var startError: String?
+    /// 启动时的后台取令牌与 `start` 任务；只为让测试能等待完成。
+    private(set) var startupTask: Task<Void, Never>?
     private var openedBy: [UInt64: String] = [:]
     private var activities: [UInt64: FfiMcpActivity] = [:]
     private var activityClears: [UInt64: () -> Void] = [:]
@@ -130,16 +144,53 @@ final class McpCoordinator {
     }
 
     /// 启动时：渠道支持且总开关已开才 start。
+    ///
+    /// 令牌在后台线程读取（可能弹钥匙串授权框，不能卡住主线程启动），读到后回主线程再 `start`。
+    /// 失败只记日志并写入 `startError`，由设置页告诉用户服务没有启动。
     func startIfEnabled() {
         guard supported, core.mcpEnabled() else { return }
-        guard let token = try? ensureToken() else { return }
-        try? server.start(bundleId: bundleId, token: token)
+        let tokens = tokens
+        startupTask = Task { [weak self] in
+            let result = await Task.detached { Result { try Self.ensureToken(in: tokens) } }.value
+            self?.finishStartup(result)
+        }
+    }
+
+    private func finishStartup(_ result: Result<String, Error>) {
+        // 等待钥匙串期间用户可能已经关掉开关，或已经手动启动了服务。
+        guard core.mcpEnabled() else { return }
+        if case .running = status { return }
+        do {
+            let token = try result.get()
+            cachedToken = token
+            try server.start(bundleId: bundleId, token: token)
+            startError = nil
+        } catch {
+            mcpLog.error("MCP startup failed: \(String(describing: error), privacy: .public)")
+            startError = CoreMessageText.text(for: error)
+        }
+        emitChange()
+    }
+
+    /// 在后台读取令牌填充缓存（不生成）。设置页打开时调用；读失败时缓存保持不变。
+    func refreshTokenCache() {
+        guard cachedToken == nil else { return }
+        let tokens = tokens
+        Task { [weak self] in
+            let token = await Task.detached { try? McpClientToken.load(from: tokens) }.value
+            guard let self, cachedToken == nil, let token else { return }
+            cachedToken = token
+            emitChange()
+        }
     }
 
     /// 打开总开关时 start，关闭时 stop。start 失败不把开关拨回去，页面要留着让用户能关掉。
     func setEnabled(_ enabled: Bool) throws {
+        startError = nil
         if enabled {
-            let token = try ensureToken()
+            // 用户主动操作，缓存没有时在这里同步取（可能弹授权框，但用户正在等这个结果）。
+            let token = try cachedToken ?? Self.ensureToken(in: tokens)
+            cachedToken = token
             try core.setMcpEnabled(enabled: true)
             do {
                 try server.start(bundleId: bundleId, token: token)
@@ -156,18 +207,23 @@ final class McpCoordinator {
         server.stop()
     }
 
-    func currentToken() throws -> String? {
-        try McpClientToken.load(from: tokens)
-    }
-
-    /// 写入新令牌并通知服务断开旧连接。
+    /// 写入新令牌并通知服务断开旧连接。保存失败时抛出，旧令牌仍然有效、缓存不变。
     func regenerateToken() throws {
         let token = McpClientToken.generate()
         try McpClientToken.save(token, to: tokens)
+        cachedToken = token
         server.setToken(token: token)
     }
 
-    fileprivate func apply(_ batch: McpDelegateBridge.Batch) {
+    /// 标签关闭后清掉它的 MCP 标记与待执行的清除计时，避免会话 id 对应的状态一直留着。
+    func forget(session: UInt64) {
+        openedBy[session] = nil
+        activities[session] = nil
+        activityClears.removeValue(forKey: session)?()
+        emitChange()
+    }
+
+    func apply(_ batch: McpDelegateBridge.Batch) {
         if let status = batch.status {
             self.status = status
             if case .unavailable(.failed(let detail)) = status {
@@ -175,6 +231,8 @@ final class McpCoordinator {
             }
         }
         for (session, client) in batch.opened {
+            // 回调到达时会话可能已被关掉；这时放置标签会留下没人能关的标签。
+            guard core.sessionInfo(sessionId: session) != nil else { continue }
             openedBy[session] = client.name
             onPlaceSession?(session)
         }
@@ -210,7 +268,8 @@ final class McpCoordinator {
         for handler in changeHandlers { handler() }
     }
 
-    private func ensureToken() throws -> String {
+    /// 读令牌，没有就生成并保存。会访问钥匙串，不要在主线程调用（`setEnabled` 的用户操作路径除外）。
+    nonisolated private static func ensureToken(in tokens: KeychainSecretStore) throws -> String {
         if let existing = try McpClientToken.load(from: tokens) { return existing }
         let token = McpClientToken.generate()
         try McpClientToken.save(token, to: tokens)

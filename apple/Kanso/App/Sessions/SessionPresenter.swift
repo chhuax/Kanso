@@ -28,6 +28,8 @@ final class SessionPresenter {
     /// 导入 / 导出用的文件面板；测试替换为不弹窗的替身。
     var filePanels: DataFilePanels = SystemDataFilePanels()
     var onDataImported: (() -> Void)?
+    /// 编辑对话框是否显示「MCP 访问」。由主窗口注入 `McpCoordinator.supported`，这里不直接问渠道。
+    var mcpSupported: () -> Bool = { false }
 
     init(controller: WorkspaceController, dialogs: SessionDialogs = AlertSessionDialogs()) {
         self.controller = controller

@@ -46,14 +46,13 @@ final class SettingsWindowController: NSWindowController {
     private let pageOrder: [SettingsTab]
 
     /// 菜单的入口（⌘,、视图 → 显示设置… / 键盘快捷键…）。
-    /// `mcpSupported` 为真时才加入 MCP 页；不看服务能不能 start。
+    /// 有协调器且 `mcp.supported` 为真时才加入 MCP 页；不看服务能不能 start。
     static func show(
         settings: SettingsStore, appearance: AppearanceController, keybindings: KeybindingController,
-        tab: SettingsTab = .general, mcp: McpCoordinator? = nil, mcpSupported: Bool = false
+        tab: SettingsTab = .general, mcp: McpCoordinator? = nil
     ) {
         let controller = shared ?? SettingsWindowController(
-            settings: settings, appearance: appearance, keybindings: keybindings,
-            mcp: mcp, mcpSupported: mcpSupported
+            settings: settings, appearance: appearance, keybindings: keybindings, mcp: mcp
         )
         shared = controller
         controller.select(tab)
@@ -72,15 +71,13 @@ final class SettingsWindowController: NSWindowController {
         openURL: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) },
         conflictPrompter: KeybindingConflictPrompter = AlertKeybindingConflictPrompter(),
         autosaveName: String? = "KansoSettingsWindow",
-        mcp: McpCoordinator? = nil,
-        mcpSupported: Bool = false
+        mcp: McpCoordinator? = nil
     ) {
         generalViewController = GeneralSettingsViewController(appearance: appearance, openURL: openURL)
         displayViewController = DisplaySettingsViewController(settings: settings)
         keyboardViewController = KeyboardSettingsViewController(keybindings: keybindings, prompter: conflictPrompter)
-        if mcpSupported {
-            precondition(mcp != nil, "显示 MCP 页时必须有协调器")
-            mcpViewController = McpSettingsViewController(mcp: mcp!)
+        if let mcp, mcp.supported {
+            mcpViewController = McpSettingsViewController(mcp: mcp)
         } else {
             mcpViewController = nil
         }
@@ -146,7 +143,7 @@ final class SettingsWindowController: NSWindowController {
         return pageOrder[index]
     }
 
-    /// 窗口里实际有的页。MCP 页只有 `mcpSupported` 为真时才在里面。
+    /// 窗口里实际有的页。MCP 页只有协调器存在且 `supported` 为真时才在里面。
     var tabsInWindow: [SettingsTab] { pageOrder }
 
     /// 宽度保持不变，高度贴合当前页 `fittingSize`。

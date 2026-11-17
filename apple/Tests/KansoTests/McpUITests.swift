@@ -9,8 +9,13 @@ import XCTest
 /// 内存钥匙串。查询字典的键与 `KeychainSecretStore.baseQuery` 一致。
 private final class MemoryKeychain: KeychainClient, @unchecked Sendable {
     var items: [String: Data] = [:]
+    /// 非 nil 时读取一律返回这个错误状态，模拟钥匙串授权被拒。
+    var readFailure: OSStatus?
+    /// 非 nil 时写入（add / update）一律返回这个错误状态。
+    var writeFailure: OSStatus?
 
     func copyMatching(_ query: [String: Any]) -> (OSStatus, Data?) {
+        if let readFailure { return (readFailure, nil) }
         guard let account = query[kSecAttrAccount as String] as? String, let data = items[account] else {
             return (errSecItemNotFound, nil)
         }
@@ -18,6 +23,7 @@ private final class MemoryKeychain: KeychainClient, @unchecked Sendable {
     }
 
     func update(_ query: [String: Any], _ attributes: [String: Any]) -> OSStatus {
+        if let writeFailure { return writeFailure }
         guard let account = query[kSecAttrAccount as String] as? String, items[account] != nil else {
             return errSecItemNotFound
         }
@@ -26,6 +32,7 @@ private final class MemoryKeychain: KeychainClient, @unchecked Sendable {
     }
 
     func add(_ attributes: [String: Any]) -> OSStatus {
+        if let writeFailure { return writeFailure }
         guard let account = attributes[kSecAttrAccount as String] as? String else { return errSecParam }
         items[account] = attributes[kSecValueData as String] as? Data
         return errSecSuccess
@@ -62,6 +69,26 @@ private final class TestClock {
     }
 }
 
+/// 可控的访问级别存储：记录写入次数，可让读或写失败。
+private final class AccessStub: McpAccessStoring, @unchecked Sendable {
+    struct Failure: Error {}
+    var levels: [String: FfiMcpAccess] = [:]
+    var failReads = false
+    var failWrites = false
+    private(set) var writes: [(String, FfiMcpAccess)] = []
+
+    func mcpAccess(profileId: String) throws -> FfiMcpAccess {
+        if failReads { throw Failure() }
+        return levels[profileId] ?? .off
+    }
+
+    func setMcpAccess(profileId: String, level: FfiMcpAccess) throws {
+        if failWrites { throw Failure() }
+        writes.append((profileId, level))
+        levels[profileId] = level
+    }
+}
+
 private final class McpConflictStub: KeybindingConflictPrompter {
     func confirmReplace(chord: KeyChord, existing: KeyCommand, new: KeyCommand, window: NSWindow?) async -> Bool {
         false
@@ -94,14 +121,14 @@ final class McpUITests: XCTestCase {
         return (coordinator, keychain, schedule)
     }
 
-    private func makeSettings(mcp: McpCoordinator, supported: Bool) -> SettingsWindowController {
+    private func makeSettings(mcp: McpCoordinator?) -> SettingsWindowController {
         let settings = SettingsStore()
         let appearance = AppearanceController(settings: settings, apply: { _ in })
         let keybindings = KeybindingController(settings: settings, menuProvider: { nil })
         return SettingsWindowController(
             settings: settings, appearance: appearance, keybindings: keybindings,
             openURL: { _ in }, conflictPrompter: McpConflictStub(), autosaveName: nil,
-            mcp: mcp, mcpSupported: supported
+            mcp: mcp
         )
     }
 
@@ -123,11 +150,12 @@ final class McpUITests: XCTestCase {
 
     func testPageAppearsOnlyWhenMcpIsSupported() async throws {
         let (mock, _, _) = makeCoordinator()
-        let shown = makeSettings(mcp: mock, supported: true)
+        let shown = makeSettings(mcp: mock)
         XCTAssertEqual(shown.tabsInWindow, [.general, .display, .keyboard, .mcp])
         XCTAssertNotNil(shown.mcpViewController)
 
-        let hidden = makeSettings(mcp: mock, supported: false)
+        let (unsupported, _, _) = makeCoordinator(supported: false)
+        let hidden = makeSettings(mcp: unsupported)
         XCTAssertEqual(hidden.tabsInWindow, [.general, .display, .keyboard])
         XCTAssertNil(hidden.mcpViewController)
         hidden.select(.mcp)
@@ -139,7 +167,7 @@ final class McpUITests: XCTestCase {
         guard case .unavailable(.notSupported) = real.status else {
             return XCTFail("真实服务应报本构建不支持，实际 \(real.status)")
         }
-        let page = makeSettings(mcp: real, supported: true)
+        let page = makeSettings(mcp: real)
         XCTAssertTrue(page.tabsInWindow.contains(.mcp))
         _ = page.mcpViewController?.view
         XCTAssertTrue(page.mcpViewController?.statusLabel.stringValue.contains(
@@ -150,7 +178,7 @@ final class McpUITests: XCTestCase {
 
     func testSwitchStartsAndStopsTheServer() async throws {
         let (coordinator, _, _) = makeCoordinator()
-        let page = try XCTUnwrap(makeSettings(mcp: coordinator, supported: true).mcpViewController)
+        let page = try XCTUnwrap(makeSettings(mcp: coordinator).mcpViewController)
         _ = page.view
         XCTAssertFalse(page.enabledRow.isChecked)
         XCTAssertFalse(coordinator.core.mcpEnabled())
@@ -177,12 +205,12 @@ final class McpUITests: XCTestCase {
     func testTokenIsGeneratedOnceAndRegeneratedThroughTheInjectedKeychain() async throws {
         let keychain = MemoryKeychain()
         let (coordinator, _, _) = makeCoordinator(keychain: keychain)
-        XCTAssertNil(try coordinator.currentToken())
+        XCTAssertNil(coordinator.cachedToken)
         XCTAssertTrue(keychain.items.isEmpty)
 
         try coordinator.setEnabled(true)
         await flush()
-        let token = try XCTUnwrap(try coordinator.currentToken())
+        let token = try XCTUnwrap(coordinator.cachedToken)
         XCTAssertEqual(token.count, McpClientToken.length)
         XCTAssertTrue(token.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber) })
         XCTAssertEqual(Array(keychain.items.keys), [McpClientToken.account])
@@ -192,12 +220,12 @@ final class McpUITests: XCTestCase {
         try coordinator.setEnabled(false)
         try coordinator.setEnabled(true)
         await flush()
-        XCTAssertEqual(try coordinator.currentToken(), token)
+        XCTAssertEqual(coordinator.cachedToken, token)
         let idBefore = try XCTUnwrap(coordinator.clients.first?.id)
 
         try coordinator.regenerateToken()
         await flush()
-        let regenerated = try XCTUnwrap(try coordinator.currentToken())
+        let regenerated = try XCTUnwrap(coordinator.cachedToken)
         XCTAssertNotEqual(regenerated, token)
         XCTAssertTrue(regenerated.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber) })
         XCTAssertNotEqual(coordinator.clients.first?.id, idBefore)
@@ -211,7 +239,7 @@ final class McpUITests: XCTestCase {
         XCTAssertEqual(try core.mcpAccess(profileId: web.id), .off)
         XCTAssertEqual(try core.mcpAccess(profileId: outsider.id), .off)
 
-        let page = try XCTUnwrap(makeSettings(mcp: coordinator, supported: true).mcpViewController)
+        let page = try XCTUnwrap(makeSettings(mcp: coordinator).mcpViewController)
         _ = page.view
         XCTAssertTrue(page.sensitiveNotice.isHidden)
 
@@ -331,7 +359,7 @@ final class McpUITests: XCTestCase {
         await flush()
         XCTAssertFalse(shown.mcp.clients.isEmpty)
         XCTAssertTrue(shown.isMcpIndicatorVisible)
-        let token = try XCTUnwrap(try shown.mcp.currentToken())
+        let token = try XCTUnwrap(shown.mcp.cachedToken)
         let stored = defaults.dictionaryRepresentation().values.map { "\($0)" }.joined(separator: "\n")
         XCTAssertFalse(stored.contains(token))
         try shown.mcp.setEnabled(false)
@@ -372,13 +400,13 @@ final class McpUITests: XCTestCase {
     func testCopiedConfigurationKeepsTheLeadingSpace() throws {
         let (coordinator, _, _) = makeCoordinator()
         try coordinator.setEnabled(true)
-        let page = try XCTUnwrap(makeSettings(mcp: coordinator, supported: true).mcpViewController)
+        let page = try XCTUnwrap(makeSettings(mcp: coordinator).mcpViewController)
         var copied: [String] = []
         page.copyText = { copied.append($0) }
         _ = page.view
 
         page.copyClaudeButton.performClick(nil)
-        let token = try XCTUnwrap(try coordinator.currentToken())
+        let token = try XCTUnwrap(coordinator.cachedToken)
         let claude = mcpClientConfig(kind: .claudeCode, helperPath: mcpHelperPath(), token: token)
         XCTAssertEqual(copied, [claude])
         XCTAssertTrue(claude.hasPrefix(" "))
@@ -399,6 +427,218 @@ final class McpUITests: XCTestCase {
             mcpHelperPath(),
             Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/kanso-mcp").path
         )
+    }
+
+    // MARK: - 审查修复
+
+    func testStartupReadsTheKeychainInTheBackgroundThenStarts() async throws {
+        let keychain = MemoryKeychain()
+        keychain.items[McpClientToken.account] = Data("stored-token".utf8)
+        let (coordinator, _, _) = makeCoordinator(keychain: keychain)
+        try coordinator.core.setMcpEnabled(enabled: true)
+
+        coordinator.startIfEnabled()
+        XCTAssertNil(coordinator.cachedToken, "init 返回时不应已同步读完钥匙串")
+        await coordinator.startupTask?.value
+        await flush()
+        XCTAssertEqual(coordinator.cachedToken, "stored-token")
+        XCTAssertNil(coordinator.startError)
+        guard case .running = coordinator.status else {
+            return XCTFail("应已启动，实际 \(coordinator.status)")
+        }
+    }
+
+    func testStartupFailureIsRecordedAndShownOnThePage() async throws {
+        let keychain = MemoryKeychain()
+        keychain.readFailure = errSecAuthFailed
+        let (coordinator, _, _) = makeCoordinator(keychain: keychain)
+        try coordinator.core.setMcpEnabled(enabled: true)
+        coordinator.startIfEnabled()
+        await coordinator.startupTask?.value
+        await flush()
+
+        XCTAssertNotNil(coordinator.startError)
+        guard case .stopped = coordinator.status else {
+            return XCTFail("没有启动，状态应为停止，实际 \(coordinator.status)")
+        }
+        let page = try XCTUnwrap(makeSettings(mcp: coordinator).mcpViewController)
+        _ = page.view
+        XCTAssertTrue(page.statusLabel.stringValue.contains(
+            String(localized: "MCP is turned on, but the service did not start.")
+        ))
+        XCTAssertFalse(page.copyTokenButton.isEnabled)
+    }
+
+    func testPageBuildDoesNotTouchTheKeychainSynchronously() throws {
+        let keychain = MemoryKeychain()
+        keychain.items[McpClientToken.account] = Data("stored-token".utf8)
+        let (coordinator, _, _) = makeCoordinator(keychain: keychain)
+        let page = try XCTUnwrap(makeSettings(mcp: coordinator).mcpViewController)
+        _ = page.view
+        XCTAssertNil(coordinator.cachedToken)
+        XCTAssertFalse(page.copyTokenButton.isEnabled)
+    }
+
+    func testEditorOnlyWritesAccessWhenTheUserChangedIt() async throws {
+        let (coordinator, _, _) = makeCoordinator()
+        let core = coordinator.core
+        let web = try profile(core, named: "web-01")
+        let stub = AccessStub()
+        stub.levels[web.id] = .readOnly
+
+        let untouched = SessionEditorModel(store: core, editing: web, showsMcpAccess: true, mcpAccessStore: stub)
+        XCTAssertEqual(untouched.mcpAccess, .readOnly)
+        // 打开后别处把级别改成了 full；没动过这个字段的保存不能用旧值盖回去。
+        stub.levels[web.id] = .full
+        let saved = await untouched.save()
+        XCTAssertEqual(saved, .saved)
+        XCTAssertTrue(stub.writes.isEmpty)
+        XCTAssertEqual(stub.levels[web.id], .full)
+
+        let edited = SessionEditorModel(store: core, editing: web, showsMcpAccess: true, mcpAccessStore: stub)
+        edited.mcpAccess = .off
+        let editedSave = await edited.save()
+        XCTAssertEqual(editedSave, .saved)
+        XCTAssertEqual(stub.writes.count, 1)
+        XCTAssertEqual(stub.levels[web.id], .off)
+    }
+
+    func testEditorDisablesTheFieldWhenReadingTheAccessFails() async throws {
+        let (coordinator, _, _) = makeCoordinator()
+        let core = coordinator.core
+        let web = try profile(core, named: "web-01")
+        let stub = AccessStub()
+        stub.failReads = true
+        let model = SessionEditorModel(store: core, editing: web, showsMcpAccess: true, mcpAccessStore: stub)
+        XCTAssertFalse(model.isMcpAccessEnabled)
+        XCTAssertNotNil(model.mcpAccessLoadError)
+        let outcome = await model.save()
+        XCTAssertEqual(outcome, .saved)
+        XCTAssertTrue(stub.writes.isEmpty)
+
+        let editor = SessionEditorViewController(model: model)
+        _ = editor.view
+        XCTAssertFalse(editor.mcpPopup.isEnabled)
+        XCTAssertFalse(editor.mcpHint.isHidden)
+        XCTAssertTrue(editor.mcpHint.stringValue.contains(model.mcpAccessLoadError ?? "?"))
+    }
+
+    func testSavingStillNotifiesWhenOnlyTheAccessWriteFails() async throws {
+        let (coordinator, _, _) = makeCoordinator()
+        let core = coordinator.core
+        let web = try profile(core, named: "web-01")
+        let stub = AccessStub()
+        stub.failWrites = true
+        let model = SessionEditorModel(store: core, editing: web, showsMcpAccess: true, mcpAccessStore: stub)
+        model.mcpAccess = .full
+        var notified = 0
+        let token = NotificationCenter.default.addObserver(
+            forName: .sessionLibraryDidChange, object: core, queue: nil
+        ) { _ in notified += 1 }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        let outcome = await model.save()
+        XCTAssertEqual(outcome, .savedButMcpAccessFailed)
+        XCTAssertEqual(notified, 1)
+        XCTAssertNotNil(model.errorText)
+    }
+
+    func testFailedAccessWriteRestoresThePopupAndShowsTheError() throws {
+        let (coordinator, _, _) = makeCoordinator()
+        let web = try profile(coordinator.core, named: "web-01")
+        let stub = AccessStub()
+        stub.levels[web.id] = .readOnly
+        let page = McpSettingsViewController(mcp: coordinator, accessStore: stub)
+        _ = page.view
+        XCTAssertEqual(page.levelPopup(for: web.id)?.indexOfSelectedItem, McpText.accessIndex(.readOnly))
+        XCTAssertTrue(page.errorLabel.isHidden)
+
+        stub.failWrites = true
+        page.levelPopup(for: web.id)?.userSelect(at: McpText.accessIndex(.full))
+        XCTAssertEqual(page.levelPopup(for: web.id)?.indexOfSelectedItem, McpText.accessIndex(.readOnly))
+        XCTAssertFalse(page.errorLabel.isHidden)
+        XCTAssertFalse(page.errorLabel.stringValue.isEmpty)
+    }
+
+    func testFailedRegenerateShowsTheErrorAndKeepsTheOldToken() throws {
+        let keychain = MemoryKeychain()
+        let (coordinator, _, _) = makeCoordinator(keychain: keychain)
+        try coordinator.setEnabled(true)
+        let old = try XCTUnwrap(coordinator.cachedToken)
+        let page = try XCTUnwrap(makeSettings(mcp: coordinator).mcpViewController)
+        _ = page.view
+        keychain.writeFailure = errSecAuthFailed
+        page.regenerateButton.performClick(nil)
+        XCTAssertEqual(coordinator.cachedToken, old)
+        XCTAssertFalse(page.errorLabel.isHidden)
+        XCTAssertFalse(page.errorLabel.stringValue.isEmpty)
+    }
+
+    func testPageWithoutCoordinatorHasNoMcpTab() {
+        let none = makeSettings(mcp: nil)
+        XCTAssertEqual(none.tabsInWindow, [.general, .display, .keyboard])
+        XCTAssertNil(none.mcpViewController)
+        none.select(.mcp)
+        XCTAssertNotEqual(none.selectedTab, .mcp)
+    }
+
+    func testPageScrollsAndStaysWithinTheMaximumHeight() throws {
+        let (coordinator, _, _) = makeCoordinator()
+        let page = try XCTUnwrap(makeSettings(mcp: coordinator).mcpViewController)
+        _ = page.view
+        let scroll = try XCTUnwrap(page.view.subviews.compactMap { $0 as? NSScrollView }.first)
+        XCTAssertNotNil(scroll.documentView)
+        page.view.layoutSubtreeIfNeeded()
+        XCTAssertLessThanOrEqual(page.view.fittingSize.height, McpSettingsViewController.maxPageHeight)
+        let documentHeight = scroll.documentView?.fittingSize.height ?? 0
+        XCTAssertEqual(
+            page.view.fittingSize.height, min(documentHeight, McpSettingsViewController.maxPageHeight), accuracy: 1
+        )
+    }
+
+    func testAuditArgsSummaryIsTruncatedForDisplay() {
+        XCTAssertEqual(McpText.argsSummary("ls -la"), "ls -la")
+        let long = String(repeating: "a", count: 200)
+        XCTAssertEqual(McpText.argsSummary(long).count, 81)
+        XCTAssertTrue(McpText.argsSummary(long).hasSuffix("…"))
+        XCTAssertEqual(McpText.argsSummary("a\nb"), "a b")
+    }
+
+    func testOpenedEventForAGoneSessionIsSkipped() async throws {
+        let (coordinator, _, _) = makeCoordinator()
+        try coordinator.setEnabled(true)
+        await flush()
+        let client = try XCTUnwrap(coordinator.clients.first)
+        var placed: [UInt64] = []
+        coordinator.onPlaceSession = { placed.append($0) }
+
+        var batch = McpDelegateBridge.Batch()
+        batch.opened = [(987_654, client)]
+        coordinator.apply(batch)
+        XCTAssertTrue(placed.isEmpty)
+        XCTAssertNil(coordinator.mark(for: 987_654))
+    }
+
+    func testClosingATabClearsItsMcpState() async throws {
+        let clock = TestClock()
+        let (window, _) = try makeWindow(supported: true)
+        window.mcp.scheduleAfter = clock.schedule
+        window.showWindow(nil)
+        try window.mcp.setEnabled(true)
+        await flush()
+        let local = try profile(window.mcp.core, named: "Local")
+        let opened = try await window.mcp.server.debugOpenTab(profileId: local.id)
+        await flush()
+        try window.mcp.server.debugActivity(sessionId: opened, tool: "kanso_terminal_read")
+        await flush()
+        try window.mcp.server.debugActivity(sessionId: opened, tool: nil)
+        await flush()
+        XCTAssertNotNil(window.mcp.mark(for: opened)?.openedByClient)
+        XCTAssertEqual(clock.delays, [2])
+
+        await window.controller.requestClose([opened])
+        XCTAssertNil(window.mcp.mark(for: opened))
+        XCTAssertTrue(clock.delays.isEmpty, "待执行的清除计时应一并取消")
     }
 
     private func tabModel(session: SessionID, mark: McpTabMark?) -> TabRowView.Model {

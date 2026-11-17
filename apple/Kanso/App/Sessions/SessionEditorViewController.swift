@@ -227,6 +227,11 @@ final class SessionEditorViewController: NSViewController, NSTextFieldDelegate {
         colorPalette.selected = model.color
         groupPopup.selectItem(at: model.groupID.flatMap { id in model.groups.firstIndex { $0.id == id } }.map { $0 + 1 } ?? 0)
         mcpPopup.selectItem(at: McpText.accessIndex(model.mcpAccess))
+        mcpPopup.isEnabled = model.isMcpAccessEnabled
+        if let reason = model.mcpAccessLoadError {
+            mcpHint.stringValue = String(localized: "Could not read the MCP access level: \(reason)")
+            mcpHint.isHidden = false
+        }
         shellField.stringValue = model.shellCommand
         startDirField.stringValue = model.startDir
         hostField.stringValue = model.host

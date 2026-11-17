@@ -3007,6 +3007,36 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "未知客户端" } }
       }
     },
+    "MCP is turned on, but the service did not start." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "MCP is turned on, but the service did not start." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "MCP 已打开，但服务没有启动。" } }
+      }
+    },
+    "Could not regenerate the token. The old token is still valid. %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not regenerate the token. The old token is still valid. %@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "无法重新生成令牌，旧令牌仍然有效。%@" } }
+      }
+    },
+    "Could not change the MCP access level: %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not change the MCP access level: %@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "无法修改 MCP 访问级别：%@" } }
+      }
+    },
+    "Could not read the MCP access level: %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not read the MCP access level: %@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "无法读取 MCP 访问级别：%@" } }
+      }
+    },
+    "The session was saved, but its MCP access level could not be saved: %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The session was saved, but its MCP access level could not be saved: %@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "会话已保存，但 MCP 访问级别没有保存成功：%@" } }
+      }
+    },
     "Disconnect" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Disconnect" } },

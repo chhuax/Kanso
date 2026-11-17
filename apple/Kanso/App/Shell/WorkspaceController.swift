@@ -185,6 +185,8 @@ final class WorkspaceController {
     /// 所有 core 事件的旁路订阅（Filer 的传输事件路由）。在主线程、事件处理之前调用。
     var onCoreEvent: ((FfiCoreEvent) -> Void)?
     var onWillCloseSessions: (([SessionID]) async -> Void)?
+    /// 标签已关闭并清理完毕后调用，供外部清掉按会话 id 保存的状态。
+    var onSessionClosed: ((SessionID) -> Void)?
 
     private func handle(_ event: FfiCoreEvent) {
         onCoreEvent?(event)
@@ -279,13 +281,13 @@ final class WorkspaceController {
         do { try action() } catch { errorHandler?(error) }
     }
 
-    /// 把 core 已打开的会话登记进工作区并创建终端视图。
     /// MCP 打开的标签：放进当前分屏，不激活，因此不切换标签、也不抢焦点。
     func placeMcpSession(_ id: SessionID) {
         guard hosts[id] == nil else { return }
         adopt(id, in: workspace.activePane, splitAxis: nil, activate: false)
     }
 
+    /// 把 core 已打开的会话登记进工作区并创建终端视图。
     private func adopt(_ id: SessionID, in pane: PaneID?, splitAxis: SplitAxis?, activate: Bool = true) {
         let info = core.sessionInfo(sessionId: id)
         let item = TabItem(
@@ -409,6 +411,7 @@ final class WorkspaceController {
         legacyHops[id] = nil
         gutter.forget(session: id)
         refresh()
+        onSessionClosed?(id)
     }
 
     /// 应用退出前调用：通知 core 关闭所有会话并收尾（最多等几秒，不会卡住退出）。可重复调用。

@@ -27,10 +27,13 @@ public enum McpClientToken {
         return String(chars)
     }
 
+    /// 读取已保存的令牌。条目不存在时返回 nil，其他钥匙串错误抛出。
+    /// 钥匙串访问可能阻塞在系统授权框上，不要在主线程调用。
     public static func load(from store: KeychainSecretStore) throws -> String? {
         try store.get(account: account)
     }
 
+    /// 保存令牌（已存在则覆盖），钥匙串出错时抛出。可能阻塞在系统授权框上，不要在主线程调用。
     public static func save(_ token: String, to store: KeychainSecretStore) throws {
         try store.set(account: account, secret: token)
     }

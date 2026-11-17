@@ -93,7 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showSettings(tab: SettingsTab) {
         SettingsWindowController.show(
             settings: settings, appearance: appearance, keybindings: keybindings, tab: tab,
-            mcp: mainWindowController?.mcp, mcpSupported: mcpSupported()
+            mcp: mainWindowController?.mcp
         )
     }
 

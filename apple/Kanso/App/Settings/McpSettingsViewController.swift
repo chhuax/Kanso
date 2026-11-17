@@ -2,10 +2,18 @@ import AppKit
 import KansoBridge
 import KansoUI
 
-/// 设置 → MCP。是否出现这一页只由调用方传入的 `mcpSupported()` 决定，不看服务状态。
+/// 设置 → MCP。是否出现这一页只由 `McpCoordinator.supported` 决定（见 `SettingsWindowController`），不看服务状态。
+///
+/// 页面内容放在 `NSScrollView` 里，高度有上限；会话、客户端、审计记录多了就滚动。内容高度变化后
+/// 调用 `relayout()` 同步页面高度和窗口高度。
 @MainActor
 final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDelegate {
+    /// 页面高度上限，与键盘快捷键页一致；内容更高时滚动。
+    static let maxPageHeight: CGFloat = 620
+
     let mcp: McpCoordinator
+    /// 授权读写用的存储，默认就是 `mcp.core`；测试注入可失败的替身。
+    private let accessStore: any McpAccessStoring
     var copyText: (String) -> Void = { text in
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
@@ -13,6 +21,8 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
 
     let enabledRow = KCheckRow(title: String(localized: "Enable MCP"))
     let statusLabel = NSTextField(wrappingLabelWithString: "")
+    /// 操作失败（授权写入、重新生成令牌）的原因；没有错误时隐藏。
+    let errorLabel = NSTextField(wrappingLabelWithString: "")
     let pathLabel = NSTextField(wrappingLabelWithString: "")
     let copyClaudeButton = KButton(title: String(localized: "Copy Claude Code Configuration"), style: .secondary)
     let copyCodexButton = KButton(title: String(localized: "Copy Codex Configuration"), style: .secondary)
@@ -34,8 +44,12 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
     private var auditSessionIDs: [String?] = []
     private let auditPageSize: UInt32 = 20
 
-    init(mcp: McpCoordinator) {
+    private var contentView: NSView?
+    private var heightConstraint: NSLayoutConstraint?
+
+    init(mcp: McpCoordinator, accessStore: (any McpAccessStoring)? = nil) {
         self.mcp = mcp
+        self.accessStore = accessStore ?? mcp.core
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -54,6 +68,9 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
         pathLabel.font = .monospacedSystemFont(ofSize: DesignTokens.Font.uiCaption, weight: .regular)
         pathLabel.textColor = .token(DesignTokens.Color.textSecondary)
         pathLabel.stringValue = mcpHelperPath()
+        errorLabel.font = .systemFont(ofSize: DesignTokens.Font.uiCaption)
+        errorLabel.textColor = .systemRed
+        errorLabel.isHidden = true
 
         copyClaudeButton.onPress = { [weak self] in self?.copyConfig(.claudeCode) }
         copyCodexButton.onPress = { [weak self] in self?.copyConfig(.codex) }
@@ -72,6 +89,7 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
         let serviceCard = KCard(title: String(localized: "MCP service"), symbol: "antenna.radiowaves.left.and.right")
         serviceCard.addRow(statusLabel)
         serviceCard.addRow(pathLabel)
+        serviceCard.addRow(errorLabel)
 
         let configCard = KCard(title: String(localized: "Configuration"), symbol: "doc.on.clipboard")
         configCard.addRow(buttonRow([copyClaudeButton, copyCodexButton]))
@@ -111,11 +129,11 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
         auditCard.addRow(auditStack)
         auditCard.addRow(buttonRow([auditMoreButton, auditClearButton]))
 
-        view = makePageView([switchCard, serviceCard, configCard, clientsCard, grantsCard, auditCard])
+        view = makeScrollingPage(makePageView([switchCard, serviceCard, configCard, clientsCard, grantsCard, auditCard]))
+        // MCP 事件只更新状态和客户端列表，且只在页面可见时做；重新显示时 `viewWillAppear` 会补一次。
         mcp.addChangeHandler { [weak self] in
-            self?.reloadStatus()
-            self?.reloadClients()
-            self?.reloadTokenButtons()
+            guard let self, view.window?.isVisible == true else { return }
+            refreshLive()
         }
         NotificationCenter.default.addObserver(
             forName: .sessionLibraryDidChange, object: mcp.core, queue: .main
@@ -127,6 +145,73 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
         reloadClients()
         reloadGrants()
         reloadAudit(reset: true)
+        mcp.refreshTokenCache()
+    }
+
+    override func viewWillAppear() {
+        super.viewWillAppear()
+        refreshLive()
+    }
+
+    /// 把页面内容放进滚动区。页面高度取内容高度和 `maxPageHeight` 的较小值，由 `relayout()` 维护。
+    private func makeScrollingPage(_ content: NSView) -> NSView {
+        let root = StyledBoxView()
+        root.fillToken = DesignTokens.Color.bgWindow
+        root.cornerRadius = 0
+        let document = FlippedView()
+        content.translatesAutoresizingMaskIntoConstraints = false
+        document.addSubview(content)
+        let scroll = NSScrollView()
+        scroll.documentView = document
+        scroll.drawsBackground = false
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.scrollerStyle = .overlay
+        scroll.borderType = .noBorder
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        document.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(scroll)
+        let height = root.heightAnchor.constraint(equalToConstant: Self.maxPageHeight)
+        NSLayoutConstraint.activate([
+            root.widthAnchor.constraint(equalToConstant: Self.pageWidth),
+            height,
+            scroll.topAnchor.constraint(equalTo: root.topAnchor),
+            scroll.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            scroll.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+            content.topAnchor.constraint(equalTo: document.topAnchor),
+            content.bottomAnchor.constraint(equalTo: document.bottomAnchor),
+            content.leadingAnchor.constraint(equalTo: document.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: document.trailingAnchor),
+        ])
+        contentView = content
+        heightConstraint = height
+        return root
+    }
+
+    /// 内容增减后重算页面高度并让设置窗口跟上。客户端、授权、审计列表变化后都要调用，
+    /// 否则窗口高度停在旧值，内容会被裁掉或留空。
+    func relayout() {
+        guard let contentView, let heightConstraint else { return }
+        contentView.layoutSubtreeIfNeeded()
+        let fitted = contentView.fittingSize.height
+        guard fitted > 0 else { return }
+        heightConstraint.constant = min(fitted, Self.maxPageHeight)
+        (view.window?.windowController as? SettingsWindowController)?.resizeToFitCurrentPage()
+    }
+
+    /// MCP 事件触发的局部更新：状态、客户端列表、令牌按钮。
+    private func refreshLive() {
+        reloadStatus()
+        reloadClients()
+        reloadTokenButtons()
+        relayout()
+    }
+
+    private func showError(_ text: String?) {
+        errorLabel.stringValue = text ?? ""
+        errorLabel.isHidden = text == nil
     }
 
     func controlTextDidEndEditing(_ obj: Notification) {
@@ -134,6 +219,7 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
     }
 
     private func toggleEnabled(_ on: Bool) {
+        showError(nil)
         do {
             try mcp.setEnabled(on)
         } catch {
@@ -142,6 +228,7 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
         }
         reloadStatus()
         reloadTokenButtons()
+        relayout()
     }
 
     private func reloadStatus() {
@@ -154,10 +241,15 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
         case .unavailable(let reason):
             statusLabel.stringValue = String(localized: "Unavailable") + "\n" + McpText.unavailableReason(reason)
         }
+        // 开关已打开但启动阶段就失败（取令牌或 start 抛错）时，状态回调不一定会来，这里单独说明。
+        if let reason = mcp.startError, case .stopped = mcp.status {
+            statusLabel.stringValue = String(localized: "MCP is turned on, but the service did not start.") + "\n" + reason
+        }
     }
 
+    /// 按钮状态只看协调器的令牌缓存，不在页面路径上读钥匙串。
     private func reloadTokenButtons() {
-        let hasToken = (try? mcp.currentToken()) != nil
+        let hasToken = mcp.cachedToken != nil
         copyClaudeButton.isEnabled = hasToken
         copyCodexButton.isEnabled = hasToken
         copyTokenButton.isEnabled = hasToken
@@ -165,25 +257,32 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
     }
 
     private func copyConfig(_ kind: FfiMcpClientKind) {
-        guard let token = try? mcp.currentToken() else { return }
+        guard let token = mcp.cachedToken else { return }
         // 原样复制，保留开头的空格。
         copyText(mcpClientConfig(kind: kind, helperPath: mcpHelperPath(), token: token))
     }
 
     private func copyToken() {
-        guard let token = try? mcp.currentToken() else { return }
+        guard let token = mcp.cachedToken else { return }
         copyText(token)
     }
 
     private func regenerate() {
-        try? mcp.regenerateToken()
+        showError(nil)
+        do {
+            try mcp.regenerateToken()
+        } catch {
+            showError(String(localized: "Could not regenerate the token. The old token is still valid. \(CoreMessageText.text(for: error))"))
+        }
         reloadTokenButtons()
+        relayout()
     }
 
     private func reloadClients() {
         for view in clientStack.arrangedSubviews { view.removeFromSuperview() }
         if mcp.clients.isEmpty {
             clientStack.addArrangedSubview(SettingsPageViewController.caption(String(localized: "No clients connected.")))
+            relayout()
             return
         }
         for client in mcp.clients {
@@ -205,6 +304,7 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
             row.spacing = DesignTokens.Spacing.sm
             clientStack.addArrangedSubview(row)
         }
+        relayout()
     }
 
     func reloadGrants() {
@@ -229,6 +329,7 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
         for group in groups {
             addGrantSection(title: group.name, groupId: group.id, profiles: buckets[group.id] ?? [])
         }
+        relayout()
     }
 
     private func addGrantSection(title: String, groupId: String?, profiles: [FfiProfile]) {
@@ -256,7 +357,7 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
         grantStack.addArrangedSubview(headerRow)
         batch.widthAnchor.constraint(equalToConstant: 160).isActive = true
         for profile in profiles {
-            let level = (try? mcp.core.mcpAccess(profileId: profile.id)) ?? .off
+            let level = (try? accessStore.mcpAccess(profileId: profile.id)) ?? .off
             let popup = KPopUpField()
             popup.setItems(McpText.accessLevels.map(McpText.accessTitle))
             popup.selectItem(at: McpText.accessIndex(level))
@@ -264,7 +365,7 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
             popup.onChange = { [weak self] index in
                 guard let self else { return }
                 let next = McpText.accessLevels[index]
-                let previous = (try? self.mcp.core.mcpAccess(profileId: profileId)) ?? .off
+                let previous = (try? self.accessStore.mcpAccess(profileId: profileId)) ?? .off
                 self.setLevels([profileId], to: next, previous: [profileId: previous])
             }
             levelPopups[profile.id] = popup
@@ -280,15 +381,29 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
         }
     }
 
+    /// 写入授权。失败时下拉框回到实际存储的级别（重新读取），并在页面上显示原因，不让界面停在没生效的值上。
     private func setLevels(_ ids: [String], to level: FfiMcpAccess, previous: [String: FfiMcpAccess]? = nil) {
+        showError(nil)
         var raised = false
+        var failure: Error?
         for id in ids {
-            let before = previous?[id] ?? ((try? mcp.core.mcpAccess(profileId: id)) ?? .off)
-            if before == .off, level != .off { raised = true }
-            try? mcp.core.setMcpAccess(profileId: id, level: level)
-            levelPopups[id]?.selectItem(at: McpText.accessIndex(level))
+            let before = previous?[id] ?? ((try? accessStore.mcpAccess(profileId: id)) ?? .off)
+            do {
+                try accessStore.setMcpAccess(profileId: id, level: level)
+                levelPopups[id]?.selectItem(at: McpText.accessIndex(level))
+                if before == .off, level != .off { raised = true }
+            } catch {
+                failure = error
+                if let actual = try? accessStore.mcpAccess(profileId: id) {
+                    levelPopups[id]?.selectItem(at: McpText.accessIndex(actual))
+                }
+            }
         }
         if raised { sensitiveNotice.isHidden = false }
+        if let failure {
+            showError(String(localized: "Could not change the MCP access level: \(CoreMessageText.text(for: failure))"))
+        }
+        relayout()
     }
 
     private func reloadAudit(reset: Bool) {
@@ -327,6 +442,7 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
         for view in auditStack.arrangedSubviews { view.removeFromSuperview() }
         if auditRecords.isEmpty {
             auditStack.addArrangedSubview(SettingsPageViewController.caption(String(localized: "No audit records.")))
+            relayout()
             return
         }
         let names = Dictionary(uniqueKeysWithValues: mcp.core.profiles().map { ($0.id, $0.name) })
@@ -341,7 +457,19 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
             label.textColor = .token(DesignTokens.Color.textSecondary)
             label.preferredMaxLayoutWidth = SettingsPageViewController.pageWidth - 80
             auditStack.addArrangedSubview(label)
+            if !record.args.isEmpty {
+                // 参数摘要可能很长（整条命令），界面只放截断后的一行，悬停看全文。
+                let args = NSTextField(labelWithString: McpText.argsSummary(record.args))
+                args.font = .monospacedSystemFont(ofSize: DesignTokens.Font.uiCaption, weight: .regular)
+                args.textColor = .token(DesignTokens.Color.textTertiary)
+                args.lineBreakMode = .byTruncatingTail
+                args.toolTip = record.args
+                args.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+                args.preferredMaxLayoutWidth = SettingsPageViewController.pageWidth - 80
+                auditStack.addArrangedSubview(args)
+            }
         }
+        relayout()
     }
 
     private func clearAudit() {

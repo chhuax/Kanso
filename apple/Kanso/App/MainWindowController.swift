@@ -63,8 +63,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private let defaults: UserDefaults
     private let statusBar = StatusBarView()
     let mcp: McpCoordinator
-    /// 状态栏指示器和设置页是否显示 MCP，只看 `mcpSupported()`。
-    private let mcpUIEnabled: Bool
     var onOpenMcpSettings: (() -> Void)?
     private var terminalTransfers: [UInt64: (FfiTransferDirection, FfiXferProtocol)] = [:]
     private let baseTitle = "Kanso · \(KansoChannel.current)"
@@ -100,7 +98,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             supported: mcpSupported, bundleId: bundleId
         )
         self.mcp = mcp
-        self.mcpUIEnabled = mcpSupported
         // 必须在创建任何视图之前：载入会应用外观、时间轴模式，并把终端选项（回滚、默认光标）下发给 core，
         // 之后打开的第一个会话就已经是用户的设置。
         settings.attach(backend: core, legacyDefaults: defaults)
@@ -203,9 +200,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         sidebarController.mcpMark = { [weak self] id in self?.mcp.mark(for: id) }
         statusBar.onOpenMcp = { [weak self] in self?.onOpenMcpSettings?() }
         mcp.onPlaceSession = { [weak self] id in self?.placeMcpSession(id) }
-        mcp.addChangeHandler { [weak self] in
+        controller.sessions.mcpSupported = { [weak self] in self?.mcp.supported ?? false }
+        controller.onSessionClosed = { [weak self] id in self?.mcp.forget(session: id) }
+        // 只刷新侧栏标签行与状态栏指示器；`controller.refresh()` 会刷新整个工作区，MCP 事件用不着。
+        mcp.addChangeHandler { [weak self, weak sidebarController] in
             self?.updateMcpIndicator()
-            self?.controller.refresh()
+            sidebarController?.refresh()
         }
         mcp.startIfEnabled()
         senderModel.isVisible = !senderItem.isCollapsed
@@ -496,7 +496,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     private func updateMcpIndicator() {
-        statusBar.setMcpClientCount(mcpUIEnabled ? mcp.clients.count : 0)
+        statusBar.setMcpClientCount(mcp.supported ? mcp.clients.count : 0)
     }
 
     var isMcpIndicatorVisible: Bool { statusBar.isMcpIndicatorVisible }
