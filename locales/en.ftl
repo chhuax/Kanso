@@ -384,3 +384,278 @@ ui-history-clear-body = Clear recorded command history from all terminals. This 
 ui-history-clear-confirm = Clear
 ui-history-clear-cancel = Cancel
 ui-history-clear-failed = Failed to clear command history: { $detail }
+ui-follow-system = Follow system
+
+ui-language = Language
+
+ui-interface-language = Interface language
+
+ui-takes-effect-immediately-follow-system = Takes effect immediately. “Follow system” uses the system display language; unsupported languages fall back to English.
+
+ui-export-complete = Export Complete
+
+ui-exported-to-file-contains-no = Exported to { $path }.
+    The file contains no passwords or passphrases.
+
+ui-import-data = Import Data
+
+ui-this-file-will-be-imported = This file will be imported:
+
+ui-data-is-merged-by-id = Data is merged by id: sessions, groups and commands with the same id replace the local ones, everything else is added, and no local data is deleted. Replaced sessions keep their saved credentials. Invalid entries are skipped.
+
+ui-import-complete = Import Complete
+
+ui-operation-failed = Operation Failed
+
+ui-skipped = Skipped
+
+ui-warnings = Warnings
+
+ui-ok = OK
+
+ui-import = Import
+
+ui-choose-kanso-file-to-import = Choose a .kanso file to import
+
+ui-import-openssh-config = Import OpenSSH Config
+
+ui-import-openssh-config-2 = Import OpenSSH Config…
+
+ui-choose-openssh-config-file = Choose an OpenSSH config file
+
+ui-no-group = No group
+
+ui-import-into-group = Import into group
+
+ui-select-all-of-selected = Select all ({ $selected } of { $total } selected)
+
+ui-saved-will-update = Saved, will update
+
+ui-key = Key { $path }
+
+ui-via = via { $jump }
+
+ui-reading = Reading…
+
+ui-importing = Importing…
+
+ui-no-hosts-to-import-in = No hosts to import in this file.
+
+ui-found-hosts-of-them-already = Found { $found } hosts, { $existing } of them already saved (they will be updated).
+
+ui-no-open-sessions = No open sessions
+
+ui-new-local-shell = New Local Shell
+
+ui-new-session-2 = New Session…
+
+ui-or-press = or press
+
+ui-previous-tab = Previous Tab
+
+ui-next-tab = Next Tab
+
+ui-previous-pane = Previous Pane
+
+ui-next-pane = Next Pane
+
+ui-close-session = Close Session
+
+ui-export-data = Export Data…
+
+ui-import-data-2 = Import Data…
+
+ui-copy = Copy
+
+ui-paste = Paste
+
+ui-select-all = Select All
+
+ui-clear-buffer = Clear Buffer
+
+ui-split-right = Split Right
+
+ui-split-down = Split Down
+
+ui-right-click-shows-menu = Right-click Shows Menu
+
+ui-tab-bar = Tab Bar
+
+ui-view = View
+
+ui-settings-2 = Settings…
+
+ui-quit = Quit
+
+ui-edit-session-2 = Edit Session…
+
+ui-close = Close
+
+ui-close-others = Close Others
+
+ui-close-tabs-to-left = Close Tabs to the Left
+
+ui-close-tabs-to-right = Close Tabs to the Right
+
+ui-close-all = Close All
+
+ui-and-more = …and { $count } more
+
+ui-quit-kanso = Quit Kanso?
+
+ui-close-running-sessions = Close running sessions?
+
+ui-these-sessions-are-still-running = These sessions are still running or connected:
+
+ui-closing-will-interrupt-file-transfers = Closing will interrupt file transfers in progress.
+
+ui-connecting = Connecting…
+
+ui-session-ended-exit-code = Session ended (exit code { $code })
+
+ui-session-ended = Session ended
+
+ui-session-disconnected = Session disconnected
+
+ui-command-running = Command running
+
+ui-ai-running = AI running
+
+ui-ai-finished = AI finished
+
+ui-command-finished-click-to-view = Command finished, click to view
+
+ui-operation-failed-2 = The operation failed.
+
+ui-default-shell = Default shell
+
+ui-edit = Edit…
+
+ui-move-to-group = Move to Group
+
+ui-delete = Delete…
+
+ui-rename = Rename…
+
+ui-new-group = New Group…
+
+ui-deleting-this-group-also-deletes = Deleting this group also deletes its { $profiles } sessions and { $snippets } snippets. This can’t be undone.
+
+ui-only-session-and-its-credentials = Only the session and its credentials saved in Kanso are deleted; ~/.ssh/config and key files are untouched. This can’t be undone.
+
+ui-local = Local
+
+ui-enter-session-name = Enter a session name.
+
+ui-port-must-be-number-from = The port must be a number from 1 to 65535.
+
+ui-locale-may-only-contain-letters = Locale may only contain letters, digits and _ - . @, 1 to 64 characters.
+
+ui-save-failed = Save failed.
+
+ui-session-saved-but-credentials-could = Session saved, but the credentials could not be stored: { $detail }
+
+ui-server = Server: { $host_port }
+
+ui-server-via = Server: { $host_port } (via { $via })
+
+ui-tab = Tab: { $title }
+
+ui-host-key-changed = Host Key Changed
+
+ui-key-type = Key type
+
+ui-sha256-fingerprint = SHA256 fingerprint
+
+ui-previously-recorded-at = Previously recorded at
+
+ui-accept-new-key-and-connect = Accept New Key and Connect
+
+ui-verification-required = Verification Required
+
+ui-continue = Continue
+
+ui-private-key-passphrase-required = Private Key Passphrase Required
+
+ui-credential-intro-key = { $server }
+    User: { $user }
+    Key: { $key }
+
+ui-password-required = Password Required
+
+ui-credential-intro = { $server }
+    User: { $user }
+
+ui-connect-and-save = Connect and Save
+
+ui-connect-only = Connect Only
+
+ui-block = Block
+
+ui-underline = Underline
+
+ui-bar = Bar
+
+ui-light = Light
+
+ui-dark = Dark
+
+ui-line-numbers-only = Line numbers only
+
+ui-timestamps-only = Timestamps only
+
+ui-timestamps-and-line-numbers = Timestamps and line numbers
+
+ui-off = Off
+
+ui-cant-open-local-shell = Can’t open a local shell: { $detail }
+
+ui-cant-split = Can’t split: { $detail }
+
+ui-session-ended-press-ctrl-shift = Session ended. Press Ctrl+Shift+W to close this tab
+
+ui-session-ended-exit-code-press = Session ended (exit code { $code }). Press Ctrl+Shift+W to close this tab
+
+ui-session-disconnected-press-ctrl-shift = Session disconnected. Press Ctrl+Shift+W to close this tab
+
+ui-this-session-no-longer-exists = This session no longer exists
+
+ui-sftp-sessions-need-file-panel = SFTP sessions need the file panel, which the main window can’t open yet
+
+ui-cant-connect-to = Can’t connect to “{ $name }”: { $detail }
+
+ui-pane = Pane { $index }
+
+ui-files = Files
+
+ui-timestamps = Timestamps
+
+ui-new-group-2 = New Group
+
+ui-group-name = Group name
+
+ui-create = Create
+
+ui-rename-group = Rename Group
+
+ui-rename-2 = Rename
+
+ui-delete-2 = Delete
+
+ui-delete-group = Delete group “{ $name }”?
+
+ui-delete-session = Delete session “{ $name }”?
+
+ui-edit-2 = Edit
+
+ui-none = None
+
+ui-choose-private-key-file = Choose a private key file
+
+ui-search-fonts = Search fonts
+
+ui-search-monospaced-fonts = Search monospaced fonts
+
+ui-system-default-or-type-font = System default; or type a font name
+
+ui-lines = { $lines } lines

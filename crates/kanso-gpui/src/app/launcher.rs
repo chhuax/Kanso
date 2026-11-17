@@ -3,6 +3,7 @@
 //!
 //! 对照 `Sessions/SessionLauncherViewController.swift`（ui-shell.md §4、§5）。
 
+use crate::app::i18n::{label, t};
 use kanso_core::{CoreError, DeleteImpact};
 use kanso_types::geometry::Rgb;
 use kanso_types::message::Message;
@@ -14,19 +15,17 @@ use crate::widgets::menu::MenuItem;
 
 // ---- 核心消息 ----
 
-/// 界面语言（目前界面只有简体中文）。
-const LANGUAGES: &[&str] = &["zh-Hans"];
-
 /// 把核心的用户级消息渲染成界面文字。
 pub fn render_message(message: &Message) -> String {
-    kanso_l10n::render(message, LANGUAGES)
+    kanso_l10n::render(message, &super::i18n::languages())
 }
 
 /// 核心错误的展示文字：用户级错误渲染其消息，其余给通用提示（英文技术细节只进日志）。
 pub fn core_error_text(error: &CoreError) -> String {
-    error
-        .user_message()
-        .map_or_else(|| "操作失败。".to_owned(), render_message)
+    error.user_message().map_or_else(
+        || label(Message::UiOperationFailed2 {}).to_owned(),
+        render_message,
+    )
 }
 
 // ---- 列表行 ----
@@ -67,7 +66,7 @@ pub fn row_index_of(rows: &[LauncherRow], id: ProfileId) -> Option<usize> {
 pub fn subtitle_text(profile: &Profile) -> String {
     match row_subtitle(profile) {
         RowSubtitle::Target(t) | RowSubtitle::ShellCommand(t) => t,
-        RowSubtitle::DefaultShell => "默认 Shell".to_owned(),
+        RowSubtitle::DefaultShell => label(Message::UiDefaultShell {}).to_owned(),
     }
 }
 
@@ -88,17 +87,20 @@ pub enum ProfileAction {
 
 /// 会话行菜单：连接、编辑、移到分组、删除（ui-shell.md §4）。
 pub fn profile_menu(profile: &Profile, groups: &[Group]) -> Vec<MenuItem> {
-    let mut moves = vec![MenuItem::action("move:none", "不分组").checked(profile.group.is_none())];
+    let mut moves = vec![
+        MenuItem::action("move:none", label(Message::UiNoGroup {}))
+            .checked(profile.group.is_none()),
+    ];
     moves.extend(groups.iter().map(|g| {
         MenuItem::action(format!("move:{}", g.id), g.name.clone())
             .checked(profile.group == Some(g.id))
     }));
     vec![
-        MenuItem::action("connect", "连接"),
-        MenuItem::action("edit", "编辑…"),
-        MenuItem::submenu("移到分组", moves),
+        MenuItem::action("connect", label(Message::UiConnect {})),
+        MenuItem::action("edit", label(Message::UiEdit {})),
+        MenuItem::submenu(label(Message::UiMoveToGroup {}), moves),
         MenuItem::separator(),
-        MenuItem::action("delete", "删除…"),
+        MenuItem::action("delete", label(Message::UiDelete {})),
     ]
 }
 
@@ -128,8 +130,8 @@ pub enum GroupAction {
 /// 分组菜单。
 pub fn group_menu() -> Vec<MenuItem> {
     vec![
-        MenuItem::action("rename", "重命名…"),
-        MenuItem::action("delete", "删除…"),
+        MenuItem::action("rename", label(Message::UiRename {})),
+        MenuItem::action("delete", label(Message::UiDelete {})),
     ]
 }
 
@@ -154,8 +156,8 @@ pub enum SavedAction {
 /// "已保存的会话"菜单。
 pub fn saved_menu() -> Vec<MenuItem> {
     vec![
-        MenuItem::action("new-group", "新建分组…"),
-        MenuItem::action("import-ssh", "导入 OpenSSH 配置…"),
+        MenuItem::action("new-group", label(Message::UiNewGroup {})),
+        MenuItem::action("import-ssh", label(Message::UiImportOpensshConfig2 {})),
     ]
 }
 
@@ -172,22 +174,23 @@ pub fn parse_saved_action(id: &str) -> Option<SavedAction> {
 
 /// 删除分组前的确认文字：数字来自核心的 `group_delete_impact`，必须与实际删除的一致。
 pub fn delete_group_message(impact: &DeleteImpact) -> String {
-    format!(
-        "删除这个分组会同时删除其中的 {} 个会话和 {} 条快捷命令，此操作无法撤销。",
-        impact.profiles, impact.snippets
-    )
+    t(&Message::UiDeletingThisGroupAlsoDeletes {
+        profiles: impact.profiles as i64,
+        snippets: impact.snippets as i64,
+    })
 }
 
 /// 删除会话前的确认文字（只删 Kanso 里保存的会话与凭据，不碰 ssh 配置与密钥文件）。
-pub const DELETE_PROFILE_MESSAGE: &str =
-    "只会删除 Kanso 中保存的会话及其凭据，不会改动 ~/.ssh/config 和密钥文件。此操作无法撤销。";
+pub fn delete_profile_message() -> &'static str {
+    label(Message::UiOnlySessionAndItsCredentials {})
+}
 
 // ---- 编辑对话框 ----
 
 /// 类型的显示名。
 pub fn kind_label(kind: SessionKind) -> &'static str {
     match kind {
-        SessionKind::Local => "本地",
+        SessionKind::Local => label(Message::UiLocal {}),
         SessionKind::Ssh => "SSH",
         SessionKind::Sftp => "SFTP",
     }
@@ -196,8 +199,8 @@ pub fn kind_label(kind: SessionKind) -> &'static str {
 /// 认证方式的显示名。
 pub fn auth_label(auth: AuthMethod) -> &'static str {
     match auth {
-        AuthMethod::Password => "密码",
-        AuthMethod::PrivateKey => "私钥",
+        AuthMethod::Password => label(Message::UiPassword {}),
+        AuthMethod::PrivateKey => label(Message::UiPrivateKey {}),
         AuthMethod::Agent => "ssh-agent",
     }
 }
@@ -214,17 +217,17 @@ pub fn toggle_color(current: Option<Rgb>, picked: Rgb) -> Option<Rgb> {
 /// 保存失败的提示文字。`render` 把核心的用户级消息渲染成当前语言（视图用 `kanso-l10n`）。
 pub fn editor_error_text(error: &EditorError, render: impl Fn(&Message) -> String) -> String {
     match error {
-        EditorError::NameEmpty => "请输入会话名称。".to_owned(),
-        EditorError::PortInvalid => "端口必须是 1 到 65535 之间的数字。".to_owned(),
-        EditorError::LocaleInvalid => {
-            "Locale 只能包含字母、数字和 _ - . @，长度 1 到 64。".to_owned()
-        }
+        EditorError::NameEmpty => label(Message::UiEnterSessionName {}).to_owned(),
+        EditorError::PortInvalid => label(Message::UiPortMustBeNumberFrom {}).to_owned(),
+        EditorError::LocaleInvalid => label(Message::UiLocaleMayOnlyContainLetters {}).to_owned(),
         EditorError::Save(e) => e
             .user_message()
-            .map_or_else(|| "保存失败。".to_owned(), render),
+            .map_or_else(|| label(Message::UiSaveFailed {}).to_owned(), render),
         EditorError::Credential(e) => {
             let detail = e.user_message().map(render).unwrap_or_default();
-            format!("会话已保存，但凭据没有存进去：{detail}")
+            t(&Message::UiSessionSavedButCredentialsCould {
+                detail: detail.to_string(),
+            })
         }
     }
 }

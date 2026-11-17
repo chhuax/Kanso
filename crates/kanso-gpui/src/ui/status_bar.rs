@@ -5,7 +5,9 @@
 //! 空间不足时状态文字先让位（被裁掉），再压缩目录（保留末尾）。
 
 use gpui::{Context, Render, Window, div, prelude::*, px};
+use kanso_gpui::app::i18n::label;
 use kanso_gpui::app::status_bar::{StatusBarModel, StatusTone, fit_directory};
+use kanso_types::message::Message;
 
 use super::shell::{ShellView, Theme, status_bar_h};
 
@@ -154,12 +156,17 @@ impl ShellView {
             .border_color(th.c("border.subtle"))
             .text_size(px(kanso_gpui::widgets::style::number("font", "ui.caption")))
             // Filer 开关的功能还没有接进外壳，先置灰显示。
-            .child(toggle_item("status-filer", "文件", th, false).opacity(0.5))
+            .child(toggle_item("status-filer", label(Message::UiFiles {}), th, false).opacity(0.5))
             .child(
-                toggle_item("status-timeline", "时间戳", th, timeline_on)
-                    .cursor_pointer()
-                    .hover(|d| d.bg(th.c("bg.rowHover")))
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_timeline(cx))),
+                toggle_item(
+                    "status-timeline",
+                    label(Message::UiTimestamps {}),
+                    th,
+                    timeline_on,
+                )
+                .cursor_pointer()
+                .hover(|d| d.bg(th.c("bg.rowHover")))
+                .on_click(cx.listener(|this, _, _, cx| this.toggle_timeline(cx))),
             )
             .children(directory)
             // 状态文字没有内容时也要占住中间的弹性空间，把右侧元素推到最右。

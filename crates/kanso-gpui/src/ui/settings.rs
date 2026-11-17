@@ -17,6 +17,7 @@ use gpui::{
     WindowHandle, WindowOptions, div, prelude::*, px, rgba, size,
 };
 use kanso_core::Core;
+use kanso_gpui::app::i18n::{LanguageSetting, label, t};
 use kanso_gpui::app::settings::{
     AppearanceSettings, BUILTIN_THEMES, CursorShapeSetting, DisplaySettings, GutterMode, Section,
     SettingsStore, ThemeMode, TimelineSettings, clean_font_names, is_monospace, pick_nerd_fallback,
@@ -110,6 +111,7 @@ impl SettingsModel {
     /// 把当前设置写进 GPUI 一侧的生效状态（字体 / 字号 / 行距 / 强制外观）。
     pub(crate) fn push_to_display(&self, cx: &App) {
         display::apply(self.display(), self.appearance().mode, nerd_fallback(cx));
+        display::apply_language(self.appearance().language);
     }
 }
 
@@ -205,7 +207,7 @@ fn font_items(names: &[String], current: &str) -> (Vec<String>, Vec<Item>, usize
         .enumerate()
         .map(|(i, n)| {
             Item::option(if i == 0 {
-                "系统默认".to_owned()
+                label(Message::UiShellDefault {}).to_owned()
             } else {
                 n.clone()
             })
@@ -237,7 +239,7 @@ fn format_lines(v: u32) -> String {
         }
         out.push(ch);
     }
-    format!("{out} 行")
+    t(&Message::UiLines { lines: out })
 }
 
 fn theme_items() -> Vec<Item> {
@@ -271,7 +273,7 @@ impl SettingsView {
             Dropdown::new(window, cx)
                 .items(ui_items)
                 .button_label(render_message(&Message::UiChoose {}))
-                .filterable("搜索字体")
+                .filterable(label(Message::UiSearchFonts {}))
                 .selected(ui_sel)
         });
         // 终端字体：先只放"系统默认"和当前值，等宽字体探测完再补齐。
@@ -280,18 +282,18 @@ impl SettingsView {
             Dropdown::new(window, cx)
                 .items(term_items)
                 .button_label(render_message(&Message::UiChoose {}))
-                .filterable("搜索等宽字体")
+                .filterable(label(Message::UiSearchMonospacedFonts {}))
                 .selected(term_sel)
         });
         let term_font_input = cx.new(|cx| {
             TextInput::new(window, cx)
                 .with_text(&display.font_family)
-                .placeholder("系统默认；也可直接输入字体名")
+                .placeholder(label(Message::UiSystemDefaultOrTypeFont {}))
         });
         let ui_font_input = cx.new(|cx| {
             TextInput::new(window, cx)
                 .with_text(&display.ui_font_family)
-                .placeholder("系统默认；也可直接输入字体名")
+                .placeholder(label(Message::UiSystemDefaultOrTypeFont {}))
         });
         let (_, sb_items, sb_sel) = scrollback_items(display.scrollback_lines);
         let scrollback = cx.new(|cx| Dropdown::new(window, cx).items(sb_items).selected(sb_sel));
@@ -758,9 +760,9 @@ impl Render for SettingsView {
             self.titlebar_dark = Some(dark);
         }
         let th = Th(display::window_appearance(window));
-        let (d, t) = {
+        let (d, t, a) = {
             let m = self.model.read(cx);
-            (m.display().clone(), *m.timeline())
+            (m.display().clone(), *m.timeline(), m.appearance().clone())
         };
 
         // 外观
@@ -784,6 +786,36 @@ impl Render for SettingsView {
                     &render_message(&Message::UiDarkTheme {}),
                     boxed(self.dark_theme.clone(), 220.0),
                 ),
+            ],
+        );
+
+        // 语言（ui-shell.md §10：Windows / Linux 在设置里切换）
+        let lang_idx = LanguageSetting::ALL
+            .iter()
+            .position(|l| *l == a.language)
+            .unwrap_or(0);
+        let language_card = card(
+            &th,
+            label(Message::UiLanguage {}),
+            "settings",
+            vec![
+                row(
+                    &th,
+                    label(Message::UiInterfaceLanguage {}),
+                    segmented(
+                        &th,
+                        cx,
+                        "language",
+                        &LanguageSetting::ALL.map(LanguageSetting::label),
+                        lang_idx,
+                        |this, i, cx| {
+                            this.model.update(cx, |m, cx| {
+                                m.update_appearance(cx, |a| a.language = LanguageSetting::ALL[i])
+                            })
+                        },
+                    ),
+                ),
+                caption(&th, label(Message::UiTakesEffectImmediatelyFollowSystem {})),
             ],
         );
 
@@ -1069,7 +1101,7 @@ impl Render for SettingsView {
             );
         }
         let cards = if self.page == 0 {
-            vec![appearance_card, timeline_card, ui_card]
+            vec![appearance_card, language_card, timeline_card, ui_card]
         } else {
             vec![font_card, cursor_card, scroll_card, contrast_card]
         };

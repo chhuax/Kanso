@@ -12,9 +12,12 @@
 //!
 //! 本模块不依赖 gpui，三个平台都能编译与测试；GPUI 一侧见 `ui/settings.rs`。
 
+use crate::app::i18n::label;
 use kanso_types::display::{CursorShape, TerminalOptions};
+use kanso_types::message::Message;
 use serde_json::{Map, Value, json};
 
+use super::i18n::LanguageSetting;
 use crate::theme::Palette;
 
 /// 当前写入的版本号。
@@ -110,9 +113,9 @@ impl CursorShapeSetting {
     /// 显示名。
     pub fn label(self) -> &'static str {
         match self {
-            CursorShapeSetting::Block => "块状",
-            CursorShapeSetting::Underline => "下划线",
-            CursorShapeSetting::Bar => "竖线",
+            CursorShapeSetting::Block => label(Message::UiBlock {}),
+            CursorShapeSetting::Underline => label(Message::UiUnderline {}),
+            CursorShapeSetting::Bar => label(Message::UiBar {}),
         }
     }
 
@@ -307,9 +310,9 @@ impl ThemeMode {
     /// 显示名。
     pub fn label(self) -> &'static str {
         match self {
-            ThemeMode::System => "跟随系统",
-            ThemeMode::Light => "浅色",
-            ThemeMode::Dark => "深色",
+            ThemeMode::System => label(Message::UiFollowSystem {}),
+            ThemeMode::Light => label(Message::UiLight {}),
+            ThemeMode::Dark => label(Message::UiDark {}),
         }
     }
 
@@ -336,6 +339,8 @@ pub struct AppearanceSettings {
     pub light_theme: String,
     /// 深色外观用的终端配色 id。
     pub dark_theme: String,
+    /// 界面语言（Windows / Linux 在设置里切换；mac 版跟随系统，忽略这个字段）。
+    pub language: LanguageSetting,
 }
 
 impl Default for AppearanceSettings {
@@ -344,6 +349,7 @@ impl Default for AppearanceSettings {
             mode: ThemeMode::System,
             light_theme: "kanso-light".to_owned(),
             dark_theme: "kanso-dark".to_owned(),
+            language: LanguageSetting::System,
         }
     }
 }
@@ -357,6 +363,8 @@ impl AppearanceSettings {
             mode: ThemeMode::from_storage(&get_str(&m, "mode", "")).unwrap_or(d.mode),
             light_theme: get_str(&m, "lightTheme", &d.light_theme),
             dark_theme: get_str(&m, "darkTheme", &d.dark_theme),
+            language: LanguageSetting::from_storage(&get_str(&m, "language", ""))
+                .unwrap_or(d.language),
         }
     }
 
@@ -367,6 +375,7 @@ impl AppearanceSettings {
             "mode": self.mode.storage(),
             "lightTheme": self.light_theme,
             "darkTheme": self.dark_theme,
+            "language": self.language.storage(),
         })
         .to_string()
     }
@@ -429,10 +438,10 @@ impl GutterMode {
     /// 显示名。
     pub fn label(self) -> &'static str {
         match self {
-            GutterMode::Off => "关闭",
-            GutterMode::LineNumbers => "只显示行号",
-            GutterMode::Timestamps => "只显示时间",
-            GutterMode::Both => "时间和行号",
+            GutterMode::Off => label(Message::UiOff {}),
+            GutterMode::LineNumbers => label(Message::UiLineNumbersOnly {}),
+            GutterMode::Timestamps => label(Message::UiTimestampsOnly {}),
+            GutterMode::Both => label(Message::UiTimestampsAndLineNumbers {}),
         }
     }
 }
@@ -756,6 +765,17 @@ mod tests {
             AppearanceSettings::decode(Some(r#"{"mode":"x"}"#)).mode,
             ThemeMode::System
         );
+        // 语言：缺省与不认识的值都是“跟随系统”，写入后能读回。
+        assert_eq!(a.language, LanguageSetting::System);
+        assert_eq!(
+            AppearanceSettings::decode(Some(r#"{"language":"fr"}"#)).language,
+            LanguageSetting::System
+        );
+        let en = AppearanceSettings {
+            language: LanguageSetting::En,
+            ..AppearanceSettings::default()
+        };
+        assert_eq!(AppearanceSettings::decode(Some(&en.encode())), en);
 
         let t = TimelineSettings::decode(Some(r#"{"mode":"timestamps","lastVisible":"off"}"#));
         assert_eq!(t.mode, GutterMode::Timestamps);

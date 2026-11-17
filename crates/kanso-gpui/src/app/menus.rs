@@ -4,7 +4,9 @@
 //!
 //! 本文件不依赖窗口系统，三个平台都能编译与测试。
 
-use kanso_types::{Message, SessionId};
+use crate::app::i18n::label;
+use kanso_types::SessionId;
+use kanso_types::message::Message;
 
 use crate::app::sender::t;
 
@@ -40,6 +42,9 @@ pub fn encode(command: AppCommand) -> String {
         AppCommand::OpenLauncher => "open-launcher".into(),
         AppCommand::OpenSettings => "open-settings".into(),
         AppCommand::NewSession => "new-session".into(),
+        AppCommand::ExportData => "export-data".into(),
+        AppCommand::ImportData => "import-data".into(),
+        AppCommand::ImportSshConfig => "import-ssh-config".into(),
         AppCommand::ZoomIn => "zoom-in".into(),
         AppCommand::ZoomOut => "zoom-out".into(),
         AppCommand::ZoomReset => "zoom-reset".into(),
@@ -111,6 +116,9 @@ pub fn decode(id: &str) -> Option<AppCommand> {
         "open-launcher" => AppCommand::OpenLauncher,
         "open-settings" => AppCommand::OpenSettings,
         "new-session" => AppCommand::NewSession,
+        "export-data" => AppCommand::ExportData,
+        "import-data" => AppCommand::ImportData,
+        "import-ssh-config" => AppCommand::ImportSshConfig,
         "zoom-in" => AppCommand::ZoomIn,
         "zoom-out" => AppCommand::ZoomOut,
         "zoom-reset" => AppCommand::ZoomReset,
@@ -156,7 +164,7 @@ fn item(label: &str, command: AppCommand) -> MenuItem {
 ///
 /// `block` 不为空（右键点在有命令的命令块内，command-blocks.md §3）时在“复制”组后增加“复制命令 / 复制输出”。
 pub fn terminal_menu(has_selection: bool, block: Option<BlockMenu>) -> Vec<MenuItem> {
-    let copy = item("复制", AppCommand::Copy);
+    let copy = item(label(Message::UiCopy {}), AppCommand::Copy);
     let mut items = vec![if has_selection { copy } else { copy.disabled() }];
     if let Some(b) = block {
         let cmd = item("复制命令", AppCommand::CopyBlockCommand);
@@ -164,12 +172,12 @@ pub fn terminal_menu(has_selection: bool, block: Option<BlockMenu>) -> Vec<MenuI
         items.push(item("复制输出", AppCommand::CopyBlockOutput));
     }
     items.extend([
-        item("粘贴", AppCommand::Paste),
-        item("全选", AppCommand::SelectAll),
-        item("清除缓冲区", AppCommand::ClearBuffer),
+        item(label(Message::UiPaste {}), AppCommand::Paste),
+        item(label(Message::UiSelectAll {}), AppCommand::SelectAll),
+        item(label(Message::UiClearBuffer {}), AppCommand::ClearBuffer),
         MenuItem::separator(),
-        item("向右拆分", AppCommand::SplitRight),
-        item("向下拆分", AppCommand::SplitDown),
+        item(label(Message::UiSplitRight {}), AppCommand::SplitRight),
+        item(label(Message::UiSplitDown {}), AppCommand::SplitDown),
     ]);
     items
 }
@@ -201,16 +209,31 @@ pub fn tab_menu(ctx: TabMenuContext) -> Vec<MenuItem> {
     if ctx.from_profile {
         items.push(MenuItem::action(
             encode(AppCommand::EditSession(s)),
-            "编辑会话…",
+            label(Message::UiEditSession2 {}),
         ));
         items.push(MenuItem::separator());
     }
-    items.push(MenuItem::action(encode(AppCommand::CloseTab(s)), "关闭"));
+    items.push(MenuItem::action(
+        encode(AppCommand::CloseTab(s)),
+        label(Message::UiClose {}),
+    ));
     items.push(MenuItem::separator());
-    items.push(group("关闭其他", CloseScope::Others, ctx.has_others));
-    items.push(group("关闭左侧", CloseScope::Above, ctx.has_above));
-    items.push(group("关闭右侧", CloseScope::Below, ctx.has_below));
-    items.push(group("全部关闭", CloseScope::All, true));
+    items.push(group(
+        label(Message::UiCloseOthers {}),
+        CloseScope::Others,
+        ctx.has_others,
+    ));
+    items.push(group(
+        label(Message::UiCloseTabsToLeft {}),
+        CloseScope::Above,
+        ctx.has_above,
+    ));
+    items.push(group(
+        label(Message::UiCloseTabsToRight {}),
+        CloseScope::Below,
+        ctx.has_below,
+    ));
+    items.push(group(label(Message::UiCloseAll {}), CloseScope::All, true));
     items
 }
 
@@ -233,27 +256,34 @@ pub struct AppMenuState {
 pub fn app_menu(state: AppMenuState) -> Vec<MenuItem> {
     vec![
         MenuItem::submenu(
-            "会话",
+            label(Message::UiSession {}),
             vec![
-                item("新建会话…", AppCommand::OpenLauncher),
-                item("新建本地 Shell", AppCommand::NewLocalTab),
+                item(label(Message::UiNewSession2 {}), AppCommand::OpenLauncher),
+                item(label(Message::UiNewLocalShell {}), AppCommand::NewLocalTab),
                 MenuItem::separator(),
-                item("上一个标签", AppCommand::PrevTab),
-                item("下一个标签", AppCommand::NextTab),
-                item("上一个分屏", AppCommand::PrevPane),
-                item("下一个分屏", AppCommand::NextPane),
+                item(label(Message::UiPreviousTab {}), AppCommand::PrevTab),
+                item(label(Message::UiNextTab {}), AppCommand::NextTab),
+                item(label(Message::UiPreviousPane {}), AppCommand::PrevPane),
+                item(label(Message::UiNextPane {}), AppCommand::NextPane),
                 MenuItem::separator(),
-                item("关闭会话", AppCommand::CloseSession),
+                item(label(Message::UiCloseSession {}), AppCommand::CloseSession),
+                MenuItem::separator(),
+                item(label(Message::UiExportData {}), AppCommand::ExportData),
+                item(label(Message::UiImportData2 {}), AppCommand::ImportData),
+                item(
+                    label(Message::UiImportOpensshConfig2 {}),
+                    AppCommand::ImportSshConfig,
+                ),
             ],
         ),
         MenuItem::submenu(
-            "编辑",
+            label(Message::UiEdit2 {}),
             vec![
-                item("复制", AppCommand::Copy),
-                item("粘贴", AppCommand::Paste),
-                item("全选", AppCommand::SelectAll),
+                item(label(Message::UiCopy {}), AppCommand::Copy),
+                item(label(Message::UiPaste {}), AppCommand::Paste),
+                item(label(Message::UiSelectAll {}), AppCommand::SelectAll),
                 MenuItem::separator(),
-                item("清除缓冲区", AppCommand::ClearBuffer),
+                item(label(Message::UiClearBuffer {}), AppCommand::ClearBuffer),
                 MenuItem::separator(),
                 item(
                     &t(Message::UiMenuCommandSuggestions {}),
@@ -265,24 +295,28 @@ pub fn app_menu(state: AppMenuState) -> Vec<MenuItem> {
                     AppCommand::ClearCommandHistory,
                 ),
                 MenuItem::separator(),
-                item("右键弹出菜单", AppCommand::ToggleRightClickMenu)
-                    .checked(state.right_click_menu),
+                item(
+                    label(Message::UiRightClickShowsMenu {}),
+                    AppCommand::ToggleRightClickMenu,
+                )
+                .checked(state.right_click_menu),
             ],
         ),
         MenuItem::submenu(
-            "视图",
+            label(Message::UiView {}),
             vec![
-                item("标签栏", AppCommand::ToggleSidebar).checked(state.sidebar_visible),
+                item(label(Message::UiTabBar {}), AppCommand::ToggleSidebar)
+                    .checked(state.sidebar_visible),
                 item(&t(Message::UiMenuSender {}), AppCommand::ToggleSender)
                     .checked(state.sender_visible),
                 MenuItem::separator(),
-                item("向右拆分", AppCommand::SplitRight),
-                item("向下拆分", AppCommand::SplitDown),
+                item(label(Message::UiSplitRight {}), AppCommand::SplitRight),
+                item(label(Message::UiSplitDown {}), AppCommand::SplitDown),
             ],
         ),
         MenuItem::separator(),
-        item("设置…", AppCommand::OpenSettings),
-        item("退出", AppCommand::Quit),
+        item(label(Message::UiSettings2 {}), AppCommand::OpenSettings),
+        item(label(Message::UiQuit {}), AppCommand::Quit),
     ]
 }
 
@@ -345,12 +379,23 @@ mod tests {
             AppCommand::OpenLauncher,
             AppCommand::OpenSettings,
             AppCommand::NewSession,
+            AppCommand::ExportData,
+            AppCommand::ImportData,
+            AppCommand::ImportSshConfig,
             AppCommand::ZoomIn,
             AppCommand::ZoomOut,
             AppCommand::ZoomReset,
             AppCommand::ToggleSender,
             AppCommand::ToggleCommandSuggestions,
             AppCommand::ClearCommandHistory,
+            AppCommand::Find,
+            AppCommand::FindNext,
+            AppCommand::FindPrev,
+            AppCommand::PrevBlock,
+            AppCommand::NextBlock,
+            AppCommand::ToggleTimeline,
+            AppCommand::CopyBlockCommand,
+            AppCommand::CopyBlockOutput,
         ];
         for c in cmds {
             assert_eq!(decode(&encode(c)), Some(c), "{c:?}");
@@ -473,6 +518,9 @@ mod tests {
             "open-launcher",
             "new-local-tab",
             "close-session",
+            "export-data",
+            "import-data",
+            "import-ssh-config",
             "copy",
             "paste",
             "select-all",

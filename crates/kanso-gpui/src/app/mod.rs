@@ -23,6 +23,8 @@
 //! - [`find`] / [`gutter`] / [`blocks`] / [`links`]：终端内查找、时间戳 / 行号栏、命令块、链接的纯逻辑。
 //! - [`sender`]：底部 Sender 面板的纯逻辑（草稿 / 编辑、保存作用域、分页、重复参数、菜单、文字）。
 //! - [`completion`]：命令补全弹窗的纯逻辑（请求代次、键盘状态机、位置、设置、来源判断）。
+//! - [`data_transfer`]：`.kanso` 导出 / 导入、OpenSSH 配置导入的文件名、结果摘要与候选主机勾选模型。
+//! - [`i18n`]：界面语言设置、解析与 `Message` 渲染小函数。
 //! - [`status_bar`]：状态栏的内容模型、时钟格式与刷新对齐、目录截断。
 
 pub mod backend;
@@ -30,9 +32,11 @@ pub mod blocks;
 pub mod completion;
 pub mod confirm;
 pub mod controller;
+pub mod data_transfer;
 pub mod events;
 pub mod find;
 pub mod gutter;
+pub mod i18n;
 pub mod launcher;
 pub mod layout;
 pub mod links;

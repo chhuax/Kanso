@@ -16,6 +16,8 @@
 //!
 //! 主机密钥 / 密码提问的对话框由提示框模块负责，这里只留 TODO。
 
+use kanso_gpui::app::i18n::{label, t};
+use kanso_types::message::Message;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -39,7 +41,7 @@ use kanso_gpui::app::menus::{
 };
 use kanso_gpui::app::settings::DisplaySettings;
 use kanso_gpui::app::shell::{DIVIDER_THICKNESS, DividerDrag, min_fraction};
-use kanso_gpui::app::shortcuts::{AppCommand, lookup, shortcut_text};
+use kanso_gpui::app::shortcuts::{AppCommand, lookup};
 use kanso_gpui::app::status_bar::{clock_text, ms_until_next_minute};
 use kanso_gpui::app::tab::{CloseNote, TabConnection};
 use kanso_gpui::app::workspace::{CloseConfirmation, CloseScope};
@@ -65,7 +67,7 @@ pub(crate) fn status_bar_h() -> f32 {
 }
 
 /// 现在的 Unix 毫秒。
-fn unix_ms() -> i64 {
+pub(super) fn unix_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as i64)
@@ -143,6 +145,11 @@ pub(crate) struct ShellView {
     pub(super) sender: super::shell_sender::SenderState,
     /// 命令补全（`ui/shell_completion.rs`）。
     pub(super) completion: super::shell_completion::CompletionCtl,
+    /// 导入 OpenSSH 配置对话框（`ui/ssh_import.rs`）。
+    pub(super) ssh_import: Option<Entity<super::ssh_import::SshImportView>>,
+    pub(super) ssh_import_sub: Option<Subscription>,
+    /// 数据导入 / 导出流程里等待结果的对话框（`ui/shell_data.rs`）。
+    pub(super) pending_data: Option<super::shell_data::PendingData>,
 }
 
 impl ShellView {
@@ -224,6 +231,9 @@ impl ShellView {
             gutter_policy: GutterPolicy::default(),
             sender: super::shell_sender::SenderState::new(sender_panel),
             completion,
+            ssh_import: None,
+            ssh_import_sub: None,
+            pending_data: None,
         };
         {
             let timeline = *this.settings.read(cx).timeline();
@@ -593,6 +603,9 @@ impl ShellView {
             AppCommand::ToggleSender => self.toggle_sender(window, cx),
             AppCommand::ToggleCommandSuggestions => self.toggle_completion(window, cx),
             AppCommand::ClearCommandHistory => self.request_clear_history(window, cx),
+            AppCommand::ExportData => self.export_data(window, cx),
+            AppCommand::ImportData => self.import_data(window, cx),
+            AppCommand::ImportSshConfig => self.open_ssh_import(window, cx),
             AppCommand::ZoomIn => self.zoom(1.0, cx),
             AppCommand::ZoomOut => self.zoom(-1.0, cx),
             AppCommand::ZoomReset => self.settings.update(cx, |m, cx| {
@@ -855,7 +868,12 @@ impl ShellView {
                 self.attach_terminal(id, window, cx);
                 self.after_change(window, cx);
             }
-            Err(e) => self.show_notice(format!("无法打开本地 shell：{e}"), cx),
+            Err(e) => self.show_notice(
+                t(&Message::UiCantOpenLocalShell {
+                    detail: e.to_string(),
+                }),
+                cx,
+            ),
         }
     }
 
@@ -865,7 +883,12 @@ impl ShellView {
                 self.attach_terminal(id, window, cx);
                 self.after_change(window, cx);
             }
-            Err(e) => self.show_notice(format!("无法拆分：{e}"), cx),
+            Err(e) => self.show_notice(
+                t(&Message::UiCantSplit {
+                    detail: e.to_string(),
+                }),
+                cx,
+            ),
         }
     }
 
@@ -952,7 +975,11 @@ impl ShellView {
         let titles: Vec<String> = c
             .sessions
             .iter()
-            .map(|s| self.ctl.tab_title(*s).unwrap_or_else(|| "会话".to_owned()))
+            .map(|s| {
+                self.ctl
+                    .tab_title(*s)
+                    .unwrap_or_else(|| label(Message::UiSession {}).to_owned())
+            })
             .collect();
         let spec = close_dialog_spec(&titles, c.interrupts_transfers, req.quit);
         let dialog = cx.new(|cx| Dialog::new(spec, window, cx));
@@ -977,6 +1004,10 @@ impl ShellView {
     ) {
         self.dialog = None;
         self.dialog_sub = None;
+        if let Some(p) = self.pending_data.take() {
+            self.on_data_dialog(p, r, window, cx);
+            return;
+        }
         let pending = self.pending_close.take();
         let confirmed = is_confirmed(r);
         if std::mem::take(&mut self.completion.pending_clear) {
@@ -1021,8 +1052,14 @@ impl ShellView {
     /// 工作区结构变化后的收尾：空了就退出，否则把焦点交给活动终端并重绘。
     pub(super) fn after_change(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.ctl.workspace().is_empty() {
-            log("最后一个标签已关闭，退出应用");
-            cx.quit();
+            // 没有标签时显示空状态页（ui-shell.md §11）；自检运行时仍按旧行为退出。
+            if self.selftest_timeout.is_some() || self.shell_selftest.is_some() {
+                log("最后一个标签已关闭，退出应用");
+                cx.quit();
+                return;
+            }
+            self.sync_focus(window, cx);
+            cx.notify();
             return;
         }
         self.sync_focus(window, cx);
@@ -1330,7 +1367,7 @@ impl ShellView {
                     }
                 }
                 None => {
-                    el = el.child(empty_state(th));
+                    el = el.child(self.empty_state(th, cx));
                 }
             }
             if multiple {
@@ -1398,38 +1435,19 @@ fn axis_coord_f(axis: SplitAxis, x: f64, y: f64) -> f64 {
 fn closed_banner(connection: &TabConnection) -> Option<String> {
     match connection {
         TabConnection::Closed(Some(CloseNote::Exited { code: Some(c) })) => {
-            Some(format!("会话已结束（退出码 {c}）。Ctrl+Shift+W 关闭此标签"))
+            Some(t(&Message::UiSessionEndedExitCodePress {
+                code: i64::from(*c),
+            }))
         }
         TabConnection::Closed(Some(CloseNote::Exited { code: None })) => {
-            Some("会话已结束。Ctrl+Shift+W 关闭此标签".to_owned())
+            Some(label(Message::UiSessionEndedPressCtrlShift {}).to_owned())
         }
         // TODO(l10n)：用 kanso-l10n 渲染错误消息。
         TabConnection::Closed(Some(CloseNote::Error(_))) => {
-            Some("会话已断开。Ctrl+Shift+W 关闭此标签".to_owned())
+            Some(label(Message::UiSessionDisconnectedPressCtrlShift {}).to_owned())
         }
         _ => None,
     }
-}
-
-/// 没有任何会话时的空状态（正常流程里最后一个标签关闭就退出，只在打开失败等边缘情况出现）。
-fn empty_state(th: Theme) -> gpui::AnyElement {
-    let key = shortcut_text(AppCommand::NewLocalTab).unwrap_or_default();
-    div()
-        .size_full()
-        .flex()
-        .flex_col()
-        .items_center()
-        .justify_center()
-        .gap(px(6.0))
-        .text_color(th.c("text.secondary"))
-        .child("没有打开的会话")
-        .child(
-            div()
-                .text_size(px(12.0))
-                .text_color(th.c("text.tertiary"))
-                .child(format!("{key} 新建本地 Shell")),
-        )
-        .into_any_element()
 }
 
 impl Render for ShellView {
@@ -1510,6 +1528,7 @@ impl Render for ShellView {
             .children(self.dialog.clone())
             .children(self.launcher.clone())
             .children(self.editor.clone())
+            .children(self.ssh_import.clone())
             .children(self.prompt.as_ref().map(|(_, d)| d.clone()))
     }
 }

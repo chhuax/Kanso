@@ -7,6 +7,8 @@
 //! 键盘：Tab / Shift+Tab 只在对话框内循环（字段 → 按钮 → 回到第一个）；回车 = 保存；Esc = 取消。
 //! 点遮罩不关闭（与 mac sheet 一致）。色板只支持鼠标点选。
 
+use kanso_gpui::app::i18n::label;
+use kanso_types::message::Message;
 use std::{cell::Cell, rc::Rc, sync::Arc};
 
 use gpui::{
@@ -21,8 +23,8 @@ use kanso_gpui::app::launcher::{
 use kanso_gpui::app::sessions::{EditorField, EncodingOption, SaveOutcome, SessionEditor};
 use kanso_gpui::widgets::dropdown::Item;
 use kanso_gpui::widgets::style::{Appearance, color, number};
+use kanso_types::ProfileId;
 use kanso_types::profile::{AuthMethod, Group, Profile, SessionKind};
-use kanso_types::{ProfileId, message::Message};
 
 use super::log;
 use super::shell::Theme;
@@ -336,7 +338,7 @@ impl SessionEditorView {
         let shell_pick = dropdown(Pick::Shell, shell_items, shell_selected, window, cx);
         let group = dropdown(
             Pick::Group,
-            std::iter::once(Item::option("不分组"))
+            std::iter::once(Item::option(label(Message::UiNoGroup {})))
                 .chain(groups.iter().map(|g| Item::option(g.name.clone())))
                 .collect(),
             model
@@ -355,7 +357,7 @@ impl SessionEditorView {
         );
         let jump = dropdown(
             Pick::Jump,
-            std::iter::once(Item::option("无"))
+            std::iter::once(Item::option(label(Message::UiNone {})))
                 .chain(jumps.iter().map(|p| Item::option(p.name.clone())))
                 .collect(),
             model
@@ -540,7 +542,7 @@ impl SessionEditorView {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some("选择私钥文件".into()),
+            prompt: Some(label(Message::UiChoosePrivateKeyFile {}).into()),
         });
         cx.spawn_in(window, async move |this, cx| {
             if let Ok(Ok(Some(paths))) = rx.await

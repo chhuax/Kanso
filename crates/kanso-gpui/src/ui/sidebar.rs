@@ -7,12 +7,14 @@
 //! 暂未实现：拖拽排序、悬停提示。
 
 use gpui::{Context, Hsla, MouseButton, MouseDownEvent, div, point, prelude::*, px, rgb};
+use kanso_gpui::app::i18n::t;
 use kanso_gpui::app::shortcuts::AppCommand;
 use kanso_gpui::app::status_bar::state_text;
 use kanso_gpui::app::tab::{
     TabConnection, TabDescriptions, TabItem, TabKind, TabPresentation, truncate_keep_tail,
 };
 use kanso_gpui::widgets::style::number;
+use kanso_types::message::Message;
 
 use super::shell::{ShellView, Theme, status_bar_h};
 use super::widgets::icons::icon;
@@ -92,7 +94,9 @@ impl ShellView {
                                 this.activate_pane(pane, window, cx)
                             }),
                         )
-                        .child(format!("分屏 {}", section.title_index)),
+                        .child(t(&Message::UiPane {
+                            index: section.title_index as i64,
+                        })),
                 );
             }
             for item in &section.tabs {

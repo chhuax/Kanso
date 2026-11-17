@@ -320,6 +320,278 @@ messages! {
     UiFilterPath = "ui-filter-path" {},
     /// 侧栏路径筛选无匹配项。
     UiNoMatchingPaths = "ui-no-matching-paths" {},
+    /// GPUI 界面文字：跟随系统
+    UiFollowSystem = "ui-follow-system" {},
+    /// GPUI 界面文字：语言
+    UiLanguage = "ui-language" {},
+    /// GPUI 界面文字：界面语言
+    UiInterfaceLanguage = "ui-interface-language" {},
+    /// GPUI 界面文字：切换后立即生效；“跟随系统”按系统界面语言选择，不支持的语言显示英文。
+    UiTakesEffectImmediatelyFollowSystem = "ui-takes-effect-immediately-follow-system" {},
+    /// GPUI 界面文字：导出完成
+    UiExportComplete = "ui-export-complete" {},
+    /// GPUI 界面文字：已导出到 …。 文件里不包含任何密码或口令。
+    UiExportedToFileContainsNo = "ui-exported-to-file-contains-no" { path: String },
+    /// GPUI 界面文字：导入数据
+    UiImportData = "ui-import-data" {},
+    /// GPUI 界面文字：将导入这个文件：
+    UiThisFileWillBeImported = "ui-this-file-will-be-imported" {},
+    /// GPUI 界面文字：会按 id 合并：文件里 id 相同的会话、分组、命令会替换本地的，其余作为新数据加入，本地数据不会被删除；被替换的会话保留已保存的凭据。有问题的单条数据会被跳过。
+    UiDataIsMergedById = "ui-data-is-merged-by-id" {},
+    /// GPUI 界面文字：导入完成
+    UiImportComplete = "ui-import-complete" {},
+    /// GPUI 界面文字：操作没有成功
+    UiOperationFailed = "ui-operation-failed" {},
+    /// GPUI 界面文字：已跳过
+    UiSkipped = "ui-skipped" {},
+    /// GPUI 界面文字：警告
+    UiWarnings = "ui-warnings" {},
+    /// GPUI 界面文字：好
+    UiOk = "ui-ok" {},
+    /// GPUI 界面文字：导入
+    UiImport = "ui-import" {},
+    /// GPUI 界面文字：选择要导入的 .kanso 文件
+    UiChooseKansoFileToImport = "ui-choose-kanso-file-to-import" {},
+    /// GPUI 界面文字：导入 OpenSSH 配置
+    UiImportOpensshConfig = "ui-import-openssh-config" {},
+    /// GPUI 界面文字：导入 OpenSSH 配置…
+    UiImportOpensshConfig2 = "ui-import-openssh-config-2" {},
+    /// GPUI 界面文字：选择 OpenSSH 配置文件
+    UiChooseOpensshConfigFile = "ui-choose-openssh-config-file" {},
+    /// GPUI 界面文字：不分组
+    UiNoGroup = "ui-no-group" {},
+    /// GPUI 界面文字：导入到分组
+    UiImportIntoGroup = "ui-import-into-group" {},
+    /// GPUI 界面文字：全选（已选 {} / …）
+    UiSelectAllOfSelected = "ui-select-all-of-selected" { selected: i64, total: i64 },
+    /// GPUI 界面文字：已保存，将更新
+    UiSavedWillUpdate = "ui-saved-will-update" {},
+    /// GPUI 界面文字：私钥 …
+    UiKey = "ui-key" { path: String },
+    /// GPUI 界面文字：经由 …
+    UiVia = "ui-via" { jump: String },
+    /// GPUI 界面文字：正在读取…
+    UiReading = "ui-reading" {},
+    /// GPUI 界面文字：正在导入…
+    UiImporting = "ui-importing" {},
+    /// GPUI 界面文字：配置文件里没有可导入的主机。
+    UiNoHostsToImportIn = "ui-no-hosts-to-import-in" {},
+    /// GPUI 界面文字：找到 {} 台主机，其中 … 台已保存（导入时会更新）。
+    UiFoundHostsOfThemAlready = "ui-found-hosts-of-them-already" { found: i64, existing: i64 },
+    /// GPUI 界面文字：没有打开的会话
+    UiNoOpenSessions = "ui-no-open-sessions" {},
+    /// GPUI 界面文字：新建本地 Shell
+    UiNewLocalShell = "ui-new-local-shell" {},
+    /// GPUI 界面文字：新建会话…
+    UiNewSession2 = "ui-new-session-2" {},
+    /// GPUI 界面文字：或按
+    UiOrPress = "ui-or-press" {},
+    /// GPUI 界面文字：上一个标签
+    UiPreviousTab = "ui-previous-tab" {},
+    /// GPUI 界面文字：下一个标签
+    UiNextTab = "ui-next-tab" {},
+    /// GPUI 界面文字：上一个分屏
+    UiPreviousPane = "ui-previous-pane" {},
+    /// GPUI 界面文字：下一个分屏
+    UiNextPane = "ui-next-pane" {},
+    /// GPUI 界面文字：关闭会话
+    UiCloseSession = "ui-close-session" {},
+    /// GPUI 界面文字：导出数据…
+    UiExportData = "ui-export-data" {},
+    /// GPUI 界面文字：导入数据…
+    UiImportData2 = "ui-import-data-2" {},
+    /// GPUI 界面文字：复制
+    UiCopy = "ui-copy" {},
+    /// GPUI 界面文字：粘贴
+    UiPaste = "ui-paste" {},
+    /// GPUI 界面文字：全选
+    UiSelectAll = "ui-select-all" {},
+    /// GPUI 界面文字：清除缓冲区
+    UiClearBuffer = "ui-clear-buffer" {},
+    /// GPUI 界面文字：向右拆分
+    UiSplitRight = "ui-split-right" {},
+    /// GPUI 界面文字：向下拆分
+    UiSplitDown = "ui-split-down" {},
+    /// GPUI 界面文字：右键弹出菜单
+    UiRightClickShowsMenu = "ui-right-click-shows-menu" {},
+    /// GPUI 界面文字：标签栏
+    UiTabBar = "ui-tab-bar" {},
+    /// GPUI 界面文字：视图
+    UiView = "ui-view" {},
+    /// GPUI 界面文字：设置…
+    UiSettings2 = "ui-settings-2" {},
+    /// GPUI 界面文字：退出
+    UiQuit = "ui-quit" {},
+    /// GPUI 界面文字：编辑会话…
+    UiEditSession2 = "ui-edit-session-2" {},
+    /// GPUI 界面文字：关闭
+    UiClose = "ui-close" {},
+    /// GPUI 界面文字：关闭其他
+    UiCloseOthers = "ui-close-others" {},
+    /// GPUI 界面文字：关闭左侧
+    UiCloseTabsToLeft = "ui-close-tabs-to-left" {},
+    /// GPUI 界面文字：关闭右侧
+    UiCloseTabsToRight = "ui-close-tabs-to-right" {},
+    /// GPUI 界面文字：全部关闭
+    UiCloseAll = "ui-close-all" {},
+    /// GPUI 界面文字：…另外 N 个
+    UiAndMore = "ui-and-more" { count: i64 },
+    /// GPUI 界面文字：退出 Kanso？
+    UiQuitKanso = "ui-quit-kanso" {},
+    /// GPUI 界面文字：关闭仍在运行的会话？
+    UiCloseRunningSessions = "ui-close-running-sessions" {},
+    /// GPUI 界面文字：以下会话仍在运行或保持连接：
+    UiTheseSessionsAreStillRunning = "ui-these-sessions-are-still-running" {},
+    /// GPUI 界面文字：关闭会中断正在进行的文件传输。
+    UiClosingWillInterruptFileTransfers = "ui-closing-will-interrupt-file-transfers" {},
+    /// GPUI 界面文字：连接中…
+    UiConnecting = "ui-connecting" {},
+    /// GPUI 界面文字：会话已结束（退出码 …）
+    UiSessionEndedExitCode = "ui-session-ended-exit-code" { code: i64 },
+    /// GPUI 界面文字：会话已结束
+    UiSessionEnded = "ui-session-ended" {},
+    /// GPUI 界面文字：会话已断开
+    UiSessionDisconnected = "ui-session-disconnected" {},
+    /// GPUI 界面文字：命令运行中
+    UiCommandRunning = "ui-command-running" {},
+    /// GPUI 界面文字：AI 运行中
+    UiAiRunning = "ui-ai-running" {},
+    /// GPUI 界面文字：AI 已完成
+    UiAiFinished = "ui-ai-finished" {},
+    /// GPUI 界面文字：命令已完成，点击查看
+    UiCommandFinishedClickToView = "ui-command-finished-click-to-view" {},
+    /// GPUI 界面文字：操作失败。
+    UiOperationFailed2 = "ui-operation-failed-2" {},
+    /// GPUI 界面文字：默认 Shell
+    UiDefaultShell = "ui-default-shell" {},
+    /// GPUI 界面文字：编辑…
+    UiEdit = "ui-edit" {},
+    /// GPUI 界面文字：移到分组
+    UiMoveToGroup = "ui-move-to-group" {},
+    /// GPUI 界面文字：删除…
+    UiDelete = "ui-delete" {},
+    /// GPUI 界面文字：重命名…
+    UiRename = "ui-rename" {},
+    /// GPUI 界面文字：新建分组…
+    UiNewGroup = "ui-new-group" {},
+    /// GPUI 界面文字：删除这个分组会同时删除其中的 {} 个会话和 … 条快捷命令，此操作无法撤销。
+    UiDeletingThisGroupAlsoDeletes = "ui-deleting-this-group-also-deletes" { profiles: i64, snippets: i64 },
+    /// GPUI 界面文字：只会删除 Kanso 中保存的会话及其凭据，不会改动 ~/.ssh/config 和密钥文件。此操作无法撤销。
+    UiOnlySessionAndItsCredentials = "ui-only-session-and-its-credentials" {},
+    /// GPUI 界面文字：本地
+    UiLocal = "ui-local" {},
+    /// GPUI 界面文字：请输入会话名称。
+    UiEnterSessionName = "ui-enter-session-name" {},
+    /// GPUI 界面文字：端口必须是 1 到 65535 之间的数字。
+    UiPortMustBeNumberFrom = "ui-port-must-be-number-from" {},
+    /// GPUI 界面文字：Locale 只能包含字母、数字和 _ - . @，长度 1 到 64。
+    UiLocaleMayOnlyContainLetters = "ui-locale-may-only-contain-letters" {},
+    /// GPUI 界面文字：保存失败。
+    UiSaveFailed = "ui-save-failed" {},
+    /// GPUI 界面文字：会话已保存，但凭据没有存进去：…
+    UiSessionSavedButCredentialsCould = "ui-session-saved-but-credentials-could" { detail: String },
+    /// GPUI 界面文字：服务器：…
+    UiServer = "ui-server" { host_port: String },
+    /// GPUI 界面文字：服务器：{}（经由 …）
+    UiServerVia = "ui-server-via" { host_port: String, via: String },
+    /// GPUI 界面文字：标签：…
+    UiTab = "ui-tab" { title: String },
+    /// GPUI 界面文字：主机密钥已变更
+    UiHostKeyChanged = "ui-host-key-changed" {},
+    /// GPUI 界面文字：密钥类型
+    UiKeyType = "ui-key-type" {},
+    /// GPUI 界面文字：SHA256 指纹
+    UiSha256Fingerprint = "ui-sha256-fingerprint" {},
+    /// GPUI 界面文字：原记录位置
+    UiPreviouslyRecordedAt = "ui-previously-recorded-at" {},
+    /// GPUI 界面文字：接受新密钥并连接
+    UiAcceptNewKeyAndConnect = "ui-accept-new-key-and-connect" {},
+    /// GPUI 界面文字：需要验证
+    UiVerificationRequired = "ui-verification-required" {},
+    /// GPUI 界面文字：继续
+    UiContinue = "ui-continue" {},
+    /// GPUI 界面文字：需要私钥口令
+    UiPrivateKeyPassphraseRequired = "ui-private-key-passphrase-required" {},
+    /// GPUI 界面文字：{} 用户：{} 私钥：…
+    UiCredentialIntroKey = "ui-credential-intro-key" { server: String, user: String, key: String },
+    /// GPUI 界面文字：需要密码
+    UiPasswordRequired = "ui-password-required" {},
+    /// GPUI 界面文字：{} 用户：…
+    UiCredentialIntro = "ui-credential-intro" { server: String, user: String },
+    /// GPUI 界面文字：连接并保存
+    UiConnectAndSave = "ui-connect-and-save" {},
+    /// GPUI 界面文字：仅连接
+    UiConnectOnly = "ui-connect-only" {},
+    /// GPUI 界面文字：块状
+    UiBlock = "ui-block" {},
+    /// GPUI 界面文字：下划线
+    UiUnderline = "ui-underline" {},
+    /// GPUI 界面文字：竖线
+    UiBar = "ui-bar" {},
+    /// GPUI 界面文字：浅色
+    UiLight = "ui-light" {},
+    /// GPUI 界面文字：深色
+    UiDark = "ui-dark" {},
+    /// GPUI 界面文字：只显示行号
+    UiLineNumbersOnly = "ui-line-numbers-only" {},
+    /// GPUI 界面文字：只显示时间
+    UiTimestampsOnly = "ui-timestamps-only" {},
+    /// GPUI 界面文字：时间和行号
+    UiTimestampsAndLineNumbers = "ui-timestamps-and-line-numbers" {},
+    /// GPUI 界面文字：不显示
+    UiOff = "ui-off" {},
+    /// GPUI 界面文字：无法打开本地 shell：…
+    UiCantOpenLocalShell = "ui-cant-open-local-shell" { detail: String },
+    /// GPUI 界面文字：无法拆分：…
+    UiCantSplit = "ui-cant-split" { detail: String },
+    /// GPUI 界面文字：会话已结束。Ctrl+Shift+W 关闭此标签
+    UiSessionEndedPressCtrlShift = "ui-session-ended-press-ctrl-shift" {},
+    /// GPUI 界面文字：会话已结束（退出码 …）。Ctrl+Shift+W 关闭此标签
+    UiSessionEndedExitCodePress = "ui-session-ended-exit-code-press" { code: i64 },
+    /// GPUI 界面文字：会话已断开。Ctrl+Shift+W 关闭此标签
+    UiSessionDisconnectedPressCtrlShift = "ui-session-disconnected-press-ctrl-shift" {},
+    /// GPUI 界面文字：这个会话已经不存在
+    UiThisSessionNoLongerExists = "ui-this-session-no-longer-exists" {},
+    /// GPUI 界面文字：SFTP 会话需要文件面板，主窗口暂时还不能打开它
+    UiSftpSessionsNeedFilePanel = "ui-sftp-sessions-need-file-panel" {},
+    /// GPUI 界面文字：无法连接“{}”：…
+    UiCantConnectTo = "ui-cant-connect-to" { name: String, detail: String },
+    /// GPUI 界面文字：分屏 …
+    UiPane = "ui-pane" { index: i64 },
+    /// GPUI 界面文字：文件
+    UiFiles = "ui-files" {},
+    /// GPUI 界面文字：时间戳
+    UiTimestamps = "ui-timestamps" {},
+    /// GPUI 界面文字：新建分组
+    UiNewGroup2 = "ui-new-group-2" {},
+    /// GPUI 界面文字：分组名称
+    UiGroupName = "ui-group-name" {},
+    /// GPUI 界面文字：创建
+    UiCreate = "ui-create" {},
+    /// GPUI 界面文字：重命名分组
+    UiRenameGroup = "ui-rename-group" {},
+    /// GPUI 界面文字：重命名
+    UiRename2 = "ui-rename-2" {},
+    /// GPUI 界面文字：删除
+    UiDelete2 = "ui-delete-2" {},
+    /// GPUI 界面文字：删除分组“…”？
+    UiDeleteGroup = "ui-delete-group" { name: String },
+    /// GPUI 界面文字：删除会话“…”？
+    UiDeleteSession = "ui-delete-session" { name: String },
+    /// GPUI 界面文字：编辑
+    UiEdit2 = "ui-edit-2" {},
+    /// GPUI 界面文字：无
+    UiNone = "ui-none" {},
+    /// GPUI 界面文字：选择私钥文件
+    UiChoosePrivateKeyFile = "ui-choose-private-key-file" {},
+    /// GPUI 界面文字：搜索字体
+    UiSearchFonts = "ui-search-fonts" {},
+    /// GPUI 界面文字：搜索等宽字体
+    UiSearchMonospacedFonts = "ui-search-monospaced-fonts" {},
+    /// GPUI 界面文字：系统默认；也可直接输入字体名
+    UiSystemDefaultOrTypeFont = "ui-system-default-or-type-font" {},
+    /// GPUI 界面文字：… 行
+    UiLines = "ui-lines" { lines: String },
     /// 小于一秒的命令耗时。
     CommandDurationMilliseconds = "command-duration-milliseconds" { value: String },
     /// 小于一分钟的命令耗时。

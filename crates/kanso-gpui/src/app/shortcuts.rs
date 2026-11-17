@@ -60,6 +60,12 @@ pub enum AppCommand {
     Quit,
     /// 打开设置（显示设置）。
     OpenSettings,
+    /// 导出数据（`.kanso` 文件，会话菜单）。
+    ExportData,
+    /// 导入数据（`.kanso` 文件，会话菜单）。
+    ImportData,
+    /// 导入 OpenSSH 配置（会话菜单、启动器、空状态页）。
+    ImportSshConfig,
     /// 放大终端文字（改终端字号，步长 1）。
     ZoomIn,
     /// 缩小终端文字。

@@ -34,8 +34,8 @@ log = "0.4"
 raw-window-handle = "0.6"
 # 核心事件从工作线程投递到 UI 线程的无界通道（MIT / Apache-2.0）。
 futures = { workspace = true, features = ["executor"] }
-# 读取进程工作集内存做启动日志，只用 psapi / 进程句柄两个特性（MIT / Apache-2.0；与 kanso-secret 同一个 crate）。
-windows-sys = { workspace = true, features = ["Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_System_Time", "Win32_Graphics_Dwm"] }
+# 读取进程工作集内存、系统界面语言、标题栏外观，只用相应特性（MIT / Apache-2.0；与 kanso-secret 同一个 crate）。
+windows-sys = { workspace = true, features = ["Win32_Globalization", "Win32_Graphics_Dwm", "Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_System_Time"] }
 
 [features]
 default = ["direct"]

@@ -378,3 +378,278 @@ ui-history-clear-body = 将清除所有终端记录的命令历史，此操作�
 ui-history-clear-confirm = 清除
 ui-history-clear-cancel = 取消
 ui-history-clear-failed = 清除命令历史失败：{ $detail }
+ui-follow-system = 跟随系统
+
+ui-language = 语言
+
+ui-interface-language = 界面语言
+
+ui-takes-effect-immediately-follow-system = 切换后立即生效；“跟随系统”按系统界面语言选择，不支持的语言显示英文。
+
+ui-export-complete = 导出完成
+
+ui-exported-to-file-contains-no = 已导出到 { $path }。
+    文件里不包含任何密码或口令。
+
+ui-import-data = 导入数据
+
+ui-this-file-will-be-imported = 将导入这个文件：
+
+ui-data-is-merged-by-id = 会按 id 合并：文件里 id 相同的会话、分组、命令会替换本地的，其余作为新数据加入，本地数据不会被删除；被替换的会话保留已保存的凭据。有问题的单条数据会被跳过。
+
+ui-import-complete = 导入完成
+
+ui-operation-failed = 操作没有成功
+
+ui-skipped = 已跳过
+
+ui-warnings = 警告
+
+ui-ok = 好
+
+ui-import = 导入
+
+ui-choose-kanso-file-to-import = 选择要导入的 .kanso 文件
+
+ui-import-openssh-config = 导入 OpenSSH 配置
+
+ui-import-openssh-config-2 = 导入 OpenSSH 配置…
+
+ui-choose-openssh-config-file = 选择 OpenSSH 配置文件
+
+ui-no-group = 不分组
+
+ui-import-into-group = 导入到分组
+
+ui-select-all-of-selected = 全选（已选 { $selected } / { $total }）
+
+ui-saved-will-update = 已保存，将更新
+
+ui-key = 私钥 { $path }
+
+ui-via = 经由 { $jump }
+
+ui-reading = 正在读取…
+
+ui-importing = 正在导入…
+
+ui-no-hosts-to-import-in = 配置文件里没有可导入的主机。
+
+ui-found-hosts-of-them-already = 找到 { $found } 台主机，其中 { $existing } 台已保存（导入时会更新）。
+
+ui-no-open-sessions = 没有打开的会话
+
+ui-new-local-shell = 新建本地 Shell
+
+ui-new-session-2 = 新建会话…
+
+ui-or-press = 或按
+
+ui-previous-tab = 上一个标签
+
+ui-next-tab = 下一个标签
+
+ui-previous-pane = 上一个分屏
+
+ui-next-pane = 下一个分屏
+
+ui-close-session = 关闭会话
+
+ui-export-data = 导出数据…
+
+ui-import-data-2 = 导入数据…
+
+ui-copy = 复制
+
+ui-paste = 粘贴
+
+ui-select-all = 全选
+
+ui-clear-buffer = 清除缓冲区
+
+ui-split-right = 向右拆分
+
+ui-split-down = 向下拆分
+
+ui-right-click-shows-menu = 右键弹出菜单
+
+ui-tab-bar = 标签栏
+
+ui-view = 视图
+
+ui-settings-2 = 设置…
+
+ui-quit = 退出
+
+ui-edit-session-2 = 编辑会话…
+
+ui-close = 关闭
+
+ui-close-others = 关闭其他
+
+ui-close-tabs-to-left = 关闭左侧
+
+ui-close-tabs-to-right = 关闭右侧
+
+ui-close-all = 全部关闭
+
+ui-and-more = …另外 { $count } 个
+
+ui-quit-kanso = 退出 Kanso？
+
+ui-close-running-sessions = 关闭仍在运行的会话？
+
+ui-these-sessions-are-still-running = 以下会话仍在运行或保持连接：
+
+ui-closing-will-interrupt-file-transfers = 关闭会中断正在进行的文件传输。
+
+ui-connecting = 连接中…
+
+ui-session-ended-exit-code = 会话已结束（退出码 { $code }）
+
+ui-session-ended = 会话已结束
+
+ui-session-disconnected = 会话已断开
+
+ui-command-running = 命令运行中
+
+ui-ai-running = AI 运行中
+
+ui-ai-finished = AI 已完成
+
+ui-command-finished-click-to-view = 命令已完成，点击查看
+
+ui-operation-failed-2 = 操作失败。
+
+ui-default-shell = 默认 Shell
+
+ui-edit = 编辑…
+
+ui-move-to-group = 移到分组
+
+ui-delete = 删除…
+
+ui-rename = 重命名…
+
+ui-new-group = 新建分组…
+
+ui-deleting-this-group-also-deletes = 删除这个分组会同时删除其中的 { $profiles } 个会话和 { $snippets } 条快捷命令，此操作无法撤销。
+
+ui-only-session-and-its-credentials = 只会删除 Kanso 中保存的会话及其凭据，不会改动 ~/.ssh/config 和密钥文件。此操作无法撤销。
+
+ui-local = 本地
+
+ui-enter-session-name = 请输入会话名称。
+
+ui-port-must-be-number-from = 端口必须是 1 到 65535 之间的数字。
+
+ui-locale-may-only-contain-letters = Locale 只能包含字母、数字和 _ - . @，长度 1 到 64。
+
+ui-save-failed = 保存失败。
+
+ui-session-saved-but-credentials-could = 会话已保存，但凭据没有存进去：{ $detail }
+
+ui-server = 服务器：{ $host_port }
+
+ui-server-via = 服务器：{ $host_port }（经由 { $via }）
+
+ui-tab = 标签：{ $title }
+
+ui-host-key-changed = 主机密钥已变更
+
+ui-key-type = 密钥类型
+
+ui-sha256-fingerprint = SHA256 指纹
+
+ui-previously-recorded-at = 原记录位置
+
+ui-accept-new-key-and-connect = 接受新密钥并连接
+
+ui-verification-required = 需要验证
+
+ui-continue = 继续
+
+ui-private-key-passphrase-required = 需要私钥口令
+
+ui-credential-intro-key = { $server }
+    用户：{ $user }
+    私钥：{ $key }
+
+ui-password-required = 需要密码
+
+ui-credential-intro = { $server }
+    用户：{ $user }
+
+ui-connect-and-save = 连接并保存
+
+ui-connect-only = 仅连接
+
+ui-block = 块状
+
+ui-underline = 下划线
+
+ui-bar = 竖线
+
+ui-light = 浅色
+
+ui-dark = 深色
+
+ui-line-numbers-only = 只显示行号
+
+ui-timestamps-only = 只显示时间
+
+ui-timestamps-and-line-numbers = 时间和行号
+
+ui-off = 不显示
+
+ui-cant-open-local-shell = 无法打开本地 shell：{ $detail }
+
+ui-cant-split = 无法拆分：{ $detail }
+
+ui-session-ended-press-ctrl-shift = 会话已结束。Ctrl+Shift+W 关闭此标签
+
+ui-session-ended-exit-code-press = 会话已结束（退出码 { $code }）。Ctrl+Shift+W 关闭此标签
+
+ui-session-disconnected-press-ctrl-shift = 会话已断开。Ctrl+Shift+W 关闭此标签
+
+ui-this-session-no-longer-exists = 这个会话已经不存在
+
+ui-sftp-sessions-need-file-panel = SFTP 会话需要文件面板，主窗口暂时还不能打开它
+
+ui-cant-connect-to = 无法连接“{ $name }”：{ $detail }
+
+ui-pane = 分屏 { $index }
+
+ui-files = 文件
+
+ui-timestamps = 时间戳
+
+ui-new-group-2 = 新建分组
+
+ui-group-name = 分组名称
+
+ui-create = 创建
+
+ui-rename-group = 重命名分组
+
+ui-rename-2 = 重命名
+
+ui-delete-2 = 删除
+
+ui-delete-group = 删除分组“{ $name }”？
+
+ui-delete-session = 删除会话“{ $name }”？
+
+ui-edit-2 = 编辑
+
+ui-none = 无
+
+ui-choose-private-key-file = 选择私钥文件
+
+ui-search-fonts = 搜索字体
+
+ui-search-monospaced-fonts = 搜索等宽字体
+
+ui-system-default-or-type-font = 系统默认；也可直接输入字体名
+
+ui-lines = { $lines } 行

@@ -6,7 +6,9 @@
 //!
 //! 默认按钮是“取消”：回车不会误关一个正在运行的会话，要关必须点“关闭”或 Tab 过去再回车。
 
+use crate::app::i18n::{label, t};
 use kanso_types::SessionId;
+use kanso_types::message::Message;
 
 use crate::widgets::dialog::{ButtonSpec, DialogResult, DialogSpec};
 
@@ -34,26 +36,32 @@ pub fn close_dialog_spec(titles: &[String], interrupts_transfers: bool, quit: bo
         .map(|t| format!("• {t}"))
         .collect();
     if titles.len() > MAX_LISTED {
-        lines.push(format!("…另外 {} 个", titles.len() - MAX_LISTED));
+        lines.push(t(&Message::UiAndMore {
+            count: (titles.len() - MAX_LISTED) as i64,
+        }));
     }
     let mut spec = DialogSpec::new(if quit {
-        "退出 Kanso？"
+        label(Message::UiQuitKanso {})
     } else {
-        "关闭仍在运行的会话？"
+        label(Message::UiCloseRunningSessions {})
     })
-    .text("以下会话仍在运行或保持连接：")
+    .text(label(Message::UiTheseSessionsAreStillRunning {}))
     .code(&lines.join("\n"));
     if interrupts_transfers {
-        spec = spec.text("关闭会中断正在进行的文件传输。");
+        spec = spec.text(label(Message::UiClosingWillInterruptFileTransfers {}));
     }
     spec.button(
-        ButtonSpec::secondary(CANCEL_ID, "取消")
+        ButtonSpec::secondary(CANCEL_ID, label(Message::UiCancel {}))
             .cancel()
             .default_button(),
     )
     .button(ButtonSpec::danger(
         CONFIRM_ID,
-        if quit { "退出" } else { "关闭" },
+        if quit {
+            label(Message::UiQuit {})
+        } else {
+            label(Message::UiClose {})
+        },
     ))
 }
 
