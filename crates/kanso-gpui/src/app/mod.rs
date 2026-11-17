@@ -21,7 +21,7 @@
 //! - [`menus`]：终端 / 标签右键菜单与窗口级应用菜单的内容，菜单项 id 与 [`shortcuts::AppCommand`] 互转。
 //! - [`confirm`]：关闭 / 退出确认对话框的内容与结果判断。
 //! - [`data_transfer`]：`.kanso` 导出 / 导入、OpenSSH 配置导入的文件名、结果摘要与候选主机勾选模型。
-//! - [`i18n`]：界面语言设置与 `tr()` 文字查表（英文译文在 `i18n_en`）。
+//! - [`i18n`]：界面语言设置、解析与 `Message` 渲染小函数。
 //! - [`status_bar`]：状态栏的内容模型、时钟格式与刷新对齐、目录截断。
 
 pub mod backend;
@@ -30,7 +30,6 @@ pub mod controller;
 pub mod data_transfer;
 pub mod events;
 pub mod i18n;
-mod i18n_en;
 pub mod launcher;
 pub mod layout;
 pub mod menus;

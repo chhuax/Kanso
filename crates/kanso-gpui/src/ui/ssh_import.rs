@@ -8,6 +8,7 @@
 //!
 //! 键盘：↑↓ 移动光标、空格切换勾选、Ctrl+A 全选、Tab / Shift+Tab 在对话框内循环、回车导入（结果页关闭）、Esc 关闭。
 
+use kanso_types::message::Message;
 use std::sync::Arc;
 
 use gpui::{
@@ -17,7 +18,7 @@ use gpui::{
 };
 use kanso_core::Core;
 use kanso_gpui::app::data_transfer::{ResultContent, SshImportModel, ssh_import_result};
-use kanso_gpui::app::i18n::{fmt, tr};
+use kanso_gpui::app::i18n::{label, t};
 use kanso_gpui::app::launcher::core_error_text;
 use kanso_gpui::app::sessions::natural_cmp;
 use kanso_gpui::widgets::checklist::Tri;
@@ -108,7 +109,7 @@ impl SshImportView {
         let group = cx.new(|cx| {
             Dropdown::new(window, cx)
                 .items(
-                    std::iter::once(Item::option(tr("不分组")))
+                    std::iter::once(Item::option(label(Message::UiNoGroup {})))
                         .chain(groups.iter().map(|g| Item::option(g.name.clone())))
                         .collect(),
                 )
@@ -213,7 +214,7 @@ impl SshImportView {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some(tr("选择 OpenSSH 配置文件").into()),
+            prompt: Some(label(Message::UiChooseOpensshConfigFile {}).into()),
         });
         cx.spawn_in(window, async move |this, cx| {
             if let Ok(Ok(Some(paths))) = rx.await
@@ -399,10 +400,10 @@ impl SshImportView {
                 }),
             )
             .child(self.checkbox(th, state))
-            .child(fmt(
-                tr("全选（已选 {} / {}）"),
-                &[&self.model.checks().count(), &self.model.rows().len()],
-            ))
+            .child(t(&Message::UiSelectAllOfSelected {
+                selected: (self.model.checks().count()) as i64,
+                total: (self.model.rows().len()) as i64,
+            }))
             .into_any_element()
     }
 
@@ -419,11 +420,11 @@ impl SshImportView {
             .text_color(th.c("text.secondary"))
             .child(row.destination.clone());
         if let Some(k) = &row.identity {
-            detail = detail.child(
-                div()
-                    .text_color(th.c("text.tertiary"))
-                    .child(fmt(tr("私钥 {}"), &[k])),
-            );
+            detail = detail.child(div().text_color(th.c("text.tertiary")).child(t(
+                &Message::UiKey {
+                    path: k.to_string(),
+                },
+            )));
         }
         if let Some(j) = &row.jump {
             detail = detail.child(div().text_color(th.c("text.tertiary")).child(j.clone()));
@@ -441,7 +442,7 @@ impl SshImportView {
                     .bg(th.c("bg.segmentSelected"))
                     .text_size(px(number("font", "ui.caption")))
                     .text_color(th.c("text.secondary"))
-                    .child(tr("已保存，将更新")),
+                    .child(label(Message::UiSavedWillUpdate {})),
             );
         }
         let mut col = div()
@@ -556,8 +557,14 @@ impl SshImportView {
                 .into_any_element()
         };
         match &self.phase {
-            Phase::Scanning => note(tr("正在读取…").to_owned(), th.c("text.secondary")),
-            Phase::Importing => note(tr("正在导入…").to_owned(), th.c("text.secondary")),
+            Phase::Scanning => note(
+                label(Message::UiReading {}).to_owned(),
+                th.c("text.secondary"),
+            ),
+            Phase::Importing => note(
+                label(Message::UiImporting {}).to_owned(),
+                th.c("text.secondary"),
+            ),
             Phase::Done(result) => {
                 let mut col = div()
                     .flex()
@@ -591,7 +598,7 @@ impl SshImportView {
                 }
                 if self.model.rows().is_empty() {
                     return note(
-                        tr("配置文件里没有可导入的主机。").to_owned(),
+                        label(Message::UiNoHostsToImportIn {}).to_owned(),
                         th.c("text.secondary"),
                     );
                 }
@@ -642,7 +649,11 @@ impl SshImportView {
                         .flex()
                         .items_center()
                         .gap(px(10.0))
-                        .child(div().flex_none().child(tr("导入到分组")))
+                        .child(
+                            div()
+                                .flex_none()
+                                .child(label(Message::UiImportIntoGroup {})),
+                        )
                         .child(div().w(px(220.0)).child(self.group.clone())),
                 )
                 .into_any_element()
@@ -685,7 +696,7 @@ impl Render for SshImportView {
                 "ssh-import-choose",
                 &self.choose,
                 Stop::Choose,
-                tr("选择…"),
+                label(Message::UiChoose {}),
                 false,
                 ready,
                 window,
@@ -704,7 +715,7 @@ impl Render for SshImportView {
                 "ssh-import-cancel",
                 &self.cancel,
                 Stop::Cancel,
-                tr("好"),
+                label(Message::UiOk {}),
                 true,
                 true,
                 window,
@@ -717,7 +728,7 @@ impl Render for SshImportView {
                     "ssh-import-cancel",
                     &self.cancel,
                     Stop::Cancel,
-                    tr("取消"),
+                    label(Message::UiCancel {}),
                     false,
                     !busy,
                     window,
@@ -728,7 +739,7 @@ impl Render for SshImportView {
                     "ssh-import-go",
                     &self.import,
                     Stop::Import,
-                    tr("导入"),
+                    label(Message::UiImport {}),
                     true,
                     ready && self.model.can_import(),
                     window,
@@ -765,9 +776,9 @@ impl Render for SshImportView {
                     .text_size(px(number("font", "ui.title")))
                     .font_weight(gpui::FontWeight::SEMIBOLD)
                     .child(if done {
-                        tr("导入完成")
+                        label(Message::UiImportComplete {})
                     } else {
-                        tr("导入 OpenSSH 配置")
+                        label(Message::UiImportOpensshConfig {})
                     }),
             )
             .children((!done).then_some(path_row))

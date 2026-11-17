@@ -9,9 +9,10 @@
 //! 本文件不依赖窗口系统，三个平台都能编译与测试。
 
 use crate::app::controller::LegacyLine;
-use crate::app::i18n::{fmt, tr};
+use crate::app::i18n::{label, t};
 use crate::app::tab::{CloseNote, TabDescriptions, TabItem, TabStateLine, truncate_keep_tail};
 use crate::filer::format_mtime;
+use kanso_types::message::Message;
 
 /// 状态文字的语气，决定颜色。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -28,17 +29,23 @@ pub enum StatusTone {
 // TODO(l10n)：用 kanso-l10n 渲染错误消息。
 pub fn state_text(line: &TabStateLine) -> String {
     match line {
-        TabStateLine::Connecting => tr("连接中…").to_owned(),
+        TabStateLine::Connecting => label(Message::UiConnecting {}).to_owned(),
         TabStateLine::Closed(Some(CloseNote::Exited { code: Some(c) })) => {
-            fmt(tr("会话已结束（退出码 {}）"), &[&c])
+            t(&Message::UiSessionEndedExitCode {
+                code: i64::from(*c),
+            })
         }
-        TabStateLine::Closed(Some(CloseNote::Exited { code: None })) => tr("会话已结束").to_owned(),
-        TabStateLine::Closed(Some(CloseNote::Error(_))) => tr("会话已断开").to_owned(),
-        TabStateLine::Closed(None) => tr("会话已结束").to_owned(),
-        TabStateLine::CommandRunning => tr("命令运行中").to_owned(),
-        TabStateLine::AgentRunning => tr("AI 运行中").to_owned(),
-        TabStateLine::AgentFinished => tr("AI 已完成").to_owned(),
-        TabStateLine::UnreadDone => tr("命令已完成，点击查看").to_owned(),
+        TabStateLine::Closed(Some(CloseNote::Exited { code: None })) => {
+            label(Message::UiSessionEnded {}).to_owned()
+        }
+        TabStateLine::Closed(Some(CloseNote::Error(_))) => {
+            label(Message::UiSessionDisconnected {}).to_owned()
+        }
+        TabStateLine::Closed(None) => label(Message::UiSessionEnded {}).to_owned(),
+        TabStateLine::CommandRunning => label(Message::UiCommandRunning {}).to_owned(),
+        TabStateLine::AgentRunning => label(Message::UiAiRunning {}).to_owned(),
+        TabStateLine::AgentFinished => label(Message::UiAiFinished {}).to_owned(),
+        TabStateLine::UnreadDone => label(Message::UiCommandFinishedClickToView {}).to_owned(),
     }
 }
 

@@ -12,7 +12,7 @@ use kanso_l10n::ArgValue;
 use kanso_types::GroupId;
 use kanso_types::message::Message;
 
-use super::i18n::{self, fmt, tr};
+use super::i18n::{self, label, t};
 use crate::widgets::checklist::Checklist;
 use crate::widgets::dialog::{ButtonSpec, DialogResult, DialogSpec};
 
@@ -131,7 +131,7 @@ pub fn import_result(report: &ImportReport) -> ResultContent {
     let details_title = if !report.converted.is_empty() {
         Some(render_key("import-converted-and-skipped", &[]))
     } else if !report.skipped.is_empty() {
-        Some(tr("已跳过").to_owned())
+        Some(label(Message::UiSkipped {}).to_owned())
     } else {
         None
     };
@@ -160,21 +160,22 @@ pub fn ssh_import_result(report: &SshConfigImportReport) -> ResultContent {
     );
     ResultContent {
         summary,
-        details_title: (!report.warnings.is_empty()).then(|| tr("警告").to_owned()),
+        details_title: (!report.warnings.is_empty())
+            .then(|| label(Message::UiWarnings {}).to_owned()),
         details: report.warnings.iter().map(render).collect(),
     }
 }
 
 /// 导出成功的提示正文。
 pub fn export_done_text(path: &str) -> String {
-    fmt(tr("已导出到 {}。\n文件里不包含任何密码或口令。"), &[&path])
+    t(&Message::UiExportedToFileContainsNo {
+        path: path.to_string(),
+    })
 }
 
 /// 导入前确认框的正文：说明合并规则（核心没有"试导入"，规则在 spec §6.2 里是固定的）。
 pub fn import_confirm_text() -> &'static str {
-    tr(
-        "会按 id 合并：文件里 id 相同的会话、分组、命令会替换本地的，其余作为新数据加入，本地数据不会被删除；被替换的会话保留已保存的凭据。有问题的单条数据会被跳过。",
-    )
+    label(Message::UiDataIsMergedById {})
 }
 
 // ---- 对话框规格 ----
@@ -188,22 +189,22 @@ fn notice(title: &str) -> DialogSpec {
 }
 
 fn ok_button(spec: DialogSpec) -> DialogSpec {
-    spec.button(ButtonSpec::primary("ok", tr("好")).cancel())
+    spec.button(ButtonSpec::primary("ok", label(Message::UiOk {})).cancel())
 }
 
 /// 导出成功。
 pub fn export_done_spec(path: &str) -> DialogSpec {
-    ok_button(notice(tr("导出完成")).text(&export_done_text(path)))
+    ok_button(notice(label(Message::UiExportComplete {})).text(&export_done_text(path)))
 }
 
 /// 导入前确认：说明文件与合并规则，用户确认后才真正导入。
 pub fn import_confirm_spec(path: &str) -> DialogSpec {
-    notice(tr("导入数据"))
-        .text(tr("将导入这个文件："))
+    notice(label(Message::UiImportData {}))
+        .text(label(Message::UiThisFileWillBeImported {}))
         .code(path)
         .text(import_confirm_text())
-        .button(ButtonSpec::secondary("cancel", tr("取消")).cancel())
-        .button(ButtonSpec::primary(IMPORT_ID, tr("导入")))
+        .button(ButtonSpec::secondary("cancel", label(Message::UiCancel {})).cancel())
+        .button(ButtonSpec::primary(IMPORT_ID, label(Message::UiImport {})))
 }
 
 /// 用户是否在导入确认框里点了“导入”。
@@ -213,7 +214,7 @@ pub fn import_confirmed(result: &DialogResult) -> bool {
 
 /// 导入结果页：汇总句，加被跳过 / 已转换条目的明细。
 pub fn import_result_spec(result: &ResultContent) -> DialogSpec {
-    let mut spec = notice(tr("导入完成")).text(&result.summary);
+    let mut spec = notice(label(Message::UiImportComplete {})).text(&result.summary);
     if !result.details.is_empty() {
         if let Some(t) = &result.details_title {
             spec = spec.text(t);
@@ -225,7 +226,7 @@ pub fn import_result_spec(result: &ResultContent) -> DialogSpec {
 
 /// 操作失败的提示框。
 pub fn failure_spec(text: &str) -> DialogSpec {
-    ok_button(notice(tr("操作没有成功")).text(text))
+    ok_button(notice(label(Message::UiOperationFailed {})).text(text))
 }
 
 // ---- OpenSSH 配置导入 ----
@@ -258,11 +259,11 @@ impl SshRow {
             alias: c.alias.clone(),
             destination: format!("{user}{}:{}", c.host, c.port),
             identity: c.identity_file.clone().filter(|s| !s.is_empty()),
-            jump: c
-                .proxy_jump
-                .as_deref()
-                .filter(|s| !s.is_empty())
-                .map(|j| fmt(tr("经由 {}"), &[&j])),
+            jump: c.proxy_jump.as_deref().filter(|s| !s.is_empty()).map(|j| {
+                t(&Message::UiVia {
+                    jump: j.to_string(),
+                })
+            }),
             existing: c.existing.is_some(),
             warnings: c.warnings.iter().map(render).collect(),
         }
@@ -373,10 +374,10 @@ impl SshImportModel {
 
     /// 列表上方的概述：找到几台、其中几台已存在。
     pub fn summary_text(&self) -> String {
-        fmt(
-            tr("找到 {} 台主机，其中 {} 台已保存（导入时会更新）。"),
-            &[&self.rows.len(), &self.existing_count()],
-        )
+        t(&Message::UiFoundHostsOfThemAlready {
+            found: (self.rows.len()) as i64,
+            existing: (self.existing_count()) as i64,
+        })
     }
 }
 

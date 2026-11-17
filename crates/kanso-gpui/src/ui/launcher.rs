@@ -8,7 +8,7 @@
 //! 数据与规则在库里的 `app::sessions::LauncherModel`（三平台可测）；菜单项、确认文案在 `app::launcher`。
 //! 本视图只发事件（[`LauncherEvent`]），由 `ShellView` 决定怎么开标签 / 弹编辑对话框。
 
-use kanso_gpui::app::i18n::{fmt, tr};
+use kanso_gpui::app::i18n::{label, t};
 use std::sync::Arc;
 
 use gpui::{
@@ -304,7 +304,7 @@ impl LauncherView {
     ) {
         let spec = DialogSpec::new(title)
             .text(text)
-            .button(ButtonSpec::primary("ok", tr("好")).cancel());
+            .button(ButtonSpec::primary("ok", label(Message::UiOk {})).cancel());
         self.show_dialog(spec, Pending::Info, window, cx);
     }
 
@@ -313,18 +313,18 @@ impl LauncherView {
     }
 
     fn new_group_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let spec = DialogSpec::new(tr("新建分组"))
-            .input(InputSpec::new("name", tr("分组名称")))
-            .button(ButtonSpec::secondary("cancel", tr("取消")).cancel())
-            .button(ButtonSpec::primary("ok", tr("创建")));
+        let spec = DialogSpec::new(label(Message::UiNewGroup2 {}))
+            .input(InputSpec::new("name", label(Message::UiGroupName {})))
+            .button(ButtonSpec::secondary("cancel", label(Message::UiCancel {})).cancel())
+            .button(ButtonSpec::primary("ok", label(Message::UiCreate {})));
         self.show_dialog(spec, Pending::NewGroup, window, cx);
     }
 
     fn rename_group_dialog(&mut self, group: Group, window: &mut Window, cx: &mut Context<Self>) {
-        let spec = DialogSpec::new(tr("重命名分组"))
-            .input(InputSpec::new("name", tr("分组名称")).initial(&group.name))
-            .button(ButtonSpec::secondary("cancel", tr("取消")).cancel())
-            .button(ButtonSpec::primary("ok", tr("重命名")));
+        let spec = DialogSpec::new(label(Message::UiRenameGroup {}))
+            .input(InputSpec::new("name", label(Message::UiGroupName {})).initial(&group.name))
+            .button(ButtonSpec::secondary("cancel", label(Message::UiCancel {})).cancel())
+            .button(ButtonSpec::primary("ok", label(Message::UiRename2 {})));
         self.show_dialog(spec, Pending::RenameGroup(group), window, cx);
     }
 
@@ -333,14 +333,16 @@ impl LauncherView {
             Ok(impact) => logic::delete_group_message(&impact),
             Err(e) => return self.error_dialog(&core_error_text(&e), window, cx),
         };
-        let spec = DialogSpec::new(&fmt(tr("删除分组“{}”？"), &[&group.name]))
-            .text(&text)
-            .button(
-                ButtonSpec::secondary("cancel", tr("取消"))
-                    .cancel()
-                    .default_button(),
-            )
-            .button(ButtonSpec::danger("delete", tr("删除")));
+        let spec = DialogSpec::new(&t(&Message::UiDeleteGroup {
+            name: group.name.to_string(),
+        }))
+        .text(&text)
+        .button(
+            ButtonSpec::secondary("cancel", label(Message::UiCancel {}))
+                .cancel()
+                .default_button(),
+        )
+        .button(ButtonSpec::danger("delete", label(Message::UiDelete2 {})));
         self.show_dialog(spec, Pending::DeleteGroup(group), window, cx);
     }
 
@@ -353,14 +355,16 @@ impl LauncherView {
         let Some(name) = self.model.profile(id).map(|p| p.name.clone()) else {
             return;
         };
-        let spec = DialogSpec::new(&fmt(tr("删除会话“{}”？"), &[&name]))
-            .text(logic::delete_profile_message())
-            .button(
-                ButtonSpec::secondary("cancel", tr("取消"))
-                    .cancel()
-                    .default_button(),
-            )
-            .button(ButtonSpec::danger("delete", tr("删除")));
+        let spec = DialogSpec::new(&t(&Message::UiDeleteSession {
+            name: name.to_string(),
+        }))
+        .text(logic::delete_profile_message())
+        .button(
+            ButtonSpec::secondary("cancel", label(Message::UiCancel {}))
+                .cancel()
+                .default_button(),
+        )
+        .button(ButtonSpec::danger("delete", label(Message::UiDelete2 {})));
         self.show_dialog(spec, Pending::DeleteProfile(id), window, cx);
     }
 
@@ -491,7 +495,7 @@ impl LauncherView {
             .cursor_pointer()
             .hover(|s| s.bg(th.c("bg.tabHover")).text_color(th.c("text.primary")))
             .child(icon(
-                if label == tr("编辑") {
+                if label == label(Message::UiEdit2 {}) {
                     "pencil"
                 } else {
                     "ellipsis"
@@ -576,7 +580,7 @@ impl LauncherView {
                     .opacity(if selected { 1.0 } else { 0.0 })
                     .group_hover(group_name, actions_visible)
                     .child(
-                        self.small_button(("edit", index), tr("编辑"), th)
+                        self.small_button(("edit", index), label(Message::UiEdit2 {}), th)
                             .on_mouse_down(
                                 MouseButton::Left,
                                 cx.listener(move |_this, _: &MouseDownEvent, _w, cx| {

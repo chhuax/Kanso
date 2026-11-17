@@ -7,6 +7,7 @@
 //!
 //! 文字与对话框规格在 `kanso_gpui::app::data_transfer`（三平台可测）。
 
+use kanso_types::message::Message;
 use std::path::{Path, PathBuf};
 
 use gpui::{Context, MouseButton, MouseDownEvent, PathPromptOptions, Window, div, prelude::*, px};
@@ -14,7 +15,7 @@ use kanso_gpui::app::data_transfer::{
     export_default_name, export_done_spec, failure_spec, import_confirm_spec, import_confirmed,
     import_result, import_result_spec, with_extension,
 };
-use kanso_gpui::app::i18n::tr;
+use kanso_gpui::app::i18n::label;
 use kanso_gpui::app::launcher::core_error_text;
 use kanso_gpui::app::shortcuts::{AppCommand, shortcut_text};
 use kanso_gpui::widgets::dialog::{DialogResult, DialogSpec};
@@ -120,7 +121,7 @@ impl ShellView {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some(tr("选择要导入的 .kanso 文件").into()),
+            prompt: Some(label(Message::UiChooseKansoFileToImport {}).into()),
         });
         cx.spawn_in(window, async move |this, cx| {
             if let Ok(Ok(Some(paths))) = rx.await
@@ -243,11 +244,11 @@ impl ShellView {
                 div()
                     .text_size(px(number("font", "ui.title")))
                     .text_color(th.c("text.primary"))
-                    .child(tr("没有打开的会话")),
+                    .child(label(Message::UiNoOpenSessions {})),
             )
             .child(entry(
                 "empty-local",
-                tr("新建本地 Shell"),
+                label(Message::UiNewLocalShell {}),
                 true,
                 AppCommand::NewLocalTab,
                 cx,
@@ -256,18 +257,18 @@ impl ShellView {
                 div()
                     .text_size(px(number("font", "ui.caption")))
                     .text_color(th.c("text.tertiary"))
-                    .child(format!("{} {key}", tr("或按"))),
+                    .child(format!("{} {key}", label(Message::UiOrPress {}))),
             )
             .child(entry(
                 "empty-session",
-                tr("新建会话…"),
+                label(Message::UiNewSession2 {}),
                 false,
                 AppCommand::NewSession,
                 cx,
             ))
             .child(entry(
                 "empty-import",
-                tr("导入 OpenSSH 配置…"),
+                label(Message::UiImportOpensshConfig2 {}),
                 false,
                 AppCommand::ImportSshConfig,
                 cx,

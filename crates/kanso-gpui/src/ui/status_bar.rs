@@ -5,8 +5,9 @@
 //! 空间不足时状态文字先让位（被裁掉），再压缩目录（保留末尾）。
 
 use gpui::{Context, Render, Window, div, prelude::*, px};
-use kanso_gpui::app::i18n::tr;
+use kanso_gpui::app::i18n::label;
 use kanso_gpui::app::status_bar::{StatusBarModel, StatusTone, fit_directory};
+use kanso_types::message::Message;
 
 use super::shell::{ShellView, Theme, status_bar_h};
 
@@ -114,8 +115,12 @@ impl ShellView {
             .border_t_1()
             .border_color(th.c("border.subtle"))
             .text_size(px(kanso_gpui::widgets::style::number("font", "ui.caption")))
-            .child(toggle_item("status-filer", tr("文件"), th))
-            .child(toggle_item("status-timeline", tr("时间戳"), th))
+            .child(toggle_item("status-filer", label(Message::UiFiles {}), th))
+            .child(toggle_item(
+                "status-timeline",
+                label(Message::UiTimestamps {}),
+                th,
+            ))
             .children(directory)
             // 状态文字没有内容时也要占住中间的弹性空间，把右侧元素推到最右。
             .child(status.unwrap_or_else(|| div().flex_1()))
