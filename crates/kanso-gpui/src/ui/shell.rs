@@ -57,9 +57,6 @@ use super::widgets::dialog::{Dialog, DialogEvent};
 use super::widgets::menu::{ContextMenu, MenuEvent};
 use super::{EXIT_CODE, log, tz};
 
-/// 界面字体。
-pub(crate) const UI_FONT: &str = "Microsoft YaHei UI";
-
 /// 状态栏高度（逻辑像素，取自设计 token `statusBar.height`）。
 pub(crate) fn status_bar_h() -> f32 {
     number("spacing", "statusBar.height")
