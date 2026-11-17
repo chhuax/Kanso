@@ -41,6 +41,7 @@ pub struct Dropdown {
     focus: FocusHandle,
     state: DropdownState,
     placeholder: SharedString,
+    button_label: Option<SharedString>,
     /// 过滤模式：`Some(过滤框占位文字)`。
     filter_placeholder: Option<SharedString>,
     filter_input: Entity<TextInput>,
@@ -104,6 +105,7 @@ impl Dropdown {
             focus: cx.focus_handle().tab_stop(true),
             state: DropdownState::default(),
             placeholder: "请选择".into(),
+            button_label: None,
             filter_placeholder: None,
             filter_input,
             disabled: false,
@@ -133,6 +135,12 @@ impl Dropdown {
     #[allow(dead_code)] // 控件公开接口，演示窗口暂未用到
     pub fn placeholder(mut self, text: impl Into<SharedString>) -> Self {
         self.placeholder = text.into();
+        self
+    }
+
+    /// 选择字体等操作保留固定按钮文案，菜单中仍显示实际选项。
+    pub fn button_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.button_label = Some(label.into());
         self
     }
 
@@ -576,6 +584,7 @@ impl Render for Dropdown {
             Some(l) => (SharedString::from(l.to_owned()), text),
             None => (self.placeholder.clone(), st.placeholder),
         };
+        let label = self.button_label.clone().unwrap_or(label);
         let cell = self.button_bounds.clone();
         let button = div()
             .id("dropdown-button")
@@ -629,7 +638,11 @@ impl Render for Dropdown {
                     } else {
                         color("text.secondary", self.appearance)
                     }))
-                    .child("▾"),
+                    .child(super::icons::icon(
+                        "chevron-down",
+                        12.0,
+                        hsla(color("text.secondary", self.appearance)),
+                    )),
             );
 
         div()

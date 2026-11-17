@@ -121,6 +121,7 @@ pub struct TextInput {
     focus: FocusHandle,
     state: EditState,
     placeholder: SharedString,
+    search: bool,
     disabled: bool,
     appearance: Appearance,
     scroll_x: f32,
@@ -164,6 +165,7 @@ impl TextInput {
             focus,
             state: EditState::default(),
             placeholder: SharedString::default(),
+            search: false,
             disabled: false,
             appearance: Appearance::Dark,
             scroll_x: 0.0,
@@ -177,6 +179,12 @@ impl TextInput {
     }
 
     // ---- 构建器 ----
+
+    /// 搜索输入在文字前显示放大镜，与 Mac 的路径筛选框一致。
+    pub fn search(mut self) -> Self {
+        self.search = true;
+        self
+    }
 
     /// 初始内容（光标在末尾）。
     pub fn with_text(mut self, text: &str) -> Self {
@@ -924,6 +932,10 @@ impl Render for TextInput {
                     blur_radius: px(0.),
                     spread_radius: px(st.ring_width),
                 }])
+            })
+            .when(self.search, |d| {
+                d.gap(px(8.0))
+                    .child(super::icons::icon("search", 14.0, hsla(st.placeholder)))
             })
             .child(
                 div()
