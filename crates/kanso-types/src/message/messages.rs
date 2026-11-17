@@ -1139,4 +1139,56 @@ messages! {
     // ---- secret ----
     /// 凭据存储读写失败，`detail` 为英文技术细节。
     SecretStoreFailed = "secret-store-failed" { detail: String },
+
+    // ---- Git 改动面板（gpui） ----
+    /// Git 改动面板界面文字：改动
+    UiGitTitle = "ui-git-title" {},
+    /// Git 改动面板界面文字：刷新改动
+    UiGitRefresh = "ui-git-refresh" {},
+    /// Git 改动面板界面文字：关闭改动面板
+    UiGitClose = "ui-git-close" {},
+    /// Git 改动面板界面文字：更多操作
+    UiGitMore = "ui-git-more" {},
+    /// Git 改动面板界面文字：无法检测此目录的改动；仅适用于 Git 仓库
+    UiGitUnsupported = "ui-git-unsupported" {},
+    /// Git 改动面板界面文字：正在读取改动…
+    UiGitLoading = "ui-git-loading" {},
+    /// Git 改动面板界面文字：工作区干净
+    UiGitClean = "ui-git-clean" {},
+    /// Git 改动面板界面文字：提交说明（回车提交）
+    UiGitCommitPlaceholder = "ui-git-commit-placeholder" {},
+    /// Git 改动面板界面文字：提交
+    UiGitCommit = "ui-git-commit" {},
+    /// Git 改动面板界面文字：丢弃该文件改动
+    UiGitDiscardFile = "ui-git-discard-file" {},
+    /// Git 改动面板界面文字：丢弃全部改动
+    UiGitDiscardAll = "ui-git-discard-all" {},
+    /// Git 改动面板界面文字：复制完整路径
+    UiGitCopyPath = "ui-git-copy-path" {},
+    /// Git 改动面板界面文字：正在读取差异…
+    UiGitReadingDiff = "ui-git-reading-diff" {},
+    /// Git 改动面板界面文字：差异已截断
+    UiGitDiffTruncated = "ui-git-diff-truncated" {},
+    /// Git 改动面板界面文字：提交可能已经留下暂存的内容。
+    UiGitCommitMayStaged = "ui-git-commit-may-staged" {},
+    /// Git 改动面板界面文字：丢弃“{ $path }”的改动？
+    UiGitDiscardTitleFile = "ui-git-discard-title-file" { path: String },
+    /// Git 改动面板界面文字：丢弃“{ $repo }”中的全部改动？
+    UiGitDiscardTitleAll = "ui-git-discard-title-all" { repo: String },
+    /// Git 改动面板界面文字：新增的内容将被永久删除。
+    UiGitDiscardBodyNew = "ui-git-discard-body-new" {},
+    /// Git 改动面板界面文字：暂存和未暂存的修改都会丢失；重命名会恢复原路径。
+    UiGitDiscardBodyTracked = "ui-git-discard-body-tracked" {},
+    /// Git 改动面板界面文字：暂存、未暂存和未跟踪的改动都会永久丢失；被 Git 忽略的文件保留。
+    UiGitDiscardBodyAll = "ui-git-discard-body-all" {},
+    /// Git 改动面板界面文字：应用内没有撤销、回收站或自动备份。
+    UiGitDiscardNoUndo = "ui-git-discard-no-undo" {},
+    /// Git 改动面板界面文字：取消
+    UiGitCancel = "ui-git-cancel" {},
+    /// Git 改动面板界面文字：丢弃
+    UiGitDiscard = "ui-git-discard" {},
+    /// Git 改动面板界面文字：Git 改动
+    UiGitMenuView = "ui-git-menu-view" {},
+    /// Git 改动面板界面文字：{ $repo } · { $branch }
+    UiGitBranchTooltip = "ui-git-branch-tooltip" { repo: String, branch: String },
 }

@@ -62,6 +62,7 @@ pub fn encode(command: AppCommand) -> String {
         AppCommand::ToggleCommandSuggestions => "toggle-command-suggestions".into(),
         AppCommand::ClearCommandHistory => "clear-command-history".into(),
         AppCommand::ToggleFiler => "toggle-filer".into(),
+        AppCommand::ToggleGit => "toggle-git".into(),
         AppCommand::LocateFiler => "locate-filer".into(),
         AppCommand::XmodemSend => "xmodem-send".into(),
         AppCommand::XmodemSend1K => "xmodem-send-1k".into(),
@@ -143,6 +144,7 @@ pub fn decode(id: &str) -> Option<AppCommand> {
         "toggle-command-suggestions" => AppCommand::ToggleCommandSuggestions,
         "clear-command-history" => AppCommand::ClearCommandHistory,
         "toggle-filer" => AppCommand::ToggleFiler,
+        "toggle-git" => AppCommand::ToggleGit,
         "locate-filer" => AppCommand::LocateFiler,
         "xmodem-send" => AppCommand::XmodemSend,
         "xmodem-send-1k" => AppCommand::XmodemSend1K,
@@ -273,6 +275,8 @@ pub struct AppMenuState {
     pub command_suggestions: bool,
     /// Filer 是否显示。
     pub filer_visible: bool,
+    /// Git 改动面板是否显示。
+    pub git_visible: bool,
 }
 
 /// 窗口级应用菜单（Windows / Linux 没有系统菜单栏，spec §6 末段：放在应用内）。
@@ -353,6 +357,8 @@ pub fn app_menu(state: AppMenuState) -> Vec<MenuItem> {
                     .checked(state.sender_visible),
                 item(&msg(Message::UiFilerMenuView {}), AppCommand::ToggleFiler)
                     .checked(state.filer_visible),
+                item(&msg(Message::UiGitMenuView {}), AppCommand::ToggleGit)
+                    .checked(state.git_visible),
                 MenuItem::separator(),
                 item(label(Message::UiSplitRight {}), AppCommand::SplitRight),
                 item(label(Message::UiSplitDown {}), AppCommand::SplitDown),
@@ -429,6 +435,7 @@ mod tests {
             AppCommand::ZoomIn,
             AppCommand::ZoomOut,
             AppCommand::ToggleFiler,
+            AppCommand::ToggleGit,
             AppCommand::LocateFiler,
             AppCommand::XmodemSend,
             AppCommand::XmodemSend1K,
@@ -470,6 +477,7 @@ mod tests {
             sender_visible: true,
             command_suggestions: true,
             filer_visible: false,
+            git_visible: false,
         };
         for items in [
             terminal_menu(true, Some(BlockMenu { copy_command: true })),
@@ -564,6 +572,7 @@ mod tests {
             sender_visible: false,
             command_suggestions: true,
             filer_visible: true,
+            git_visible: false,
         });
         let flat = all(&items);
         for want in [

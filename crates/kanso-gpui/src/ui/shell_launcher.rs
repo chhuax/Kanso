@@ -31,6 +31,7 @@ impl ShellView {
             || self.ssh_import.is_some()
             || self.dialog.is_some()
             || self.filer.dialog.is_some()
+            || self.git.dialog.is_some()
             || self.menu.is_some()
     }
 

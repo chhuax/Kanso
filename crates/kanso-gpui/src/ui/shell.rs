@@ -153,6 +153,8 @@ pub(crate) struct ShellView {
     pub(super) pending_data: Option<super::shell_data::PendingData>,
     /// 文件功能（辅助 Filer、纯 SFTP 双栏、终端内传输）的状态，见 `shell_filer.rs`。
     pub(super) filer: super::shell_filer::FilerState,
+    /// Git 改动面板（终端右侧），见 `shell_git.rs`。
+    pub(super) git: super::shell_git::GitState,
 }
 
 impl ShellView {
@@ -199,6 +201,7 @@ impl ShellView {
         );
         let completion = super::shell_completion::CompletionCtl::load(&core);
         let filer = super::shell_filer::new_state(&core, window, cx);
+        let git = super::shell_git::new_state(window, cx);
         let mut this = ShellView {
             ctl: AppController::new(core.clone(), home),
             core,
@@ -240,6 +243,7 @@ impl ShellView {
             ssh_import_sub: None,
             pending_data: None,
             filer,
+            git,
         };
         {
             let timeline = *this.settings.read(cx).timeline();
@@ -353,6 +357,9 @@ impl ShellView {
         }
         if super::SENDER_TEST.load(Ordering::Relaxed) {
             this.run_sender_test(window, cx);
+        }
+        if super::GIT_TEST.load(Ordering::Relaxed) {
+            this.run_git_selftest(window, cx);
         }
         if super::FILER_TEST.load(Ordering::Relaxed) {
             this.run_filer_selftest(window, cx);
@@ -500,10 +507,12 @@ impl ShellView {
         cx: &mut Context<Self>,
     ) {
         self.filer_core_events(&batch, cx);
+        let git_sessions = Self::git_event_sessions(&batch);
         let mut fx = Effects::default();
         for ev in batch {
             fx.merge(self.ctl.handle_event(ev));
         }
+        self.git_after_events(&git_sessions, cx);
         if fx.terminal {
             for id in self.ctl.take_dirty() {
                 if let Some(t) = self.terminals.get(&id) {
@@ -619,6 +628,7 @@ impl ShellView {
             AppCommand::ImportData => self.import_data(window, cx),
             AppCommand::ImportSshConfig => self.open_ssh_import(window, cx),
             AppCommand::ToggleFiler => self.toggle_filer(window, cx),
+            AppCommand::ToggleGit => self.toggle_git(window, cx),
             AppCommand::LocateFiler => self.locate_terminal_dir(true, window, cx),
             AppCommand::XmodemSend => self.run_xmodem(Some(kanso_core::XmodemBlock::Bytes128), cx),
             AppCommand::XmodemSend1K => self.run_xmodem(Some(kanso_core::XmodemBlock::Bytes1K), cx),
@@ -866,6 +876,7 @@ impl ShellView {
             sender_visible: self.sender.visible,
             command_suggestions: self.completion.enabled,
             filer_visible: self.filer.visible(),
+            git_visible: self.git.visible(),
         });
         self.open_menu(items, anchor, window, cx);
     }
@@ -1133,6 +1144,7 @@ impl ShellView {
     /// 键盘焦点与核心的“有焦点”状态都跟随活动会话。
     pub(super) fn sync_focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.sync_filer_session(window, cx);
+        self.sync_git(cx);
         // 纯 SFTP 标签：键盘焦点交给它的双栏面板。
         if let Some(panel) = self
             .ctl
@@ -1236,7 +1248,8 @@ impl ShellView {
     pub(super) fn split_area(&self, window: &Window) -> Rect {
         let size = window.viewport_size();
         let x = f64::from(self.sidebar_width(window) + self.filer_width(window));
-        let w = f64::from(f32::from(size.width));
+        // 右侧的 Git 面板也从分屏区里扣掉。
+        let w = f64::from(f32::from(size.width)) - f64::from(self.git_width(window));
         // 顶部留给标题栏，底部留给状态栏与发送区。
         let top = super::toolbar::HEIGHT;
         let h = f64::from(
@@ -1257,6 +1270,9 @@ impl ShellView {
             return;
         }
         if self.filer_drag_move(ev, cx) {
+            return;
+        }
+        if self.git_drag_move(ev, cx) {
             return;
         }
         let Some(drag) = self.drag.clone() else {
@@ -1293,6 +1309,7 @@ impl ShellView {
     fn on_mouse_up(&mut self, _ev: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
         self.sender.drag = None;
         self.filer_drag_end();
+        self.git_drag_end();
         if self.drag.take().is_some() {
             cx.notify();
         }
@@ -1537,6 +1554,7 @@ impl Render for ShellView {
         let sender_els = self.render_sender(area, th, cx);
         let completion_el = self.render_completion(area, th, cx);
         let filer_panels = self.render_filer(th, window, cx);
+        let git_panels = self.render_git(th, window, cx);
         let notice = self
             .notice
             .as_ref()
@@ -1559,6 +1577,7 @@ impl Render for ShellView {
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .children(sidebar)
             .children(filer_panels)
+            .children(git_panels)
             .children(panes)
             .child(status_bar)
             .child(self.render_toolbar(th, window, cx))
@@ -1589,6 +1608,7 @@ impl Render for ShellView {
             .children(self.menu.clone())
             .children(self.dialog.clone())
             .children(self.filer.dialog.clone())
+            .children(self.git.dialog.clone())
             .children(self.launcher.clone())
             .children(self.editor.clone())
             .children(self.ssh_import.clone())
