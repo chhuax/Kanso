@@ -20,6 +20,8 @@ pub enum AppCommand {
     NewLocalTab,
     /// 打开会话启动器浮层（＋ 按钮同款）。
     OpenLauncher,
+    /// 搜索已打开的标签、保存的会话和菜单命令。
+    OpenPalette,
     /// 打开新建会话对话框（ui-shell.md §7：Alt+N）。
     NewSession,
     /// 关闭当前会话（本地 shell 有前台命令时需要确认）。
@@ -157,6 +159,7 @@ pub const DEFAULT_BINDINGS: &[Binding] = &[
     // 标签
     b(true, false, true, "t", AppCommand::NewLocalTab),
     // 规格没有给启动器单独的键；Ctrl+Shift+O 与 Ctrl+Shift+T / W 同属「会话」组。
+    b(true, false, true, "p", AppCommand::OpenPalette),
     b(true, false, true, "o", AppCommand::OpenLauncher),
     b(false, true, false, "n", AppCommand::NewSession),
     b(true, false, true, "w", AppCommand::CloseSession),

@@ -82,11 +82,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         gitReadsEnabled = !useMockCore
         confirmer = AlertCloseConfirmer()
         let dispatcher = CoreEventDispatcher()
-        let core = try Self.makeCore(useMock: useMockCore, listener: dispatcher)
+        let (core, dataDirectory) = try Self.makeCore(useMock: useMockCore, listener: dispatcher)
         PerformanceProbe.mark("core")
         // 必须在创建任何视图之前：载入会应用外观、时间轴模式，并把终端选项（回滚、默认光标）下发给 core，
         // 之后打开的第一个会话就已经是用户的设置。
-        settings.attach(backend: core, legacyDefaults: defaults)
+        settings.attach(
+            backend: core, legacyDefaults: defaults,
+            themesDirectory: dataDirectory?.appendingPathComponent("themes", isDirectory: true)
+        )
         PerformanceProbe.mark("settings")
         let gutter = gutter ?? GutterModeController(settings: settings)
         let controller = WorkspaceController(
@@ -311,22 +314,25 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     /// 创建 core。真实 core 的数据目录是 `~/Library/Application Support/<bundle id>/`，目录不存在由 core 创建。
-    private static func makeCore(useMock: Bool, listener: CoreEventDispatcher) throws -> KansoCore {
-        if useMock { return KansoCore.newMock(listener: listener) }
-        if let root = PerformanceProbe.root { return try PerformanceProbe.makeCore(root: root, listener: listener) }
+    private static func makeCore(useMock: Bool, listener: CoreEventDispatcher) throws -> (KansoCore, URL?) {
+        if useMock { return (KansoCore.newMock(listener: listener), nil) }
+        if let root = PerformanceProbe.root {
+            return (try PerformanceProbe.makeCore(root: root, listener: listener), root.appendingPathComponent("data", isDirectory: true))
+        }
         let bundleId = Bundle.main.bundleIdentifier ?? "com.chhuax.kanso"
         let support = try FileManager.default.url(
             for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false
         )
+        let dataDirectory = support.appendingPathComponent(bundleId, isDirectory: true)
         let config = FfiCoreConfig(
-            dataDir: support.appendingPathComponent(bundleId, isDirectory: true).path,
+            dataDir: dataDirectory.path,
             appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0",
             bundleId: bundleId,
             preferredLanguage: Locale.preferredLanguages.first ?? "en",
             region: Locale.current.region?.identifier
         )
         // 凭据存入钥匙串，service 用 bundle id，与数据目录同一命名空间。
-        return try KansoCore(config: config, listener: listener, secrets: KeychainSecretStore(service: bundleId))
+        return (try KansoCore(config: config, listener: listener, secrets: KeychainSecretStore(service: bundleId)), dataDirectory)
     }
 
     /// 首次启动（还没有侧栏宽度的 autosave 记录）时把侧栏设成默认宽度；之后以用户上次的宽度为准。

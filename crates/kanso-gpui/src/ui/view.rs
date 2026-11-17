@@ -579,11 +579,10 @@ impl TerminalView {
         cx.notify();
     }
 
-    /// 非法正则时核心返回 `User` 错误；其他错误（会话已不存在等）静默清空状态。
+    /// 匹配计数及正则错误来自同一份终端搜索状态。
     fn apply_search(&mut self, r: Result<kanso_core::SearchStatus, CoreError>) {
         self.find.result = match r {
             Ok(s) => s.into(),
-            Err(CoreError::User(_)) => FindResult::InvalidRegex,
             Err(_) => FindResult::Idle,
         };
     }

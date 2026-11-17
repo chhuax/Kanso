@@ -1288,8 +1288,7 @@ impl RealCore {
 
     // ---- 搜索 ----
 
-    /// 非法正则不返回错误：目前没有合适的用户消息（`Message` 里没有对应项），
-    /// 按"没有任何匹配"返回 `total == 0`，UI 显示 0 个结果。
+    /// 终端同时返回匹配数量和正则是否合法。
     pub(crate) fn search(&self, session: SessionId, query: SearchQuery) -> Result<SearchStatus> {
         let status = self
             .terminal_session(session)?
@@ -1299,6 +1298,7 @@ impl RealCore {
                 regex: query.regex,
             });
         Ok(SearchStatus {
+            invalid_regex: status.invalid_regex,
             total: status.total,
             current: status.current,
         })
@@ -1307,6 +1307,7 @@ impl RealCore {
     pub(crate) fn search_next(&self, session: SessionId, backwards: bool) -> Result<SearchStatus> {
         let status = self.terminal_session(session)?.search_next(backwards);
         Ok(SearchStatus {
+            invalid_regex: status.invalid_regex,
             total: status.total,
             current: status.current,
         })
@@ -1315,6 +1316,7 @@ impl RealCore {
     pub(crate) fn search_status(&self, session: SessionId) -> Result<SearchStatus> {
         let status = self.terminal_session(session)?.search_status();
         Ok(SearchStatus {
+            invalid_regex: status.invalid_regex,
             total: status.total,
             current: status.current,
         })

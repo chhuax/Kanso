@@ -282,6 +282,7 @@ ui-theme = Mode
 ui-light-theme = Light terminal theme
 
 ui-dark-theme = Dark terminal theme
+ui-open-themes-folder = Open Themes Folder
 
 ui-font = Font
 
@@ -295,6 +296,7 @@ ui-font-custom = Custom font
 
 ui-font-hint = Leave empty to use the system monospaced font. Missing icons use an installed Nerd Font automatically.
 
+ui-missing-terminal-font = “{ $name }” isn’t installed. The system monospaced font is used instead.
 ui-font-probing = Detecting installed monospaced fonts…
 
 ui-cursor = Cursor
@@ -808,3 +810,9 @@ ui-xfer-menu-send-1k = Send with XMODEM-1K…
 ui-xfer-menu-receive = Receive with XMODEM…
 ui-xfer-menu-cancel = Cancel Transfer
 ui-xfer-start-failed = Can't start the transfer: { $why }
+
+ui-search = Search
+
+ui-file-browser = File Browser
+
+ui-search-empty = No matches

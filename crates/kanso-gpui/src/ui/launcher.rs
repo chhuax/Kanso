@@ -111,7 +111,7 @@ impl LauncherView {
         let search = cx.new(|cx| {
             TextInput::new(window, cx)
                 .search()
-                .placeholder(logic::render_message(&Message::UiSearchSessions {}))
+                .placeholder(Message::UiSearchSessions {})
         });
         let sub = cx.subscribe_in(
             &search,

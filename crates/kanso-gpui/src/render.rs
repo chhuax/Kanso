@@ -10,17 +10,17 @@
 //! - 空白单元格不进片段（背景由矩形负责）。
 
 use kanso_frame::{
-    CELL_BOLD, CELL_DIM, CELL_HIDDEN, CELL_INVERSE, CELL_ITALIC, CELL_MATCH, CELL_MATCH_CURRENT,
-    CELL_SELECTED, CELL_STRIKE, CELL_UNDERLINE_MASK, CELL_UNDERLINE_SHIFT, CELL_WIDE,
-    CELL_WIDE_SPACER, CURSOR_BAR, CURSOR_BLOCK, CURSOR_UNDERLINE, Cell, Color, DecodedColor,
-    FRAME_ALT_SCREEN, FRAME_CURSOR_VISIBLE, FRAME_MOUSE_REPORTING, FrameView, LINE_BLANK,
-    LINE_CURSOR, LINE_FIRST_PROMPT, LINE_PROMPT, LINE_WRAPPED,
+    CELL_BOLD, CELL_CHIP, CELL_DIM, CELL_HIDDEN, CELL_INVERSE, CELL_ITALIC, CELL_MATCH,
+    CELL_MATCH_CURRENT, CELL_SELECTED, CELL_STRIKE, CELL_UNDERLINE_MASK, CELL_UNDERLINE_SHIFT,
+    CELL_WIDE, CELL_WIDE_SPACER, CURSOR_BAR, CURSOR_BLOCK, CURSOR_UNDERLINE, Cell, Color,
+    DecodedColor, FRAME_ALT_SCREEN, FRAME_CURSOR_VISIBLE, FRAME_MOUSE_REPORTING, FrameView,
+    LINE_BLANK, LINE_CURSOR, LINE_FIRST_PROMPT, LINE_PROMPT, LINE_WRAPPED,
 };
 use kanso_types::geometry::Rgb;
 
 use crate::app::links::LineText;
 use crate::contrast::ContrastGuard;
-use crate::theme::{MATCH_BACKGROUND, MATCH_CURRENT_BACKGROUND, Palette, Rgb8};
+use crate::theme::{Palette, Rgb8};
 
 /// 背景矩形：同一行内连续、同色的单元格合并成一块。默认背景色不产生矩形。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -118,6 +118,8 @@ pub struct RenderGrid {
     pub rows: u16,
     /// 背景矩形。
     pub bgs: Vec<BgRect>,
+    /// 每个提示符标签的行、起始列和宽度。
+    pub chips: Vec<(u16, u16, u16)>,
     /// 文字片段。
     pub spans: Vec<TextSpan>,
     /// 光标（不可见或回滚查看历史时为 `None`）。
@@ -165,12 +167,13 @@ fn color_of(raw: u32, palette: &Palette, default: Rgb8) -> Rgb8 {
     }
 }
 
-/// 把单元格的颜色与属性解析成最终前景 / 背景（不含光标）。
+/// 按显示优先级合成单元格的前景和背景。
 fn resolve(
     cell: &Cell,
     underline_color_raw: u32,
     palette: &Palette,
     guard: Option<&mut ContrastGuard>,
+    block_cursor: bool,
 ) -> ResolvedCell {
     let mut fg = color_of(cell.fg, palette, palette.foreground);
     // 背景不会是语义色（语义着色只出现在前景）；遇到时按调色板解析即可。
@@ -179,29 +182,27 @@ fn resolve(
     if flags & CELL_INVERSE != 0 {
         std::mem::swap(&mut fg, &mut bg);
     }
-    if flags & CELL_DIM != 0 {
-        // 暗淡：前景向背景靠 40%。
-        fg = fg.mix(bg, 102);
-    }
     if flags & CELL_SELECTED != 0 {
         bg = palette.selection_background;
     } else if flags & CELL_MATCH_CURRENT != 0 {
-        bg = MATCH_CURRENT_BACKGROUND;
+        bg = bg.mixed(palette.cursor, 0.7);
     } else if flags & CELL_MATCH != 0 {
-        bg = MATCH_BACKGROUND;
+        bg = bg.mixed(palette.cursor, 0.35);
     }
-    // 最低对比度保护：只处理程序自己指定的索引色 / RGB 色；默认色与语义色已由主题保证，反色是有意的设计。
-    if let Some(g) = guard
-        && flags & (CELL_INVERSE | CELL_HIDDEN) == 0
-        && matches!(
-            Color::decode(cell.fg),
-            DecodedColor::Indexed(_) | DecodedColor::Rgb(_)
-        )
-    {
-        fg = g.adjusted(fg, bg);
+    // 先按可见底色保护对比度，再应用 SGR 2，保持弱化文本的层级。
+    if block_cursor {
+        fg = palette.cursor_text;
+        bg = palette.cursor;
+    } else if let Some(g) = guard {
+        let shown = if flags & CELL_CHIP != 0 && bg == palette.background {
+            palette.decorations.chip_background
+        } else {
+            bg
+        };
+        fg = g.adjusted(fg, shown);
     }
-    if flags & CELL_HIDDEN != 0 {
-        fg = bg;
+    if flags & CELL_DIM != 0 {
+        fg = fg.mixed(bg, 0.4);
     }
     let underline = (flags & CELL_UNDERLINE_MASK) >> CELL_UNDERLINE_SHIFT;
     let underline_color = (underline != 0 && underline_color_raw != 0)
@@ -237,6 +238,7 @@ pub fn build_render_grid_with(
     let (cursor_col, cursor_row) = (header.cursor_col, header.cursor_row);
 
     let mut bgs: Vec<BgRect> = Vec::new();
+    let mut chips = Vec::new();
     let mut spans: Vec<TextSpan> = Vec::new();
     let mut cursor: Option<CursorDraw> = None;
 
@@ -247,6 +249,15 @@ pub fn build_render_grid_with(
         let mut col: u16 = 0;
         while usize::from(col) < cells.len() {
             let cell = &cells[usize::from(col)];
+            if cell.flags & CELL_CHIP != 0
+                && (col == 0 || cells[usize::from(col - 1)].flags & CELL_CHIP == 0)
+            {
+                let length = cells[usize::from(col)..]
+                    .iter()
+                    .take_while(|c| c.flags & CELL_CHIP != 0)
+                    .count();
+                chips.push((row, col, length as u16));
+            }
             if cell.flags & CELL_WIDE_SPACER != 0 {
                 // 宽字符的后半：已由前半覆盖。
                 col += 1;
@@ -254,21 +265,23 @@ pub fn build_render_grid_with(
             }
             let extra = view.extra(cell);
             let grapheme = extra.and_then(|e| view.grapheme(e));
-            let wide = cell.flags & CELL_WIDE != 0;
+            let wide = cells.get(usize::from(col) + 1).is_some_and(|next| {
+                cell.flags & CELL_WIDE != 0
+                    || (cell.ch > 0x7f && next.flags & CELL_WIDE_SPACER != 0)
+            });
             let width: u16 = if wide { 2 } else { 1 };
 
-            let mut resolved = resolve(
+            let on_cursor = cursor_visible && row == cursor_row && col == cursor_col;
+            let resolved = resolve(
                 cell,
                 extra.map_or(0, |e| e.underline_color),
                 palette,
                 guard.as_deref_mut(),
+                on_cursor && header.cursor_shape == CURSOR_BLOCK,
             );
-            let on_cursor = cursor_visible && row == cursor_row && col == cursor_col;
             if on_cursor {
                 match header.cursor_shape {
                     CURSOR_BLOCK => {
-                        resolved.bg = palette.cursor;
-                        resolved.style.fg = palette.cursor_text;
                         cursor = Some(CursorDraw {
                             row,
                             col,
@@ -313,9 +326,10 @@ pub fn build_render_grid_with(
             }
 
             // 文字。
-            let text: String = match grapheme {
-                Some(g) => g.to_owned(),
-                None => match char::from_u32(cell.ch) {
+            let text: String = match (cell.flags & CELL_HIDDEN != 0, grapheme) {
+                (true, _) => " ".to_owned(),
+                (false, Some(g)) => g.to_owned(),
+                (false, None) => match char::from_u32(cell.ch) {
                     Some(c) if cell.ch != 0 && !c.is_control() => c.to_string(),
                     _ => " ".to_owned(),
                 },
@@ -349,6 +363,7 @@ pub fn build_render_grid_with(
         cols,
         rows,
         bgs,
+        chips,
         spans,
         cursor,
         cursor_cell: (cursor_col, cursor_row),
@@ -645,8 +660,7 @@ mod tests {
         let g = build_render_grid(&f.view().unwrap(), &p);
         let dim = g.spans.iter().find(|s| s.text == "d").unwrap();
         assert_ne!(dim.fg, p.foreground);
-        let hidden = g.spans.iter().find(|s| s.text == "h").unwrap();
-        assert_eq!(hidden.fg, p.background);
+        assert!(g.spans.iter().all(|s| !s.text.contains('h')));
         assert_eq!(g.bgs[0].color, p.selection_background);
         assert_eq!(g.bgs[0].col, 2);
     }
@@ -840,7 +854,84 @@ mod tests {
     }
 
     #[test]
-    fn contrast_guard_only_touches_program_colors() {
+    fn terminal_preset_search_colors_match_mac() {
+        for (palette, expected) in [
+            (Palette::kanso_dark(), [0x26414D, 0x467D95]),
+            (Palette::kanso_light(), [0xB2C8D2, 0x6996AB]),
+        ] {
+            let mut b = FrameBuilder::new(3, 1);
+            for (col, flags) in [
+                CELL_MATCH,
+                CELL_MATCH_CURRENT,
+                CELL_SELECTED | CELL_MATCH_CURRENT,
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                b.set_cell(
+                    0,
+                    col as u16,
+                    Cell {
+                        flags,
+                        ..plain('x')
+                    },
+                );
+            }
+            let f = frame(b);
+            let g = build_render_grid(&f.view().unwrap(), &palette);
+            assert_eq!(
+                g.bgs.iter().map(|r| r.color.to_u32()).collect::<Vec<_>>(),
+                [
+                    expected[0],
+                    expected[1],
+                    palette.selection_background.to_u32()
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn dim_uses_final_colors_and_chip_runs_follow_cells() {
+        let p = Palette::kanso_dark();
+        let mut guard = ContrastGuard::new(4.5);
+        let mut b = FrameBuilder::new(4, 1);
+        b.set_cell(
+            0,
+            0,
+            Cell {
+                flags: CELL_CHIP | CELL_DIM,
+                fg: Color::encode(TermColor::Indexed(0)),
+                ..plain('x')
+            },
+        );
+        b.set_cell(
+            0,
+            1,
+            Cell {
+                flags: CELL_CHIP,
+                ..plain(' ')
+            },
+        );
+        b.set_cell(
+            0,
+            3,
+            Cell {
+                flags: CELL_DIM,
+                ..plain('y')
+            },
+        );
+        b.set_flags(FRAME_CURSOR_VISIBLE);
+        b.set_cursor(3, 0, CURSOR_BLOCK);
+        let f = frame(b);
+        let g = build_render_grid_with(&f.view().unwrap(), &p, Some(&mut guard));
+        assert_eq!(g.chips, vec![(0, 0, 2)]);
+        let fg = guard.adjusted(p.ansi[0], p.decorations.chip_background);
+        assert_eq!(g.spans[0].fg, fg.mixed(p.background, 0.4));
+        assert_eq!(g.spans[1].fg, p.cursor_text.mixed(p.cursor, 0.4));
+    }
+
+    #[test]
+    fn contrast_guard_adjusts_low_contrast_and_keeps_compliant_text() {
         let light = Palette::kanso_light();
         let white = Color::encode(TermColor::Indexed(15));
         let mut b = FrameBuilder::new(4, 1);

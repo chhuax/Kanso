@@ -40,10 +40,10 @@ pub enum DropdownEvent {
 pub struct Dropdown {
     focus: FocusHandle,
     state: DropdownState,
-    placeholder: SharedString,
-    button_label: Option<SharedString>,
+    placeholder: super::WidgetText,
+    button_label: Option<super::WidgetText>,
     /// 过滤模式：`Some(过滤框占位文字)`。
-    filter_placeholder: Option<SharedString>,
+    filter_placeholder: Option<super::WidgetText>,
     filter_input: Entity<TextInput>,
     disabled: bool,
     appearance: Appearance,
@@ -104,7 +104,7 @@ impl Dropdown {
         Dropdown {
             focus: cx.focus_handle().tab_stop(true),
             state: DropdownState::default(),
-            placeholder: "请选择".into(),
+            placeholder: kanso_types::Message::UiChoose {}.into(),
             button_label: None,
             filter_placeholder: None,
             filter_input,
@@ -133,19 +133,19 @@ impl Dropdown {
 
     /// 没有选中值时按钮上显示的文字。
     #[allow(dead_code)] // 控件公开接口，演示窗口暂未用到
-    pub fn placeholder(mut self, text: impl Into<SharedString>) -> Self {
+    pub fn placeholder(mut self, text: impl Into<super::WidgetText>) -> Self {
         self.placeholder = text.into();
         self
     }
 
     /// 选择字体等操作保留固定按钮文案，菜单中仍显示实际选项。
-    pub fn button_label(mut self, label: impl Into<SharedString>) -> Self {
+    pub fn button_label(mut self, label: impl Into<super::WidgetText>) -> Self {
         self.button_label = Some(label.into());
         self
     }
 
     /// 打开过滤模式：浮层顶部带一个过滤输入框（占位文字为参数）。
-    pub fn filterable(mut self, placeholder: impl Into<SharedString>) -> Self {
+    pub fn filterable(mut self, placeholder: impl Into<super::WidgetText>) -> Self {
         self.filter_placeholder = Some(placeholder.into());
         self
     }
@@ -229,8 +229,11 @@ impl Dropdown {
         }
         let row = self.state.open();
         self.reveal(row, ScrollStrategy::Center);
-        if self.filter_placeholder.is_some() {
-            self.filter_input.update(cx, |i, cx| i.set_text("", cx));
+        if let Some(placeholder) = &self.filter_placeholder {
+            self.filter_input.update(cx, |i, cx| {
+                i.set_placeholder(placeholder.clone(), cx);
+                i.set_text("", cx);
+            });
             self.filter_input.update(cx, |i, _| i.focus(window));
         } else {
             self.focus.focus(window);
@@ -582,9 +585,9 @@ impl Render for Dropdown {
         };
         let (label, label_color) = match self.state.selected_label() {
             Some(l) => (SharedString::from(l.to_owned()), text),
-            None => (self.placeholder.clone(), st.placeholder),
+            None => (self.placeholder.resolve(), st.placeholder),
         };
-        let label = self.button_label.clone().unwrap_or(label);
+        let label = self.button_label.as_ref().map_or(label, |s| s.resolve());
         let cell = self.button_bounds.clone();
         let button = div()
             .id("dropdown-button")

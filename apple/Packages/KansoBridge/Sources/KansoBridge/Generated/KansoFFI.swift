@@ -7105,6 +7105,145 @@ public func FfiConverterTypeFfiTerminalOptions_lower(_ value: FfiTerminalOptions
 
 
 /**
+ * 文件主题与已解析的 24 位 sRGB 色值。
+ */
+public struct FfiTerminalTheme: Equatable, Hashable {
+    /**
+     * 持久化选择使用的稳定标识。
+     */
+    public var id: String
+    /**
+     * 主题文件给出的显示名称。
+     */
+    public var name: String
+    /**
+     * 默认文字色。
+     */
+    public var foreground: UInt32
+    /**
+     * 默认底色。
+     */
+    public var background: UInt32
+    /**
+     * 光标色。
+     */
+    public var cursor: UInt32
+    /**
+     * 块状光标上的文字色。
+     */
+    public var cursorText: UInt32
+    /**
+     * 选区底色。
+     */
+    public var selectionBackground: UInt32
+    /**
+     * 标准与高亮 ANSI 色，依次共 16 项。
+     */
+    public var ansi: [UInt32]
+    /**
+     * 按帧内类别编号排列的 13 个语义色。
+     */
+    public var semantic: [UInt32]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * 持久化选择使用的稳定标识。
+         */id: String, 
+        /**
+         * 主题文件给出的显示名称。
+         */name: String, 
+        /**
+         * 默认文字色。
+         */foreground: UInt32, 
+        /**
+         * 默认底色。
+         */background: UInt32, 
+        /**
+         * 光标色。
+         */cursor: UInt32, 
+        /**
+         * 块状光标上的文字色。
+         */cursorText: UInt32, 
+        /**
+         * 选区底色。
+         */selectionBackground: UInt32, 
+        /**
+         * 标准与高亮 ANSI 色，依次共 16 项。
+         */ansi: [UInt32], 
+        /**
+         * 按帧内类别编号排列的 13 个语义色。
+         */semantic: [UInt32]) {
+        self.id = id
+        self.name = name
+        self.foreground = foreground
+        self.background = background
+        self.cursor = cursor
+        self.cursorText = cursorText
+        self.selectionBackground = selectionBackground
+        self.ansi = ansi
+        self.semantic = semantic
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiTerminalTheme: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiTerminalTheme: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiTerminalTheme {
+        return
+            try FfiTerminalTheme(
+                id: FfiConverterString.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf), 
+                foreground: FfiConverterUInt32.read(from: &buf), 
+                background: FfiConverterUInt32.read(from: &buf), 
+                cursor: FfiConverterUInt32.read(from: &buf), 
+                cursorText: FfiConverterUInt32.read(from: &buf), 
+                selectionBackground: FfiConverterUInt32.read(from: &buf), 
+                ansi: FfiConverterSequenceUInt32.read(from: &buf), 
+                semantic: FfiConverterSequenceUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiTerminalTheme, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterUInt32.write(value.foreground, into: &buf)
+        FfiConverterUInt32.write(value.background, into: &buf)
+        FfiConverterUInt32.write(value.cursor, into: &buf)
+        FfiConverterUInt32.write(value.cursorText, into: &buf)
+        FfiConverterUInt32.write(value.selectionBackground, into: &buf)
+        FfiConverterSequenceUInt32.write(value.ansi, into: &buf)
+        FfiConverterSequenceUInt32.write(value.semantic, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiTerminalTheme_lift(_ buf: RustBuffer) throws -> FfiTerminalTheme {
+    return try FfiConverterTypeFfiTerminalTheme.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiTerminalTheme_lower(_ value: FfiTerminalTheme) -> RustBuffer {
+    return FfiConverterTypeFfiTerminalTheme.lower(value)
+}
+
+
+/**
  * 视口内的坐标（相对可见区域，不是绝对行号）。
  */
 public struct FfiViewportPoint: Equatable, Hashable {
@@ -11663,6 +11802,31 @@ fileprivate struct FfiConverterOptionSequenceTypeFfiDirEntry: FfiConverterRustBu
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceUInt32: FfiConverterRustBuffer {
+    typealias SwiftType = [UInt32]
+
+    public static func write(_ value: [UInt32], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterUInt32.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [UInt32] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [UInt32]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterUInt32.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceUInt64: FfiConverterRustBuffer {
     typealias SwiftType = [UInt64]
 
@@ -12084,6 +12248,31 @@ fileprivate struct FfiConverterSequenceTypeFfiSshConfigCandidate: FfiConverterRu
         return seq
     }
 }
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiTerminalTheme: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiTerminalTheme]
+
+    public static func write(_ value: [FfiTerminalTheme], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiTerminalTheme.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiTerminalTheme] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiTerminalTheme]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiTerminalTheme.read(from: &buf))
+        }
+        return seq
+    }
+}
 private let UNIFFI_RUST_FUTURE_POLL_READY: Int8 = 0
 private let UNIFFI_RUST_FUTURE_POLL_WAKE: Int8 = 1
 
@@ -12148,6 +12337,17 @@ public func renderMessage(message: FfiMessage, languages: [String]) -> String  {
     )
 })
 }
+/**
+ * 扫描主题目录，按显示名返回有效的用户主题。
+ */
+public func loadTerminalThemes(directory: String) -> [FfiTerminalTheme]  {
+    return try!  FfiConverterSequenceTypeFfiTerminalTheme.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_func_load_terminal_themes(
+        FfiConverterString.lower(directory),uniffiCallStatus
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -12165,6 +12365,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.contractVersionMismatch
     }
     if (uniffi_kanso_ffi_checksum_func_render_message() != 2088) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_kanso_ffi_checksum_func_load_terminal_themes() != 4716) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_kanso_ffi_checksum_method_ffidirstream_next_batch() != 43421) {

@@ -159,11 +159,7 @@ impl ShellView {
             return 0.0;
         }
         let total = f32::from(window.viewport_size().width);
-        let sidebar = if self.sidebar_visible {
-            number("spacing", "sidebar.defaultWidth")
-        } else {
-            0.0
-        };
+        let sidebar = self.sidebar_width(window);
         self.filer.layout.effective_width(total - sidebar)
     }
 
@@ -361,7 +357,12 @@ impl ShellView {
     }
 
     /// 状态栏左侧的 Filer 开关。
-    pub(super) fn filer_toggle_item(&self, th: Theme, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn filer_toggle_item(
+        &self,
+        th: Theme,
+        compact: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let sftp = self.active_filer_kind() == Some(TabKind::Sftp);
         let on = self.filer.layout.visible && !sftp;
         let el = div()
@@ -375,7 +376,19 @@ impl ShellView {
             } else {
                 th.c("text.secondary")
             })
-            .child(msg(Message::UiFilerStatusLabel {}));
+            .flex()
+            .items_center()
+            .gap(px(6.0))
+            .child(super::widgets::icons::icon(
+                "folder",
+                12.,
+                if on {
+                    th.c("accent")
+                } else {
+                    th.c("text.secondary")
+                },
+            ))
+            .when(!compact, |el| el.child(msg(Message::UiFileBrowser {})));
         if sftp {
             // 双栏文件浏览器已经在当前标签打开：开关不可操作并说明原因。
             return el
@@ -533,17 +546,14 @@ impl ShellView {
         if w <= 0.0 {
             return Vec::new();
         }
-        let x = if self.sidebar_visible {
-            number("spacing", "sidebar.defaultWidth")
-        } else {
-            0.0
-        };
-        let h = f32::from(window.viewport_size().height) - status_bar_h();
+        let x = self.sidebar_width(window);
+        let top = super::toolbar::HEIGHT;
+        let h = (f32::from(window.viewport_size().height) - status_bar_h() - top).max(0.);
         let panel = div()
             .id("filer-host")
             .absolute()
             .left(px(x))
-            .top_0()
+            .top(px(top))
             .w(px(w))
             .h(px(h.max(0.0)))
             .border_r_1()
@@ -553,7 +563,7 @@ impl ShellView {
             .id("filer-resize")
             .absolute()
             .left(px(x + w - 3.0))
-            .top_0()
+            .top(px(top))
             .w(px(6.0))
             .h(px(h.max(0.0)))
             .cursor(CursorStyle::ResizeLeftRight)

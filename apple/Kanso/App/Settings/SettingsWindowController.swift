@@ -29,7 +29,8 @@ enum SettingsTab: Int, CaseIterable {
 /// 单例：通过 `show(...)` 打开，重复调用只前置（并可切到指定页）。窗口不可缩放，位置由 autosave 记忆，
 /// 标题随选中页变化；高度随当前页内容自适应，宽度固定。
 @MainActor
-final class SettingsWindowController: NSWindowController {
+final class SettingsWindowController: NSWindowController, NSWindowDelegate {
+    private let settings: SettingsStore
     private static var shared: SettingsWindowController?
 
     /// 语言与地区设置页（macOS 14+ 的系统设置扩展 URL）。
@@ -45,6 +46,7 @@ final class SettingsWindowController: NSWindowController {
         settings: SettingsStore, appearance: AppearanceController, keybindings: KeybindingController,
         tab: SettingsTab = .general
     ) {
+        settings.reloadThemes()
         let controller = shared ?? SettingsWindowController(
             settings: settings, appearance: appearance, keybindings: keybindings
         )
@@ -66,6 +68,7 @@ final class SettingsWindowController: NSWindowController {
         conflictPrompter: KeybindingConflictPrompter = AlertKeybindingConflictPrompter(),
         autosaveName: String? = "KansoSettingsWindow"
     ) {
+        self.settings = settings
         generalViewController = GeneralSettingsViewController(appearance: appearance, openURL: openURL)
         displayViewController = DisplaySettingsViewController(settings: settings)
         keyboardViewController = KeyboardSettingsViewController(keybindings: keybindings, prompter: conflictPrompter)
@@ -90,6 +93,7 @@ final class SettingsWindowController: NSWindowController {
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.title = SettingsTab.general.title
         super.init(window: window)
+        window.delegate = self
 
         if let autosaveName {
             // 没有已保存的位置时居中；setFrameAutosaveName 必须在这之后调用，否则会把居中前的位置存下来。
@@ -117,6 +121,10 @@ final class SettingsWindowController: NSWindowController {
         tabs.selectedTabViewItemIndex = tab.rawValue
         window?.title = tab.title
         resizeToFitCurrentPage()
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        settings.reloadThemes()
     }
 
     /// 当前选中的页。
@@ -156,6 +164,9 @@ final class GeneralSettingsViewController: SettingsPageViewController {
 
     /// 外观模式下拉框：自绘的 `KPopUpField`，与其它界面的下拉框同一套样式。
     let appearancePopUp = KPopUpField()
+    let lightThemePopUp = KPopUpField()
+    let darkThemePopUp = KPopUpField()
+    let themesFolderButton = KButton(title: String(localized: "Open Themes Folder"), symbol: "folder")
     let languageButton = KButton(title: String(localized: "Open Language & Region Settings"), style: .secondary)
     let languageLabel = SettingsPageViewController.caption(String(
         localized: "The interface language follows the system. To set a language for Kanso only, go to System Settings › General › Language & Region › Applications."
@@ -177,6 +188,24 @@ final class GeneralSettingsViewController: SettingsPageViewController {
         let modeCard = KCard(title: String(localized: "Appearance"), symbol: "circle.lefthalf.filled")
         modeCard.addRow(LabeledField(title: String(localized: "Mode"), control: appearancePopUp))
 
+        let settings = appearance.settings
+        for (field, title, key) in [
+            (lightThemePopUp, String(localized: "Light Terminal Theme"), \AppearanceSettings.lightTheme),
+            (darkThemePopUp, String(localized: "Dark Terminal Theme"), \AppearanceSettings.darkTheme),
+        ] {
+            field.setAccessibilityLabel(title)
+            field.onOpen = { settings.reloadThemes() }
+            field.onChange = { index in
+                let id = settings.themes[index].id
+                settings.updateAppearance { $0[keyPath: key] = id }
+            }
+            modeCard.addRow(LabeledField(title: title, control: field))
+        }
+        themesFolderButton.onPress = { [weak self] in
+            if let directory = settings.themesDirectory { self?.openURL(directory) }
+        }
+        themesFolderButton.setContentHuggingPriority(.required, for: .horizontal)
+        modeCard.addRow(NSStackView(views: [themesFolderButton, NSView()]))
         languageButton.onPress = { [weak self] in self?.openLanguageSettings(nil) }
         languageButton.setContentHuggingPriority(.required, for: .horizontal)
         let languageCard = KCard(title: String(localized: "Language"), symbol: "globe")
@@ -192,6 +221,15 @@ final class GeneralSettingsViewController: SettingsPageViewController {
 
     private func reload() {
         appearancePopUp.selectItem(at: AppearanceMode.allCases.firstIndex(of: appearance.mode) ?? 0)
+        let settings = appearance.settings
+        let themes = settings.themes
+        let titles = themes.map(\.name)
+        lightThemePopUp.setItems(titles)
+        darkThemePopUp.setItems(titles)
+        lightThemePopUp.selectItem(at: themes.firstIndex { $0.id == settings.appearance.lightTheme } ?? 0)
+        darkThemePopUp.selectItem(at: themes.firstIndex { $0.id == settings.appearance.darkTheme } ?? 1)
+        themesFolderButton.isEnabled = settings.themesDirectory != nil
+        themesFolderButton.toolTip = settings.themesDirectory?.path
     }
 
     private func appearancePicked(at index: Int) {

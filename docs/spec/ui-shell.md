@@ -186,6 +186,7 @@ Windows / Linux 版的菜单放在应用内的菜单栏里，并提供窗口控�
   - 装了 Nerd Font 时，终端字体缺少的图标字形自动回退到 Nerd Font。这样 Powerlevel10k、Starship 打印的图标不用额外设置就能显示。
 - 光标形状和是否闪烁、回滚行数（见 `terminal.md` §15）。
 - 外观：跟随系统 / 浅色 / 深色；浅色和深色各自对应的终端配色；最低对比度保护（见 `architecture.md` 主题一节）。
+- 设置可打开数据目录下的 `themes/`。符合 [v1 文件格式](../design-tokens.md#安装用户终端配色) 的 JSON 自动出现在浅色和深色配色列表。切回设置时重新读取，选择即时应用到打开的终端，并按文件名持久化。
 - 语言：macOS 跟随系统，通过系统设置里的"按 App 设置语言"切换；Windows / Linux 在设置里提供（见 `architecture.md` 多语言一节）。
 
 ## 11. 首次启动

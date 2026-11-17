@@ -10,6 +10,7 @@ use kanso_gpui::app::status_bar::{StatusBarModel, StatusTone, fit_directory};
 use kanso_types::message::Message;
 
 use super::shell::{ShellView, Theme, status_bar_h};
+use super::widgets::icons::icon;
 
 /// 悬停提示：每行一台服务器及它用的旧算法。
 struct LinesTooltip {
@@ -40,6 +41,7 @@ impl Render for LinesTooltip {
 fn toggle_item(
     id: &'static str,
     label: &'static str,
+    compact: bool,
     th: Theme,
     on: bool,
 ) -> gpui::Stateful<gpui::Div> {
@@ -54,7 +56,19 @@ fn toggle_item(
         } else {
             th.c("text.secondary")
         })
-        .child(label)
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .child(icon(
+            "clock",
+            12.,
+            if on {
+                th.c("accent")
+            } else {
+                th.c("text.secondary")
+            },
+        ))
+        .when(!compact, |el| el.child(label))
 }
 
 impl ShellView {
@@ -74,7 +88,8 @@ impl ShellView {
         );
         // AI 会话里开关只作用于当前会话，所以按活动会话的实际模式判断。
         let timeline_on = self.gutter_policy.is_on(ws.active_session());
-        let width = f32::from(window.viewport_size().width);
+        let left = self.sidebar_width(window);
+        let width = f32::from(window.viewport_size().width) - left;
         let legacy_visible = model.legacy.is_some();
 
         let status = model.status.map(|(text, tone)| {
@@ -97,7 +112,11 @@ impl ShellView {
                 .flex_none()
                 .whitespace_nowrap()
                 .text_color(th.c("text.secondary"))
-                .child(fit_directory(&d, width, legacy_visible))
+                .flex()
+                .items_center()
+                .gap(px(6.0))
+                .child(icon("folder", 12.0, th.c("text.secondary")))
+                .child(fit_directory(&d, width - 18.0, legacy_visible))
         });
         let legacy = model.legacy.map(|lines| {
             div()
@@ -143,23 +162,25 @@ impl ShellView {
         div()
             .id("status-bar")
             .absolute()
-            .left_0()
+            .left(px(left))
             .bottom_0()
-            .w_full()
+            .w(px(width))
+            .overflow_hidden()
             .h(px(status_bar_h()))
             .flex()
             .items_center()
-            .gap(px(16.0))
+            .gap(px(if width < 460. { 6. } else { 16. }))
             .px(px(12.0))
             .bg(th.c("bg.statusBar"))
             .border_t_1()
             .border_color(th.c("border.subtle"))
             .text_size(px(kanso_gpui::widgets::style::number("font", "ui.caption")))
-            .child(self.filer_toggle_item(th, cx))
+            .child(self.filer_toggle_item(th, width < 460., cx))
             .child(
                 toggle_item(
                     "status-timeline",
-                    label(Message::UiTimestamps {}),
+                    label(Message::UiTimeline {}),
+                    width < 460.,
                     th,
                     timeline_on,
                 )

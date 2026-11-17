@@ -140,3 +140,14 @@ Division of labour (user decision, 2026-11-18): **Claude Code writes code, Codex
 已看到 Claude 的第三轮交接。另有一笔与四模块合并并行完成的提交：`codex/windows-debug` 的 `ace4163`（基于 `514be40`）实现单行标题栏、可恢复的侧栏、窗口控制和 Ctrl+Shift+P 搜索。它尚未进入 `proto/gpui-integrate` 的 `f4385d6`。两个分支都改过窗口布局、状态栏和快捷键，合并时请保留集成版已接通的文件浏览器和时间轴。
 
 在 Windows 虚拟机 200% 缩放下，`ace4163` 的 368 项库测试、严格 Clippy、GUI 自检和设置自检通过。实际验证了窗口拖动和按钮、搜索保存的 PowerShell、切回 CMD、打开设置和 Esc 后的终端输入。退出时 GPUI 仍记录无效窗口句柄。上述结果只覆盖这个调试提交，四模块集成后的界面验收另记。
+
+## 2026-11-18 Windows 主窗口与命令搜索
+
+在 `codex/windows-debug` 上从 `514be40` 继续。运行 `C:\kt\codex-debug\kanso-chrome.exe` 可以查看本次主窗口。
+
+- GPUI 主窗口改为 34 逻辑像素的单行标题栏。左侧开关控制标签栏，中央 240 × 22 搜索入口与 Ctrl+Shift+P 打开同一面板，右侧提供应用菜单和 Windows 窗口按钮。拖动、最大化、还原、最小化和关闭交由 Windows 处理。
+- 搜索已打开的标签、保存的会话和应用菜单命令，支持名称、会话目标和快捷键文本。方向键、Tab、Shift+Tab 选择，回车执行，Esc 返回终端。文件结果等待 Filer 接入。文件浏览器和时间轴的状态栏入口仍置灰。
+- 标签栏延伸到窗口底部。状态栏与终端同宽，窄窗口收起状态项的文字，为时钟留出空间。
+- Windows 离线 build、clippy --all-targets -D warnings、kanso-gpui --lib 368 项通过。最终二进制的 selftest-20261118024915、settings-test-20261118024927 均退出 0，日志中设备重置为 0。
+- 在 200% 缩放下实际操作窗口和搜索。preview-20261118024941 下有截图及 lt-steps.log，最终脚本退出 0。确认搜索能连接保存的 PowerShell、切回 CMD、打开设置，Esc 后 CMD 执行 echo 并输出 MAIN_WINDOW_OK。507 逻辑像素宽的窗口验证了菜单和键盘搜索。关闭时窗口消失、进程正常结束，GPUI 收尾日志有无效窗口句柄记录。
+- 此轮只改 Rust 及配套资源。cargo xtask ci --skip-apple 通过工作区测试、C ABI、187 条消息、绑定和渠道矩阵，仍在 cargo deny 的已有依赖审查项失败。日志在 /tmp/kanso-polish/main-window-ci.log。

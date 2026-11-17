@@ -276,6 +276,7 @@ ui-theme = 模式
 ui-light-theme = 浅色终端配色
 
 ui-dark-theme = 深色终端配色
+ui-open-themes-folder = 打开主题文件夹
 
 ui-font = 字体
 
@@ -289,6 +290,7 @@ ui-font-custom = 自定义字体
 
 ui-font-hint = 留空使用系统等宽字体。字体缺少的图标会自动使用已安装的 Nerd Font。
 
+ui-missing-terminal-font = 未安装“{ $name }”，终端将使用系统等宽字体。
 ui-font-probing = 正在检测本机等宽字体…
 
 ui-cursor = 光标
@@ -802,3 +804,9 @@ ui-xfer-menu-send-1k = 用 XMODEM-1K 发送…
 ui-xfer-menu-receive = 用 XMODEM 接收…
 ui-xfer-menu-cancel = 取消传输
 ui-xfer-start-failed = 无法开始传输：{ $why }
+
+ui-search = 搜索
+
+ui-file-browser = 文件浏览器
+
+ui-search-empty = 没有匹配结果

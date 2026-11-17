@@ -134,7 +134,7 @@ pub enum TextAreaEvent {
 pub struct TextArea {
     focus: FocusHandle,
     state: EditState,
-    placeholder: SharedString,
+    placeholder: super::WidgetText,
     appearance: Appearance,
     scroll_x: f32,
     scroll_y: f32,
@@ -189,7 +189,7 @@ impl TextArea {
         TextArea {
             focus,
             state,
-            placeholder: SharedString::default(),
+            placeholder: "".into(),
             appearance: Appearance::Dark,
             scroll_x: 0.0,
             scroll_y: 0.0,
@@ -205,7 +205,7 @@ impl TextArea {
     }
 
     /// 占位文字。
-    pub fn placeholder(mut self, text: impl Into<SharedString>) -> Self {
+    pub fn placeholder(mut self, text: impl Into<super::WidgetText>) -> Self {
         self.placeholder = text.into();
         self
     }
@@ -696,7 +696,7 @@ impl Element for AreaElement {
 
         let lines: Vec<ShapedLine> = if empty {
             vec![shape_row(
-                &input.placeholder,
+                &input.placeholder.resolve(),
                 None,
                 &font,
                 font_size,

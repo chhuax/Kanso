@@ -51,9 +51,7 @@ impl FindBar {
         let input = cx.new(|cx| {
             TextInput::new(window, cx)
                 .search()
-                .placeholder(kanso_gpui::app::i18n::label(
-                    kanso_types::message::Message::UiFindPlaceholder {},
-                ))
+                .placeholder(kanso_types::Message::UiFindPlaceholder {})
         });
         let sub = cx.subscribe(&input, |_this, _input, ev: &TextInputEvent, cx| match ev {
             TextInputEvent::Change(t) => cx.emit(FindBarEvent::Query(t.to_string())),

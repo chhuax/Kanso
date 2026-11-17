@@ -202,6 +202,8 @@ messages! {
     UiLightTheme = "ui-light-theme" {},
     /// GPUI 设置页面：深色终端配色。
     UiDarkTheme = "ui-dark-theme" {},
+    /// 从设置打开用户的终端主题目录。
+    UiOpenThemesFolder = "ui-open-themes-folder" {},
     /// GPUI 设置页面：字体。
     UiFont = "ui-font" {},
     /// GPUI 设置页面：终端字体。
@@ -215,6 +217,8 @@ messages! {
     /// GPUI 设置页面：留空使用系统等宽字体。字体缺少的图标会自动使用已安装的 Nerd Font。。
     UiFontHint = "ui-font-hint" {},
     /// GPUI 设置页面：正在检测本机等宽字体…。
+    UiMissingTerminalFont = "ui-missing-terminal-font" { name: String },
+    /// 正在检查可用字体。
     UiFontProbing = "ui-font-probing" {},
     /// GPUI 设置页面：光标。
     UiCursor = "ui-cursor" {},
@@ -238,6 +242,12 @@ messages! {
     UiContrastRatio = "ui-contrast-ratio" {},
     /// GPUI 设置页面：文字与背景的对比度低于此比例时，会自动调亮或调暗文字。。
     UiContrastHint = "ui-contrast-hint" {},
+    /// 主窗口：搜索。
+    UiSearch = "ui-search" {},
+    /// 主窗口：文件浏览器。
+    UiFileBrowser = "ui-file-browser" {},
+    /// 主窗口：没有匹配结果。
+    UiSearchEmpty = "ui-search-empty" {},
     /// GPUI 设置页面：时间轴。
     UiTimeline = "ui-timeline" {},
     /// GPUI 设置页面：界面字体。

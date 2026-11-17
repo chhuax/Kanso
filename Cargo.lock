@@ -3728,6 +3728,7 @@ dependencies = [
  "kanso-store",
  "kanso-types",
  "russh",
+ "serde",
  "serde_json",
  "tempfile",
  "tokio",

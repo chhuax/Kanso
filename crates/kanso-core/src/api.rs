@@ -225,6 +225,8 @@ pub struct SearchQuery {
 /// 搜索结果状态，用于显示“第几个 / 共几个”。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SearchStatus {
+    /// 正则无效，与有效查询的零个匹配区分。
+    pub invalid_regex: bool,
     /// 匹配总数。
     pub total: u32,
     /// 当前匹配项，从 1 开始；没有匹配为 `None`。

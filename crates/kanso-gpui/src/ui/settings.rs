@@ -17,11 +17,11 @@ use gpui::{
     WindowHandle, WindowOptions, div, prelude::*, px, rgba, size,
 };
 use kanso_core::Core;
-use kanso_gpui::app::i18n::{LanguageSetting, label, t};
+use kanso_gpui::app::i18n::{Lang, LanguageSetting, label, lang};
+use kanso_gpui::app::settings::NumericSetting;
 use kanso_gpui::app::settings::{
     AppearanceSettings, BUILTIN_THEMES, CursorShapeSetting, DisplaySettings, GutterMode, Section,
     SettingsStore, ThemeMode, TimelineSettings, clean_font_names, is_monospace, pick_nerd_fallback,
-    snap_line_height,
 };
 use kanso_gpui::widgets::dropdown::Item;
 use kanso_gpui::widgets::style::{Appearance, color, number};
@@ -35,7 +35,6 @@ use kanso_gpui::app::launcher::render_message;
 use kanso_types::message::Message;
 
 /// 回滚行数下拉里的预设。
-const SCROLLBACK_PRESETS: [u32; 7] = [1_000, 5_000, 10_000, 20_000, 50_000, 100_000, 1_000_000];
 
 // ---- 模型 ----
 
@@ -48,14 +47,18 @@ pub(crate) enum SettingsEvent {
 /// 设置模型实体。
 pub(crate) struct SettingsModel {
     store: SettingsStore<Arc<Core>>,
+    themes_dir: std::path::PathBuf,
+    themes: Vec<kanso_core::terminal_themes::TerminalTheme>,
 }
 
 impl EventEmitter<SettingsEvent> for SettingsModel {}
 
 impl SettingsModel {
     /// 从核心的设置表载入，并把终端选项下发给核心。
-    pub(crate) fn new(core: Arc<Core>) -> Self {
+    pub(crate) fn new(core: Arc<Core>, themes_dir: std::path::PathBuf) -> Self {
         SettingsModel {
+            themes: kanso_core::terminal_themes::load_terminal_themes(&themes_dir),
+            themes_dir,
             store: SettingsStore::load(core),
         }
     }
@@ -66,6 +69,27 @@ impl SettingsModel {
 
     pub(crate) fn appearance(&self) -> &AppearanceSettings {
         self.store.appearance()
+    }
+
+    fn reload_themes(&mut self, cx: &mut Context<Self>) {
+        let themes = kanso_core::terminal_themes::load_terminal_themes(&self.themes_dir);
+        if self.themes != themes {
+            self.themes = themes;
+            cx.emit(SettingsEvent::Changed(Section::Appearance));
+            cx.notify();
+        }
+    }
+
+    fn theme_choices(&self) -> Vec<(String, String)> {
+        BUILTIN_THEMES
+            .iter()
+            .map(|(id, name)| ((*id).to_owned(), (*name).to_owned()))
+            .chain(self.themes.iter().map(|t| (t.id.clone(), t.name.clone())))
+            .collect()
+    }
+
+    pub(super) fn terminal_palette(&self, dark: bool) -> kanso_gpui::theme::Palette {
+        self.appearance().terminal_palette(dark, &self.themes)
     }
 
     pub(crate) fn timeline(&self) -> &TimelineSettings {
@@ -135,6 +159,7 @@ pub(crate) fn open_window(
     existing: Option<WindowHandle<SettingsView>>,
     cx: &mut App,
 ) -> Option<WindowHandle<SettingsView>> {
+    model.update(cx, |m, cx| m.reload_themes(cx));
     if let Some(handle) = existing
         && handle
             .update(cx, |_, window, _| window.activate_window())
@@ -169,6 +194,7 @@ pub(crate) fn open_window(
 /// 设置窗口根视图。
 pub(crate) struct SettingsView {
     titlebar_dark: Option<bool>,
+    labels_language: Lang,
     page: usize,
     model: Entity<SettingsModel>,
     focus: FocusHandle,
@@ -179,8 +205,9 @@ pub(crate) struct SettingsView {
     ui_font: Entity<Dropdown>,
     ui_font_input: Entity<TextInput>,
     ui_names: Vec<String>,
-    scrollback: Entity<Dropdown>,
+    numbers: [Entity<TextInput>; 5],
     mode: Entity<Dropdown>,
+    theme_choices: Vec<(String, String)>,
     light_theme: Entity<Dropdown>,
     dark_theme: Entity<Dropdown>,
     /// 等宽字体还在后台探测。
@@ -202,7 +229,12 @@ fn font_items(names: &[String], current: &str) -> (Vec<String>, Vec<Item>, usize
         list.push(current.to_owned());
     }
     let selected = list.iter().position(|n| n == current).unwrap_or(0);
-    let items = list
+    let items = font_labels(&list);
+    (list, items, selected)
+}
+
+fn font_labels(names: &[String]) -> Vec<Item> {
+    names
         .iter()
         .enumerate()
         .map(|(i, n)| {
@@ -212,45 +244,18 @@ fn font_items(names: &[String], current: &str) -> (Vec<String>, Vec<Item>, usize
                 n.clone()
             })
         })
-        .collect();
-    (list, items, selected)
-}
-
-fn scrollback_items(current: u32) -> (Vec<u32>, Vec<Item>, usize) {
-    let mut list = SCROLLBACK_PRESETS.to_vec();
-    if !list.contains(&current) {
-        list.push(current);
-        list.sort_unstable();
-    }
-    let selected = list.iter().position(|v| *v == current).unwrap_or(0);
-    let items = list
-        .iter()
-        .map(|v| Item::option(format_lines(*v)))
-        .collect();
-    (list, items, selected)
-}
-
-fn format_lines(v: u32) -> String {
-    let s = v.to_string();
-    let mut out = String::new();
-    for (i, ch) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(ch);
-    }
-    t(&Message::UiLines { lines: out })
-}
-
-fn theme_items() -> Vec<Item> {
-    BUILTIN_THEMES
-        .iter()
-        .map(|(_, name)| Item::option(*name))
         .collect()
 }
 
-fn theme_index(id: &str, fallback: usize) -> usize {
-    BUILTIN_THEMES
+fn theme_items(themes: &[(String, String)]) -> Vec<Item> {
+    themes
+        .iter()
+        .map(|(_, name)| Item::option(name.clone()))
+        .collect()
+}
+
+fn theme_index(themes: &[(String, String)], id: &str, fallback: usize) -> usize {
+    themes
         .iter()
         .position(|(i, _)| *i == id)
         .unwrap_or(fallback)
@@ -272,8 +277,8 @@ impl SettingsView {
         let ui_font = cx.new(|cx| {
             Dropdown::new(window, cx)
                 .items(ui_items)
-                .button_label(render_message(&Message::UiChoose {}))
-                .filterable(label(Message::UiSearchFonts {}))
+                .button_label(Message::UiChoose {})
+                .filterable(Message::UiSearchFonts {})
                 .selected(ui_sel)
         });
         // 终端字体：先只放"系统默认"和当前值，等宽字体探测完再补齐。
@@ -281,22 +286,25 @@ impl SettingsView {
         let term_font = cx.new(|cx| {
             Dropdown::new(window, cx)
                 .items(term_items)
-                .button_label(render_message(&Message::UiChoose {}))
-                .filterable(label(Message::UiSearchMonospacedFonts {}))
+                .button_label(Message::UiChoose {})
+                .filterable(Message::UiSearchMonospacedFonts {})
                 .selected(term_sel)
         });
         let term_font_input = cx.new(|cx| {
             TextInput::new(window, cx)
                 .with_text(&display.font_family)
-                .placeholder(label(Message::UiSystemDefaultOrTypeFont {}))
+                .placeholder(Message::UiSystemDefaultOrTypeFont {})
         });
         let ui_font_input = cx.new(|cx| {
             TextInput::new(window, cx)
                 .with_text(&display.ui_font_family)
-                .placeholder(label(Message::UiSystemDefaultOrTypeFont {}))
+                .placeholder(Message::UiSystemDefaultOrTypeFont {})
         });
-        let (_, sb_items, sb_sel) = scrollback_items(display.scrollback_lines);
-        let scrollback = cx.new(|cx| Dropdown::new(window, cx).items(sb_items).selected(sb_sel));
+        let numbers = NumericSetting::ALL
+            .map(|field| cx.new(|cx| TextInput::new(window, cx).with_text(&field.text(&display))));
+        numbers[NumericSetting::Contrast as usize].update(cx, |input, cx| {
+            input.set_disabled(!display.minimum_contrast_enabled, cx)
+        });
         let mode = cx.new(|cx| {
             Dropdown::new(window, cx)
                 .items(
@@ -312,15 +320,16 @@ impl SettingsView {
                         .unwrap_or(0),
                 )
         });
+        let theme_choices = model.read(cx).theme_choices();
         let light_theme = cx.new(|cx| {
             Dropdown::new(window, cx)
-                .items(theme_items())
-                .selected(theme_index(&appearance.light_theme, 0))
+                .items(theme_items(&theme_choices))
+                .selected(theme_index(&theme_choices, &appearance.light_theme, 0))
         });
         let dark_theme = cx.new(|cx| {
             Dropdown::new(window, cx)
-                .items(theme_items())
-                .selected(theme_index(&appearance.dark_theme, 1))
+                .items(theme_items(&theme_choices))
+                .selected(theme_index(&theme_choices, &appearance.dark_theme, 1))
         });
 
         let mut subs: Vec<Subscription> = Vec::new();
@@ -332,9 +341,14 @@ impl SettingsView {
             }
         }));
         // 模型变化（含快捷键缩放）→ 重绘并同步控件。
-        subs.push(cx.observe(&model, |this, _, cx| this.sync_widgets(cx)));
+        subs.push(cx.observe_in(&model, window, |this, _, w, cx| this.sync_widgets(w, cx)));
         // 窗口外观变化（跟随系统时）→ 重绘。
         subs.push(cx.observe_window_appearance(window, |_, _, cx| cx.notify()));
+        subs.push(cx.observe_window_activation(window, |this, window, cx| {
+            if window.is_window_active() {
+                this.model.update(cx, |m, cx| m.reload_themes(cx));
+            }
+        }));
 
         subs.push(cx.subscribe(&term_font, |this, _, ev: &DropdownEvent, cx| {
             if let DropdownEvent::Change(i) = ev {
@@ -364,24 +378,25 @@ impl SettingsView {
                 }
             }),
         );
-        subs.push(
-            cx.subscribe(&scrollback, |this, _, ev: &DropdownEvent, cx| {
-                if let DropdownEvent::Change(i) = ev {
-                    let cur = this.model.read(cx).display().scrollback_lines;
-                    let (list, _, _) = scrollback_items(cur);
-                    if let Some(v) = list.get(*i).copied() {
+        for (field, input) in NumericSetting::ALL.into_iter().zip(&numbers) {
+            subs.push(
+                cx.subscribe(input, move |this, input, ev: &TextInputEvent, cx| {
+                    if matches!(ev, TextInputEvent::Submit(_) | TextInputEvent::Blur) {
+                        let text = input.read(cx).text().to_owned();
                         this.model
-                            .update(cx, |m, cx| m.update_display(cx, |d| d.scrollback_lines = v));
+                            .update(cx, |m, cx| m.update_display(cx, |d| field.commit(&text, d)));
+                        let value = field.text(this.model.read(cx).display());
+                        if text != value {
+                            input.update(cx, |t, cx| t.set_text(&value, cx));
+                        }
                     }
-                }
-            }),
-        );
+                }),
+            );
+        }
         subs.push(
             cx.subscribe(&light_theme, |this, _, ev: &DropdownEvent, cx| {
                 if let DropdownEvent::Change(i) = ev {
-                    let id = BUILTIN_THEMES[(*i).min(BUILTIN_THEMES.len() - 1)]
-                        .0
-                        .to_owned();
+                    let id = this.theme_choices[*i].0.clone();
                     this.model
                         .update(cx, |m, cx| m.update_appearance(cx, |a| a.light_theme = id));
                 }
@@ -390,9 +405,7 @@ impl SettingsView {
         subs.push(
             cx.subscribe(&dark_theme, |this, _, ev: &DropdownEvent, cx| {
                 if let DropdownEvent::Change(i) = ev {
-                    let id = BUILTIN_THEMES[(*i).min(BUILTIN_THEMES.len() - 1)]
-                        .0
-                        .to_owned();
+                    let id = this.theme_choices[*i].0.clone();
                     this.model
                         .update(cx, |m, cx| m.update_appearance(cx, |a| a.dark_theme = id));
                 }
@@ -401,6 +414,7 @@ impl SettingsView {
 
         let this = SettingsView {
             titlebar_dark: None,
+            labels_language: lang(),
             page: 0,
             model,
             focus: cx.focus_handle(),
@@ -410,8 +424,9 @@ impl SettingsView {
             ui_font,
             ui_font_input,
             ui_names,
-            scrollback,
+            numbers,
             mode,
+            theme_choices,
             light_theme,
             dark_theme,
             probing: true,
@@ -492,13 +507,14 @@ impl SettingsView {
     }
 
     /// 模型变化后，把文本框 / 下拉的显示值对齐到模型（快捷键缩放、恢复默认等来源）。
-    fn sync_widgets(&mut self, cx: &mut Context<Self>) {
+    fn sync_widgets(&mut self, window: &Window, cx: &mut Context<Self>) {
         let (d, a) = {
             let m = self.model.read(cx);
             (m.display().clone(), m.appearance().clone())
         };
         let sync_text = |input: &Entity<TextInput>, want: &str, cx: &mut Context<Self>| {
-            if input.read(cx).text() != want {
+            if !input.read(cx).focus_handle(cx).is_focused(window) && input.read(cx).text() != want
+            {
                 input.update(cx, |t, cx| t.set_text(want, cx));
             }
         };
@@ -512,25 +528,29 @@ impl SettingsView {
             self.ui_font
                 .update(cx, |dd, cx| dd.set_selected(Some(i), cx));
         }
-        let (_, items, sel) = scrollback_items(d.scrollback_lines);
-        if self.scrollback.read(cx).selected_index() != Some(sel)
-            || self.scrollback.read(cx).selected_label().map(str::to_owned)
-                != Some(format_lines(d.scrollback_lines))
-        {
-            self.scrollback.update(cx, |dd, cx| {
-                dd.set_items(items, cx);
-                dd.set_selected(Some(sel), cx);
-            });
+        for (field, input) in NumericSetting::ALL.into_iter().zip(&self.numbers) {
+            sync_text(input, &field.text(&d), cx);
         }
+        self.numbers[NumericSetting::Contrast as usize].update(cx, |input, cx| {
+            input.set_disabled(!d.minimum_contrast_enabled, cx)
+        });
         self.mode.update(cx, |dd, cx| {
             dd.set_selected(ThemeMode::ALL.iter().position(|m| *m == a.mode), cx)
         });
-        self.light_theme.update(cx, |dd, cx| {
-            dd.set_selected(Some(theme_index(&a.light_theme, 0)), cx)
-        });
-        self.dark_theme.update(cx, |dd, cx| {
-            dd.set_selected(Some(theme_index(&a.dark_theme, 1)), cx)
-        });
+        let choices = self.model.read(cx).theme_choices();
+        let changed = choices != self.theme_choices;
+        self.theme_choices = choices;
+        for (dropdown, id, fallback) in [
+            (&self.light_theme, &a.light_theme, 0),
+            (&self.dark_theme, &a.dark_theme, 1),
+        ] {
+            dropdown.update(cx, |dd, cx| {
+                if changed {
+                    dd.set_items(theme_items(&self.theme_choices), cx);
+                }
+                dd.set_selected(Some(theme_index(&self.theme_choices, id, fallback)), cx);
+            });
+        }
         cx.notify();
     }
 }
@@ -658,55 +678,69 @@ fn segmented(
         .into_any_element()
 }
 
-/// 数值步进：`−  值  +`。
-fn stepper(
-    th: &Th,
-    cx: &mut Context<SettingsView>,
-    id: &'static str,
-    value: String,
-    on_step: impl Fn(&mut SettingsView, i32, &mut Context<SettingsView>) + Clone + 'static,
-) -> AnyElement {
-    let button = |sign: i32, text: &'static str, cx: &mut Context<SettingsView>| {
-        let on_step = on_step.clone();
-        div()
-            .id((id, if sign < 0 { 0usize } else { 1 }))
-            .w(px(28.0))
-            .h(px(number("spacing", "field.height") - 4.0))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(px(number("radius", "md")))
-            .cursor_pointer()
-            .bg(th.c("bg.buttonSecondary"))
-            .hover(|s| s.bg(th.c("bg.rowHover")))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, _: &MouseDownEvent, _w, cx| on_step(this, sign, cx)),
-            )
-            .child(text)
-    };
-    div()
-        .flex()
-        .items_center()
-        .gap(px(8.0))
-        .child(
+impl SettingsView {
+    fn numeric_control(
+        &self,
+        th: &Th,
+        field: NumericSetting,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let d = self.model.read(cx).display();
+        let value = field.value(d);
+        let (lo, hi, step) = field.range_step();
+        let enabled = !matches!(field, NumericSetting::Contrast) || d.minimum_contrast_enabled;
+        let button = |direction: i32, text: &'static str, cx: &mut Context<Self>| {
+            let active = enabled
+                && if direction < 0 {
+                    value > lo
+                } else {
+                    value < hi
+                };
             div()
-                .w(px(68.0))
-                .h(px(30.0))
-                .px(px(10.0))
-                .rounded(px(6.0))
-                .bg(th.c("bg.field"))
-                .border_1()
-                .border_color(th.c("border.field"))
+                .id((
+                    "number-step",
+                    field as usize * 2 + usize::from(direction > 0),
+                ))
+                .w(px(28.0))
+                .h(px(28.0))
                 .flex()
                 .items_center()
-                .justify_end()
-                .text_color(th.c("text.primary"))
-                .child(value),
-        )
-        .child(button(-1, "−", cx))
-        .child(button(1, "+", cx))
-        .into_any_element()
+                .justify_center()
+                .rounded(px(number("radius", "md")))
+                .bg(th.c("bg.buttonSecondary"))
+                .when(!active, |b| b.opacity(0.45))
+                .when(active, |b| {
+                    b.cursor_pointer()
+                        .hover(|s| s.bg(th.c("bg.rowHover")))
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                                this.model.update(cx, |m, cx| {
+                                    m.update_display(cx, |d| {
+                                        field.set(d, field.value(d) + f64::from(direction) * step)
+                                    })
+                                });
+                            }),
+                        )
+                })
+                .child(text)
+        };
+        div()
+            .flex()
+            .items_center()
+            .gap(px(6.0))
+            .child(boxed(
+                self.numbers[field as usize].clone(),
+                if matches!(field, NumericSetting::Scrollback) {
+                    120.0
+                } else {
+                    72.0
+                },
+            ))
+            .child(button(-1, "−", cx))
+            .child(button(1, "+", cx))
+            .into_any_element()
+    }
 }
 
 /// 复选行（右侧一个方框）。
@@ -765,6 +799,28 @@ impl Render for SettingsView {
             (m.display().clone(), *m.timeline(), m.appearance().clone())
         };
 
+        if self.labels_language != lang() {
+            self.labels_language = lang();
+            window.set_window_title(label(Message::UiSettings {}));
+            self.mode.update(cx, |picker, cx| {
+                picker.set_items(
+                    ThemeMode::ALL
+                        .iter()
+                        .map(|m| Item::option(m.label()))
+                        .collect(),
+                    cx,
+                );
+            });
+            for (picker, names) in [
+                (&self.ui_font, &self.ui_names),
+                (&self.term_font, &self.term_names),
+            ] {
+                let items = font_labels(names);
+                picker.update(cx, |picker, cx| picker.set_items(items, cx));
+            }
+            self.sync_widgets(window, cx);
+        }
+
         // 外观
         let appearance_card = card(
             &th,
@@ -786,6 +842,15 @@ impl Render for SettingsView {
                     &render_message(&Message::UiDarkTheme {}),
                     boxed(self.dark_theme.clone(), 220.0),
                 ),
+                div()
+                    .id("open-theme-folder")
+                    .cursor_pointer()
+                    .text_color(th.c("accent"))
+                    .child(label(Message::UiOpenThemesFolder {}))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        cx.open_with_system(&this.model.read(cx).themes_dir);
+                    }))
+                    .into_any_element(),
             ],
         );
 
@@ -820,70 +885,57 @@ impl Render for SettingsView {
         );
 
         // 字体字段与字号并排，尺寸对照 Mac 的 KCard。
-        let font_card = card(
-            &th,
-            &render_message(&Message::UiFont {}),
-            "type",
-            vec![
+        let mut font_rows = vec![
+            div()
+                .flex()
+                .items_start()
+                .gap(px(12.0))
+                .child(row(
+                    &th,
+                    &render_message(&Message::UiTerminalFont {}),
+                    div()
+                        .flex()
+                        .gap(px(8.0))
+                        .child(div().flex_1().min_w_0().child(self.term_font_input.clone()))
+                        .child(boxed(self.term_font.clone(), 80.0)),
+                ))
+                .child(div().flex_none().child(row(
+                    &th,
+                    &render_message(&Message::UiFontSize {}),
+                    self.numeric_control(&th, NumericSetting::FontSize, cx),
+                )))
+                .into_any_element(),
+            row(
+                &th,
+                &render_message(&Message::UiLineHeight {}),
+                self.numeric_control(&th, NumericSetting::LineHeight, cx),
+            ),
+            caption(
+                &th,
+                &render_message(&if self.probing {
+                    Message::UiFontProbing {}
+                } else {
+                    Message::UiFontHint {}
+                }),
+            ),
+        ];
+        if !d.font_family.trim().is_empty()
+            && !self
+                .ui_names
+                .iter()
+                .any(|name| name.eq_ignore_ascii_case(d.font_family.trim()))
+        {
+            font_rows.push(
                 div()
-                    .flex()
-                    .items_start()
-                    .gap(px(12.0))
-                    .child(row(
-                        &th,
-                        &render_message(&Message::UiTerminalFont {}),
-                        div()
-                            .flex()
-                            .gap(px(8.0))
-                            .child(div().flex_1().min_w_0().child(self.term_font_input.clone()))
-                            .child(boxed(self.term_font.clone(), 80.0)),
-                    ))
-                    .child(div().flex_none().child(row(
-                        &th,
-                        &render_message(&Message::UiFontSize {}),
-                        stepper(
-                            &th,
-                            cx,
-                            "fsize",
-                            format!("{}", d.font_size),
-                            |this, s, cx| {
-                                this.model.update(cx, |m, cx| {
-                                    m.update_display(cx, |d| d.font_size = d.zoomed(f64::from(s)))
-                                })
-                            },
-                        ),
-                    )))
+                    .text_size(px(11.0))
+                    .text_color(th.c("status.warning"))
+                    .child(render_message(&Message::UiMissingTerminalFont {
+                        name: d.font_family.clone(),
+                    }))
                     .into_any_element(),
-                row(
-                    &th,
-                    &render_message(&Message::UiLineHeight {}),
-                    stepper(
-                        &th,
-                        cx,
-                        "lheight",
-                        format!("{:.2}", d.line_height),
-                        |this, s, cx| {
-                            this.model.update(cx, |m, cx| {
-                                m.update_display(cx, |d| {
-                                    d.line_height = snap_line_height(
-                                        d.line_height
-                                            + f64::from(s) * DisplaySettings::LINE_HEIGHT_STEP,
-                                    )
-                                })
-                            })
-                        },
-                    ),
-                ),
-                caption(
-                    &th,
-                    &render_message(&if self.probing {
-                        Message::UiFontProbing {}
-                    } else {
-                        Message::UiFontHint {}
-                    }),
-                ),
-            ],
-        );
+            );
+        }
+        let font_card = card(&th, label(Message::UiFont {}), "type", font_rows);
 
         // 光标
         let shape_idx = CursorShapeSetting::ALL
@@ -921,15 +973,6 @@ impl Render for SettingsView {
                             .update(cx, |m, cx| m.update_display(cx, |d| d.cursor_blink = on))
                     }),
                 ),
-                check_row(
-                    &th,
-                    render_message(&Message::UiSemanticColor {}),
-                    checkbox(&th, cx, "semantic", d.semantic_coloring, |this, on, cx| {
-                        this.model.update(cx, |m, cx| {
-                            m.update_display(cx, |d| d.semantic_coloring = on)
-                        })
-                    }),
-                ),
             ],
         );
 
@@ -942,7 +985,7 @@ impl Render for SettingsView {
                 row(
                     &th,
                     &render_message(&Message::UiScrollbackLines {}),
-                    boxed(self.scrollback.clone(), 220.0),
+                    self.numeric_control(&th, NumericSetting::Scrollback, cx),
                 ),
                 caption(&th, &render_message(&Message::UiScrollbackHint {})),
             ],
@@ -994,22 +1037,7 @@ impl Render for SettingsView {
                 row(
                     &th,
                     &render_message(&Message::UiFontSize {}),
-                    stepper(
-                        &th,
-                        cx,
-                        "uisize",
-                        format!("{}", d.ui_font_size),
-                        |this, s, cx| {
-                            this.model.update(cx, |m, cx| {
-                                m.update_display(cx, |d| {
-                                    d.ui_font_size = (d.ui_font_size + f64::from(s)).clamp(
-                                        DisplaySettings::UI_FONT_SIZE_RANGE.0,
-                                        DisplaySettings::UI_FONT_SIZE_RANGE.1,
-                                    )
-                                })
-                            })
-                        },
-                    ),
+                    self.numeric_control(&th, NumericSetting::UiFontSize, cx),
                 ),
             ],
         );
@@ -1034,24 +1062,19 @@ impl Render for SettingsView {
                         },
                     ),
                 ),
+                check_row(
+                    &th,
+                    render_message(&Message::UiSemanticColor {}),
+                    checkbox(&th, cx, "semantic", d.semantic_coloring, |this, on, cx| {
+                        this.model.update(cx, |m, cx| {
+                            m.update_display(cx, |d| d.semantic_coloring = on)
+                        })
+                    }),
+                ),
                 row(
                     &th,
                     &render_message(&Message::UiContrastRatio {}),
-                    stepper(
-                        &th,
-                        cx,
-                        "contrast-ratio",
-                        format!("{:.1}", d.minimum_contrast_ratio),
-                        |this, s, cx| {
-                            this.model.update(cx, |m, cx| {
-                                m.update_display(cx, |d| {
-                                    d.minimum_contrast_ratio = (d.minimum_contrast_ratio
-                                        + f64::from(s) * 0.5)
-                                        .clamp(1.0, 21.0)
-                                })
-                            })
-                        },
-                    ),
+                    self.numeric_control(&th, NumericSetting::Contrast, cx),
                 ),
                 caption(&th, &render_message(&Message::UiContrastHint {})),
             ],

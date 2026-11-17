@@ -30,6 +30,9 @@ pub enum FindResult {
 
 impl From<SearchStatus> for FindResult {
     fn from(s: SearchStatus) -> Self {
+        if s.invalid_regex {
+            return Self::InvalidRegex;
+        }
         FindResult::Found {
             total: s.total,
             current: s.current,
@@ -214,11 +217,20 @@ mod tests {
     #[test]
     fn result_converts_from_core_status() {
         let r: FindResult = SearchStatus {
+            invalid_regex: false,
             total: 5,
             current: Some(2),
         }
         .into();
         assert_eq!(r, found(5, Some(2)));
+        assert_eq!(
+            FindResult::from(SearchStatus {
+                invalid_regex: true,
+                total: 0,
+                current: None
+            }),
+            FindResult::InvalidRegex
+        );
     }
 
     #[test]

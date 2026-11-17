@@ -36,7 +36,7 @@ enum AppearanceMode: String, CaseIterable {
 /// （它保留给不经过 `attach` 的场景）。"视图 → 外观"子菜单用 `makeMenu()` 生成；设置窗口通过 `observe(_:_:)` 与之双向同步。
 @MainActor
 final class AppearanceController: NSObject, NSMenuItemValidation {
-    private let settings: SettingsStore
+    let settings: SettingsStore
     private let apply: (NSAppearance?) -> Void
 
     /// 变化观察者。持弱引用，观察者释放后自动失效，不需要显式移除。

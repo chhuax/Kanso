@@ -842,6 +842,11 @@ void uniffi_kanso_ffi_fn_method_ffisecretstore_delete(uint64_t ptr, RustBuffer a
 RustBuffer uniffi_kanso_ffi_fn_func_render_message(RustBuffer message, RustBuffer languages, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_FUNC_LOAD_TERMINAL_THEMES
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_FUNC_LOAD_TERMINAL_THEMES
+RustBuffer uniffi_kanso_ffi_fn_func_load_terminal_themes(RustBuffer directory, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_FFI_KANSO_FFI_RUSTBUFFER_ALLOC
 #define UNIFFI_FFIDEF_FFI_KANSO_FFI_RUSTBUFFER_ALLOC
 RustBuffer ffi_kanso_ffi_rustbuffer_alloc(uint64_t size, RustCallStatus *_Nonnull out_status
@@ -1105,6 +1110,12 @@ void ffi_kanso_ffi_rust_future_complete_void(uint64_t handle, RustCallStatus *_N
 #ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_FUNC_RENDER_MESSAGE
 #define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_FUNC_RENDER_MESSAGE
 uint16_t uniffi_kanso_ffi_checksum_func_render_message(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_FUNC_LOAD_TERMINAL_THEMES
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_FUNC_LOAD_TERMINAL_THEMES
+uint16_t uniffi_kanso_ffi_checksum_func_load_terminal_themes(void
     
 );
 #endif

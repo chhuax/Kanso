@@ -3,7 +3,7 @@
 //! 颜色来源是 `design/terminal-themes/*.json`（与 macOS 前端共用同一份），编译时嵌入。
 //! 帧里的颜色只存标签与索引（docs/frame-abi.md §4），切换主题只需要换 [`Palette`]。
 
-use serde::Deserialize;
+use kanso_core::terminal_themes::TerminalTheme;
 
 /// 8 位 RGB 颜色。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -37,6 +37,17 @@ impl Rgb8 {
         ((self.r as u32) << 16) | ((self.g as u32) << 8) | self.b as u32
     }
 
+    /// 与 Mac 终端一致，在 sRGB 分量上插值，再四舍五入到 8 位。
+    pub fn mixed(self, other: Rgb8, amount: f32) -> Rgb8 {
+        let lerp =
+            |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * amount).round() as u8;
+        Rgb8::new(
+            lerp(self.r, other.r),
+            lerp(self.g, other.g),
+            lerp(self.b, other.b),
+        )
+    }
+
     /// 向 `other` 混合：`t` 为 0..=255，0 得到自己，255 得到 `other`。
     pub fn mix(self, other: Rgb8, t: u8) -> Rgb8 {
         let t = u16::from(t);
@@ -58,6 +69,10 @@ pub struct Overlay {
 /// 随主题深浅切换；主题 JSON 里没有这些项，按背景明暗选一组。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Decorations {
+    /// 提示符标签的底色和描边。
+    pub chip_background: Rgb8,
+    /// 提示符标签描边。
+    pub chip_border: Rgb8,
     /// 时间戳 / 行号栏文字（`terminal.gutterText`）。
     pub gutter_text: Rgb8,
     /// 栏内光标所在行的高亮底色（`terminal.gutterCursorLine`）。
@@ -74,6 +89,8 @@ impl Decorations {
             u16::from(background.r) + u16::from(background.g) + u16::from(background.b) < 3 * 128;
         if dark {
             Decorations {
+                chip_background: Rgb8::new(0x25, 0x28, 0x2C),
+                chip_border: Rgb8::new(0x4B, 0x51, 0x58),
                 gutter_text: Rgb8::new(0x8E, 0x94, 0x9B),
                 gutter_cursor_line: Overlay {
                     rgb: Rgb8::new(0x62, 0xB0, 0xD2),
@@ -87,6 +104,8 @@ impl Decorations {
             }
         } else {
             Decorations {
+                chip_background: Rgb8::new(0xF5, 0xF5, 0xF0),
+                chip_border: Rgb8::new(0xC9, 0xCD, 0xC5),
                 gutter_text: Rgb8::new(0x6A, 0x6F, 0x76),
                 gutter_cursor_line: Overlay {
                     rgb: Rgb8::new(0x2A, 0x6A, 0x8A),
@@ -123,51 +142,29 @@ pub struct Palette {
     pub decorations: Decorations,
 }
 
-#[derive(Deserialize)]
-struct ThemeFile {
-    foreground: String,
-    background: String,
-    cursor: String,
-    #[serde(rename = "cursorText")]
-    cursor_text: String,
-    #[serde(rename = "selectionBackground")]
-    selection_background: String,
-    ansi: Vec<String>,
-    semantic: Vec<String>,
-}
-
 const DARK_JSON: &str = include_str!("../../../design/terminal-themes/kanso-dark.json");
 const LIGHT_JSON: &str = include_str!("../../../design/terminal-themes/kanso-light.json");
-
-/// 搜索匹配的背景（帧里的 `CELL_MATCH`）。主题文件没有这一项，原型先用固定色。
-pub const MATCH_BACKGROUND: Rgb8 = Rgb8::new(0x6B, 0x57, 0x1A);
-/// 当前搜索匹配的背景（`CELL_MATCH_CURRENT`）。
-pub const MATCH_CURRENT_BACKGROUND: Rgb8 = Rgb8::new(0xB0, 0x82, 0x12);
 
 impl Palette {
     /// 从主题 JSON 解析。
     pub fn from_json(json: &str) -> Result<Palette, String> {
-        let t: ThemeFile = serde_json::from_str(json).map_err(|e| e.to_string())?;
-        let hex = |s: &str| Rgb8::from_hex(s).ok_or_else(|| format!("非法颜色 {s}"));
-        let ansi: Vec<Rgb8> = t.ansi.iter().map(|s| hex(s)).collect::<Result<_, _>>()?;
-        let ansi: [Rgb8; 16] = ansi
-            .try_into()
-            .map_err(|v: Vec<Rgb8>| format!("ansi 需要 16 色，实际 {}", v.len()))?;
-        let background = hex(&t.background)?;
-        Ok(Palette {
-            foreground: hex(&t.foreground)?,
+        TerminalTheme::parse(String::new(), json).map(|t| Self::from_theme(&t))
+    }
+
+    /// 将共享读取器的颜色转换为 GPUI 渲染色。
+    pub fn from_theme(t: &TerminalTheme) -> Palette {
+        let rgb = |c: u32| Rgb8::new((c >> 16) as u8, (c >> 8) as u8, c as u8);
+        let background = rgb(t.background);
+        Palette {
+            foreground: rgb(t.foreground),
             background,
             decorations: Decorations::for_background(background),
-            cursor: hex(&t.cursor)?,
-            cursor_text: hex(&t.cursor_text)?,
-            selection_background: hex(&t.selection_background)?,
-            ansi,
-            semantic: t
-                .semantic
-                .iter()
-                .map(|s| hex(s))
-                .collect::<Result<_, _>>()?,
-        })
+            cursor: rgb(t.cursor),
+            cursor_text: rgb(t.cursor_text),
+            selection_background: rgb(t.selection_background),
+            ansi: t.ansi.map(rgb),
+            semantic: t.semantic.into_iter().map(rgb).collect(),
+        }
     }
 
     /// Kanso Dark。

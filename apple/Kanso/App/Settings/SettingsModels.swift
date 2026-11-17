@@ -193,9 +193,13 @@ struct AppearanceSettings: Equatable, Codable {
     }
 
     /// 浅色外观的实际配色（未知 id 回落默认）。
-    var resolvedLightTheme: TerminalTheme { TerminalTheme.theme(id: lightTheme) ?? .kansoLight }
+    func resolvedLightTheme(in themes: [TerminalTheme]) -> TerminalTheme {
+        TerminalTheme.theme(id: lightTheme, in: themes) ?? .kansoLight
+    }
     /// 深色外观的实际配色。
-    var resolvedDarkTheme: TerminalTheme { TerminalTheme.theme(id: darkTheme) ?? .kansoDark }
+    func resolvedDarkTheme(in themes: [TerminalTheme]) -> TerminalTheme {
+        TerminalTheme.theme(id: darkTheme, in: themes) ?? .kansoDark
+    }
 }
 
 // MARK: - 时间轴

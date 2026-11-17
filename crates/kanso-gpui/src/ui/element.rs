@@ -136,7 +136,7 @@ impl Element for TerminalElement {
             if let Some(d) = &decor {
                 decor::paint_block_highlight(d, bounds, origin, window);
             }
-            paint_grid(&grid, &metrics, origin, window, cx);
+            paint_grid(&grid, &palette, &metrics, origin, window, cx);
             if let Some(d) = &decor {
                 decor::paint_overlays(d, bounds, origin, window, cx);
             }
@@ -183,6 +183,7 @@ pub(super) fn cell_rect(
 
 fn paint_grid(
     grid: &RenderGrid,
+    palette: &Palette,
     m: &Metrics,
     origin: Point<Pixels>,
     window: &mut Window,
@@ -196,6 +197,23 @@ fn paint_grid(
         ));
     }
 
+    let stroke = px(1. / window.scale_factor());
+    for &(row, col, width) in &grid.chips {
+        let mut bounds = cell_rect(origin, m, row, col, width);
+        bounds.origin.y += stroke;
+        bounds.size.height -= stroke * 2.;
+        let radius = px(m.cell_w / 2.)
+            .max(stroke * 3.)
+            .min(bounds.size.height / 2.);
+        window.paint_quad(gpui::quad(
+            bounds,
+            radius,
+            hsla(palette.decorations.chip_background),
+            stroke,
+            hsla(palette.decorations.chip_border),
+            BorderStyle::Solid,
+        ));
+    }
     for span in &grid.spans {
         let fg = hsla(span.fg);
         let run = TextRun {

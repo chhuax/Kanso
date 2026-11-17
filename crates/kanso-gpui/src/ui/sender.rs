@@ -81,6 +81,7 @@ impl Render for TextTooltip {
 pub(crate) struct SenderPanel {
     core: Arc<Core>,
     ctx: SenderContext,
+    labels_language: kanso_gpui::app::i18n::Lang,
     editing: Editing,
     area: Entity<TextArea>,
     name: Entity<TextInput>,
@@ -108,12 +109,11 @@ pub(crate) struct SenderPanel {
 
 impl SenderPanel {
     pub(crate) fn new(core: Arc<Core>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let area = cx.new(|cx| {
-            TextArea::new(window, cx).placeholder(t(Message::UiSenderInputPlaceholder {}))
-        });
+        let area = cx
+            .new(|cx| TextArea::new(window, cx).placeholder(Message::UiSenderInputPlaceholder {}));
         let name = cx.new(|cx| {
             TextInput::new(window, cx)
-                .placeholder(t(Message::UiSenderNamePlaceholder {}))
+                .placeholder(Message::UiSenderNamePlaceholder {})
                 .max_len(kanso_gpui::app::sender::NAME_MAX_CHARS)
         });
         let ending_items = ENDINGS
@@ -197,6 +197,7 @@ impl SenderPanel {
         let mut panel = SenderPanel {
             core,
             ctx: SenderContext::default(),
+            labels_language: kanso_gpui::app::i18n::lang(),
             editing: Editing::default(),
             area,
             name,
@@ -233,7 +234,19 @@ impl SenderPanel {
 
     /// 外壳每次把当前窗口状态交给面板；没有变化什么也不做。
     pub(crate) fn set_context(&mut self, ctx: SenderContext, cx: &mut Context<Self>) {
-        if self.ctx == ctx {
+        let language = kanso_gpui::app::i18n::lang();
+        if self.labels_language != language {
+            self.labels_language = language;
+            self.ending.update(cx, |d, cx| {
+                d.set_items(
+                    ENDINGS
+                        .iter()
+                        .map(|e| Item::option(ending_label(*e)))
+                        .collect(),
+                    cx,
+                );
+            });
+        } else if self.ctx == ctx {
             return;
         }
         self.ctx = ctx;
@@ -281,6 +294,11 @@ impl SenderPanel {
     pub(crate) fn selftest_send(&mut self, text: &str, cx: &mut Context<Self>) {
         self.area.update(cx, |a, cx| a.set_text(text, cx));
         self.editing.draft.text = text.to_owned();
+        // CMD 的交互提示符需要回车；行尾控件允许明确选择 CRLF。
+        self.editing.draft.ending = LineEnding::CrLf;
+        self.ending.update(cx, |d, cx| {
+            d.set_selected(Some(ending_index(LineEnding::CrLf)), cx)
+        });
         self.run_clicked(cx);
     }
 

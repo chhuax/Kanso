@@ -18,4 +18,5 @@ pub mod frame_handle;
 pub mod git;
 pub mod secret_store;
 
+pub mod terminal_themes;
 uniffi::setup_scaffolding!();

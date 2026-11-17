@@ -1015,6 +1015,24 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "深色" } }
       }
     },
+    "Light Terminal Theme" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Light Terminal Theme" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "浅色终端配色" } }
+      }
+    },
+    "Dark Terminal Theme" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Dark Terminal Theme" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "深色终端配色" } }
+      }
+    },
+    "Open Themes Folder" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Open Themes Folder" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "打开主题文件夹" } }
+      }
+    },
     "Appearance" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Appearance" } },

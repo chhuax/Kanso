@@ -120,7 +120,7 @@ pub enum TextInputEvent {
 pub struct TextInput {
     focus: FocusHandle,
     state: EditState,
-    placeholder: SharedString,
+    placeholder: super::WidgetText,
     search: bool,
     disabled: bool,
     appearance: Appearance,
@@ -164,7 +164,7 @@ impl TextInput {
         TextInput {
             focus,
             state: EditState::default(),
-            placeholder: SharedString::default(),
+            placeholder: "".into(),
             search: false,
             disabled: false,
             appearance: Appearance::Dark,
@@ -193,7 +193,13 @@ impl TextInput {
     }
 
     /// 占位文字。
-    pub fn placeholder(mut self, text: impl Into<SharedString>) -> Self {
+    pub(super) fn set_placeholder(&mut self, text: super::WidgetText, cx: &mut Context<Self>) {
+        self.placeholder = text;
+        cx.notify();
+    }
+
+    /// 设置空输入框的占位文字。
+    pub fn placeholder(mut self, text: impl Into<super::WidgetText>) -> Self {
         self.placeholder = text.into();
         self
     }
@@ -520,7 +526,7 @@ impl TextInput {
         let disp = self.state.display();
         let st = self.field_style();
         let (shown, text_color) = if self.state.is_empty() {
-            (self.placeholder.to_string(), hsla(st.placeholder))
+            (self.placeholder.resolve().to_string(), hsla(st.placeholder))
         } else {
             (disp.text.clone(), color)
         };

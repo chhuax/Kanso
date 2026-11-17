@@ -177,14 +177,10 @@ impl ShellView {
                         })
                     })
                     .unwrap_or_default();
-                // 命令回显一次 + 输出一次。
-                let hits = screen
-                    .iter()
-                    .filter(|l| l.contains("kanso-sender-ok"))
-                    .count();
-                let ok = hits >= 2;
+                // 只接受命令实际产生的整行输出，回显与换行后的下一条提示符均不算。
+                let ok = screen.iter().any(|line| line.trim() == "kanso-sender-ok");
                 super::log(&format!(
-                    "[sender-test] {} 屏幕出现 {hits} 行",
+                    "[sender-test] {} 检查独立的命令输出行",
                     if ok { "PASS" } else { "FAIL" }
                 ));
                 if !ok {

@@ -9,7 +9,7 @@
 //! - 会话正常结束（退出码 0）自动关标签，异常结束保留并提示；最后一个标签关闭后退出应用。
 //!
 //! 菜单与对话框（控件在 `widgets/`，内容在 `kanso_gpui::app::{menus, confirm}`）：
-//! - 终端右键、侧栏标签右键、侧栏工具条的“≡”按钮分别弹出终端菜单、标签菜单、应用菜单，
+//! - 终端右键、侧栏标签右键、主窗口顶栏的菜单按钮分别弹出终端菜单、标签菜单、应用菜单，
 //!   菜单项都解码成 [`AppCommand`] 走 `run_command`，与快捷键同一条路径；
 //! - 关闭 / 退出时若有仍在连接 / 运行的会话，弹确认对话框（批量关闭只确认一次）；
 //! - 底部状态栏在 `status_bar.rs`。
@@ -101,6 +101,7 @@ pub(crate) struct ShellView {
     subs: HashMap<SessionId, Subscription>,
     _window_subs: Vec<Subscription>,
     pub(super) sidebar_visible: bool,
+    pub(super) palette: Option<super::toolbar::Palette>,
     pub(super) path_filter: Entity<super::widgets::text_input::TextInput>,
     drag: Option<DividerDrag>,
     /// 当前弹出的右键 / 应用菜单（最上层，同一时间只有一个）。
@@ -111,7 +112,7 @@ pub(crate) struct ShellView {
     pub(super) dialog_sub: Option<Subscription>,
     pending_close: Option<CloseRequest>,
     /// 右键行为：弹菜单 / 复制或粘贴（terminal.md §8.1）。
-    right_click_menu: bool,
+    pub(super) right_click_menu: bool,
     /// 状态栏时钟文字（整分钟刷新）。
     pub(super) clock: String,
     /// 底部的临时提示（文字、到期时刻）。
@@ -159,22 +160,21 @@ impl ShellView {
         core: Arc<Core>,
         mut rx: UnboundedReceiver<CoreEvent>,
         selftest: Option<Duration>,
+        themes_dir: std::path::PathBuf,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let home = std::env::var("USERPROFILE")
             .or_else(|_| std::env::var("HOME"))
             .unwrap_or_default();
-        let settings = cx.new(|_| SettingsModel::new(core.clone()));
+        let settings = cx.new(|_| SettingsModel::new(core.clone(), themes_dir));
         settings.read(cx).push_to_display(cx);
         let dark = display::effective_dark(window);
         display::apply_titlebar(window);
         let path_filter = cx.new(|cx| {
             super::widgets::text_input::TextInput::new(window, cx)
                 .search()
-                .placeholder(kanso_gpui::app::launcher::render_message(
-                    &kanso_types::message::Message::UiFilterPath {},
-                ))
+                .placeholder(kanso_types::Message::UiFilterPath {})
         });
         let filter_sub = cx.subscribe_in(&path_filter, window, |this, input, ev, window, cx| {
             use super::widgets::text_input::TextInputEvent;
@@ -205,6 +205,7 @@ impl ShellView {
             subs: HashMap::new(),
             _window_subs: Vec::new(),
             sidebar_visible: true,
+            palette: None,
             path_filter,
             drag: None,
             menu: None,
@@ -546,6 +547,7 @@ impl ShellView {
         }
         match command {
             AppCommand::NewLocalTab => self.open_tab(window, cx),
+            AppCommand::OpenPalette => self.open_palette(window, cx),
             AppCommand::OpenLauncher => self.open_launcher(window, cx),
             AppCommand::NewSession => self.open_editor(None, window, cx),
             AppCommand::CloseSession => {
@@ -564,6 +566,7 @@ impl ShellView {
             AppCommand::SplitDown => self.split(SplitAxis::Vertical, window, cx),
             AppCommand::ToggleSidebar => {
                 self.sidebar_visible = !self.sidebar_visible;
+                self.sync_focus(window, cx);
                 cx.notify();
             }
             AppCommand::Copy => self.with_active_terminal(cx, |t, cx| t.copy(cx)),
@@ -643,10 +646,7 @@ impl ShellView {
 
     /// 当前外观下的终端配色。
     fn terminal_palette(&self, cx: &gpui::App) -> kanso_gpui::theme::Palette {
-        self.settings
-            .read(cx)
-            .appearance()
-            .terminal_palette(self.dark)
+        self.settings.read(cx).terminal_palette(self.dark)
     }
 
     /// 一行描述第一个终端的度量与配色（自检日志用）。
@@ -850,19 +850,23 @@ impl ShellView {
         self.open_menu(tab_menu(ctx), position, window, cx);
     }
 
+    pub(super) fn app_menu_state(&self) -> AppMenuState {
+        AppMenuState {
+            sidebar_visible: self.sidebar_visible,
+            right_click_menu: self.right_click_menu,
+            sender_visible: self.sender.visible,
+            command_suggestions: self.completion.enabled,
+            filer_visible: self.filer.visible(),
+        }
+    }
+
     pub(super) fn open_app_menu(
         &mut self,
         anchor: gpui::Point<Pixels>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let items = app_menu(AppMenuState {
-            sidebar_visible: self.sidebar_visible,
-            right_click_menu: self.right_click_menu,
-            sender_visible: self.sender.visible,
-            command_suggestions: self.completion.enabled,
-            filer_visible: self.filer.visible(),
-        });
+        let items = app_menu(self.app_menu_state());
         self.open_menu(items, anchor, window, cx);
     }
 
@@ -1152,6 +1156,9 @@ impl ShellView {
             }
             self.focused = want;
         }
+        if self.modal_open() {
+            return;
+        }
         if let Some(handle) = active
             .and_then(|a| self.terminals.get(&a))
             .map(|t| t.read(cx).focus.clone())
@@ -1216,18 +1223,24 @@ impl ShellView {
 
     // ---- 分隔条 ----
 
+    pub(super) fn sidebar_width(&self, window: &Window) -> f32 {
+        if self.sidebar_visible {
+            number("spacing", "sidebar.defaultWidth")
+                .min(f32::from(window.viewport_size().width) * 0.4)
+        } else {
+            0.0
+        }
+    }
+
     /// 分屏区矩形（窗口坐标）。
     pub(super) fn split_area(&self, window: &Window) -> Rect {
         let size = window.viewport_size();
-        let x = if self.sidebar_visible {
-            f64::from(number("spacing", "sidebar.defaultWidth"))
-        } else {
-            0.0
-        } + f64::from(self.filer_width(window));
+        let x = f64::from(self.sidebar_width(window) + self.filer_width(window));
         let w = f64::from(f32::from(size.width));
-        // 底部留给状态栏。
-        let h = f64::from(f32::from(size.height) - status_bar_h() - self.sender_total_height());
-        Rect::new(x, 0.0, (w - x).max(0.0), h.max(0.0))
+        let top = super::toolbar::HEIGHT;
+        let h =
+            f64::from(f32::from(size.height) - top - status_bar_h() - self.sender_total_height());
+        Rect::new(x, f64::from(top), (w - x).max(0.0), h.max(0.0))
     }
 
     fn start_drag(&mut self, divider: &LayoutDivider, ev: &MouseDownEvent, cx: &mut Context<Self>) {
@@ -1512,7 +1525,9 @@ impl Render for ShellView {
             self.log_layout(area, window.scale_factor());
         }
         let panes = self.render_panes(area, th, cx);
-        let sidebar = self.sidebar_visible.then(|| self.render_sidebar(th, cx));
+        let sidebar = self
+            .sidebar_visible
+            .then(|| self.render_sidebar(self.sidebar_width(window), th, cx));
         let status_bar = self.render_status_bar(th, window, cx);
         if self.sender.visible {
             self.push_sender_context(cx);
@@ -1544,6 +1559,7 @@ impl Render for ShellView {
             .children(filer_panels)
             .children(panes)
             .child(status_bar)
+            .child(self.render_toolbar(th, window, cx))
             .children(notice.map(|text| {
                 div()
                     .absolute()
@@ -1567,6 +1583,7 @@ impl Render for ShellView {
             // 最上层：菜单与模态对话框（根元素铺满窗口，遮罩按窗口坐标定位）。
             .children(sender_els)
             .children(completion_el)
+            .children(self.render_palette(th, window, cx))
             .children(self.menu.clone())
             .children(self.dialog.clone())
             .children(self.filer.dialog.clone())
@@ -1574,5 +1591,8 @@ impl Render for ShellView {
             .children(self.editor.clone())
             .children(self.ssh_import.clone())
             .children(self.prompt.as_ref().map(|(_, d)| d.clone()))
+            .when(!window.is_fullscreen(), |root| {
+                root.child(super::toolbar::window_buttons(th, window))
+            })
     }
 }

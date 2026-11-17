@@ -269,6 +269,96 @@ impl Default for DisplaySettings {
     }
 }
 
+/// 显示设置中的数值字段。文本提交与步进按钮使用相同的范围。
+#[derive(Clone, Copy, Debug)]
+pub enum NumericSetting {
+    /// 终端字号。
+    FontSize,
+    /// 终端行距倍数。
+    LineHeight,
+    /// 回滚行数。
+    Scrollback,
+    /// 最低对比度。
+    Contrast,
+    /// 界面字号。
+    UiFontSize,
+}
+
+impl NumericSetting {
+    /// 与设置窗口的输入框顺序一致。
+    pub const ALL: [Self; 5] = [
+        Self::FontSize,
+        Self::LineHeight,
+        Self::Scrollback,
+        Self::Contrast,
+        Self::UiFontSize,
+    ];
+
+    /// 下限、上限和按钮步长。用户可以直接输入范围内的中间值。
+    pub fn range_step(self) -> (f64, f64, f64) {
+        let ((lo, hi), step) = match self {
+            Self::FontSize => (DisplaySettings::FONT_SIZE_RANGE, 1.0),
+            Self::LineHeight => (
+                DisplaySettings::LINE_HEIGHT_RANGE,
+                DisplaySettings::LINE_HEIGHT_STEP,
+            ),
+            Self::Scrollback => (
+                (
+                    f64::from(DisplaySettings::SCROLLBACK_RANGE.0),
+                    f64::from(DisplaySettings::SCROLLBACK_RANGE.1),
+                ),
+                1000.0,
+            ),
+            Self::Contrast => (DisplaySettings::CONTRAST_RANGE, 0.5),
+            Self::UiFontSize => (DisplaySettings::UI_FONT_SIZE_RANGE, 1.0),
+        };
+        (lo, hi, step)
+    }
+
+    /// 当前值。
+    pub fn value(self, d: &DisplaySettings) -> f64 {
+        match self {
+            Self::FontSize => d.font_size,
+            Self::LineHeight => d.line_height,
+            Self::Scrollback => f64::from(d.scrollback_lines),
+            Self::Contrast => d.minimum_contrast_ratio,
+            Self::UiFontSize => d.ui_font_size,
+        }
+    }
+
+    /// 按 Mac 设置的范围写回，显示精度与实际值独立。
+    pub fn set(self, d: &mut DisplaySettings, value: f64) {
+        let (lo, hi, _) = self.range_step();
+        let v = value.clamp(lo, hi);
+        match self {
+            Self::FontSize => d.font_size = v,
+            Self::LineHeight => d.line_height = v,
+            Self::Scrollback => d.scrollback_lines = v as u32,
+            Self::Contrast => d.minimum_contrast_ratio = v,
+            Self::UiFontSize => d.ui_font_size = v.round(),
+        }
+    }
+
+    /// 回车或失焦提交。无效数字保留原值。
+    pub fn commit(self, text: &str, d: &mut DisplaySettings) {
+        if let Ok(value) = text.trim().parse::<f64>()
+            && value.is_finite()
+        {
+            self.set(d, value);
+        }
+    }
+
+    /// 对应 Mac 数字框的小数位数。
+    pub fn text(self, d: &DisplaySettings) -> String {
+        let value = self.value(d);
+        match self {
+            Self::LineHeight => format!("{value:.2}"),
+            Self::Contrast => format!("{value:.1}"),
+            _ => format!("{value:.0}"),
+        }
+    }
+}
+
 /// 把行距规整到步长（避免 1.2000000000000002 这类浮点毛刺写进存储）。
 pub fn snap_line_height(v: f64) -> f64 {
     let (lo, hi) = DisplaySettings::LINE_HEIGHT_RANGE;
@@ -381,12 +471,19 @@ impl AppearanceSettings {
     }
 
     /// 当前外观下的终端配色。
-    pub fn terminal_palette(&self, dark: bool) -> Palette {
+    pub fn terminal_palette(
+        &self,
+        dark: bool,
+        themes: &[kanso_core::terminal_themes::TerminalTheme],
+    ) -> Palette {
         let id = if dark {
             &self.dark_theme
         } else {
             &self.light_theme
         };
+        if let Some(theme) = themes.iter().find(|t| t.id == *id) {
+            return Palette::from_theme(theme);
+        }
         match id.as_str() {
             "kanso-light" => Palette::kanso_light(),
             "kanso-dark" => Palette::kanso_dark(),
@@ -688,6 +785,20 @@ mod tests {
     }
 
     #[test]
+    fn numeric_text_commits_nonpreset_values_and_restores_invalid_input() {
+        let mut d = DisplaySettings::default();
+        NumericSetting::Scrollback.commit("12345", &mut d);
+        NumericSetting::LineHeight.commit("1.23", &mut d);
+        NumericSetting::Contrast.commit("6.7", &mut d);
+        NumericSetting::Contrast.commit("NaN", &mut d);
+        assert_eq!(d.scrollback_lines, 12345);
+        assert_eq!(NumericSetting::LineHeight.text(&d), "1.23");
+        assert_eq!(d.minimum_contrast_ratio, 6.7);
+        NumericSetting::Scrollback.commit("8", &mut d);
+        assert_eq!(d.scrollback_lines, 1000);
+    }
+
+    #[test]
     fn defaults_match_spec() {
         let d = DisplaySettings::default();
         assert_eq!(d.font_size, 14.0);
@@ -759,8 +870,8 @@ mod tests {
         assert_eq!(AppearanceSettings::decode(Some(&a.encode())), a);
         // 未知配色 id 保留，但取色时回落到该外观的默认。
         assert_eq!(a.dark_theme, "future-theme");
-        assert_eq!(a.terminal_palette(true), Palette::kanso_dark());
-        assert_eq!(a.terminal_palette(false), Palette::kanso_dark());
+        assert_eq!(a.terminal_palette(true, &[]), Palette::kanso_dark());
+        assert_eq!(a.terminal_palette(false, &[]), Palette::kanso_dark());
         assert_eq!(
             AppearanceSettings::decode(Some(r#"{"mode":"x"}"#)).mode,
             ThemeMode::System

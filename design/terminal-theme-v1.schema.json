@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Kanso terminal theme v1",
+  "type": "object",
+  "required": ["version", "name", "foreground", "background", "cursor", "cursorText", "selectionBackground", "ansi", "semantic"],
+  "properties": {
+    "version": { "const": 1 },
+    "name": { "type": "string", "pattern": "\\S" },
+    "foreground": { "$ref": "#/$defs/color" },
+    "background": { "$ref": "#/$defs/color" },
+    "cursor": { "$ref": "#/$defs/color" },
+    "cursorText": { "$ref": "#/$defs/color" },
+    "selectionBackground": { "$ref": "#/$defs/color" },
+    "ansi": { "type": "array", "minItems": 16, "maxItems": 16, "items": { "$ref": "#/$defs/color" } },
+    "semantic": { "type": "array", "minItems": 13, "maxItems": 13, "items": { "$ref": "#/$defs/color" } }
+  },
+  "$defs": { "color": { "type": "string", "minLength": 7, "maxLength": 7, "pattern": "^#[0-9A-Fa-f]{6}$" } }
+}
