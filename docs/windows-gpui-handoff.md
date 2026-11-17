@@ -1,0 +1,98 @@
+# Windows GPUI 调试交接（Codex → Claude Code）
+
+用户要求本轮只调试已经合并的版本，四个未完成模块下一轮再处理；随后要求深色界面更贴近当前仓库的 Mac 版，以及 Windows 可选择 CMD / PowerShell。用户告知 Claude Code 在 2:10am 恢复额度，要求同步本轮改动。
+
+## 分支与范围
+
+- 基线：`proto/gpui-integrate` 的 `01f8028b52e2004d1caaf455bd2ce2bbc962a4df`。
+- 修复分支：`codex/windows-debug`（本目录已切换到该分支）。原 `proto/gpui-windows` 较旧。
+- `Kanso-integrate` 工作树和 `.claude/worktrees/` 中 term、sender、filer、store 四组未合并改动均未动；不要直接覆盖本轮修复。
+- 未读取旧版仓库或 Zed 应用代码；对照仅限本仓库 Apple UI、规格及 GPUI 库。
+
+## 本轮改动
+
+- `ui/shell.rs`：全是绝对定位子节点时，根 `.size_full()` 会得到空绘制区域。改为明确使用窗口 viewport 宽高，实际截图确认主界面可见；原先“首帧已绘制”和 selftest PASS 不能证明画面可见。
+- `ui/mod.rs`：把 GPUI 的 `log` 日志接入现有运行日志，能看到 DirectX / 呈现失败。新增直接依赖 log（已有传递依赖，MIT / Apache-2.0）。
+- `ui/sidebar.rs` + `shell.rs`：接入现成的路径筛选规则，Esc 清空并回到终端；紧凑线条图标、选中条、悬停关闭按钮向 Mac 对齐；沿用同一份 design tokens。
+- `ui/display.rs` + `settings.rs`：主窗口与设置窗口的原生标题栏跟随应用深浅色，使用 DWM API，只作用当前窗口。raw-window-handle 已是传递依赖，许可证 MIT / Apache-2.0 / Zlib；windows-sys 增开 Dwm 特性。
+- `ui/session_editor.rs`：新建/编辑本地会话增加 Shell 下拉：系统默认、CMD、Windows PowerShell、检测到的 PowerShell 7、自定义命令。命令行仍可编辑参数，沿用 Profile 保存与连接，不改核心默认 Shell 规则。
+- 新增提示在 Message 及中英 Fluent 目录中成对添加。没有修改 FFI 导出接口。
+
+## 图形排查
+
+- 用户看到的是 Mac 上 VMware Fusion 窗口闪烁和卡顿。
+- VM 使用 VMware SVGA 3D / D3D11.0；Mac 的 RX 6600 XT 在 VMware 日志里正常走 Metal。初查高分辨率为 4096×1918，宿主和 Windows 后台有负载；未改 VM 配置、显卡驱动或系统服务。
+- 曾试验过 GPUI_DISABLE_DIRECT_COMPOSITION=1（仅测试进程），对原根布局空白无效；当前默认渲染模式，没把兼容开关写进产品。
+- 测试中出现 DXGI_ERROR_DEVICE_REMOVED / DEVICE_RESET，反复重建 DirectX 设备。对照替换图标、停用标题栏更新及 DirectComposition 后仍出现；之前可见的 kanso-sized.exe 也开始出现相同错误，因此不能归因为图标或标题栏改动。用户授权后已正常重启 Windows（00:53:39），重新登录（约 00:58）仍复现。Win+Ctrl+Shift+B 也无效；未修改 VM 配置。用户已要求另开会话专门修复 VM，见下。
+- DXGI debug interface 缺失的 0x887A002D 后会退回非调试设备，本身不代表主界面失败；真正要关注 Presenting swap chain failed / DirectX device lost。
+
+## 验证与环境
+
+本文件与修复一起提交，提交号以本分支日志为准。
+
+- Mac：`cargo test -p kanso-gpui -p kanso-types --offline` 通过，分别 368 / 19 项。
+- Windows：`cargo build -p kanso-gpui --offline -j 8`、`cargo clippy -p kanso-gpui --all-targets --offline -j 8 -- -D warnings`、`cargo test -p kanso-gpui --lib --offline -j 8` 通过（368 项）。日志在测试目录 build-final.log / clippy-final.log / tests-final.log。
+- 完整 `cargo xtask ci --skip-apple` 已运行：fmt、clippy、workspace tests、C ABI、tokens、locales、bindings、渠道矩阵通过；cargo deny 的基线许可证/维护状态问题仍阻断，细节见下。仅改 Rust，跳过 Apple 构建。
+- 在新增侧栏与 Shell 选择前，已合并版本的 `--selftest`、`--settings-test` 退出 0，输入框键盘测试、启动器保存默认本地会话和重开已通过。自测中的 IME 是合成回调，不能代替真实输入法验收。
+- 新增 Shell 选择在日志中已看到 SavedCMD / SavedPowerShell 保存并连接，但同期设备重置导致画面不可用，**尚未完成最终 GUI 验收**。需恢复图形环境后复测两种 Shell 的输出、保存重开、路径筛选、深浅切换和菜单键盘操作。
+
+- Mac 测试、CI 日志：`/tmp/kanso-codex-mac-tests-final.log`、`/tmp/kanso-codex-ci-final.log`。
+- VM SSH：`huaxin@192.168.204.128`；工作副本 `C:\Users\huaxin\kanso-integ`，共享 target `C:\Users\huaxin\kanso-target`。
+- VM 无外网：只在 Mac 同步源码，Windows 用 `cargo build -p kanso-gpui --offline -j 8`。遵守 `C:\kt\build.lock` / `gui.lock`。
+- 所有本轮 GUI 测试数据在 `C:\kt\codex-debug`；HOME、USERPROFILE、APPDATA、LOCALAPPDATA 均注入临时目录。未读写真实 SSH、凭据、剪贴板。
+- 原桌面“ Kanso 原型”指向早期 `KansoPrototype` 可执行文件，看到旧黑窗时先检查启动的是哪一版，不要误杀用户自己的终端。
+- 本轮测试脚本在 Mac `/tmp/kanso-codex-debug` 及 VM `C:\kt\codex-debug`。`preview.json` 记录本轮预览 PID；只管理自己启动的进程。
+- VM 自身 CopyFromScreen 曾得到黑图；最终视觉验证使用 Mac `screencapture` 截 VMware 窗口，截图为真实运行结果。
+
+## 已知遗留
+
+- 功能还未与 Mac 全面对齐；四个未合并模块按用户要求保留下一轮。
+- 完整 CI 的依赖审查存在基线问题：MPL-2.0 的 cbindgen/dwrote/option-ext，NCSA 的 libfuzzer-sys，CC0 的 tiny-keccak，以及多个 unmaintained advisory。没有修改 deny.toml 或跳过审查来掩盖问题。
+- 本轮未接触真实远端 SSH / SFTP 凭据；网络、传输及其未完成模块不应据此宣布实机验收。
+
+## 专门排查虚拟机的新会话
+
+用户在本轮末尾明确要求新开会话处理虚拟机问题，已创建 **修复 VMware Windows 图形闪烁与 GPUI 黑屏**，线程 ID `01a1ea76-5c87-7ad0-bc24-736c7ca9bc19`，host `local`。完整环境、已试排查、重启授权、测试脚本位置均已交接。该会话负责 VMware / 图形环境，不修改此仓库代码；原会话不再同时操作 VM。
+
+用户另提供远端 Windows `192.168.137.1`，SSH 服务已开；本机 SSH 别名 macmini 指向 `huaxin@10.66.0.10`。用户又明确要求优先解决虚拟机，因此尚未尝试远端链路。
+
+
+## 2026-11-18 继续：页面对齐与 macOS 26 外框
+
+### 页面改动
+
+- `session_editor.rs` 改为当前 Mac 的 DialogShell / KCard 结构：560 宽、最高 680，独立头部与底部、可滚动主体、会话与连接分区、112×52 类型卡片、名称和两行八色的色板并排。Tab 跨分区时按字段实际绘制边界滚动；类型卡片支持方向键。回车与 Mac 一致只保存，连接按钮显式保存并连接。
+- 保留 Windows Shell 选择：CMD / Windows PowerShell / 已安装的 PowerShell 7 / 自定义命令；没有改核心启动规则。
+- `settings.rs` 分通用 / 显示两页。字体、字号同排，光标用类型卡片；最低对比度接到已有设置字段。Windows 原有界面字体、终端配色与时间轴选项保留。未增加未实现的键盘快捷键页。
+- `launcher.rs` 对齐 360 宽、行高和间距，补上可用的设置入口、搜索图标、编辑和更多图标；会话颜色使用 Mac 的小圆角方块。侧栏取消额外的底部快捷键提示，选中细条使用会话颜色。
+- `widgets/card.rs` 复用卡片；正式 Lucide SVG 替换文字与手绘图标。素材 revision `149eba0aea48178a5ab1efe2c701de1da94f4be8`，ISC / MIT，原始许可在 assets/icons/LICENSE，THIRD_PARTY_NOTICES 及生成器已补。
+- 改动涉及的界面标签加入 Message + 两种 Fluent 目录（总计 184 条消息）。没有新增 Rust 依赖或改 FFI 导出。
+
+### Mac 修正的准确位置
+
+用户最终确认要去掉的是**包住搜索框和全部页签、一直到底部的整列外框圆角**，不是单个灰色页签的圆角。
+
+- 只改 `MainWindowController.swift`：系统主版本为 26 时改用普通 split item，保持宽度优先级，并在窗口实际布局后恢复默认侧栏宽度。27 和其它版本保留原来的 sidebar item 和显示流程；TabRowView 未改。
+- Intel Debug-Direct 构建成功，隔离 mock 窗口实图确认外框移除、侧栏宽度 240、单个标签圆角保留。macOS 27 没有实机运行，不能把“保留原代码路径”写成“27 验收通过”。
+- Intel 构建需要覆盖 ARCHS=x86_64；libkanso_ffi 在 target/apple/direct/x86_64-apple-darwin/debug。仓库 apple-test 写死 arm64，Intel 本机运行会在 destination 选择阶段失败。未顺手改架构政策。
+
+### 运行与验证记录
+
+- 虚拟机专门排障会话已结束：Fusion 共享显存 256 MB → 2 GB，完整冷启动，保留 Retina / 3D；100% 和 200% 自检、主题检查没有再报设备重置。不能单独归因于显存或者冷启动。
+- 已在 200% 缩放下运行新 UI。隔离 GUI 脚本验证了 SavedCMD / SavedPowerShell 保存、连接、PowerShell 再次打开；实际终端输出 CODEX_REOPEN_OK。测试命令追加 /d 或 -NoProfile，避免读取用户的 Shell 启动配置。
+- Windows build、clippy --all-targets -D warnings 通过，kanso-gpui --lib 368 项通过。后续最终自检结果以本节补充为准。
+- 完整 cargo xtask ci 已执行：前序 Rust 检查与 Apple 三渠道构建通过，apple-test 因 Intel 机器无 arm64 destination 失败；额外 --skip-apple 检查走到 cargo deny，仍是已有的许可 / unmaintained advisory 问题，没有改 deny.toml。
+- 工作区同时出现另一个任务的 Tauri 改动（Cargo.toml / Cargo.lock / desktop 等）。本轮不覆盖、不提交这些文件；CI 使用 /tmp/kanso-polish/verify 的本轮隔离副本。
+- 本轮截图、日志与测试脚本：Mac /tmp/kanso-polish；VM C:\kt\codex-debug，最终可执行文件 kanso-polish-delivery.exe。不要再用 kanso-dark.exe、kanso-polish.exe 或桌面的早期“原型”快捷方式评估最终外观。
+- 之前通过 Mac mini 的远程 Windows 实验已按用户要求断开；不要自动重连。四个未合并模块仍未合并。
+
+### 仍然存在的差异
+
+Windows 原生标题栏与字体栅格化不同，不能声称跨系统逐像素相同。主窗口完整工具栏、键盘设置页和四个未合并模块的完整功能不属于本轮已验收内容；本次只对已经合并的页面进行视觉和操作修正。
+
+### 最终补充（本轮交付）
+
+- 最终二进制 `kanso-polish-delivery.exe` 的 `--selftest`、`--settings-test` 均退出 0；日志分别在 `selftest-20261118020546`、`settings-test-20261118020558`，均无 DirectX device lost / DEVICE_RESET / Presenting swap chain failed。
+- 实际点击通用页模式控件完成深色 / 浅色切换；缩小窗口后通过 Tab 定位到 SSH 表单底部，主体正确滚动且头尾操作区保留。截图分别为 `/tmp/kanso-polish/windows-settings-light-preview.png`、`windows-editor-small-preview.png`。
+- Mac 外框修复独立提交 `97b992f`。本轮提交位于 `codex/windows-debug`，隔离 worktree 为 `/tmp/kanso-polish/review`；共享主目录已由另一个任务切到 Tauri 分支，本轮没有切回或混入它的改动。需要继续 GPUI 时从该分支接手。
+- 最终 Rust CI 日志 `/tmp/kanso-polish/ci-rust-delivery.log`；Windows 368 项测试和最终 build / clippy 通过。完整 CI 的两项环境 / 基线阻断仍按上节记录，不能写成全绿。
