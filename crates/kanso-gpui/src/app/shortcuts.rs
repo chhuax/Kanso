@@ -8,6 +8,9 @@
 //! TODO(rebind)：spec 要求可在“键盘快捷键”对话框重新绑定；对话框做好后，把这张表改成运行时可替换，
 //! 查找函数的签名不用变。
 
+use kanso_types::SessionId;
+
+use crate::app::workspace::CloseScope;
 use crate::keys::KeyInput;
 
 /// 应用级命令。
@@ -33,6 +36,28 @@ pub enum AppCommand {
     SelectTab(usize),
     /// 显示 / 隐藏标签栏。
     ToggleSidebar,
+    /// 复制活动终端的选区。
+    Copy,
+    /// 把剪贴板内容粘贴进活动终端。
+    Paste,
+    /// 全选活动终端（含回滚缓冲区）。
+    SelectAll,
+    /// 清空活动终端的缓冲区（Alt+K）。
+    ClearBuffer,
+    /// 关闭指定标签（侧栏右键菜单；需要确认时弹对话框）。
+    CloseTab(SessionId),
+    /// 在指定标签所在分屏组内批量关闭（只确认一次）。
+    CloseGroup(CloseScope, SessionId),
+    /// 编辑指定标签来源的已保存会话（会话编辑器由别的模块提供，暂时只记日志）。
+    EditSession(SessionId),
+    /// 切换右键行为：弹出菜单 / 复制或粘贴（terminal.md §8.1）。
+    ToggleRightClickMenu,
+    /// 退出应用（有仍在连接的会话时先确认）。
+    Quit,
+    /// 打开会话启动器（新建会话…；界面由启动器模块提供，暂时只记日志）。
+    OpenLauncher,
+    /// 打开设置（界面由设置模块提供，暂时只记日志）。
+    OpenSettings,
 }
 
 impl AppCommand {
@@ -98,6 +123,8 @@ pub const DEFAULT_BINDINGS: &[Binding] = &[
     b(false, true, false, "9", AppCommand::SelectTab(8)),
     // 面板显隐（spec 里 Ctrl+Alt+← 对应标签栏）。
     b(true, true, false, "left", AppCommand::ToggleSidebar),
+    // 清屏（ui-shell.md §7）。
+    b(false, true, false, "k", AppCommand::ClearBuffer),
 ];
 
 /// 查表。Win 键组合属于系统，永远不命中。

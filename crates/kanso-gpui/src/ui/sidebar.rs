@@ -2,17 +2,19 @@
 //!
 //! 标签行：左侧会话色图标、主标题（本地 shell 显示当前目录，过长保留末尾）、副标题
 //! （状态或 Git 分支）、右侧未读 / 运行指示与关闭按钮。点击在鼠标按下时就切换。
-//! 暂未实现：路径搜索框与过滤按钮、拖拽排序、右键菜单（菜单控件由控件组提供）、悬停提示。
+//! 右键标签行弹出标签菜单（关闭 / 关闭其他 / 左侧 / 右侧 / 全部），标签栏空白处右键打开会话启动器；
+//! 工具条上的“≡”按钮打开窗口级应用菜单（Windows / Linux 没有系统菜单栏）。
+//! 暂未实现：路径搜索框与过滤按钮、拖拽排序、悬停提示。
 
-use gpui::{Context, Hsla, MouseButton, MouseDownEvent, div, prelude::*, px, rgb};
+use gpui::{Context, Hsla, MouseButton, MouseDownEvent, div, point, prelude::*, px, rgb};
 use kanso_gpui::app::shortcuts::{AppCommand, shortcut_text};
+use kanso_gpui::app::status_bar::state_text;
 use kanso_gpui::app::tab::{
-    CloseNote, TabConnection, TabDescriptions, TabItem, TabKind, TabPresentation, TabStateLine,
-    truncate_keep_tail,
+    TabConnection, TabDescriptions, TabItem, TabKind, TabPresentation, truncate_keep_tail,
 };
 use kanso_gpui::widgets::style::number;
 
-use super::shell::{ShellView, Theme};
+use super::shell::{ShellView, Theme, status_bar_h};
 
 /// 没有配置颜色的会话从这组色里按 id 稳定取一个（同一个会话每次都是同一个颜色）。
 const SESSION_COLORS: [u32; 8] = [
@@ -38,24 +40,6 @@ fn kind_glyph(kind: TabKind) -> &'static str {
     }
 }
 
-/// 状态行文字（侧栏副标题）。
-fn state_text(line: &TabStateLine) -> String {
-    match line {
-        TabStateLine::Connecting => "连接中…".to_owned(),
-        TabStateLine::Closed(Some(CloseNote::Exited { code: Some(c) })) => {
-            format!("会话已结束（退出码 {c}）")
-        }
-        TabStateLine::Closed(Some(CloseNote::Exited { code: None })) => "会话已结束".to_owned(),
-        // TODO(l10n)：用 kanso-l10n 渲染错误消息。
-        TabStateLine::Closed(Some(CloseNote::Error(_))) => "会话已断开".to_owned(),
-        TabStateLine::Closed(None) => "会话已结束".to_owned(),
-        TabStateLine::CommandRunning => "命令运行中".to_owned(),
-        TabStateLine::AgentRunning => "AI 运行中".to_owned(),
-        TabStateLine::AgentFinished => "AI 已完成".to_owned(),
-        TabStateLine::UnreadDone => "命令已完成，点击查看".to_owned(),
-    }
-}
-
 impl ShellView {
     pub(super) fn render_sidebar(&self, th: Theme, cx: &mut Context<Self>) -> gpui::AnyElement {
         let width = number("spacing", "sidebar.defaultWidth");
@@ -75,7 +59,14 @@ impl ShellView {
             .flex_col()
             .gap(px(2.0))
             .px(px(6.0))
-            .py(px(4.0));
+            .py(px(4.0))
+            // 标签栏空白处右键：打开会话启动器（标签行的右键会先拦下，不会走到这里）。
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|this, _: &MouseDownEvent, window, cx| {
+                    this.run_command(AppCommand::OpenLauncher, window, cx)
+                }),
+            );
 
         let mut global_index = 0usize;
         for section in sections {
@@ -129,7 +120,7 @@ impl ShellView {
             .absolute()
             .left_0()
             .top_0()
-            .h_full()
+            .bottom(px(status_bar_h()))
             .w(px(width))
             .flex()
             .flex_col()
@@ -153,24 +144,58 @@ impl ShellView {
                     )
                     .child(
                         div()
-                            .id("new-tab")
-                            .w(px(24.0))
-                            .h(px(24.0))
                             .flex()
                             .items_center()
-                            .justify_center()
-                            .rounded(px(number("radius", "sm")))
-                            .text_size(px(16.0))
-                            .text_color(th.c("text.secondary"))
-                            .cursor_pointer()
-                            .hover(|s| s.bg(th.c("bg.rowHover")).text_color(th.c("text.primary")))
-                            .on_mouse_down(
-                                MouseButton::Left,
-                                cx.listener(|this, _: &MouseDownEvent, window, cx| {
-                                    this.new_tab_clicked(window, cx)
-                                }),
+                            .gap(px(2.0))
+                            .child(
+                                div()
+                                    .id("app-menu")
+                                    .w(px(24.0))
+                                    .h(px(24.0))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded(px(number("radius", "sm")))
+                                    .text_size(px(15.0))
+                                    .text_color(th.c("text.secondary"))
+                                    .cursor_pointer()
+                                    .hover(|s| {
+                                        s.bg(th.c("bg.rowHover")).text_color(th.c("text.primary"))
+                                    })
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        cx.listener(|this, ev: &MouseDownEvent, window, cx| {
+                                            cx.stop_propagation();
+                                            // 菜单贴着按钮下沿，左缘与按钮左缘对齐。
+                                            let anchor = point(ev.position.x - px(12.0), px(36.0));
+                                            this.open_app_menu(anchor, window, cx)
+                                        }),
+                                    )
+                                    .child("≡"),
                             )
-                            .child("+"),
+                            .child(
+                                div()
+                                    .id("new-tab")
+                                    .w(px(24.0))
+                                    .h(px(24.0))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded(px(number("radius", "sm")))
+                                    .text_size(px(16.0))
+                                    .text_color(th.c("text.secondary"))
+                                    .cursor_pointer()
+                                    .hover(|s| {
+                                        s.bg(th.c("bg.rowHover")).text_color(th.c("text.primary"))
+                                    })
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        cx.listener(|this, _: &MouseDownEvent, window, cx| {
+                                            this.new_tab_clicked(window, cx)
+                                        }),
+                                    )
+                                    .child("+"),
+                            ),
                     ),
             )
             .child(list)
@@ -244,6 +269,13 @@ impl ShellView {
                 MouseButton::Left,
                 cx.listener(move |this, _: &MouseDownEvent, window, cx| {
                     this.activate_session(sid, window, cx)
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
+                    cx.stop_propagation();
+                    this.open_tab_menu(sid, ev.position, window, cx)
                 }),
             );
         if let Some(bg) = bg {

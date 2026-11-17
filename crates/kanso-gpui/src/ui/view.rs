@@ -74,6 +74,11 @@ fn kmods(m: &gpui::Modifiers) -> Modifiers {
 pub(crate) enum TerminalEvent {
     /// 终端阶段的自检结束（`true` 为通过）。
     SelfTestFinished(bool),
+    /// 用户在终端上右键（菜单模式、程序没有开启鼠标上报）：外壳在 `position`（窗口坐标）弹出菜单。
+    ContextMenu {
+        session: SessionId,
+        position: Point<Pixels>,
+    },
 }
 
 pub(crate) struct TerminalView {
@@ -96,6 +101,8 @@ pub(crate) struct TerminalView {
     /// 是否维护整屏文本 `screen`（自检用）。
     pub track_screen: bool,
     left_down: bool,
+    /// 右键行为：`true` 弹出菜单，`false` 为“复制或粘贴”（terminal.md §8.1）。由外壳统一设置。
+    pub right_click_menu: bool,
 }
 
 impl EventEmitter<TerminalEvent> for TerminalView {}
@@ -157,6 +164,7 @@ impl TerminalView {
             selftest: st,
             track_screen,
             left_down: false,
+            right_click_menu: true,
         }
     }
 
@@ -265,14 +273,30 @@ impl TerminalView {
         });
     }
 
-    fn copy(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn copy(&mut self, cx: &mut Context<Self>) {
         if let Some(text) = self.core.selection_text(self.session) {
             cx.write_to_clipboard(ClipboardItem::new_string(text));
             let _ = self.core.clear_selection(self.session);
         }
     }
 
-    fn paste(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn has_selection(&self) -> bool {
+        self.core.has_selection(self.session)
+    }
+
+    pub(crate) fn select_all(&mut self) {
+        if let Err(e) = self.core.select_all(self.session) {
+            log(&format!("select_all 失败：{e}"));
+        }
+    }
+
+    pub(crate) fn clear_buffer(&mut self) {
+        if let Err(e) = self.core.clear_buffer(self.session) {
+            log(&format!("clear_buffer 失败：{e}"));
+        }
+    }
+
+    pub(crate) fn paste(&mut self, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|i| i.text()) {
             self.snap_to_bottom();
             if let Err(e) = self.core.paste(self.session, PasteContent::Text(text)) {
@@ -402,7 +426,17 @@ impl TerminalView {
                         &ev.modifiers,
                         ev.click_count,
                     );
-                } else if self.core.has_selection(self.session) {
+                } else if self.right_click_menu {
+                    // 菜单模式：没有选区时先选中指针下的单词（VS Code 的做法），再让外壳弹菜单。
+                    if !self.has_selection() {
+                        let at = self.grid_point(ev.position);
+                        let _ = self.core.select_word_at(self.session, at);
+                    }
+                    cx.emit(TerminalEvent::ContextMenu {
+                        session: self.session,
+                        position: ev.position,
+                    });
+                } else if self.has_selection() {
                     // “复制或粘贴”模式（terminal.md §8.1）：有选区就复制，没有就粘贴。
                     self.copy(cx);
                 } else {

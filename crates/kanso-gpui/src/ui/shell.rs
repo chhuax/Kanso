@@ -8,7 +8,13 @@
 //!   其余按键照常进终端；
 //! - 会话正常结束（退出码 0）自动关标签，异常结束保留并提示；最后一个标签关闭后退出应用。
 //!
-//! 提示框（主机密钥、密码）与关闭确认对话框由控件组负责，这里只留 TODO 与过渡方案。
+//! 菜单与对话框（控件在 `widgets/`，内容在 `kanso_gpui::app::{menus, confirm}`）：
+//! - 终端右键、侧栏标签右键、侧栏工具条的“≡”按钮分别弹出终端菜单、标签菜单、应用菜单，
+//!   菜单项都解码成 [`AppCommand`] 走 `run_command`，与快捷键同一条路径；
+//! - 关闭 / 退出时若有仍在连接 / 运行的会话，弹确认对话框（批量关闭只确认一次）；
+//! - 底部状态栏在 `status_bar.rs`。
+//!
+//! 主机密钥 / 密码提问的对话框由提示框模块负责，这里只留 TODO。
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -23,23 +29,44 @@ use gpui::{
     rgba,
 };
 use kanso_core::Core;
+use kanso_gpui::app::confirm::{CloseRequest, close_dialog_spec, is_confirmed};
 use kanso_gpui::app::controller::{AppController, Effects, FALLBACK_GRID};
 use kanso_gpui::app::layout::{LayoutDivider, PaneId, Rect, SplitAxis};
-use kanso_gpui::app::shell::{
-    CloseDecision, CloseGuard, DIVIDER_THICKNESS, DividerDrag, min_fraction,
+use kanso_gpui::app::menus::{
+    AppMenuState, TabMenuContext, app_menu, decode, tab_menu, terminal_menu,
 };
+use kanso_gpui::app::shell::{DIVIDER_THICKNESS, DividerDrag, min_fraction};
 use kanso_gpui::app::shortcuts::{AppCommand, lookup, shortcut_text};
+use kanso_gpui::app::status_bar::{clock_text, ms_until_next_minute};
 use kanso_gpui::app::tab::{CloseNote, TabConnection};
+use kanso_gpui::app::workspace::{CloseConfirmation, CloseScope};
 use kanso_gpui::keys::KeyInput;
+use kanso_gpui::widgets::dialog::DialogResult;
+use kanso_gpui::widgets::menu::MenuItem;
 use kanso_gpui::widgets::style::{Appearance, color, number};
 use kanso_types::{CoreEvent, SessionId};
 
 use super::shell_selftest::ShellSelfTest;
 use super::view::{TerminalEvent, TerminalView};
-use super::{EXIT_CODE, log};
+use super::widgets::dialog::{Dialog, DialogEvent};
+use super::widgets::menu::{ContextMenu, MenuEvent};
+use super::widgets::text_input;
+use super::{EXIT_CODE, log, tz};
 
 /// 界面字体。
 pub(crate) const UI_FONT: &str = "Microsoft YaHei UI";
+
+/// 状态栏高度（逻辑像素，取自设计 token `statusBar.height`）。
+pub(crate) fn status_bar_h() -> f32 {
+    number("spacing", "statusBar.height")
+}
+
+/// 现在的 Unix 毫秒。
+fn unix_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as i64)
+}
 
 /// 一帧内最多合并处理多少个核心事件，避免事件风暴时长时间占住 UI 线程。
 const MAX_EVENT_BATCH: usize = 256;
@@ -70,7 +97,17 @@ pub(crate) struct ShellView {
     _window_subs: Vec<Subscription>,
     pub(super) sidebar_visible: bool,
     drag: Option<DividerDrag>,
-    close_guard: CloseGuard,
+    /// 当前弹出的右键 / 应用菜单（最上层，同一时间只有一个）。
+    pub(super) menu: Option<Entity<ContextMenu>>,
+    menu_sub: Option<Subscription>,
+    /// 当前的关闭 / 退出确认对话框，以及它确认后要执行的关闭请求。
+    pub(super) dialog: Option<Entity<Dialog>>,
+    dialog_sub: Option<Subscription>,
+    pending_close: Option<CloseRequest>,
+    /// 右键行为：弹菜单 / 复制或粘贴（terminal.md §8.1）。
+    right_click_menu: bool,
+    /// 状态栏时钟文字（整分钟刷新）。
+    pub(super) clock: String,
     /// 底部的临时提示（文字、到期时刻）。
     notice: Option<(String, Instant)>,
     dark: bool,
@@ -106,7 +143,13 @@ impl ShellView {
             _window_subs: Vec::new(),
             sidebar_visible: true,
             drag: None,
-            close_guard: CloseGuard::default(),
+            menu: None,
+            menu_sub: None,
+            dialog: None,
+            dialog_sub: None,
+            pending_close: None,
+            right_click_menu: true,
+            clock: clock_text(unix_ms(), tz::local_offset_minutes()),
             notice: None,
             dark,
             window_active: true,
@@ -117,6 +160,39 @@ impl ShellView {
             selftest_timeout: selftest,
             shell_selftest: None,
         };
+
+        // 对话框里的输入框用到的快捷键（只需注册一次）。
+        text_input::bind_keys(cx);
+
+        // 点窗口关闭按钮：有仍在连接的会话先确认（spec §8）。
+        let weak = cx.weak_entity();
+        window.on_window_should_close(&*cx, move |window, cx| {
+            weak.update(cx, |this, cx| this.window_close_requested(window, cx))
+                .unwrap_or(true)
+        });
+
+        // 状态栏时钟：只在整分钟刷新（状态栏不显示秒，不要每秒唤醒）。
+        cx.spawn(async move |view, cx| {
+            loop {
+                let wait = ms_until_next_minute(unix_ms()) + 20;
+                cx.background_executor()
+                    .timer(Duration::from_millis(wait))
+                    .await;
+                let ok = view
+                    .update(cx, |this, cx| {
+                        let text = clock_text(unix_ms(), tz::local_offset_minutes());
+                        if text != this.clock {
+                            this.clock = text;
+                            cx.notify();
+                        }
+                    })
+                    .is_ok();
+                if !ok {
+                    break;
+                }
+            }
+        })
+        .detach();
 
         // 核心事件 → UI 线程。核心保证每帧最多唤醒一次（TerminalDirty 合并），这里再把已到达的事件合并成一批。
         cx.spawn_in(window, async move |view, cx| {
@@ -181,7 +257,12 @@ impl ShellView {
         let selftest = self.pending_terminal_selftest.take();
         let track = self.selftest_timeout.is_some();
         let dark = self.dark;
-        let term = cx.new(|cx| TerminalView::new(core, id, selftest, track, dark, window, cx));
+        let right_click_menu = self.right_click_menu;
+        let term = cx.new(|cx| {
+            let mut t = TerminalView::new(core, id, selftest, track, dark, window, cx);
+            t.right_click_menu = right_click_menu;
+            t
+        });
         let sub = cx.subscribe_in(
             &term,
             window,
@@ -199,6 +280,11 @@ impl ShellView {
     ) {
         match ev {
             TerminalEvent::SelfTestFinished(ok) => self.on_terminal_selftest(*ok, window, cx),
+            TerminalEvent::ContextMenu { session, position } => {
+                // 右键的终端成为活动终端，菜单里的复制 / 粘贴等就作用于它。
+                self.activate_session(*session, window, cx);
+                self.open_terminal_menu(*session, *position, window, cx);
+            }
         }
     }
 
@@ -252,8 +338,9 @@ impl ShellView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !matches!(command, AppCommand::CloseSession) {
-            self.close_guard.clear();
+        // 菜单或对话框打开时是模态的：快捷键不穿透。
+        if self.dialog.is_some() || self.menu.is_some() {
+            return;
         }
         match command {
             AppCommand::NewLocalTab => self.open_tab(window, cx),
@@ -275,7 +362,124 @@ impl ShellView {
                 self.sidebar_visible = !self.sidebar_visible;
                 cx.notify();
             }
+            AppCommand::Copy => self.with_active_terminal(cx, |t, cx| t.copy(cx)),
+            AppCommand::Paste => self.with_active_terminal(cx, |t, cx| t.paste(cx)),
+            AppCommand::SelectAll => self.with_active_terminal(cx, |t, _| t.select_all()),
+            AppCommand::ClearBuffer => self.with_active_terminal(cx, |t, _| t.clear_buffer()),
+            AppCommand::CloseTab(id) => self.request_close(id, window, cx),
+            AppCommand::CloseGroup(scope, id) => self.close_group(scope, id, window, cx),
+            AppCommand::ToggleRightClickMenu => {
+                self.right_click_menu = !self.right_click_menu;
+                let on = self.right_click_menu;
+                for t in self.terminals.values() {
+                    t.update(cx, |t, _| t.right_click_menu = on);
+                }
+                cx.notify();
+            }
+            AppCommand::Quit => self.request_quit(window, cx),
+            // 下面三个的界面由别的模块提供：这里先只记日志。
+            AppCommand::EditSession(id) => {
+                log(&format!("编辑已保存的会话（{id:?}）：会话编辑器尚未接入"));
+            }
+            AppCommand::OpenLauncher => log("打开会话启动器：启动器尚未接入"),
+            AppCommand::OpenSettings => log("打开设置：设置界面尚未接入"),
         }
+    }
+
+    /// 在活动会话的终端上执行一个操作。
+    fn with_active_terminal(
+        &mut self,
+        cx: &mut Context<Self>,
+        f: impl FnOnce(&mut TerminalView, &mut Context<TerminalView>),
+    ) {
+        if let Some(t) = self
+            .ctl
+            .workspace()
+            .active_session()
+            .and_then(|s| self.terminals.get(&s))
+        {
+            t.update(cx, f);
+        }
+    }
+
+    // ---- 菜单 ----
+
+    /// 弹出菜单（替换已有的）。选中项解码成命令执行，关闭后焦点还给活动终端。
+    fn open_menu(
+        &mut self,
+        items: Vec<MenuItem>,
+        anchor: gpui::Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.dialog.is_some() {
+            return;
+        }
+        self.menu_sub = None;
+        let menu = cx.new(|cx| ContextMenu::new(items, anchor, window, cx));
+        self.menu_sub =
+            Some(
+                cx.subscribe_in(&menu, window, |this, _m, ev: &MenuEvent, window, cx| {
+                    this.menu = None;
+                    this.menu_sub = None;
+                    this.sync_focus(window, cx);
+                    if let MenuEvent::Activate(id) = ev {
+                        match decode(id) {
+                            Some(command) => this.run_command(command, window, cx),
+                            None => log(&format!("未知菜单项 {id}")),
+                        }
+                    }
+                    cx.notify();
+                }),
+            );
+        self.menu = Some(menu);
+        cx.notify();
+    }
+
+    pub(super) fn open_terminal_menu(
+        &mut self,
+        session: SessionId,
+        position: gpui::Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let has_selection = self
+            .terminals
+            .get(&session)
+            .is_some_and(|t| t.read(cx).has_selection());
+        self.open_menu(terminal_menu(has_selection), position, window, cx);
+    }
+
+    pub(super) fn open_tab_menu(
+        &mut self,
+        session: SessionId,
+        position: gpui::Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let ws = self.ctl.workspace();
+        let has = |scope| !ws.close_targets(scope, session).is_empty();
+        let ctx = TabMenuContext {
+            session,
+            from_profile: ws.item(session).is_some_and(|i| i.profile.is_some()),
+            has_others: has(CloseScope::Others),
+            has_above: has(CloseScope::Above),
+            has_below: has(CloseScope::Below),
+        };
+        self.open_menu(tab_menu(ctx), position, window, cx);
+    }
+
+    pub(super) fn open_app_menu(
+        &mut self,
+        anchor: gpui::Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let items = app_menu(AppMenuState {
+            sidebar_visible: self.sidebar_visible,
+            right_click_menu: self.right_click_menu,
+        });
+        self.open_menu(items, anchor, window, cx);
     }
 
     fn navigate(
@@ -310,13 +514,117 @@ impl ShellView {
     }
 
     fn request_close(&mut self, id: SessionId, window: &mut Window, cx: &mut Context<Self>) {
-        let needs_confirm = self.ctl.close_confirmation(&[id]).is_some();
-        match self.close_guard.request(id, needs_confirm, Instant::now()) {
-            CloseDecision::Close => self.close_now(&[id], window, cx),
-            CloseDecision::Confirm => {
-                // TODO(dialog)：对话框就绪后改为弹出确认框（列出会话、说明传输会被中断）。
-                let key = shortcut_text(AppCommand::CloseSession).unwrap_or_default();
-                self.show_notice(format!("该会话仍在运行，再按一次 {key} 确认关闭"), cx);
+        self.request_close_many(vec![id], window, cx);
+    }
+
+    /// 批量关闭同组标签（只确认一次，列出仍在连接的会话）。
+    fn close_group(
+        &mut self,
+        scope: CloseScope,
+        relative_to: SessionId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let targets = self.ctl.close_targets(scope, relative_to);
+        self.request_close_many(targets, window, cx);
+    }
+
+    /// 关闭一批会话：不需要确认就直接关，否则弹确认对话框（spec §8）。
+    fn request_close_many(
+        &mut self,
+        sessions: Vec<SessionId>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if sessions.is_empty() {
+            return;
+        }
+        match self.ctl.close_confirmation(&sessions) {
+            None => self.close_now(&sessions, window, cx),
+            Some(c) => {
+                let req = CloseRequest {
+                    sessions,
+                    quit: false,
+                };
+                self.show_close_dialog(req, &c, window, cx);
+            }
+        }
+    }
+
+    /// 退出应用：有仍在连接的会话先确认。
+    fn request_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.confirm_quit_if_needed(window, cx) {
+            cx.quit();
+        }
+    }
+
+    /// 点窗口关闭按钮：返回 `true` 表示可以直接关闭，`false` 表示已弹出确认框（或确认框已在）。
+    fn window_close_requested(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.dialog.is_some() {
+            return false;
+        }
+        !self.confirm_quit_if_needed(window, cx)
+    }
+
+    /// 需要确认时弹出退出确认框并返回 `true`。
+    fn confirm_quit_if_needed(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let all = self.ctl.workspace().sidebar_order();
+        let Some(c) = self.ctl.close_confirmation(&all) else {
+            return false;
+        };
+        let req = CloseRequest {
+            sessions: Vec::new(),
+            quit: true,
+        };
+        self.show_close_dialog(req, &c, window, cx);
+        true
+    }
+
+    /// 弹出关闭 / 退出确认框，结果由 [`Self::on_dialog_result`] 处理。已有对话框时忽略。
+    pub(super) fn show_close_dialog(
+        &mut self,
+        req: CloseRequest,
+        c: &CloseConfirmation,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.dialog.is_some() {
+            return;
+        }
+        self.menu = None;
+        self.menu_sub = None;
+        let titles: Vec<String> = c
+            .sessions
+            .iter()
+            .map(|s| self.ctl.tab_title(*s).unwrap_or_else(|| "会话".to_owned()))
+            .collect();
+        let spec = close_dialog_spec(&titles, c.interrupts_transfers, req.quit);
+        let dialog = cx.new(|cx| Dialog::new(spec, window, cx));
+        self.dialog_sub =
+            Some(
+                cx.subscribe_in(&dialog, window, |this, _d, ev: &DialogEvent, window, cx| {
+                    let DialogEvent::Result(r) = ev;
+                    this.on_dialog_result(r, window, cx);
+                }),
+            );
+        self.dialog = Some(dialog);
+        self.pending_close = Some(req);
+        log(&format!("关闭确认：{} 个会话需要确认", c.sessions.len()));
+        cx.notify();
+    }
+
+    fn on_dialog_result(&mut self, r: &DialogResult, window: &mut Window, cx: &mut Context<Self>) {
+        self.dialog = None;
+        self.dialog_sub = None;
+        let pending = self.pending_close.take();
+        let confirmed = is_confirmed(r);
+        log(&format!("关闭确认结果：确认={confirmed} {}", r.log_line()));
+        match pending {
+            Some(req) if confirmed && req.quit => cx.quit(),
+            Some(req) if confirmed => self.close_now(&req.sessions, window, cx),
+            _ => {
+                self.sync_focus(window, cx);
+                cx.notify();
             }
         }
     }
@@ -362,7 +670,6 @@ impl ShellView {
             self.sync_focus(window, cx);
             return;
         }
-        self.close_guard.clear();
         self.ctl.edit(|w| w.activate(id));
         self.sync_focus(window, cx);
         cx.notify();
@@ -465,8 +772,9 @@ impl ShellView {
             0.0
         };
         let w = f64::from(f32::from(size.width));
-        let h = f64::from(f32::from(size.height));
-        Rect::new(x, 0.0, (w - x).max(0.0), h)
+        // 底部留给状态栏。
+        let h = f64::from(f32::from(size.height) - status_bar_h());
+        Rect::new(x, 0.0, (w - x).max(0.0), h.max(0.0))
     }
 
     fn start_drag(&mut self, divider: &LayoutDivider, ev: &MouseDownEvent, cx: &mut Context<Self>) {
@@ -764,6 +1072,7 @@ impl Render for ShellView {
         }
         let panes = self.render_panes(area, th, cx);
         let sidebar = self.sidebar_visible.then(|| self.render_sidebar(th, cx));
+        let status_bar = self.render_status_bar(th, window);
         let notice = self
             .notice
             .as_ref()
@@ -784,11 +1093,12 @@ impl Render for ShellView {
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .children(sidebar)
             .children(panes)
+            .child(status_bar)
             .children(notice.map(|text| {
                 div()
                     .absolute()
                     .left(px(area.x as f32))
-                    .bottom(px(14.0))
+                    .bottom(px(14.0 + status_bar_h()))
                     .w(px(area.width as f32))
                     .flex()
                     .justify_center()
@@ -804,5 +1114,8 @@ impl Render for ShellView {
                             .child(text),
                     )
             }))
+            // 最上层：菜单与模态对话框（根元素铺满窗口，遮罩按窗口坐标定位）。
+            .children(self.menu.clone())
+            .children(self.dialog.clone())
     }
 }

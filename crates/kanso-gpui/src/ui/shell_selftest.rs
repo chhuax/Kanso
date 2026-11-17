@@ -5,10 +5,12 @@
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
-use gpui::{Context, Window};
+use gpui::{Context, Keystroke, Window, point, px};
+use kanso_gpui::app::confirm::CloseRequest;
 use kanso_gpui::app::layout::Rect;
 use kanso_gpui::app::shell::DIVIDER_THICKNESS;
 use kanso_gpui::app::shortcuts::AppCommand;
+use kanso_gpui::app::workspace::CloseConfirmation;
 use kanso_types::SessionId;
 
 use super::shell::ShellView;
@@ -23,6 +25,8 @@ pub(crate) struct ShellSelfTest {
     ids: Vec<SessionId>,
     ticks: u32,
     cols_before: u16,
+    /// 弹出菜单 / 对话框后停留到这个时刻，方便外部脚本截图（`KANSO_SELFTEST_HOLD_MS`，缺省不停留）。
+    hold_until: Option<Instant>,
 }
 
 impl ShellSelfTest {
@@ -34,7 +38,22 @@ impl ShellSelfTest {
             ids: Vec::new(),
             ticks: 0,
             cols_before: 0,
+            hold_until: None,
         }
+    }
+}
+
+/// 外部截图脚本要求的停留时间（毫秒）。
+fn hold_ms() -> u64 {
+    std::env::var("KANSO_SELFTEST_HOLD_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0)
+}
+
+fn key(window: &mut Window, cx: &mut Context<ShellView>, name: &str) {
+    if let Ok(k) = Keystroke::parse(name) {
+        window.dispatch_keystroke(k, cx);
     }
 }
 
@@ -133,9 +152,39 @@ impl ShellView {
         false
     }
 
+    /// 菜单 / 对话框已经弹出：记一行日志并按需停留，外部脚本据此截图。
+    fn st_hold(&mut self, name: &str) {
+        let ms = hold_ms();
+        log(&format!("selftest HOLD {name}"));
+        if ms > 0
+            && let Some(st) = self.shell_selftest.as_mut()
+        {
+            st.hold_until = Some(Instant::now() + Duration::from_millis(ms));
+            st.deadline += Duration::from_millis(ms);
+        }
+    }
+
     fn st_pass(&mut self, msg: &str) {
         self.st_note(format!("PASS {msg}"));
         self.st_next();
+    }
+
+    /// 不管会话是否真的在运行，强制弹出关闭确认框（自检用）。
+    fn show_forced_close_dialog(
+        &mut self,
+        id: SessionId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let req = CloseRequest {
+            sessions: vec![id],
+            quit: false,
+        };
+        let c = CloseConfirmation {
+            sessions: vec![id],
+            interrupts_transfers: false,
+        };
+        self.show_close_dialog(req, &c, window, cx);
     }
 
     /// 每 150 ms 推进一步；返回 `false` 表示结束。
@@ -147,6 +196,10 @@ impl ShellView {
         let Some(st) = self.shell_selftest.as_mut() else {
             return false;
         };
+        if st.hold_until.is_some_and(|t| Instant::now() < t) {
+            return true;
+        }
+        st.hold_until = None;
         st.ticks += 1;
         let (stage, deadline) = (st.stage, st.deadline);
         let ids = st.ids.clone();
@@ -358,9 +411,121 @@ impl ShellView {
             8 => {
                 if self.ctl.workspace().tab_count() == 1 {
                     self.st_pass("shell 输入 exit：标签自动关闭");
-                    self.shell_selftest_finish(true, "", cx);
-                    return false;
                 }
+            }
+            // ---- 菜单、对话框、状态栏 ----
+            9 => {
+                let clock = self.clock.clone();
+                if clock.len() != 16 || clock.as_bytes()[4] != b'/' || clock.as_bytes()[13] != b':'
+                {
+                    return self.st_fail(format!("状态栏时钟格式不对：{clock:?}"), cx);
+                }
+                self.st_note(format!("PASS 状态栏时钟 {clock}"));
+                // 应用菜单（侧栏工具条的“≡”按钮会走同一个入口）。
+                self.open_app_menu(point(px(8.0), px(38.0)), window, cx);
+                self.st_next();
+            }
+            10 => {
+                if self.menu.is_none() {
+                    return self.st_fail("应用菜单没有弹出".into(), cx);
+                }
+                self.st_hold("app-menu");
+                key(window, cx, "escape");
+                self.st_next();
+            }
+            11 => {
+                if self.menu.is_some() {
+                    return self.st_fail("Esc 没有关闭应用菜单".into(), cx);
+                }
+                self.st_pass("应用菜单弹出，Esc 关闭");
+                self.run_command(AppCommand::NewLocalTab, window, cx);
+                let Some(b) = self.ctl.workspace().active_session() else {
+                    return self.st_fail("没有活动会话".into(), cx);
+                };
+                if let Some(st) = self.shell_selftest.as_mut() {
+                    st.ids = vec![b];
+                }
+                self.open_terminal_menu(b, point(px(500.0), px(300.0)), window, cx);
+                self.st_next();
+            }
+            12 => {
+                if self.menu.is_none() {
+                    return self.st_fail("终端右键菜单没有弹出".into(), cx);
+                }
+                self.st_hold("terminal-menu");
+                key(window, cx, "escape");
+                self.st_next();
+            }
+            13 => {
+                if self.menu.is_some() {
+                    return self.st_fail("Esc 没有关闭终端右键菜单".into(), cx);
+                }
+                self.st_pass("终端右键菜单弹出，Esc 关闭");
+                let b = ids[0];
+                self.open_tab_menu(b, point(px(60.0), px(80.0)), window, cx);
+                self.st_next();
+            }
+            14 => {
+                if self.menu.is_none() {
+                    return self.st_fail("标签右键菜单没有弹出".into(), cx);
+                }
+                self.st_hold("tab-menu");
+                // 第一项是“关闭”：Down 选中它，Enter 执行（空闲的本地 shell 不需要确认）。
+                key(window, cx, "down");
+                key(window, cx, "enter");
+                self.st_next();
+            }
+            15 => {
+                let b = ids[0];
+                if self.menu.is_some() || self.terminals.contains_key(&b) {
+                    return self.st_fail("标签菜单的“关闭”没有关掉标签".into(), cx);
+                }
+                self.st_pass("标签右键菜单：关闭 经 AppCommand 关掉标签");
+                self.run_command(AppCommand::NewLocalTab, window, cx);
+                let Some(c) = self.ctl.workspace().active_session() else {
+                    return self.st_fail("没有活动会话".into(), cx);
+                };
+                if let Some(st) = self.shell_selftest.as_mut() {
+                    st.ids = vec![c];
+                }
+                self.show_forced_close_dialog(c, window, cx);
+                self.st_next();
+            }
+            16 => {
+                if self.dialog.is_none() {
+                    return self.st_fail("关闭确认对话框没有弹出".into(), cx);
+                }
+                self.st_hold("close-dialog");
+                // 取消：标签保留。
+                key(window, cx, "escape");
+                self.st_next();
+            }
+            17 => {
+                let c = ids[0];
+                if self.dialog.is_some() || !self.terminals.contains_key(&c) {
+                    return self.st_fail("取消后标签应保留且对话框关闭".into(), cx);
+                }
+                self.st_pass("关闭确认：取消（Esc）保留标签");
+                self.show_forced_close_dialog(c, window, cx);
+                self.st_next();
+            }
+            18 => {
+                if self.dialog.is_none() {
+                    return self.st_fail("关闭确认对话框没有再次弹出".into(), cx);
+                }
+                // 默认按钮是“取消”：Tab 到“关闭”，回车确认。
+                key(window, cx, "tab");
+                key(window, cx, "enter");
+                self.st_next();
+            }
+            19 => {
+                let c = ids[0];
+                if self.dialog.is_some() || self.terminals.contains_key(&c) {
+                    return self.st_fail("确认后标签应关闭且对话框消失".into(), cx);
+                }
+                self.st_pass("关闭确认：Tab + 回车确认后关闭标签");
+                self.shell_selftest_finish(true, "", cx);
+                return false;
             }
             _ => return false,
         }

@@ -1,8 +1,4 @@
-//! 窗口外壳的纯逻辑：分隔条拖动换算、关闭二次确认。视图（`ui/shell.rs`）只负责把鼠标位置喂进来。
-
-use std::time::{Duration, Instant};
-
-use kanso_types::SessionId;
+//! 窗口外壳的纯逻辑：分隔条拖动换算。视图（`ui/shell.rs`）只负责把鼠标位置喂进来。
 
 use super::layout::{LayoutDivider, SplitAxis};
 
@@ -66,75 +62,10 @@ fn axis_start(d: &LayoutDivider) -> f64 {
     }
 }
 
-/// 关闭的二次确认（过渡方案）。
-///
-/// 正式的确认对话框由控件组提供；在它接进来之前，需要确认的关闭（本地 shell 里有前台命令、
-/// SSH 仍连接、有传输）要求在 [`CONFIRM_WINDOW`] 内对同一会话再触发一次关闭命令。
-/// TODO(dialog)：对话框就绪后，用 `CloseConfirmation` 弹框代替这里。
-#[derive(Clone, Debug, Default)]
-pub struct CloseGuard {
-    pending: Option<(SessionId, Instant)>,
-}
-
-/// 二次确认的有效时间。
-pub const CONFIRM_WINDOW: Duration = Duration::from_secs(3);
-
-/// 关闭请求的处理结果。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CloseDecision {
-    /// 可以关闭。
-    Close,
-    /// 需要再确认一次：视图提示用户再按一次。
-    Confirm,
-}
-
-impl CloseGuard {
-    /// 处理一次关闭请求。`needs_confirm` 来自 `Workspace::close_confirmation`。
-    pub fn request(
-        &mut self,
-        session: SessionId,
-        needs_confirm: bool,
-        now: Instant,
-    ) -> CloseDecision {
-        if !needs_confirm {
-            self.pending = None;
-            return CloseDecision::Close;
-        }
-        match self.pending {
-            Some((s, at))
-                if s == session && now.saturating_duration_since(at) <= CONFIRM_WINDOW =>
-            {
-                self.pending = None;
-                CloseDecision::Close
-            }
-            _ => {
-                self.pending = Some((session, now));
-                CloseDecision::Confirm
-            }
-        }
-    }
-
-    /// 正在等待确认的会话（未过期）。
-    pub fn pending(&self, now: Instant) -> Option<SessionId> {
-        self.pending
-            .filter(|(_, at)| now.saturating_duration_since(*at) <= CONFIRM_WINDOW)
-            .map(|(s, _)| s)
-    }
-
-    /// 取消等待（做了别的操作）。
-    pub fn clear(&mut self) {
-        self.pending = None;
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::app::layout::{PaneId, Rect, SplitLayout};
-
-    fn sid(n: u64) -> SessionId {
-        SessionId::from_raw(n)
-    }
 
     fn two_panes() -> SplitLayout {
         let mut l = SplitLayout::single(PaneId(1));
@@ -203,48 +134,5 @@ mod tests {
         let delta = drag.delta(&d, d.rect.y + 1.0 - 60.0);
         assert!(delta < 0.0);
         assert!((delta + 60.0 / d.parent_length).abs() < 1e-9);
-    }
-
-    #[test]
-    fn close_without_confirmation_is_immediate() {
-        let mut g = CloseGuard::default();
-        assert_eq!(
-            g.request(sid(1), false, Instant::now()),
-            CloseDecision::Close
-        );
-        assert_eq!(g.pending(Instant::now()), None);
-    }
-
-    #[test]
-    fn close_needing_confirmation_requires_a_second_request_in_time() {
-        let mut g = CloseGuard::default();
-        let t0 = Instant::now();
-        assert_eq!(g.request(sid(1), true, t0), CloseDecision::Confirm);
-        assert_eq!(g.pending(t0), Some(sid(1)));
-        assert_eq!(
-            g.request(sid(1), true, t0 + Duration::from_secs(1)),
-            CloseDecision::Close
-        );
-        assert_eq!(g.pending(t0), None);
-    }
-
-    #[test]
-    fn confirmation_expires_and_is_per_session() {
-        let mut g = CloseGuard::default();
-        let t0 = Instant::now();
-        assert_eq!(g.request(sid(1), true, t0), CloseDecision::Confirm);
-        // 过期后重新开始。
-        assert_eq!(
-            g.request(sid(1), true, t0 + CONFIRM_WINDOW + Duration::from_secs(1)),
-            CloseDecision::Confirm
-        );
-        // 换了一个会话：不能借用上一个的确认。
-        assert_eq!(
-            g.request(sid(2), true, t0 + Duration::from_secs(5)),
-            CloseDecision::Confirm
-        );
-        assert_eq!(g.pending(t0 + Duration::from_secs(5)), Some(sid(2)));
-        g.clear();
-        assert_eq!(g.pending(t0 + Duration::from_secs(5)), None);
     }
 }

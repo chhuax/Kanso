@@ -3,7 +3,8 @@
 //! 结构：
 //! - 本文件：命令行参数、日志与计时、核心装配、`run`；
 //! - `shell`：窗口根视图（应用控制器 + 每个会话一个终端视图，分屏区、分隔条拖动、快捷键）；
-//! - `sidebar`：左侧竖向标签栏；
+//! - `sidebar`：左侧竖向标签栏（含右键标签菜单、应用菜单按钮）；
+//! - `status_bar`：底部状态栏；
 //! - `view`：终端视图实体（持有会话，处理按键 / 鼠标 / 滚轮 / 输入法，`EntityInputHandler` 实现）；
 //! - `element`：自绘元素（度量字体、算行列数、画背景 / 文字 / 光标 / 预编辑）；
 //! - `selftest` / `shell_selftest`：`--selftest` 自检（终端阶段 + 多标签 / 分屏阶段）；
@@ -21,6 +22,7 @@ mod sftp_bench;
 mod shell;
 mod shell_selftest;
 mod sidebar;
+mod status_bar;
 mod tz;
 mod view;
 mod widgets;
