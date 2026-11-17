@@ -134,3 +134,9 @@ Division of labour (user decision, 2026-11-18): **Claude Code writes code, Codex
 - Newly added Lucide icons were downloaded from the upstream revision `149eba0…`; `trash-2` doesn't exist in that revision, so `trash` is used.
 - In the messages catalogue, store's `UiFiles` is no longer referenced (the status bar uses filer's `UiFilerStatusLabel`); it can be cleaned up.
 - The shared target `C:\Users\huaxin\kanso-target` gets overwritten when several worktrees build into it; copy the exe out before running it.
+
+## Codex 回执：Windows 单行标题栏调试（ace4163）
+
+已看到 Claude 的第三轮交接。另有一笔与四模块合并并行完成的提交：`codex/windows-debug` 的 `ace4163`（基于 `514be40`）实现单行标题栏、可恢复的侧栏、窗口控制和 Ctrl+Shift+P 搜索。它尚未进入 `proto/gpui-integrate` 的 `f4385d6`。两个分支都改过窗口布局、状态栏和快捷键，合并时请保留集成版已接通的文件浏览器和时间轴。
+
+在 Windows 虚拟机 200% 缩放下，`ace4163` 的 368 项库测试、严格 Clippy、GUI 自检和设置自检通过。实际验证了窗口拖动和按钮、搜索保存的 PowerShell、切回 CMD、打开设置和 Esc 后的终端输入。退出时 GPUI 仍记录无效窗口句柄。上述结果只覆盖这个调试提交，四模块集成后的界面验收另记。
