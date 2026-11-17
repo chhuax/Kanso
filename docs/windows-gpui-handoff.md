@@ -96,3 +96,41 @@ Windows 原生标题栏与字体栅格化不同，不能声称跨系统逐像素
 - 实际点击通用页模式控件完成深色 / 浅色切换；缩小窗口后通过 Tab 定位到 SSH 表单底部，主体正确滚动且头尾操作区保留。截图分别为 `/tmp/kanso-polish/windows-settings-light-preview.png`、`windows-editor-small-preview.png`。
 - Mac 外框修复独立提交 `97b992f`。本轮提交位于 `codex/windows-debug`，隔离 worktree 为 `/tmp/kanso-polish/review`；共享主目录已由另一个任务切到 Tauri 分支，本轮没有切回或混入它的改动。需要继续 GPUI 时从该分支接手。
 - 最终 Rust CI 日志 `/tmp/kanso-polish/ci-rust-delivery.log`；Windows 368 项测试和最终 build / clippy 通过。完整 CI 的两项环境 / 基线阻断仍按上节记录，不能写成全绿。
+
+
+## 2026-11-18 Round 3 merged (Claude Code → Codex)
+
+Division of labour (user decision, 2026-11-18): **Claude Code writes code, Codex debugs**. Claude Code agents do not start the program, take no GUI lock and do no GUI debugging. All runtime debugging and visual checks are Codex's.
+
+### Branch
+
+- `proto/gpui-integrate` at `1b2f169`. It is based on Codex's `codex/windows-debug` (`514be40`) and merges four modules on top: term, sender, store, filer.
+- Suggested flow: Codex fixes things on its own branch cut from `1b2f169` (for example `codex/windows-debug2`). Claude Code's next round of new features also branches from `1b2f169`, and the two sides are merged together afterwards.
+- Checks already passed: Mac `cargo test -p kanso-gpui -p kanso-types -p kanso-l10n` (536 / 19 / 15); `cargo xtask check-locales` (520 messages), `check-bindings`; VM `cargo clippy -p kanso-gpui --offline -j 8 --all-targets -- -D warnings` with zero warnings. **The program has never been run.**
+
+### Built-in self-test entry points (none of the new ones have been run)
+
+| Argument | Module | Notes |
+|---|---|---|
+| `--selftest` | Main window / tabs / split panes / menus / close confirmation / clock | Passed before |
+| `--settings-test --log-input` | Settings window, fonts, light/dark | Passed before |
+| `--term-test [--keep]` | Find count, invalid regex, find bar close, URL detection, timestamp gutter width and column count, block navigation | New; exits 1 on failure |
+| `--sender-test [--keep]` | Expands the Sender and sends `echo kanso-sender-ok`, checks screen output | New |
+| `--filer-selftest [--keep]` | Local Filer workflow in a temp directory: list, sort, hidden items, create, delete | New |
+
+### What each module added (need GUI checks)
+
+- **term**: find bar (Ctrl+Shift+F, F3 / Shift+F3, case and regex toggles), timestamp / line-number gutter (4 modes; the status bar toggle works, AI CLI sessions hide it by default), command blocks (click to select, red bar on failure, Ctrl+Shift+↑/↓ to jump, Ctrl+Shift+C copies the block, "复制命令 / 复制输出" (Copy command / Copy output) in the context menu), command separator lines, links (Ctrl+click; only http/https/ftp/ftps/mailto allowed; supports OSC 8), minimum-contrast protection. New files: `app/{find,gutter,blocks,links}.rs`, `src/contrast.rs`, `ui/{find_bar,decor,term_selftest}.rs`.
+  - Not yet checked: pixel alignment of gutter / separators / colour bars; focus and click pass-through on the find-bar overlay; whether a local shell's OSC 133 actually produces blocks; throughput under heavy output with all decorations on.
+- **sender**: bottom Sender panel (Ctrl+Alt+↓, drag to resize 80–400, multi-line input with Enter to send / Shift+Enter for a newline, target current / all sessions, repeat sending with a status-bar hint), saving commands by scope, completion popup (Tab / ↓ / Esc, doesn't pop up during IME composition), "清除命令历史…" (Clear command history…). New multi-line input `ui/widgets/text_area.rs`.
+  - Not yet checked: IME candidate-window position in the multi-line input; completion popup position and flipping above when there's no room; 300 ms / 1.5 s timeouts.
+- **store**: `.kanso` export / import (Session menu), per-host checkbox OpenSSH import `ui/ssh_import.rs`, empty-state page when there are no tabs (closing the last tab no longer quits, matching Mac; self-tests still quit), language switch in the settings "General" page (follow system / 简体中文 / English).
+  - Not yet checked: whether the main window and menus switch to English immediately after changing language; dropdowns that were already built in the settings window only change language after the window is reopened (known issue).
+- **filer**: side Filer between the tab bar and the terminal (Ctrl+Alt+→, Ctrl+Shift+J to locate the terminal directory, status-bar "文件" (Files) toggle), pure-SFTP tabs as a two-pane view (remote left, local right), create / rename (F2) / delete (Delete, remote directories must be empty) / upload / download / external drag-in / transfer queue and conflict dialog, ZMODEM / XMODEM using the system file picker plus a progress bar at the bottom of the terminal (Session menu → 文件传输 / File transfer).
+  - Not yet checked: real SFTP transfers (the launcher agent left a private sshd in `C:\kt\launcher\sshd\`, listening only on 127.0.0.1:2299, for local testing; do not change the system sshd or authorized_keys); the system file picker; drag-and-drop hit testing under 200% scaling; transfers with lrzsz.
+
+### Other notes
+
+- Newly added Lucide icons were downloaded from the upstream revision `149eba0…`; `trash-2` doesn't exist in that revision, so `trash` is used.
+- In the messages catalogue, store's `UiFiles` is no longer referenced (the status bar uses filer's `UiFilerStatusLabel`); it can be cleaned up.
+- The shared target `C:\Users\huaxin\kanso-target` gets overwritten when several worktrees build into it; copy the exe out before running it.
