@@ -4,7 +4,7 @@
 //! （store-import.md §9，由核心的 `reset_settings` 保证）。重置后各分区各发一次 `Changed`，
 //! 外壳与设置窗口照常刷新；已打开的“命令建议”开关回到默认（关）。
 
-use gpui::{Context, Window};
+use gpui::{AppContext as _, Context, Window};
 use kanso_gpui::app::completion::decode_enabled;
 use kanso_gpui::app::confirm::{CANCEL_ID, CONFIRM_ID};
 use kanso_gpui::app::sender::t;

@@ -120,7 +120,7 @@ pub(crate) struct ShellView {
     notice: Option<(String, Instant)>,
     dark: bool,
     /// 显示设置模型（字体 / 外观 / 时间轴），设置窗口与外壳共用。
-    settings: Entity<SettingsModel>,
+    pub(super) settings: Entity<SettingsModel>,
     settings_window: Option<WindowHandle<SettingsView>>,
     window_active: bool,
     /// 最近一次通知核心“有输入焦点”的会话。
