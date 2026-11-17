@@ -10,15 +10,38 @@ description = "Kanso 的 MCP 服务（spec/mcp.md、architecture §16）：App �
 [dependencies]
 kanso-core = { workspace = true, default-features = false }
 kanso-types.workspace = true
+# 以下只在 Direct 渠道（真实服务）需要，设为可选依赖由 `direct` 打开，MAS / Setapp 不编译它们。
+kanso-mcp = { workspace = true, optional = true }
+rmcp = { workspace = true, optional = true }
+schemars = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, features = ["rt-multi-thread", "net", "io-util", "sync", "time", "macros"] }
+libc = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+tokio-util = { workspace = true, optional = true, features = ["rt"] }
 
 [dev-dependencies]
+tempfile.workspace = true
 tokio = { workspace = true, features = ["rt"] }
+serde_json.workspace = true
 
 [features]
 default = ["direct"]
 # 只有 Direct 渠道包含真实服务；其他渠道的 `McpServer` 只报告"不支持"（spec/mcp.md §11）。
 # 公开接口在所有渠道都存在，因为 Swift 绑定只生成一份、三个渠道共用。
-direct = ["kanso-core/direct"]
+direct = [
+    "kanso-core/direct",
+    "dep:kanso-mcp",
+    "dep:rmcp",
+    "dep:schemars",
+    "dep:serde",
+    "dep:serde_json",
+    "dep:tokio",
+    "dep:libc",
+    "dep:tracing",
+    "dep:tokio-util",
+]
 mas = ["kanso-core/mas"]
 setapp = ["kanso-core/setapp"]
 
