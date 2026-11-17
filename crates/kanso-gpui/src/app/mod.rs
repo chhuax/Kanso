@@ -24,6 +24,8 @@
 //! - [`sender`]：底部 Sender 面板的纯逻辑（草稿 / 编辑、保存作用域、分页、重复参数、菜单、文字）。
 //! - [`completion`]：命令补全弹窗的纯逻辑（请求代次、键盘状态机、位置、设置、来源判断）。
 //! - [`data_transfer`]：`.kanso` 导出 / 导入、OpenSSH 配置导入的文件名、结果摘要与候选主机勾选模型。
+//! - [`remote_edit`]：用本地应用编辑远端文件（保存检测与防抖、冲突、重试、临时副本布局与清理）。
+//! - [`drag_out`]：文件面板条目拖出（远端条目的准备状态机）。
 //! - [`i18n`]：界面语言设置、解析与 `Message` 渲染小函数。
 //! - [`status_bar`]：状态栏的内容模型、时钟格式与刷新对齐、目录截断。
 
@@ -33,6 +35,7 @@ pub mod completion;
 pub mod confirm;
 pub mod controller;
 pub mod data_transfer;
+pub mod drag_out;
 pub mod events;
 pub mod filer_layout;
 pub mod filer_ops;
@@ -49,6 +52,7 @@ pub mod local_fs;
 pub mod menus;
 pub mod prompt_dialogs;
 pub mod prompts;
+pub mod remote_edit;
 pub mod sender;
 pub mod sessions;
 pub mod settings;

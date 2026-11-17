@@ -190,7 +190,9 @@ impl ShellView {
 
     /// 标签关闭：丢掉它的文件状态。
     pub(super) fn filer_forget(&mut self, sid: SessionId, cx: &mut Context<Self>) {
-        self.filer.panel.update(cx, |p, _| p.forget_session(sid));
+        self.filer
+            .panel
+            .update(cx, |p, cx| p.forget_session(sid, cx));
         self.filer.dual.remove(&sid);
         self.filer.locator.forget(sid);
         self.filer.term.forget_session(sid);

@@ -19,12 +19,15 @@ mod demo_menu;
 mod display;
 mod element;
 mod filer;
+mod filer_drag;
+mod filer_edit;
 mod filer_panel;
 mod filer_panel_view;
 mod filer_selftest;
 mod find_bar;
 mod launcher;
 mod memory;
+mod remote_edit_selftest;
 mod selftest;
 mod sender;
 mod session_editor;
@@ -136,6 +139,8 @@ pub(crate) struct Args {
     pub demo_menu: bool,
     /// `--demo-dropdown`：只打开下拉选择框演示窗口（不启动核心）。
     pub demo_dropdown: bool,
+    /// `--remote-edit-test`：不开窗口，用真实临时文件自检远程编辑的本地部分。
+    pub remote_edit_test: bool,
 }
 
 fn parse_args() -> Args {
@@ -156,6 +161,7 @@ fn parse_args() -> Args {
         demo_dialog: false,
         demo_menu: false,
         demo_dropdown: false,
+        remote_edit_test: false,
     };
     let mut explicit_log = false;
     let mut it = std::env::args().skip(1);
@@ -182,6 +188,7 @@ fn parse_args() -> Args {
             "--demo-dialog" => args.demo_dialog = true,
             "--demo-menu" => args.demo_menu = true,
             "--demo-dropdown" => args.demo_dropdown = true,
+            "--remote-edit-test" => args.remote_edit_test = true,
             "--timeout" => {
                 if let Some(v) = it.next().and_then(|v| v.parse().ok()) {
                     args.timeout_secs = v;
@@ -394,6 +401,9 @@ pub fn run() -> i32 {
     }
     if args.demo_dropdown {
         return demo_dropdown::run();
+    }
+    if args.remote_edit_test {
+        return remote_edit_selftest::run();
     }
 
     let (tx, rx) = unbounded::<CoreEvent>();

@@ -2,8 +2,9 @@
 //! 错误条、传输进度条、底部统计与拖放提示。样式取自设计 token，与 mac 版 `FilerPanelView` 对应。
 
 use gpui::{
-    AnyElement, Context, ExternalPaths, Hsla, KeyDownEvent, MouseButton, MouseDownEvent, Render,
-    SharedString, Stateful, Window, div, prelude::*, px, relative, uniform_list,
+    AnyElement, AppContext as _, Context, ExternalPaths, Hsla, KeyDownEvent, MouseButton,
+    MouseDownEvent, Render, SharedString, Stateful, Window, div, prelude::*, px, relative,
+    uniform_list,
 };
 use kanso_gpui::app::filer_state::{
     Phase, date_text, datetime_text, row_tooltip, size_text, stats_text,
@@ -15,6 +16,7 @@ use kanso_gpui::widgets::style::number;
 use kanso_types::message::Message;
 
 use super::display;
+use super::filer_drag::DragChip;
 use super::filer_panel::{FilerEvent, FilerPanel, PanelMode, Source};
 use super::shell::Theme;
 use super::widgets::icons::icon;
@@ -568,6 +570,16 @@ impl FilerPanel {
                                 cx.stop_propagation();
                             }),
                         );
+                    // 辅助 Filer 的条目可以拖出（到终端插入路径）；双栏里不拖。
+                    let row = if dual {
+                        row
+                    } else {
+                        let panel = cx.entity();
+                        row.on_drag(this.make_drag(idx, id), move |d, _off, _window, app| {
+                            let label = panel.update(app, |p, cx| p.start_drag(d, cx));
+                            app.new(|_| DragChip::new(label, th))
+                        })
+                    };
                     rows.push(row);
                 }
                 rows
@@ -735,6 +747,13 @@ impl FilerPanel {
         if let Some(bar) = pane.queue.bar(now) {
             out.push(self.render_bar(qidx, &bar, th, cx));
         }
+        if self.mode == PanelMode::Aux
+            && let Some(status) = self
+                .session_of_pane(qidx)
+                .and_then(|sid| self.edit_status(sid))
+        {
+            out.push(self.render_edit_status(qidx, &status, th, cx));
+        }
         if let Some(err) = pane.queue.error() {
             out.push(
                 div()
@@ -767,6 +786,96 @@ impl FilerPanel {
             );
         }
         out
+    }
+
+    /// 远程编辑 / 拖出准备的状态行：来源 · 路径 · 状态；下载与拖出准备带进度条。
+    fn render_edit_status(
+        &self,
+        qidx: usize,
+        status: &super::filer_edit::EditStatus,
+        th: Theme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let color = if status.is_error {
+            th.c("status.error")
+        } else {
+            th.c("accent")
+        };
+        let now = self.now_ms();
+        let track = div()
+            .relative()
+            .h(px(4.0))
+            .w_full()
+            .rounded(px(2.0))
+            .bg(th.c("bg.field"))
+            .overflow_hidden();
+        let track = match status.fraction {
+            Some(f) => track.child(
+                div()
+                    .h_full()
+                    .w(relative(f as f32))
+                    .rounded(px(2.0))
+                    .bg(color),
+            ),
+            None => {
+                let phase = ((now % 1600) as f32 / 800.0 - 1.0).abs();
+                track.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .h_full()
+                        .left(relative(phase * 0.7))
+                        .w(relative(0.3))
+                        .rounded(px(2.0))
+                        .bg(color),
+                )
+            }
+        };
+        let cancel = status.cancel;
+        div()
+            .flex_none()
+            .px(px(10.0))
+            .py(px(6.0))
+            .flex()
+            .flex_col()
+            .gap(px(4.0))
+            .border_t_1()
+            .border_color(th.c("border.subtle"))
+            .text_size(px(number("font", "ui.caption")))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.0))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .text_color(if status.is_error {
+                                th.c("status.error")
+                            } else {
+                                th.c("text.primary")
+                            })
+                            .child(status.text.clone()),
+                    )
+                    .children(cancel.map(|id| {
+                        icon_button(
+                            ("edit-cancel", qidx),
+                            "x",
+                            msg(Message::UiFilerTipCancel {}),
+                            true,
+                            th,
+                        )
+                        .size(px(18.0))
+                        .on_click(
+                            cx.listener(move |this, _, _, cx| this.edit_cancel_transfer(id, cx)),
+                        )
+                    })),
+            )
+            .children(status.progress.then_some(track))
+            .into_any_element()
     }
 
     fn render_bar(&self, qidx: usize, bar: &Bar, th: Theme, cx: &mut Context<Self>) -> AnyElement {

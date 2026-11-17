@@ -874,6 +874,56 @@ messages! {
     UiXferMenuCancel = "ui-xfer-menu-cancel" {},
     /// Filer 与文件传输界面文字：无法开始传输：{ $reason }
     UiXferStartFailed = "ui-xfer-start-failed" { why: String },
+    /// 远程编辑与拖出：准备远程编辑：{ $name }
+    RemoteEditPreparing = "ui-redit-preparing" { name: String },
+    /// 远程编辑与拖出：已同步
+    RemoteEditSynced = "ui-redit-synced" {},
+    /// 远程编辑与拖出：等待同步
+    RemoteEditPending = "ui-redit-pending" {},
+    /// 远程编辑与拖出：正在同步…
+    RemoteEditSyncing = "ui-redit-syncing" {},
+    /// 远程编辑与拖出：远端文件已变化，同步已暂停
+    RemoteEditConflict = "ui-redit-conflict" {},
+    /// 远程编辑与拖出：同步失败：{ $why }
+    RemoteEditFailed = "ui-redit-failed" { why: String },
+    /// 远程编辑与拖出：{ $source } · { $path } · { $text }
+    RemoteEditStatusLine = "ui-redit-status-line" { source: String, path: String, text: String },
+    /// 远程编辑与拖出：无法打开“{ $name }”：{ $why }
+    RemoteEditOpenFailed = "ui-redit-open-failed" { name: String, why: String },
+    /// 远程编辑与拖出：会话未连接，无法打开远端文件
+    RemoteEditNotConnected = "ui-redit-not-connected" {},
+    /// 远程编辑与拖出：文件名“{ $name }”含有本机不允许的字符，无法在本机编辑；可先下载。
+    RemoteEditBadName = "ui-redit-bad-name" { name: String },
+    /// 远程编辑与拖出：“{ $name }”有尚未回传的本地修改，没有重新下载覆盖；已重新打开本地副本。
+    RemoteEditUnsavedKept = "ui-redit-unsaved-kept" { name: String },
+    /// 远程编辑与拖出：修改未到达服务器：{ $count } 个本地副本已保留在 { $dir }
+    RemoteEditRetained = "ui-redit-retained" { count: i64, dir: String },
+    /// 远程编辑与拖出：打开大文件？
+    RemoteEditLargeTitle = "ui-redit-large-title" {},
+    /// 远程编辑与拖出：“{ $name }”大小为 { $size }，需要先完整下载到本机才能编辑。
+    RemoteEditLargeBody = "ui-redit-large-body" { name: String, size: String },
+    /// 远程编辑与拖出：继续下载并打开
+    RemoteEditLargeContinue = "ui-redit-large-continue" {},
+    /// 远程编辑与拖出：远端文件已被修改
+    RemoteEditConflictTitle = "ui-redit-conflict-title" {},
+    /// 远程编辑与拖出：“{ $name }”（{ $source }）自打开后在服务器上被修改或删除。直接回传会覆盖服务器上的内容。
+    RemoteEditConflictBody = "ui-redit-conflict-body" { name: String, source: String },
+    /// 远程编辑与拖出：覆盖远端
+    RemoteEditConflictOverwrite = "ui-redit-conflict-overwrite" {},
+    /// 远程编辑与拖出：丢弃本地修改并重新下载
+    RemoteEditConflictRedownload = "ui-redit-conflict-redownload" {},
+    /// 远程编辑与拖出：暂不处理
+    RemoteEditConflictPause = "ui-redit-conflict-pause" {},
+    /// 远程编辑与拖出：准备拖出 { $name }
+    FilerDragPreparing = "ui-filer-drag-preparing" { name: String },
+    /// 远程编辑与拖出：无法准备拖出“{ $name }”：{ $why }
+    FilerDragFailed = "ui-filer-drag-failed" { name: String, why: String },
+    /// 远程编辑与拖出：准备完成但拖动已结束，请重新拖动
+    FilerDragTooLate = "ui-filer-drag-too-late" {},
+    /// 远程编辑与拖出：远端文件还在准备，已取消；请按住鼠标等准备完成再松手
+    FilerDragNotReady = "ui-filer-drag-not-ready" {},
+    /// 远程编辑与拖出：已取消拖出准备
+    FilerDragCancelled = "ui-filer-drag-cancelled" {},
     /// 小于一秒的命令耗时。
     CommandDurationMilliseconds = "command-duration-milliseconds" { value: String },
     /// 小于一分钟的命令耗时。
