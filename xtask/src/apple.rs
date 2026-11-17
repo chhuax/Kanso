@@ -425,6 +425,20 @@ pub fn apple_build(args: &[String]) -> ExitCode {
     }
 }
 
+/// `xcodebuild test` 的运行目标。编译出的架构由 `ARCHS` 决定，运行目标只决定"在哪台机器上跑"。
+///
+/// Apple 芯片上**不能**写 `arch=arm64`：Xcode 27.2 在 M5 Max 上执行 `test` 动作时，本机只作为
+/// `arch:arm64e` 目标出现（不带动作的 `-showdestinations` 却同时列出 arm64 与 arm64e），
+/// 按 `arch=arm64` 过滤会找不到目标、测试直接失败。`arm64` 的测试包在 `arm64e` 目标上照常运行，
+/// 所以只写 `platform=macOS`，让 xcodebuild 取本机原生的那个目标；旧版 Xcode 仍列 `arch:arm64`，同样匹配。
+/// Intel 机器上保留 `arch=x86_64`，原生目标只有这一个，写明更清楚。
+fn test_destination(arch: Arch) -> &'static str {
+    match arch {
+        Arch::Arm64 => "platform=macOS",
+        Arch::X86_64 => "platform=macOS,arch=x86_64",
+    }
+}
+
 /// `cargo xtask apple-test [--only-testing <标识>]`：先 `xcode`，再在 Direct scheme 下跑 `xcodebuild test`
 /// （单元测试与截图测试，Debug 配置）。
 ///
@@ -455,10 +469,7 @@ pub fn apple_test(args: &[String]) -> ExitCode {
         .args(["-scheme", "Kanso-Direct"])
         .args(["-configuration", "Debug-Direct"])
         .args(["-derivedDataPath", arch.derived_data()])
-        .args([
-            "-destination",
-            &format!("platform=macOS,arch={}", arch.name()),
-        ])
+        .args(["-destination", test_destination(arch)])
         .arg(format!("ARCHS={}", arch.name()));
     if let Some(o) = &only {
         cmd.arg(format!("-only-testing:{o}"));
