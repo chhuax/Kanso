@@ -123,8 +123,8 @@ impl ShellView {
             while let Some(first) = rx.next().await {
                 let mut batch = vec![first];
                 while batch.len() < MAX_EVENT_BATCH {
-                    match rx.try_next() {
-                        Ok(Some(ev)) => batch.push(ev),
+                    match rx.try_recv() {
+                        Ok(ev) => batch.push(ev),
                         _ => break,
                     }
                 }
