@@ -15,6 +15,7 @@
 use kanso_types::display::{CursorShape, TerminalOptions};
 use serde_json::{Map, Value, json};
 
+use super::i18n::LanguageSetting;
 use crate::theme::Palette;
 
 /// 当前写入的版本号。
@@ -336,6 +337,8 @@ pub struct AppearanceSettings {
     pub light_theme: String,
     /// 深色外观用的终端配色 id。
     pub dark_theme: String,
+    /// 界面语言（Windows / Linux 在设置里切换；mac 版跟随系统，忽略这个字段）。
+    pub language: LanguageSetting,
 }
 
 impl Default for AppearanceSettings {
@@ -344,6 +347,7 @@ impl Default for AppearanceSettings {
             mode: ThemeMode::System,
             light_theme: "kanso-light".to_owned(),
             dark_theme: "kanso-dark".to_owned(),
+            language: LanguageSetting::System,
         }
     }
 }
@@ -357,6 +361,8 @@ impl AppearanceSettings {
             mode: ThemeMode::from_storage(&get_str(&m, "mode", "")).unwrap_or(d.mode),
             light_theme: get_str(&m, "lightTheme", &d.light_theme),
             dark_theme: get_str(&m, "darkTheme", &d.dark_theme),
+            language: LanguageSetting::from_storage(&get_str(&m, "language", ""))
+                .unwrap_or(d.language),
         }
     }
 
@@ -367,6 +373,7 @@ impl AppearanceSettings {
             "mode": self.mode.storage(),
             "lightTheme": self.light_theme,
             "darkTheme": self.dark_theme,
+            "language": self.language.storage(),
         })
         .to_string()
     }
@@ -756,6 +763,17 @@ mod tests {
             AppearanceSettings::decode(Some(r#"{"mode":"x"}"#)).mode,
             ThemeMode::System
         );
+        // 语言：缺省与不认识的值都是“跟随系统”，写入后能读回。
+        assert_eq!(a.language, LanguageSetting::System);
+        assert_eq!(
+            AppearanceSettings::decode(Some(r#"{"language":"fr"}"#)).language,
+            LanguageSetting::System
+        );
+        let en = AppearanceSettings {
+            language: LanguageSetting::En,
+            ..AppearanceSettings::default()
+        };
+        assert_eq!(AppearanceSettings::decode(Some(&en.encode())), en);
 
         let t = TimelineSettings::decode(Some(r#"{"mode":"timestamps","lastVisible":"off"}"#));
         assert_eq!(t.mode, GutterMode::Timestamps);

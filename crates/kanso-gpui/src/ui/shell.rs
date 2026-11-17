@@ -63,7 +63,7 @@ pub(crate) fn status_bar_h() -> f32 {
 }
 
 /// 现在的 Unix 毫秒。
-fn unix_ms() -> i64 {
+pub(super) fn unix_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as i64)
@@ -134,6 +134,11 @@ pub(crate) struct ShellView {
     /// 正在显示的连接提示框（主机密钥 / 密码 / 二次验证）。
     pub(super) prompt: Option<(PromptId, Entity<Dialog>)>,
     pub(super) prompt_sub: Option<Subscription>,
+    /// 导入 OpenSSH 配置对话框（`ui/ssh_import.rs`）。
+    pub(super) ssh_import: Option<Entity<super::ssh_import::SshImportView>>,
+    pub(super) ssh_import_sub: Option<Subscription>,
+    /// 数据导入 / 导出流程里等待结果的对话框（`ui/shell_data.rs`）。
+    pub(super) pending_data: Option<super::shell_data::PendingData>,
 }
 
 impl ShellView {
@@ -182,6 +187,9 @@ impl ShellView {
             editor_sub: None,
             prompt: None,
             prompt_sub: None,
+            ssh_import: None,
+            ssh_import_sub: None,
+            pending_data: None,
         };
 
         // 点窗口关闭按钮：有仍在连接的会话先确认（spec §8）。
@@ -442,6 +450,9 @@ impl ShellView {
                 }
             }
             AppCommand::OpenSettings => self.open_settings(cx),
+            AppCommand::ExportData => self.export_data(window, cx),
+            AppCommand::ImportData => self.import_data(window, cx),
+            AppCommand::ImportSshConfig => self.open_ssh_import(window, cx),
             AppCommand::ZoomIn => self.zoom(1.0, cx),
             AppCommand::ZoomOut => self.zoom(-1.0, cx),
             AppCommand::ZoomReset => self.settings.update(cx, |m, cx| {
@@ -812,6 +823,10 @@ impl ShellView {
     fn on_dialog_result(&mut self, r: &DialogResult, window: &mut Window, cx: &mut Context<Self>) {
         self.dialog = None;
         self.dialog_sub = None;
+        if let Some(p) = self.pending_data.take() {
+            self.on_data_dialog(p, r, window, cx);
+            return;
+        }
         let pending = self.pending_close.take();
         let confirmed = is_confirmed(r);
         log(&format!("关闭确认结果：确认={confirmed} {}", r.log_line()));
@@ -846,8 +861,14 @@ impl ShellView {
     /// 工作区结构变化后的收尾：空了就退出，否则把焦点交给活动终端并重绘。
     pub(super) fn after_change(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.ctl.workspace().is_empty() {
-            log("最后一个标签已关闭，退出应用");
-            cx.quit();
+            // 没有标签时显示空状态页（ui-shell.md §11）；自检运行时仍按旧行为退出。
+            if self.selftest_timeout.is_some() || self.shell_selftest.is_some() {
+                log("最后一个标签已关闭，退出应用");
+                cx.quit();
+                return;
+            }
+            self.sync_focus(window, cx);
+            cx.notify();
             return;
         }
         self.sync_focus(window, cx);
@@ -1147,7 +1168,7 @@ impl ShellView {
                     }
                 }
                 None => {
-                    el = el.child(empty_state(th));
+                    el = el.child(self.empty_state(th, cx));
                 }
             }
             if multiple {
@@ -1228,27 +1249,6 @@ fn closed_banner(connection: &TabConnection) -> Option<String> {
     }
 }
 
-/// 没有任何会话时的空状态（正常流程里最后一个标签关闭就退出，只在打开失败等边缘情况出现）。
-fn empty_state(th: Theme) -> gpui::AnyElement {
-    let key = shortcut_text(AppCommand::NewLocalTab).unwrap_or_default();
-    div()
-        .size_full()
-        .flex()
-        .flex_col()
-        .items_center()
-        .justify_center()
-        .gap(px(6.0))
-        .text_color(th.c("text.secondary"))
-        .child("没有打开的会话")
-        .child(
-            div()
-                .text_size(px(12.0))
-                .text_color(th.c("text.tertiary"))
-                .child(format!("{key} 新建本地 Shell")),
-        )
-        .into_any_element()
-}
-
 impl Render for ShellView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let th = self.theme();
@@ -1318,6 +1318,7 @@ impl Render for ShellView {
             .children(self.dialog.clone())
             .children(self.launcher.clone())
             .children(self.editor.clone())
+            .children(self.ssh_import.clone())
             .children(self.prompt.as_ref().map(|(_, d)| d.clone()))
     }
 }

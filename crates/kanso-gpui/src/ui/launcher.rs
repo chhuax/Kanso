@@ -51,6 +51,8 @@ pub(crate) enum LauncherEvent {
     Connect(ProfileId),
     /// 编辑已保存的会话。
     Edit(ProfileId),
+    /// 导入 OpenSSH 配置（由外壳打开导入对话框）。
+    ImportSshConfig,
 }
 
 /// 弹出的菜单属于谁。
@@ -68,8 +70,6 @@ enum Pending {
     RenameGroup(Group),
     DeleteGroup(Group),
     DeleteProfile(ProfileId),
-    /// 导入 OpenSSH 配置的确认（携带别名列表）。
-    Import(Vec<String>),
     /// 只有"好"按钮的提示。
     Info,
 }
@@ -253,7 +253,7 @@ impl LauncherView {
             },
             MenuTarget::Saved => match logic::parse_saved_action(id) {
                 Some(SavedAction::NewGroup) => self.new_group_dialog(window, cx),
-                Some(SavedAction::ImportSshConfig) => self.start_import(window, cx),
+                Some(SavedAction::ImportSshConfig) => cx.emit(LauncherEvent::ImportSshConfig),
                 None => self.focus_search(window, cx),
             },
         }
@@ -406,9 +406,6 @@ impl LauncherView {
                 })
                 .detach();
             }
-            Pending::Import(aliases) if button == Some("import") => {
-                self.run_import(aliases, window, cx)
-            }
             _ => {}
         }
         self.model.reload();
@@ -425,76 +422,6 @@ impl LauncherView {
             Ok(()) => self.focus_search(window, cx),
             Err(e) => self.error_dialog(&core_error_text(&e), window, cx),
         }
-    }
-
-    // ---- 导入 OpenSSH 配置 ----
-
-    /// 扫描默认的 `~/.ssh/config`，列出可导入的主机让用户确认（导入全部；逐个勾选的界面后续再做）。
-    fn start_import(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let core = self.core.clone();
-        cx.spawn_in(window, async move |this, cx| {
-            let scan = core.scan_ssh_config(None).await;
-            this.update_in(cx, |this, window, cx| match scan {
-                Err(e) => this.error_dialog(&core_error_text(&e), window, cx),
-                Ok(scan) if scan.candidates.is_empty() => {
-                    this.info_dialog("导入 OpenSSH 配置", "配置文件里没有可导入的主机。", window, cx)
-                }
-                Ok(scan) => {
-                    let existing = scan.candidates.iter().filter(|c| c.existing.is_some()).count();
-                    let list = scan
-                        .candidates
-                        .iter()
-                        .take(12)
-                        .map(|c| format!("{}  ({}:{})", c.alias, c.host, c.port))
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    let more = scan.candidates.len().saturating_sub(12);
-                    let mut spec = DialogSpec::new("导入 OpenSSH 配置")
-                        .text(&format!(
-                            "在 ~/.ssh/config 中找到 {} 台主机，其中 {} 台已存在（会被更新）。导入全部？",
-                            scan.candidates.len(),
-                            existing
-                        ))
-                        .code(&if more > 0 {
-                            format!("{list}\n… 另有 {more} 台")
-                        } else {
-                            list
-                        });
-                    spec = spec
-                        .button(ButtonSpec::secondary("cancel", "取消").cancel())
-                        .button(ButtonSpec::primary("import", "导入"));
-                    let aliases = scan.candidates.into_iter().map(|c| c.alias).collect();
-                    this.show_dialog(spec, Pending::Import(aliases), window, cx);
-                }
-            })
-            .ok();
-        })
-        .detach();
-    }
-
-    fn run_import(&mut self, aliases: Vec<String>, window: &mut Window, cx: &mut Context<Self>) {
-        let core = self.core.clone();
-        cx.spawn_in(window, async move |this, cx| {
-            let result = core.import_ssh_config(None, &aliases, None).await;
-            this.update_in(cx, |this, window, cx| {
-                this.model.reload();
-                match result {
-                    Ok(r) => this.info_dialog(
-                        "导入完成",
-                        &format!(
-                            "新增 {} 个会话，更新 {} 个，新增跳板机 {} 个。",
-                            r.added, r.updated, r.jumps_added
-                        ),
-                        window,
-                        cx,
-                    ),
-                    Err(e) => this.error_dialog(&core_error_text(&e), window, cx),
-                }
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
     }
 
     // ---- 绘制 ----

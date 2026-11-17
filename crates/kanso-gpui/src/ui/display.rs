@@ -8,6 +8,7 @@ use std::sync::RwLock;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 use gpui::{Font, FontFallbacks, FontFeatures, FontStyle, FontWeight, Window, WindowAppearance};
+use kanso_gpui::app::i18n::{self, LanguageSetting};
 use kanso_gpui::app::settings::{DisplaySettings, ThemeMode};
 use kanso_gpui::widgets::style::Appearance;
 
@@ -135,4 +136,45 @@ pub(crate) fn window_appearance(window: &Window) -> Appearance {
 /// 当前生效的外观是否深色。
 pub(crate) fn effective_dark(window: &Window) -> bool {
     window_appearance(window) == Appearance::Dark
+}
+
+/// 系统的界面语言偏好（BCP 47，按偏好顺序，如 `zh-CN`、`en-US`）；取不到返回空。
+/// 语言设置选“跟随系统”时交给 `LanguageSetting::resolve`。
+pub(crate) fn system_languages() -> Vec<String> {
+    use windows_sys::Win32::Globalization::{GetUserPreferredUILanguages, MUI_LANGUAGE_NAME};
+    let mut count = 0u32;
+    let mut len = 0u32;
+    // 第一次只问需要多大的缓冲区。
+    // SAFETY: 传入的指针都指向局部变量；缓冲区为空时 API 只写 `count` 与 `len`。
+    let ok = unsafe {
+        GetUserPreferredUILanguages(
+            MUI_LANGUAGE_NAME,
+            &mut count,
+            std::ptr::null_mut(),
+            &mut len,
+        )
+    };
+    if ok == 0 || len == 0 {
+        return Vec::new();
+    }
+    let mut buf = vec![0u16; len as usize];
+    // SAFETY: `buf` 有 `len` 个 u16，API 写入不超过 `len`。
+    let ok = unsafe {
+        GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &mut count, buf.as_mut_ptr(), &mut len)
+    };
+    if ok == 0 {
+        return Vec::new();
+    }
+    // 结果是以两个 0 结尾的多字符串（每个语言以 0 结尾）。
+    buf.split(|c| *c == 0)
+        .filter(|s| !s.is_empty())
+        .map(String::from_utf16_lossy)
+        .collect()
+}
+
+/// 按设置里的语言选项算出实际界面语言并写进全局。
+pub(crate) fn apply_language(setting: LanguageSetting) {
+    let system = system_languages();
+    let refs: Vec<&str> = system.iter().map(String::as_str).collect();
+    i18n::set_lang(setting.resolve(&refs));
 }

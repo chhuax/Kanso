@@ -26,6 +26,7 @@ impl ShellView {
         self.launcher.is_some()
             || self.editor.is_some()
             || self.prompt.is_some()
+            || self.ssh_import.is_some()
             || self.dialog.is_some()
             || self.menu.is_some()
     }
@@ -71,6 +72,7 @@ impl ShellView {
             LauncherEvent::NewSession => self.open_editor(None, window, cx),
             LauncherEvent::Connect(id) => self.connect_profile(id, window, cx),
             LauncherEvent::Edit(id) => self.open_editor(Some(id), window, cx),
+            LauncherEvent::ImportSshConfig => self.open_ssh_import(window, cx),
         }
     }
 

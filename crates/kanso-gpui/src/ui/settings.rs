@@ -17,6 +17,7 @@ use gpui::{
     WindowHandle, WindowOptions, div, prelude::*, px, rgba, size,
 };
 use kanso_core::Core;
+use kanso_gpui::app::i18n::LanguageSetting;
 use kanso_gpui::app::settings::{
     AppearanceSettings, BUILTIN_THEMES, CursorShapeSetting, DisplaySettings, GutterMode, Section,
     SettingsStore, ThemeMode, TimelineSettings, clean_font_names, is_monospace, pick_nerd_fallback,
@@ -107,6 +108,7 @@ impl SettingsModel {
     /// 把当前设置写进 GPUI 一侧的生效状态（字体 / 字号 / 行距 / 强制外观）。
     pub(crate) fn push_to_display(&self, cx: &App) {
         display::apply(self.display(), self.appearance().mode, nerd_fallback(cx));
+        display::apply_language(self.appearance().language);
     }
 }
 
@@ -737,6 +739,38 @@ impl Render for SettingsView {
             ],
         );
 
+        // 语言（ui-shell.md §10：Windows / Linux 在设置里切换）
+        let lang_idx = LanguageSetting::ALL
+            .iter()
+            .position(|l| *l == a.language)
+            .unwrap_or(0);
+        let language_card = card(
+            &th,
+            "语言",
+            vec![
+                row(
+                    &th,
+                    "界面语言",
+                    segmented(
+                        &th,
+                        cx,
+                        "language",
+                        &LanguageSetting::ALL.map(LanguageSetting::label),
+                        lang_idx,
+                        |this, i, cx| {
+                            this.model.update(cx, |m, cx| {
+                                m.update_appearance(cx, |a| a.language = LanguageSetting::ALL[i])
+                            })
+                        },
+                    ),
+                ),
+                caption(
+                    &th,
+                    "切换后立即生效；“跟随系统”按系统界面语言选择，不支持的语言显示英文。",
+                ),
+            ],
+        );
+
         // 终端字体
         let font_card = card(
             &th,
@@ -922,6 +956,7 @@ impl Render for SettingsView {
                             .gap(px(12.0))
                             .p(px(20.0))
                             .child(appearance_card)
+                            .child(language_card)
                             .child(font_card)
                             .child(cursor_card)
                             .child(scroll_card)
