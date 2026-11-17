@@ -10,6 +10,7 @@
 //! - `memory`：进程内存读数（日志用）。
 
 mod demo_dialog;
+mod demo_dropdown;
 mod demo_input;
 mod demo_menu;
 mod element;
@@ -83,6 +84,8 @@ pub(crate) struct Args {
     pub demo_dialog: bool,
     /// `--demo-menu`：只打开右键菜单演示窗口（不启动核心）。
     pub demo_menu: bool,
+    /// `--demo-dropdown`：只打开下拉选择框演示窗口（不启动核心）。
+    pub demo_dropdown: bool,
 }
 
 fn parse_args() -> Args {
@@ -102,6 +105,7 @@ fn parse_args() -> Args {
         demo_input: false,
         demo_dialog: false,
         demo_menu: false,
+        demo_dropdown: false,
     };
     let mut explicit_log = false;
     let mut it = std::env::args().skip(1);
@@ -123,6 +127,7 @@ fn parse_args() -> Args {
             "--demo-input" => args.demo_input = true,
             "--demo-dialog" => args.demo_dialog = true,
             "--demo-menu" => args.demo_menu = true,
+            "--demo-dropdown" => args.demo_dropdown = true,
             "--timeout" => {
                 if let Some(v) = it.next().and_then(|v| v.parse().ok()) {
                     args.timeout_secs = v;
@@ -328,6 +333,9 @@ pub fn run() -> i32 {
     }
     if args.demo_menu {
         return demo_menu::run();
+    }
+    if args.demo_dropdown {
+        return demo_dropdown::run();
     }
 
     let (tx, rx) = unbounded::<CoreEvent>();
