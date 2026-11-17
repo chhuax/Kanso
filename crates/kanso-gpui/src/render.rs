@@ -13,10 +13,13 @@ use kanso_frame::{
     CELL_BOLD, CELL_DIM, CELL_HIDDEN, CELL_INVERSE, CELL_ITALIC, CELL_MATCH, CELL_MATCH_CURRENT,
     CELL_SELECTED, CELL_STRIKE, CELL_UNDERLINE_MASK, CELL_UNDERLINE_SHIFT, CELL_WIDE,
     CELL_WIDE_SPACER, CURSOR_BAR, CURSOR_BLOCK, CURSOR_UNDERLINE, Cell, Color, DecodedColor,
-    FRAME_CURSOR_VISIBLE, FRAME_MOUSE_REPORTING, FrameView,
+    FRAME_ALT_SCREEN, FRAME_CURSOR_VISIBLE, FRAME_MOUSE_REPORTING, FrameView, LINE_BLANK,
+    LINE_CURSOR, LINE_FIRST_PROMPT, LINE_PROMPT, LINE_WRAPPED,
 };
 use kanso_types::geometry::Rgb;
 
+use crate::app::links::LineText;
+use crate::contrast::ContrastGuard;
 use crate::theme::{MATCH_BACKGROUND, MATCH_CURRENT_BACKGROUND, Palette, Rgb8};
 
 /// 背景矩形：同一行内连续、同色的单元格合并成一块。默认背景色不产生矩形。
@@ -87,6 +90,25 @@ pub struct CursorDraw {
     pub color: Rgb8,
 }
 
+/// 一行的元数据（时间戳栏、分隔线、命令块命中用）。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LineInfo {
+    /// 绝对行号。
+    pub abs_line: u64,
+    /// 首次写出时的 Unix 毫秒；0 表示没有。
+    pub timestamp_ms: i64,
+    /// 从未写过内容的行。
+    pub blank: bool,
+    /// 光标所在行。
+    pub cursor: bool,
+    /// OSC 133 A 所在行（分隔线画在其上方）。
+    pub prompt: bool,
+    /// 会话第一个提示符（上方不画分隔线）。
+    pub first_prompt: bool,
+    /// 软换行到下一行。
+    pub wrapped: bool,
+}
+
 /// 一帧的渲染数据。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RenderGrid {
@@ -108,6 +130,14 @@ pub struct RenderGrid {
     pub scrollback_lines: u32,
     /// 程序是否开启了鼠标上报。
     pub mouse_reporting: bool,
+    /// 每个视口行的元数据，长度等于 `rows`。
+    pub lines: Vec<LineInfo>,
+    /// 显示行号 = 绝对行号 - 本值 + 1（`clear` 后前移）。
+    pub line_number_base: u64,
+    /// 视口第 0 行的绝对行号。
+    pub first_abs_line: u64,
+    /// 是否在备用屏幕（全屏程序）：此时不画栏、分隔线与块装饰。
+    pub alt_screen: bool,
 }
 
 /// 同一片段内必须一致的样式。
@@ -136,7 +166,12 @@ fn color_of(raw: u32, palette: &Palette, default: Rgb8) -> Rgb8 {
 }
 
 /// 把单元格的颜色与属性解析成最终前景 / 背景（不含光标）。
-fn resolve(cell: &Cell, underline_color_raw: u32, palette: &Palette) -> ResolvedCell {
+fn resolve(
+    cell: &Cell,
+    underline_color_raw: u32,
+    palette: &Palette,
+    guard: Option<&mut ContrastGuard>,
+) -> ResolvedCell {
     let mut fg = color_of(cell.fg, palette, palette.foreground);
     // 背景不会是语义色（语义着色只出现在前景）；遇到时按调色板解析即可。
     let mut bg = color_of(cell.bg, palette, palette.background);
@@ -154,6 +189,16 @@ fn resolve(cell: &Cell, underline_color_raw: u32, palette: &Palette) -> Resolved
         bg = MATCH_CURRENT_BACKGROUND;
     } else if flags & CELL_MATCH != 0 {
         bg = MATCH_BACKGROUND;
+    }
+    // 最低对比度保护：只处理程序自己指定的索引色 / RGB 色；默认色与语义色已由主题保证，反色是有意的设计。
+    if let Some(g) = guard
+        && flags & (CELL_INVERSE | CELL_HIDDEN) == 0
+        && matches!(
+            Color::decode(cell.fg),
+            DecodedColor::Indexed(_) | DecodedColor::Rgb(_)
+        )
+    {
+        fg = g.adjusted(fg, bg);
     }
     if flags & CELL_HIDDEN != 0 {
         fg = bg;
@@ -174,8 +219,17 @@ fn resolve(cell: &Cell, underline_color_raw: u32, palette: &Palette) -> Resolved
     }
 }
 
-/// 把一帧转成渲染数据。
+/// 把一帧转成渲染数据（不做对比度保护）。
 pub fn build_render_grid(view: &FrameView<'_>, palette: &Palette) -> RenderGrid {
+    build_render_grid_with(view, palette, None)
+}
+
+/// 把一帧转成渲染数据；`guard` 不为空时对程序指定的前景色做最低对比度保护。
+pub fn build_render_grid_with(
+    view: &FrameView<'_>,
+    palette: &Palette,
+    mut guard: Option<&mut ContrastGuard>,
+) -> RenderGrid {
     let header = view.header();
     let cols = header.cols;
     let rows = header.rows;
@@ -203,7 +257,12 @@ pub fn build_render_grid(view: &FrameView<'_>, palette: &Palette) -> RenderGrid 
             let wide = cell.flags & CELL_WIDE != 0;
             let width: u16 = if wide { 2 } else { 1 };
 
-            let mut resolved = resolve(cell, extra.map_or(0, |e| e.underline_color), palette);
+            let mut resolved = resolve(
+                cell,
+                extra.map_or(0, |e| e.underline_color),
+                palette,
+                guard.as_deref_mut(),
+            );
             let on_cursor = cursor_visible && row == cursor_row && col == cursor_col;
             if on_cursor {
                 match header.cursor_shape {
@@ -296,7 +355,60 @@ pub fn build_render_grid(view: &FrameView<'_>, palette: &Palette) -> RenderGrid 
         display_offset: header.display_offset,
         scrollback_lines: header.scrollback_lines,
         mouse_reporting: header.flags & FRAME_MOUSE_REPORTING != 0,
+        lines: (0..rows)
+            .map(|r| {
+                view.line_meta(r)
+                    .map_or_else(LineInfo::default, |m| LineInfo {
+                        abs_line: m.abs_line,
+                        timestamp_ms: m.timestamp_ms,
+                        blank: m.flags & LINE_BLANK != 0,
+                        cursor: m.flags & LINE_CURSOR != 0,
+                        prompt: m.flags & LINE_PROMPT != 0,
+                        first_prompt: m.flags & LINE_FIRST_PROMPT != 0,
+                        wrapped: m.flags & LINE_WRAPPED != 0,
+                    })
+            })
+            .collect(),
+        line_number_base: header.line_number_base,
+        first_abs_line: header.first_abs_line,
+        alt_screen: header.flags & FRAME_ALT_SCREEN != 0,
     }
+}
+
+/// 每行按列排列的字符（宽字符的占位格为 `'\0'`），带软换行标志；链接识别用。
+pub fn line_texts(view: &FrameView<'_>) -> Vec<LineText> {
+    (0..view.header().rows)
+        .map(|r| LineText {
+            chars: view
+                .row(r)
+                .iter()
+                .map(|cell| {
+                    if cell.flags & CELL_WIDE_SPACER != 0 {
+                        return '\0';
+                    }
+                    let first = view
+                        .extra(cell)
+                        .and_then(|e| view.grapheme(e))
+                        .and_then(|g| g.chars().next());
+                    match first.or_else(|| char::from_u32(cell.ch)) {
+                        Some(c) if cell.ch != 0 && !c.is_control() => c,
+                        _ => ' ',
+                    }
+                })
+                .collect(),
+            wrapped: view
+                .line_meta(r)
+                .is_some_and(|m| m.flags & LINE_WRAPPED != 0),
+        })
+        .collect()
+}
+
+/// 单元格上的 OSC 8 超链接 id（没有为 `None`）。
+pub fn hyperlink_at(view: &FrameView<'_>, row: u16, col: u16) -> Option<u32> {
+    let cell = view.row(row).get(usize::from(col))?;
+    view.extra(cell)
+        .map(|e| e.hyperlink_id)
+        .filter(|&id| id != 0)
 }
 
 fn new_span(row: u16, col: u16, cells: u16, text: String, simple: bool, s: SpanStyle) -> TextSpan {
@@ -711,6 +823,76 @@ mod tests {
         let dense = kanso_frame::mock::mock_frame_dense(120, 40, 2);
         let g = build_render_grid(&dense.view().unwrap(), &pal());
         assert!(g.spans.len() >= 40);
+    }
+
+    #[test]
+    fn line_info_comes_from_frame_metadata() {
+        let f = kanso_frame::mock::mock_command_blocks_frame(40, 8);
+        let g = build_render_grid(&f.view().unwrap(), &pal());
+        assert_eq!(g.lines.len(), 8);
+        assert!(g.lines[0].prompt && g.lines[0].first_prompt);
+        assert!(g.lines[3].prompt && !g.lines[3].first_prompt);
+        assert!(!g.lines[1].prompt);
+        assert_eq!(g.lines[2].abs_line, 2);
+        assert!(g.lines[2].timestamp_ms > 0);
+        assert!(!g.alt_screen);
+        assert_eq!(g.first_abs_line, 0);
+    }
+
+    #[test]
+    fn contrast_guard_only_touches_program_colors() {
+        let light = Palette::kanso_light();
+        let white = Color::encode(TermColor::Indexed(15));
+        let mut b = FrameBuilder::new(4, 1);
+        // 程序指定的亮白（在浅色背景上几乎不可见）与默认前景。
+        b.set_cell(
+            0,
+            0,
+            Cell {
+                fg: white,
+                ..plain('a')
+            },
+        );
+        b.set_cell(0, 2, plain('b'));
+        let f = frame(b);
+        let off = build_render_grid(&f.view().unwrap(), &light);
+        let mut guard = ContrastGuard::new(4.5);
+        let on = build_render_grid_with(&f.view().unwrap(), &light, Some(&mut guard));
+        let fg_of = |g: &RenderGrid, col| g.spans.iter().find(|s| s.col == col).unwrap().fg;
+        assert_eq!(fg_of(&off, 0), light.ansi[15]);
+        assert!(crate::contrast::ratio(fg_of(&on, 0), light.background) >= 4.5);
+        // 默认前景不动。
+        assert_eq!(fg_of(&on, 2), light.foreground);
+    }
+
+    #[test]
+    fn link_helpers_read_text_and_hyperlinks() {
+        let mut b = FrameBuilder::new(6, 2);
+        put(&mut b, 0, 0, "ab");
+        let id = b
+            .push_extra(CellExtra {
+                grapheme_offset: 0,
+                grapheme_len: 0,
+                hyperlink_id: 7,
+                underline_color: 0,
+            })
+            .unwrap();
+        b.set_cell(
+            0,
+            3,
+            Cell {
+                extra: id,
+                ..plain('c')
+            },
+        );
+        let f = frame(b);
+        let v = f.view().unwrap();
+        let lines = line_texts(&v);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].chars.iter().collect::<String>(), "ab c  ");
+        assert_eq!(hyperlink_at(&v, 0, 3), Some(7));
+        assert_eq!(hyperlink_at(&v, 0, 0), None);
+        assert_eq!(hyperlink_at(&v, 5, 0), None);
     }
 
     #[test]

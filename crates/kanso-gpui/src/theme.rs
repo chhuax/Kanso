@@ -45,6 +45,63 @@ impl Rgb8 {
     }
 }
 
+/// 带不透明度的叠加色（0..=255）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Overlay {
+    /// 颜色。
+    pub rgb: Rgb8,
+    /// 不透明度。
+    pub alpha: u8,
+}
+
+/// 终端装饰色（时间戳栏、命令分隔线、选中的命令块），取自 `design/tokens.json` 的 `terminal.*` token，
+/// 随主题深浅切换；主题 JSON 里没有这些项，按背景明暗选一组。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Decorations {
+    /// 时间戳 / 行号栏文字（`terminal.gutterText`）。
+    pub gutter_text: Rgb8,
+    /// 栏内光标所在行的高亮底色（`terminal.gutterCursorLine`）。
+    pub gutter_cursor_line: Overlay,
+    /// 命令分隔线与栏边线（`terminal.commandSeparator`）。
+    pub command_separator: Overlay,
+    /// 选中命令块的整行底色（`terminal.blockSelection`）。
+    pub block_selection: Rgb8,
+}
+
+impl Decorations {
+    fn for_background(background: Rgb8) -> Decorations {
+        let dark = u16::from(background.r) + u16::from(background.g) + u16::from(background.b)
+            < 3 * 128;
+        if dark {
+            Decorations {
+                gutter_text: Rgb8::new(0x8E, 0x94, 0x9B),
+                gutter_cursor_line: Overlay {
+                    rgb: Rgb8::new(0x62, 0xB0, 0xD2),
+                    alpha: 0x26,
+                },
+                command_separator: Overlay {
+                    rgb: Rgb8::new(0xEC, 0xED, 0xEF),
+                    alpha: 0x26,
+                },
+                block_selection: Rgb8::new(0x20, 0x34, 0x3E),
+            }
+        } else {
+            Decorations {
+                gutter_text: Rgb8::new(0x6A, 0x6F, 0x76),
+                gutter_cursor_line: Overlay {
+                    rgb: Rgb8::new(0x2A, 0x6A, 0x8A),
+                    alpha: 0x1F,
+                },
+                command_separator: Overlay {
+                    rgb: Rgb8::new(0x1B, 0x1D, 0x20),
+                    alpha: 0x26,
+                },
+                block_selection: Rgb8::new(0xDF, 0xEB, 0xEF),
+            }
+        }
+    }
+}
+
 /// 一套终端配色。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Palette {
@@ -62,6 +119,8 @@ pub struct Palette {
     pub ansi: [Rgb8; 16],
     /// 语义着色类别色（下标即类别号，docs/semantic-color.md）。
     pub semantic: Vec<Rgb8>,
+    /// 时间戳栏、命令分隔线与命令块的装饰色。
+    pub decorations: Decorations,
 }
 
 #[derive(Deserialize)]
@@ -94,9 +153,11 @@ impl Palette {
         let ansi: [Rgb8; 16] = ansi
             .try_into()
             .map_err(|v: Vec<Rgb8>| format!("ansi 需要 16 色，实际 {}", v.len()))?;
+        let background = hex(&t.background)?;
         Ok(Palette {
             foreground: hex(&t.foreground)?,
-            background: hex(&t.background)?,
+            background,
+            decorations: Decorations::for_background(background),
             cursor: hex(&t.cursor)?,
             cursor_text: hex(&t.cursor_text)?,
             selection_background: hex(&t.selection_background)?,
@@ -156,6 +217,16 @@ mod tests {
         assert_eq!(d.semantic.len(), 13);
         let l = Palette::kanso_light();
         assert_ne!(l.background, d.background);
+    }
+
+    #[test]
+    fn decorations_follow_the_background() {
+        let d = Palette::kanso_dark().decorations;
+        let l = Palette::kanso_light().decorations;
+        assert_eq!(d.block_selection, Rgb8::new(0x20, 0x34, 0x3E));
+        assert_eq!(l.block_selection, Rgb8::new(0xDF, 0xEB, 0xEF));
+        assert_ne!(d.gutter_text, l.gutter_text);
+        assert_eq!(d.command_separator.alpha, 0x26);
     }
 
     #[test]
