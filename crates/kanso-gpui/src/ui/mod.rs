@@ -19,6 +19,9 @@ mod demo_menu;
 mod display;
 mod element;
 mod filer;
+mod filer_panel;
+mod filer_panel_view;
+mod filer_selftest;
 mod find_bar;
 mod launcher;
 mod memory;
@@ -30,6 +33,7 @@ mod sftp_bench;
 mod shell;
 mod shell_completion;
 mod shell_data;
+mod shell_filer;
 mod shell_launcher;
 mod shell_selftest;
 mod shell_sender;
@@ -70,6 +74,8 @@ pub(crate) static SETTINGS_TEST: AtomicBool = AtomicBool::new(false);
 pub(crate) static TERM_TEST: AtomicBool = AtomicBool::new(false);
 /// `--sender-test`：外壳启动后自动展开 Sender、发一条命令，把终端屏幕里是否出现输出写进日志（PASS / FAIL）。
 pub(crate) static SENDER_TEST: AtomicBool = AtomicBool::new(false);
+/// `--filer-selftest`：外壳启动后自动走一遍 Filer 的本地浏览与文件操作，结果写进日志。
+pub(crate) static FILER_TEST: AtomicBool = AtomicBool::new(false);
 static LOG_FILE: OnceLock<Mutex<std::fs::File>> = OnceLock::new();
 
 /// 应用标识：凭据管理器条目前缀与数据目录名，发布后不能改。
@@ -161,6 +167,7 @@ fn parse_args() -> Args {
             "--settings-test" => SETTINGS_TEST.store(true, Ordering::Relaxed),
             "--term-test" => TERM_TEST.store(true, Ordering::Relaxed),
             "--sender-test" => SENDER_TEST.store(true, Ordering::Relaxed),
+            "--filer-selftest" => FILER_TEST.store(true, Ordering::Relaxed),
             "--sftp" => match it
                 .next()
                 .and_then(|v| kanso_gpui::filer::SftpSpec::parse(&v))

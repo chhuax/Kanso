@@ -155,8 +155,7 @@ impl ShellView {
             .border_t_1()
             .border_color(th.c("border.subtle"))
             .text_size(px(kanso_gpui::widgets::style::number("font", "ui.caption")))
-            // Filer 开关的功能还没有接进外壳，先置灰显示。
-            .child(toggle_item("status-filer", label(Message::UiFiles {}), th, false).opacity(0.5))
+            .child(self.filer_toggle_item(th, cx))
             .child(
                 toggle_item(
                     "status-timeline",

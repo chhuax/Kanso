@@ -150,6 +150,8 @@ pub(crate) struct ShellView {
     pub(super) ssh_import_sub: Option<Subscription>,
     /// 数据导入 / 导出流程里等待结果的对话框（`ui/shell_data.rs`）。
     pub(super) pending_data: Option<super::shell_data::PendingData>,
+    /// 文件功能（辅助 Filer、纯 SFTP 双栏、终端内传输）的状态，见 `shell_filer.rs`。
+    pub(super) filer: super::shell_filer::FilerState,
 }
 
 impl ShellView {
@@ -195,6 +197,7 @@ impl ShellView {
             },
         );
         let completion = super::shell_completion::CompletionCtl::load(&core);
+        let filer = super::shell_filer::new_state(&core, window, cx);
         let mut this = ShellView {
             ctl: AppController::new(core.clone(), home),
             core,
@@ -234,6 +237,7 @@ impl ShellView {
             ssh_import: None,
             ssh_import_sub: None,
             pending_data: None,
+            filer,
         };
         {
             let timeline = *this.settings.read(cx).timeline();
@@ -347,6 +351,9 @@ impl ShellView {
         }
         if super::SENDER_TEST.load(Ordering::Relaxed) {
             this.run_sender_test(window, cx);
+        }
+        if super::FILER_TEST.load(Ordering::Relaxed) {
+            this.run_filer_selftest(window, cx);
         }
 
         // 第一个标签。
@@ -490,6 +497,7 @@ impl ShellView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.filer_core_events(&batch, cx);
         let mut fx = Effects::default();
         for ev in batch {
             fx.merge(self.ctl.handle_event(ev));
@@ -606,6 +614,12 @@ impl ShellView {
             AppCommand::ExportData => self.export_data(window, cx),
             AppCommand::ImportData => self.import_data(window, cx),
             AppCommand::ImportSshConfig => self.open_ssh_import(window, cx),
+            AppCommand::ToggleFiler => self.toggle_filer(window, cx),
+            AppCommand::LocateFiler => self.locate_terminal_dir(true, window, cx),
+            AppCommand::XmodemSend => self.run_xmodem(Some(kanso_core::XmodemBlock::Bytes128), cx),
+            AppCommand::XmodemSend1K => self.run_xmodem(Some(kanso_core::XmodemBlock::Bytes1K), cx),
+            AppCommand::XmodemReceive => self.run_xmodem(None, cx),
+            AppCommand::CancelTerminalTransfer => self.cancel_term_transfer(),
             AppCommand::ZoomIn => self.zoom(1.0, cx),
             AppCommand::ZoomOut => self.zoom(-1.0, cx),
             AppCommand::ZoomReset => self.settings.update(cx, |m, cx| {
@@ -847,6 +861,7 @@ impl ShellView {
             right_click_menu: self.right_click_menu,
             sender_visible: self.sender.visible,
             command_suggestions: self.completion.enabled,
+            filer_visible: self.filer.visible(),
         });
         self.open_menu(items, anchor, window, cx);
     }
@@ -880,7 +895,7 @@ impl ShellView {
     fn split(&mut self, axis: SplitAxis, window: &mut Window, cx: &mut Context<Self>) {
         match self.ctl.split(axis, FALLBACK_GRID) {
             Ok(id) => {
-                self.attach_terminal(id, window, cx);
+                self.attach_session(id, window, cx);
                 self.after_change(window, cx);
             }
             Err(e) => self.show_notice(
@@ -1038,6 +1053,9 @@ impl ShellView {
     ) {
         let closed = self.ctl.close_sessions(sessions);
         self.completion_reset();
+        for id in &closed {
+            self.filer_forget(*id, cx);
+        }
         for id in closed {
             self.terminals.remove(&id);
             self.subs.remove(&id);
@@ -1110,6 +1128,19 @@ impl ShellView {
 
     /// 键盘焦点与核心的“有焦点”状态都跟随活动会话。
     pub(super) fn sync_focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.sync_filer_session(window, cx);
+        // 纯 SFTP 标签：键盘焦点交给它的双栏面板。
+        if let Some(panel) = self
+            .ctl
+            .workspace()
+            .active_session()
+            .and_then(|s| self.sftp_panel(s))
+        {
+            let handle = panel.read(cx).focus.clone();
+            if !handle.is_focused(window) {
+                window.focus(&handle);
+            }
+        }
         let active = self.ctl.workspace().active_session();
         let want = if self.window_active { active } else { None };
         if self.focused != want {
@@ -1192,7 +1223,7 @@ impl ShellView {
             f64::from(number("spacing", "sidebar.defaultWidth"))
         } else {
             0.0
-        };
+        } + f64::from(self.filer_width(window));
         let w = f64::from(f32::from(size.width));
         // 底部留给状态栏。
         let h = f64::from(f32::from(size.height) - status_bar_h() - self.sender_total_height());
@@ -1208,6 +1239,9 @@ impl ShellView {
 
     fn on_mouse_move(&mut self, ev: &MouseMoveEvent, window: &mut Window, cx: &mut Context<Self>) {
         if self.sender_mouse_move(ev, cx) {
+            return;
+        }
+        if self.filer_drag_move(ev, cx) {
             return;
         }
         let Some(drag) = self.drag.clone() else {
@@ -1243,6 +1277,7 @@ impl ShellView {
 
     fn on_mouse_up(&mut self, _ev: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
         self.sender.drag = None;
+        self.filer_drag_end();
         if self.drag.take().is_some() {
             cx.notify();
         }
@@ -1337,6 +1372,11 @@ impl ShellView {
                 .h(px(r.height as f32))
                 .overflow_hidden()
                 .bg(th.c("bg.window"));
+            if let Some(panel) = session.and_then(|s| self.sftp_panel(s)) {
+                el = el.child(panel);
+                out.push(el.into_any_element());
+                continue;
+            }
             match session.and_then(|s| self.terminals.get(&s).map(|t| (s, t.clone()))) {
                 Some((sid, term)) => {
                     el = el
@@ -1346,7 +1386,8 @@ impl ShellView {
                                 this.activate_session(sid, window, cx)
                             }),
                         )
-                        .child(term);
+                        .child(term)
+                        .children(self.render_term_bar(sid, th));
                     // 会话已异常结束：窗格底部给出原因（退出码 / 断开），标签保留到用户手动关闭。
                     if let Some(item) = ws.item(sid)
                         && let Some(text) = closed_banner(&item.connection)
@@ -1478,6 +1519,7 @@ impl Render for ShellView {
         }
         let sender_els = self.render_sender(area, th, cx);
         let completion_el = self.render_completion(area, th, cx);
+        let filer_panels = self.render_filer(th, window, cx);
         let notice = self
             .notice
             .as_ref()
@@ -1499,6 +1541,7 @@ impl Render for ShellView {
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .children(sidebar)
+            .children(filer_panels)
             .children(panes)
             .child(status_bar)
             .children(notice.map(|text| {
@@ -1526,6 +1569,7 @@ impl Render for ShellView {
             .children(completion_el)
             .children(self.menu.clone())
             .children(self.dialog.clone())
+            .children(self.filer.dialog.clone())
             .children(self.launcher.clone())
             .children(self.editor.clone())
             .children(self.ssh_import.clone())

@@ -11,6 +11,7 @@ use kanso_types::message::Message;
 use crate::app::sender::t;
 
 use crate::app::blocks::BlockMenu;
+use crate::app::filer_text::msg;
 use crate::app::shortcuts::{AppCommand, shortcut_text};
 use crate::app::workspace::CloseScope;
 use crate::widgets::menu::MenuItem;
@@ -59,6 +60,12 @@ pub fn encode(command: AppCommand) -> String {
         AppCommand::ToggleSender => "toggle-sender".into(),
         AppCommand::ToggleCommandSuggestions => "toggle-command-suggestions".into(),
         AppCommand::ClearCommandHistory => "clear-command-history".into(),
+        AppCommand::ToggleFiler => "toggle-filer".into(),
+        AppCommand::LocateFiler => "locate-filer".into(),
+        AppCommand::XmodemSend => "xmodem-send".into(),
+        AppCommand::XmodemSend1K => "xmodem-send-1k".into(),
+        AppCommand::XmodemReceive => "xmodem-receive".into(),
+        AppCommand::CancelTerminalTransfer => "cancel-terminal-transfer".into(),
     }
 }
 
@@ -133,6 +140,12 @@ pub fn decode(id: &str) -> Option<AppCommand> {
         "toggle-sender" => AppCommand::ToggleSender,
         "toggle-command-suggestions" => AppCommand::ToggleCommandSuggestions,
         "clear-command-history" => AppCommand::ClearCommandHistory,
+        "toggle-filer" => AppCommand::ToggleFiler,
+        "locate-filer" => AppCommand::LocateFiler,
+        "xmodem-send" => AppCommand::XmodemSend,
+        "xmodem-send-1k" => AppCommand::XmodemSend1K,
+        "xmodem-receive" => AppCommand::XmodemReceive,
+        "cancel-terminal-transfer" => AppCommand::CancelTerminalTransfer,
         _ => return None,
     })
 }
@@ -181,6 +194,8 @@ pub fn terminal_menu(has_selection: bool, block: Option<BlockMenu>) -> Vec<MenuI
         item(label(Message::UiPaste {}), AppCommand::Paste),
         item(label(Message::UiSelectAll {}), AppCommand::SelectAll),
         item(label(Message::UiClearBuffer {}), AppCommand::ClearBuffer),
+        MenuItem::separator(),
+        item(&msg(Message::UiFilerMenuLocate {}), AppCommand::LocateFiler),
         MenuItem::separator(),
         item(label(Message::UiSplitRight {}), AppCommand::SplitRight),
         item(label(Message::UiSplitDown {}), AppCommand::SplitDown),
@@ -254,6 +269,8 @@ pub struct AppMenuState {
     pub sender_visible: bool,
     /// “命令建议”是否开启。
     pub command_suggestions: bool,
+    /// Filer 是否显示。
+    pub filer_visible: bool,
 }
 
 /// 窗口级应用菜单（Windows / Linux 没有系统菜单栏，spec §6 末段：放在应用内）。
@@ -279,6 +296,23 @@ pub fn app_menu(state: AppMenuState) -> Vec<MenuItem> {
                 item(
                     label(Message::UiImportOpensshConfig2 {}),
                     AppCommand::ImportSshConfig,
+                ),
+                MenuItem::separator(),
+                MenuItem::submenu(
+                    msg(Message::UiXferMenu {}),
+                    vec![
+                        item(&msg(Message::UiXferMenuSend {}), AppCommand::XmodemSend),
+                        item(&msg(Message::UiXferMenuSend1k {}), AppCommand::XmodemSend1K),
+                        item(
+                            &msg(Message::UiXferMenuReceive {}),
+                            AppCommand::XmodemReceive,
+                        ),
+                        MenuItem::separator(),
+                        item(
+                            &msg(Message::UiXferMenuCancel {}),
+                            AppCommand::CancelTerminalTransfer,
+                        ),
+                    ],
                 ),
             ],
         ),
@@ -315,6 +349,8 @@ pub fn app_menu(state: AppMenuState) -> Vec<MenuItem> {
                     .checked(state.sidebar_visible),
                 item(&t(Message::UiMenuSender {}), AppCommand::ToggleSender)
                     .checked(state.sender_visible),
+                item(&msg(Message::UiFilerMenuView {}), AppCommand::ToggleFiler)
+                    .checked(state.filer_visible),
                 MenuItem::separator(),
                 item(label(Message::UiSplitRight {}), AppCommand::SplitRight),
                 item(label(Message::UiSplitDown {}), AppCommand::SplitDown),
@@ -390,6 +426,12 @@ mod tests {
             AppCommand::ImportSshConfig,
             AppCommand::ZoomIn,
             AppCommand::ZoomOut,
+            AppCommand::ToggleFiler,
+            AppCommand::LocateFiler,
+            AppCommand::XmodemSend,
+            AppCommand::XmodemSend1K,
+            AppCommand::XmodemReceive,
+            AppCommand::CancelTerminalTransfer,
             AppCommand::ZoomReset,
             AppCommand::ToggleSender,
             AppCommand::ToggleCommandSuggestions,
@@ -425,6 +467,7 @@ mod tests {
             right_click_menu: true,
             sender_visible: true,
             command_suggestions: true,
+            filer_visible: false,
         };
         for items in [
             terminal_menu(true, Some(BlockMenu { copy_command: true })),
@@ -518,6 +561,7 @@ mod tests {
             right_click_menu: true,
             sender_visible: false,
             command_suggestions: true,
+            filer_visible: true,
         });
         let flat = all(&items);
         for want in [
@@ -532,6 +576,10 @@ mod tests {
             "select-all",
             "clear-buffer",
             "toggle-sidebar",
+            "toggle-filer",
+            "xmodem-send",
+            "xmodem-receive",
+            "cancel-terminal-transfer",
             "split-right",
             "open-settings",
             "toggle-sender",

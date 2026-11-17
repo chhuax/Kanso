@@ -606,6 +606,274 @@ messages! {
     UiSystemDefaultOrTypeFont = "ui-system-default-or-type-font" {},
     /// GPUI 界面文字：… 行
     UiLines = "ui-lines" { lines: String },
+    /// Filer 与文件传输界面文字：received.bin
+    UiXferDefaultName = "ui-xfer-default-name" {},
+    /// Filer 与文件传输界面文字：对方请求接收文件，请选择要发送的文件（可多选）
+    UiXferHintPickFiles = "ui-xfer-hint-pick-files" {},
+    /// Filer 与文件传输界面文字：请选择要用 XMODEM 发送的文件
+    UiXferHintPickFile = "ui-xfer-hint-pick-file" {},
+    /// Filer 与文件传输界面文字：对方要发送 { $name }（{ $size }），请选择保存位置
+    UiXferHintSaveSized = "ui-xfer-hint-save-sized" { name: String, amount: String },
+    /// Filer 与文件传输界面文字：对方要发送 { $name }，请选择保存位置
+    UiXferHintSave = "ui-xfer-hint-save" { name: String },
+    /// Filer 与文件传输界面文字：请选择 XMODEM 接收文件的保存位置
+    UiXferHintXmodemSave = "ui-xfer-hint-xmodem-save" {},
+    /// Filer 与文件传输界面文字：传输完成
+    UiXferDone = "ui-xfer-done" {},
+    /// Filer 与文件传输界面文字：已取消
+    UiXferCancelled = "ui-xfer-cancelled" {},
+    /// Filer 与文件传输界面文字：失败：{ $reason }
+    UiXferFailed = "ui-xfer-failed" { why: String },
+    /// Filer 与文件传输界面文字：发送
+    UiXferSend = "ui-xfer-send" {},
+    /// Filer 与文件传输界面文字：接收
+    UiXferReceive = "ui-xfer-receive" {},
+    /// Filer 与文件传输界面文字：删除链接
+    UiFilerDeleteLink = "ui-filer-delete-link" {},
+    /// Filer 与文件传输界面文字：只移除链接，不影响目标，无法撤销。
+    UiFilerDeleteLinkNote = "ui-filer-delete-link-note" {},
+    /// Filer 与文件传输界面文字：删除目录
+    UiFilerDeleteDir = "ui-filer-delete-dir" {},
+    /// Filer 与文件传输界面文字：只能删除空目录，无法撤销。
+    UiFilerDeleteDirNote = "ui-filer-delete-dir-note" {},
+    /// Filer 与文件传输界面文字：删除文件
+    UiFilerDeleteFile = "ui-filer-delete-file" {},
+    /// Filer 与文件传输界面文字：文件将被移除，无法撤销。
+    UiFilerDeleteFileNote = "ui-filer-delete-file-note" {},
+    /// Filer 与文件传输界面文字：位置：{ $location }
+    UiFilerDeleteWhere = "ui-filer-delete-where" { location: String },
+    /// Filer 与文件传输界面文字：删除 { $count } 个项目
+    UiFilerDeleteMany = "ui-filer-delete-many" { count: i64 },
+    /// Filer 与文件传输界面文字：还有 { $count } 项
+    UiFilerDeleteMore = "ui-filer-delete-more" { count: i64 },
+    /// Filer 与文件传输界面文字：这些项目将被永久移除，无法撤销；非空目录会保留。
+    UiFilerDeleteManyNote = "ui-filer-delete-many-note" {},
+    /// Filer 与文件传输界面文字：取消
+    UiFilerCancel = "ui-filer-cancel" {},
+    /// Filer 与文件传输界面文字：删除
+    UiFilerDelete = "ui-filer-delete" {},
+    /// Filer 与文件传输界面文字：新建文件
+    UiFilerNewFile = "ui-filer-new-file" {},
+    /// Filer 与文件传输界面文字：新建目录
+    UiFilerNewFolder = "ui-filer-new-folder" {},
+    /// Filer 与文件传输界面文字：重命名
+    UiFilerRename = "ui-filer-rename" {},
+    /// Filer 与文件传输界面文字：位置：{ $location }
+    UiFilerNameWhere = "ui-filer-name-where" { location: String },
+    /// Filer 与文件传输界面文字：名称
+    UiFilerName = "ui-filer-name" {},
+    /// Filer 与文件传输界面文字：确定
+    UiFilerOk = "ui-filer-ok" {},
+    /// Filer 与文件传输界面文字：名称不能为空
+    UiFilerNameEmpty = "ui-filer-name-empty" {},
+    /// Filer 与文件传输界面文字：名称不能是 . 或 ..
+    UiFilerNameReserved = "ui-filer-name-reserved" {},
+    /// Filer 与文件传输界面文字：名称不能包含目录分隔符，只能是当前目录里的一个项目
+    UiFilerNameSeparator = "ui-filer-name-separator" {},
+    /// Filer 与文件传输界面文字：名称不能包含字符 { $ch }
+    UiFilerNameInvalidChar = "ui-filer-name-invalid-char" { ch: String },
+    /// Filer 与文件传输界面文字：同名项目已存在
+    UiFilerConflictTitle = "ui-filer-conflict-title" {},
+    /// Filer 与文件传输界面文字：目标位置已有名为“{ $name }”的文件。
+    UiFilerConflictFile = "ui-filer-conflict-file" { name: String },
+    /// Filer 与文件传输界面文字：目标位置已有名为“{ $name }”的目录。
+    UiFilerConflictDir = "ui-filer-conflict-dir" { name: String },
+    /// Filer 与文件传输界面文字：目录会合并，其中的同名文件仍按你的选择处理。
+    UiFilerConflictMergeNote = "ui-filer-conflict-merge-note" {},
+    /// Filer 与文件传输界面文字：跳过
+    UiFilerSkip = "ui-filer-skip" {},
+    /// Filer 与文件传输界面文字：全部跳过
+    UiFilerSkipAll = "ui-filer-skip-all" {},
+    /// Filer 与文件传输界面文字：覆盖
+    UiFilerOverwrite = "ui-filer-overwrite" {},
+    /// Filer 与文件传输界面文字：全部覆盖
+    UiFilerOverwriteAll = "ui-filer-overwrite-all" {},
+    /// Filer 与文件传输界面文字：不存在
+    UiFilerErrNotFound = "ui-filer-err-not-found" {},
+    /// Filer 与文件传输界面文字：没有权限
+    UiFilerErrDenied = "ui-filer-err-denied" {},
+    /// Filer 与文件传输界面文字：不是目录
+    UiFilerErrNotDir = "ui-filer-err-not-dir" {},
+    /// Filer 与文件传输界面文字：已经存在
+    UiFilerErrExists = "ui-filer-err-exists" {},
+    /// Filer 与文件传输界面文字：目录不是空的，只能删除空目录
+    UiFilerErrNotEmpty = "ui-filer-err-not-empty" {},
+    /// Filer 与文件传输界面文字：已取消
+    UiFilerErrCancelled = "ui-filer-err-cancelled" {},
+    /// Filer 与文件传输界面文字：本地磁盘 ({ $letter }:)
+    UiFilerDrive = "ui-filer-drive" { letter: String },
+    /// Filer 与文件传输界面文字：不能把目录复制到它自己或它的子目录里
+    UiFilerErrCopyIntoSelf = "ui-filer-err-copy-into-self" {},
+    /// Filer 与文件传输界面文字：无法取得名称
+    UiFilerErrNoName = "ui-filer-err-no-name" {},
+    /// Filer 与文件传输界面文字：目标位置是符号链接，已拒绝写入
+    UiFilerErrTargetLink = "ui-filer-err-target-link" {},
+    /// Filer 与文件传输界面文字：目标位置已有同名目录
+    UiFilerErrTargetDir = "ui-filer-err-target-dir" {},
+    /// Filer 与文件传输界面文字：此电脑
+    UiFilerThisPc = "ui-filer-this-pc" {},
+    /// Filer 与文件传输界面文字：正在连接…
+    UiFilerConnecting = "ui-filer-connecting" {},
+    /// Filer 与文件传输界面文字：正在读取… 已收到 { $count } 项
+    UiFilerLoading = "ui-filer-loading" { count: i64 },
+    /// Filer 与文件传输界面文字：连接已断开（列表已过期，共 { $count } 项）
+    UiFilerDisconnectedStats = "ui-filer-disconnected-stats" { count: i64 },
+    /// Filer 与文件传输界面文字：{ $count } 项
+    UiFilerEmpty = "ui-filer-empty" { count: i64 },
+    /// Filer 与文件传输界面文字：{ $total } 项：{ $dirs } 个目录，{ $files } 个文件
+    UiFilerStats = "ui-filer-stats" { items: String, dirs: String, files: String },
+    /// Filer 与文件传输界面文字：{ $total } 项：{ $dirs } 个目录，{ $files } 个文件，{ $links } 个链接
+    UiFilerStatsLinks = "ui-filer-stats-links" { items: String, dirs: String, files: String, links: String },
+    /// Filer 与文件传输界面文字：链接
+    UiFilerKindLink = "ui-filer-kind-link" {},
+    /// Filer 与文件传输界面文字：目录
+    UiFilerKindDir = "ui-filer-kind-dir" {},
+    /// Filer 与文件传输界面文字：文件
+    UiFilerKindFile = "ui-filer-kind-file" {},
+    /// Filer 与文件传输界面文字：类型：{ $kind }
+    UiFilerTipKind = "ui-filer-tip-kind" { kind: String },
+    /// Filer 与文件传输界面文字：大小：{ $size }
+    UiFilerTipSize = "ui-filer-tip-size" { amount: String },
+    /// Filer 与文件传输界面文字：权限：{ $perm }
+    UiFilerTipPerm = "ui-filer-tip-perm" { perm: String },
+    /// Filer 与文件传输界面文字：属主：{ $owner }
+    UiFilerTipOwner = "ui-filer-tip-owner" { owner: String },
+    /// Filer 与文件传输界面文字：属组：{ $group }
+    UiFilerTipGroup = "ui-filer-tip-group" { group: String },
+    /// Filer 与文件传输界面文字：上传
+    UiFilerOpUpload = "ui-filer-op-upload" {},
+    /// Filer 与文件传输界面文字：下载
+    UiFilerOpDownload = "ui-filer-op-download" {},
+    /// Filer 与文件传输界面文字：复制
+    UiFilerOpCopy = "ui-filer-op-copy" {},
+    /// Filer 与文件传输界面文字：正在处理，请等待当前传输完成
+    UiFilerBusy = "ui-filer-busy" {},
+    /// Filer 与文件传输界面文字：完成：{ $count } 项
+    UiFilerBatchDone = "ui-filer-batch-done" { count: i64 },
+    /// Filer 与文件传输界面文字：已取消
+    UiFilerCancelled = "ui-filer-cancelled" {},
+    /// Filer 与文件传输界面文字：{ $op }失败：{ $reason }
+    UiFilerOpFailed = "ui-filer-op-failed" { action: String, why: String },
+    /// Filer 与文件传输界面文字：{ $op } { $name }：{ $reason }
+    UiFilerOpError = "ui-filer-op-error" { action: String, name: String, why: String },
+    /// Filer 与文件传输界面文字：等待处理同名文件…
+    UiFilerAwaitingConflict = "ui-filer-awaiting-conflict" {},
+    /// Filer 与文件传输界面文字：跳过 { $count } 个同名项
+    UiFilerSkipped = "ui-filer-skipped" { count: i64 },
+    /// Filer 与文件传输界面文字：本地
+    UiFilerLocal = "ui-filer-local" {},
+    /// Filer 与文件传输界面文字：{ $name } · { $host }
+    UiFilerIdentity = "ui-filer-identity" { name: String, host: String },
+    /// Filer 与文件传输界面文字：这一栏不是远端，无法上传下载
+    UiFilerNotRemote = "ui-filer-not-remote" {},
+    /// Filer 与文件传输界面文字：“此电脑”不是真实目录，不能在这里新建、删除或接收文件
+    UiFilerNoWriteThisPc = "ui-filer-no-write-this-pc" {},
+    /// Filer 与文件传输界面文字：连接已断开，已停止写入操作
+    UiFilerDisconnectedWrite = "ui-filer-disconnected-write" {},
+    /// Filer 与文件传输界面文字：没有打开的目录，或目录读取失败
+    UiFilerNoDirOpen = "ui-filer-no-dir-open" {},
+    /// Filer 与文件传输界面文字：文件已经在此目录，已跳过
+    UiFilerAlreadyHere = "ui-filer-already-here" {},
+    /// Filer 与文件传输界面文字：无法打开链接“{ $name }”：{ $reason }
+    UiFilerLinkBroken = "ui-filer-link-broken" { name: String, why: String },
+    /// Filer 与文件传输界面文字：暂不支持用本地应用编辑远端文件；可在右键菜单里选择“下载”
+    UiFilerRemoteEditUnsupported = "ui-filer-remote-edit-unsupported" {},
+    /// Filer 与文件传输界面文字：打开
+    UiFilerMenuOpen = "ui-filer-menu-open" {},
+    /// Filer 与文件传输界面文字：打开方式…
+    UiFilerMenuOpenWith = "ui-filer-menu-open-with" {},
+    /// Filer 与文件传输界面文字：下载
+    UiFilerMenuDownload = "ui-filer-menu-download" {},
+    /// Filer 与文件传输界面文字：复制完整路径
+    UiFilerMenuCopyPath = "ui-filer-menu-copy-path" {},
+    /// Filer 与文件传输界面文字：复制名称
+    UiFilerMenuCopyName = "ui-filer-menu-copy-name" {},
+    /// Filer 与文件传输界面文字：复制当前目录路径
+    UiFilerMenuCopyDir = "ui-filer-menu-copy-dir" {},
+    /// Filer 与文件传输界面文字：上传文件…
+    UiFilerUploadFiles = "ui-filer-upload-files" {},
+    /// Filer 与文件传输界面文字：上传目录…
+    UiFilerUploadDirs = "ui-filer-upload-dirs" {},
+    /// Filer 与文件传输界面文字：刷新
+    UiFilerRefresh = "ui-filer-refresh" {},
+    /// Filer 与文件传输界面文字：{ $what }“{ $name }”失败（{ $where }）：{ $reason }
+    UiFilerOpErrorAt = "ui-filer-op-error-at" { what: String, name: String, place: String, why: String },
+    /// Filer 与文件传输界面文字：上传
+    UiFilerTipUpload = "ui-filer-tip-upload" {},
+    /// Filer 与文件传输界面文字：只适用于已连接的 SSH 会话
+    UiFilerTipUploadRemoteOnly = "ui-filer-tip-upload-remote-only" {},
+    /// Filer 与文件传输界面文字：显示 / 隐藏以点开头的项目
+    UiFilerTipHidden = "ui-filer-tip-hidden" {},
+    /// Filer 与文件传输界面文字：定位终端目录
+    UiFilerTipLocate = "ui-filer-tip-locate" {},
+    /// Filer 与文件传输界面文字：上一级
+    UiFilerTipUp = "ui-filer-tip-up" {},
+    /// Filer 与文件传输界面文字：家目录
+    UiFilerTipHome = "ui-filer-tip-home" {},
+    /// Filer 与文件传输界面文字：取消传输
+    UiFilerTipCancel = "ui-filer-tip-cancel" {},
+    /// Filer 与文件传输界面文字：名称
+    UiFilerColName = "ui-filer-col-name" {},
+    /// Filer 与文件传输界面文字：修改日期
+    UiFilerColDate = "ui-filer-col-date" {},
+    /// Filer 与文件传输界面文字：大小
+    UiFilerColSize = "ui-filer-col-size" {},
+    /// Filer 与文件传输界面文字：修改时间
+    UiFilerColTime = "ui-filer-col-time" {},
+    /// Filer 与文件传输界面文字：这个目录是空的
+    UiFilerFolderEmpty = "ui-filer-folder-empty" {},
+    /// Filer 与文件传输界面文字：无法打开 { $target }：{ $reason }
+    UiFilerOpenFailed = "ui-filer-open-failed" { dest: String, why: String },
+    /// Filer 与文件传输界面文字：下面仍是 { $path } 的内容
+    UiFilerStillShowing = "ui-filer-still-showing" { path: String },
+    /// Filer 与文件传输界面文字：回到家目录
+    UiFilerGoHome = "ui-filer-go-home" {},
+    /// Filer 与文件传输界面文字：连接已断开
+    UiFilerDisconnectedBadge = "ui-filer-disconnected-badge" {},
+    /// Filer 与文件传输界面文字：放下以上传
+    UiFilerDropUpload = "ui-filer-drop-upload" {},
+    /// Filer 与文件传输界面文字：放下以复制到这里
+    UiFilerDropCopy = "ui-filer-drop-copy" {},
+    /// Filer 与文件传输界面文字：关闭
+    UiFilerDismiss = "ui-filer-dismiss" {},
+    /// Filer 与文件传输界面文字：上传到远端
+    UiFilerSendToRemote = "ui-filer-send-to-remote" {},
+    /// Filer 与文件传输界面文字：下载到本地
+    UiFilerGetFromRemote = "ui-filer-get-from-remote" {},
+    /// Filer 与文件传输界面文字：没有可浏览的会话
+    UiFilerNoSession = "ui-filer-no-session" {},
+    /// Filer 与文件传输界面文字：在 Filer 中显示工作目录
+    UiFilerMenuLocate = "ui-filer-menu-locate" {},
+    /// Filer 与文件传输界面文字：文件浏览器
+    UiFilerMenuView = "ui-filer-menu-view" {},
+    /// Filer 与文件传输界面文字：文件
+    UiFilerStatusLabel = "ui-filer-status-label" {},
+    /// Filer 与文件传输界面文字：文件浏览已经在当前标签打开
+    UiFilerStatusAlreadyOpen = "ui-filer-status-already-open" {},
+    /// Filer 与文件传输界面文字：已定位到 { $path }
+    UiFilerLocated = "ui-filer-located" { path: String },
+    /// Filer 与文件传输界面文字：没有可定位的会话
+    UiFilerLocateNoSession = "ui-filer-locate-no-session" {},
+    /// Filer 与文件传输界面文字：文件会话没有 shell 工作目录
+    UiFilerLocateSftp = "ui-filer-locate-sftp" {},
+    /// Filer 与文件传输界面文字：会话未连接
+    UiFilerLocateNotConnected = "ui-filer-locate-not-connected" {},
+    /// Filer 与文件传输界面文字：终端上报的目录属于另一台主机（{ $host }），不能当作本机路径
+    UiFilerLocateForeignHost = "ui-filer-locate-foreign-host" { host: String },
+    /// Filer 与文件传输界面文字：无法取得“{ $name }”的工作目录：{ $reason }
+    UiFilerLocateFailed = "ui-filer-locate-failed" { name: String, why: String },
+    /// Filer 与文件传输界面文字：文件传输
+    UiXferMenu = "ui-xfer-menu" {},
+    /// Filer 与文件传输界面文字：用 XMODEM 发送…
+    UiXferMenuSend = "ui-xfer-menu-send" {},
+    /// Filer 与文件传输界面文字：用 XMODEM-1K 发送…
+    UiXferMenuSend1k = "ui-xfer-menu-send-1k" {},
+    /// Filer 与文件传输界面文字：用 XMODEM 接收…
+    UiXferMenuReceive = "ui-xfer-menu-receive" {},
+    /// Filer 与文件传输界面文字：取消传输
+    UiXferMenuCancel = "ui-xfer-menu-cancel" {},
+    /// Filer 与文件传输界面文字：无法开始传输：{ $reason }
+    UiXferStartFailed = "ui-xfer-start-failed" { why: String },
     /// 小于一秒的命令耗时。
     CommandDurationMilliseconds = "command-duration-milliseconds" { value: String },
     /// 小于一分钟的命令耗时。
