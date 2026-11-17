@@ -113,6 +113,9 @@ final class McpCoordinator {
     /// 启动时的后台取令牌是否还没回到主线程。为 true 期间令牌只能由启动任务生成：钥匙串为空时
     /// 主线程再生成一次会得到两个不同令牌，最后存进钥匙串的可能不是服务在用的。
     private var startupInFlight = false
+    /// 启动任务回来后是否不该再 `start`：用户在等待期间已经用缓存里的令牌自己启动过，或关掉了开关。
+    /// 与 `startupInFlight` 分开：关掉开关后令牌仍可能在后台生成，此时主线程依然不能再生成一次。
+    private var startupSuperseded = false
     private var openedBy: [UInt64: String] = [:]
     private var activities: [UInt64: FfiMcpActivity] = [:]
     private var activityClears: [UInt64: () -> Void] = [:]
@@ -168,6 +171,7 @@ final class McpCoordinator {
         guard supported, core.mcpEnabled() else { return }
         let tokens = tokens
         startupInFlight = true
+        startupSuperseded = false
         startupTask = Task { [weak self] in
             let result = await Task.detached { Result { try Self.ensureToken(in: tokens) } }.value
             self?.finishStartup(result)
@@ -176,8 +180,9 @@ final class McpCoordinator {
 
     private func finishStartup(_ result: Result<String, Error>) {
         startupInFlight = false
-        // 等待钥匙串期间开关被用户关掉：不再启动。开关关了又开的情况由 `setEnabled(true)` 交给这里处理。
-        guard core.mcpEnabled() else { return }
+        // 等待钥匙串期间用户已经自己启动过（缓存里有令牌时）：再 start 会无谓地重启服务、踢掉刚连上的客户端。
+        // 开关被关掉时也不再启动；关了又开、且缓存为空的情况由 `setEnabled(true)` 交回这里处理。
+        guard !startupSuperseded, core.mcpEnabled() else { return }
         do {
             let fetched = try result.get()
             // 等待期间用户重新生成过令牌时缓存已是新令牌，必须用它，不能被读到的旧令牌覆盖。
@@ -210,8 +215,11 @@ final class McpCoordinator {
             // 启动任务正在后台取或生成令牌：这里不能再取一次，否则钥匙串为空时会生成两个令牌。
             // 只记下开关，启动任务回来后看到开关已开就会用它的令牌 start（失败也由它写入 startError）。
             try core.setMcpEnabled(enabled: true)
+            startupSuperseded = false
             return
         }
+        // 其余情况由这里直接处理开关，进行中的启动任务回来后不能再 start。
+        startupSuperseded = true
         if enabled {
             // 用户主动操作，缓存没有时在这里同步取（可能弹授权框，但用户正在等这个结果）。
             let token = try cachedToken ?? Self.ensureToken(in: tokens)
