@@ -315,8 +315,12 @@ impl Dialog {
                     spread_radius: px(2.),
                 }])
             })
-            .on_click(cx.listener(move |this, _, window, cx| {
-                this.finish_button(i, Trigger::Click, window, cx);
+            // 键盘激活（回车 / 空格）在捕获阶段的按下事件里处理；GPUI 另会在抬起时补一个键盘 click，
+            // 此处忽略，否则回车触发默认按钮后，抬起事件会再误点新获得焦点的元素。
+            .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, window, cx| {
+                if !ev.is_keyboard() {
+                    this.finish_button(i, Trigger::Click, window, cx);
+                }
             }))
             .child(spec.label.clone())
     }

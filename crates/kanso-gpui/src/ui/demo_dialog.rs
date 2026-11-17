@@ -157,7 +157,13 @@ impl Render for DemoView {
                     })
                     .bg(c("bg.buttonSecondary", a))
                     .text_size(px(13.))
-                    .on_click(cx.listener(move |this, _, window, cx| this.open(kind, window, cx)))
+                    // 键盘打开走按下事件（`on_key`）；GPUI 的键盘 click 在抬起时才来，
+                    // 对话框回车关闭后焦点还给本按钮，抬起事件会让它立刻重开，所以只响应鼠标。
+                    .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, window, cx| {
+                        if !ev.is_keyboard() {
+                            this.open(kind, window, cx);
+                        }
+                    }))
                     .child(kind.label()),
             );
         }
