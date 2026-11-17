@@ -21,8 +21,8 @@ use kanso_gpui::app::launcher::{
 use kanso_gpui::app::sessions::{EditorField, EncodingOption, SaveOutcome, SessionEditor};
 use kanso_gpui::widgets::dropdown::Item;
 use kanso_gpui::widgets::style::{Appearance, color, number};
-use kanso_types::ProfileId;
 use kanso_types::profile::{AuthMethod, Group, Profile, SessionKind};
+use kanso_types::{ProfileId, message::Message};
 
 use super::log;
 use super::shell::Theme;
@@ -65,6 +65,7 @@ enum Text {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Pick {
     Kind,
+    Shell,
     Group,
     Auth,
     Jump,
@@ -102,7 +103,7 @@ fn row_of(stop: Stop) -> Row {
         Stop::Pick(Pick::Kind) => Row::Kind,
         Stop::Text(Text::Name) => Row::Name,
         Stop::Pick(Pick::Group) => Row::Group,
-        Stop::Text(Text::Shell) => Row::Shell,
+        Stop::Text(Text::Shell) | Stop::Pick(Pick::Shell) => Row::Shell,
         Stop::Text(Text::StartDir) => Row::StartDir,
         Stop::Text(Text::Host | Text::Port) => Row::HostPort,
         Stop::Text(Text::User) | Stop::Pick(Pick::Auth) => Row::UserAuth,
@@ -151,6 +152,8 @@ pub(crate) struct SessionEditorView {
     proxy: Entity<TextInput>,
     locale: Entity<TextInput>,
     kind: Entity<Dropdown>,
+    shell_pick: Entity<Dropdown>,
+    shell_commands: Vec<String>,
     group: Entity<Dropdown>,
     auth: Entity<Dropdown>,
     jump: Entity<Dropdown>,
@@ -311,6 +314,33 @@ impl SessionEditorView {
             window,
             cx,
         );
+        // 系统自带 Shell 始终可选；PowerShell 7 只在安装路径里存在时显示。
+        let mut shell_commands = vec![String::new(), "cmd.exe".into(), "powershell.exe".into()];
+        let mut shell_items = vec![
+            Item::option(render_message(&Message::UiShellDefault {})),
+            Item::option("CMD"),
+            Item::option("Windows PowerShell"),
+        ];
+        let mut paths: Vec<_> = std::env::var_os("PATH")
+            .map(|p| std::env::split_paths(&p).collect())
+            .unwrap_or_default();
+        if let Some(dir) = std::env::var_os("ProgramFiles") {
+            paths.push(std::path::PathBuf::from(dir).join("PowerShell/7"));
+        }
+        if let Some(path) = paths
+            .into_iter()
+            .map(|p| p.join("pwsh.exe"))
+            .find(|p| p.is_file())
+        {
+            shell_items.push(Item::option("PowerShell 7"));
+            shell_commands.push(format!("\"{}\"", path.display()));
+        }
+        let shell_selected = shell_commands
+            .iter()
+            .position(|s| s.eq_ignore_ascii_case(model.shell_command.trim()))
+            .unwrap_or(shell_commands.len());
+        shell_items.push(Item::option(render_message(&Message::UiShellCustom {})));
+        let shell_pick = dropdown(Pick::Shell, shell_items, shell_selected, window, cx);
         let group = dropdown(
             Pick::Group,
             std::iter::once(Item::option("不分组"))
@@ -381,6 +411,8 @@ impl SessionEditorView {
             proxy,
             locale,
             kind,
+            shell_pick,
+            shell_commands,
             group,
             auth,
             jump,
@@ -430,7 +462,16 @@ impl SessionEditorView {
         let v = value.to_owned();
         match field {
             Text::Name => m.name = v,
-            Text::Shell => m.shell_command = v,
+            Text::Shell => {
+                let selected = self
+                    .shell_commands
+                    .iter()
+                    .position(|s| s.eq_ignore_ascii_case(v.trim()))
+                    .unwrap_or(self.shell_commands.len());
+                m.shell_command = v;
+                self.shell_pick
+                    .update(cx, |d, cx| d.set_selected(Some(selected), cx));
+            }
             Text::StartDir => m.start_dir = v,
             Text::Host => m.host = v,
             Text::Port => {
@@ -458,6 +499,12 @@ impl SessionEditorView {
         let Some(m) = self.model.as_mut() else { return };
         match pick {
             Pick::Kind => m.kind = KINDS[index.min(KINDS.len() - 1)],
+            Pick::Shell => {
+                if let Some(command) = self.shell_commands.get(index) {
+                    m.shell_command = command.clone();
+                    self.shell.update(cx, |t, cx| t.set_text(command, cx));
+                }
+            }
             Pick::Group => {
                 m.group = index
                     .checked_sub(1)
@@ -597,6 +644,7 @@ impl SessionEditorView {
     fn pick_entity(&self, p: Pick) -> &Entity<Dropdown> {
         match p {
             Pick::Kind => &self.kind,
+            Pick::Shell => &self.shell_pick,
             Pick::Group => &self.group,
             Pick::Auth => &self.auth,
             Pick::Jump => &self.jump,
@@ -611,6 +659,7 @@ impl SessionEditorView {
             (F::Kind, Stop::Pick(Pick::Kind)),
             (F::Name, Stop::Text(Text::Name)),
             (F::Group, Stop::Pick(Pick::Group)),
+            (F::ShellCommand, Stop::Pick(Pick::Shell)),
             (F::ShellCommand, Stop::Text(Text::Shell)),
             (F::StartDir, Stop::Text(Text::StartDir)),
             (F::Host, Stop::Text(Text::Host)),
@@ -671,6 +720,7 @@ impl SessionEditorView {
     fn any_dropdown_open(&self, cx: &App) -> bool {
         [
             Pick::Kind,
+            Pick::Shell,
             Pick::Group,
             Pick::Auth,
             Pick::Jump,
@@ -761,14 +811,14 @@ impl SessionEditorView {
 
     // ---- 绘制 ----
 
-    fn label(&self, th: Theme, text: &'static str) -> gpui::Div {
+    fn label(&self, th: Theme, text: &str) -> gpui::Div {
         div()
             .text_size(px(number("font", "ui.caption")))
             .text_color(th.c("text.secondary"))
-            .child(text)
+            .child(text.to_owned())
     }
 
-    fn field(&self, th: Theme, label: &'static str, control: impl IntoElement) -> gpui::Div {
+    fn field(&self, th: Theme, label: &str, control: impl IntoElement) -> gpui::Div {
         div()
             .flex_1()
             .min_w_0()
@@ -912,7 +962,20 @@ impl Render for SessionEditorView {
         if self.vis(F::ShellCommand) {
             rows.push((
                 Row::Shell,
-                self.field(th, "Shell 命令行", self.shell.clone())
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.0))
+                    .child(self.field(
+                        th,
+                        &render_message(&Message::UiLocalShell {}),
+                        self.shell_pick.clone(),
+                    ))
+                    .child(self.field(
+                        th,
+                        &render_message(&Message::UiShellCommand {}),
+                        self.shell.clone(),
+                    ))
                     .into_any_element(),
             ));
             rows.push((

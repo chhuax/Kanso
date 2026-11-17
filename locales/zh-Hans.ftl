@@ -1,3 +1,4 @@
+ui-shell-command = 命令行
 command-duration-milliseconds = { $value }ms
 command-duration-seconds = { $value }s
 command-duration-minutes = { $minutes }m { $seconds }s
@@ -194,3 +195,8 @@ sshconfig-import-report = 新增 { $added } 个，更新 { $updated } 个，额�
 ## 凭据存储
 
 secret-store-failed = 无法访问凭据存储：{ $detail }
+ui-local-shell = Shell
+ui-shell-default = 系统默认
+ui-shell-custom = 自定义命令
+ui-filter-path = 按路径筛选
+ui-no-matching-paths = 没有匹配的路径

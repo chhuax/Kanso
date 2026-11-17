@@ -1,3 +1,4 @@
+ui-shell-command = Command line
 command-duration-milliseconds = { $value }ms
 command-duration-seconds = { $value }s
 command-duration-minutes = { $minutes }m { $seconds }s
@@ -200,3 +201,8 @@ sshconfig-import-report = { $added } added, { $updated } updated, { $jumps_added
 ## Credential store
 
 secret-store-failed = Can’t access the credential store: { $detail }
+ui-local-shell = Shell
+ui-shell-default = System default
+ui-shell-custom = Custom command
+ui-filter-path = Filter by path
+ui-no-matching-paths = No matching paths

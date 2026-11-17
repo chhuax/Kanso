@@ -97,6 +97,7 @@ pub(crate) struct ShellView {
     subs: HashMap<SessionId, Subscription>,
     _window_subs: Vec<Subscription>,
     pub(super) sidebar_visible: bool,
+    pub(super) path_filter: Entity<super::widgets::text_input::TextInput>,
     drag: Option<DividerDrag>,
     /// 当前弹出的右键 / 应用菜单（最上层，同一时间只有一个）。
     pub(super) menu: Option<Entity<ContextMenu>>,
@@ -150,6 +151,26 @@ impl ShellView {
         let settings = cx.new(|_| SettingsModel::new(core.clone()));
         settings.read(cx).push_to_display(cx);
         let dark = display::effective_dark(window);
+        display::apply_titlebar(window);
+        let path_filter = cx.new(|cx| {
+            super::widgets::text_input::TextInput::new(window, cx).placeholder(
+                kanso_gpui::app::launcher::render_message(
+                    &kanso_types::message::Message::UiFilterPath {},
+                ),
+            )
+        });
+        let filter_sub = cx.subscribe_in(&path_filter, window, |this, input, ev, window, cx| {
+            use super::widgets::text_input::TextInputEvent;
+            match ev {
+                TextInputEvent::Change(_) => cx.notify(),
+                TextInputEvent::Escape => {
+                    input.update(cx, |i, cx| i.set_text("", cx));
+                    this.sync_focus(window, cx);
+                    cx.notify();
+                }
+                _ => {}
+            }
+        });
         let mut this = ShellView {
             ctl: AppController::new(core.clone(), home),
             core,
@@ -157,6 +178,7 @@ impl ShellView {
             subs: HashMap::new(),
             _window_subs: Vec::new(),
             sidebar_visible: true,
+            path_filter,
             drag: None,
             menu: None,
             menu_sub: None,
@@ -265,7 +287,7 @@ impl ShellView {
                 this.refresh_display(window, cx);
             },
         );
-        this._window_subs = vec![activation, appearance, settings_sub];
+        this._window_subs = vec![activation, appearance, settings_sub, filter_sub];
         {
             let m = this.settings.read(cx);
             log(&format!(
@@ -572,6 +594,7 @@ impl ShellView {
     /// 外观或显示设置变了：重新算深浅色，并让所有终端换配色、重新量字体。
     fn refresh_display(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.dark = display::effective_dark(window);
+        display::apply_titlebar(window);
         let palette = self.terminal_palette(cx);
         for t in self.terminals.values() {
             t.update(cx, |t, cx| {
@@ -1280,7 +1303,9 @@ impl Render for ShellView {
 
         div()
             .relative()
-            .size_full()
+            // 子元素均为绝对定位，根节点需要明确尺寸，避免百分比尺寸收缩成空绘制区域。
+            .w(window.viewport_size().width)
+            .h(window.viewport_size().height)
             .bg(th.c("bg.window"))
             .font_family(SharedString::from(display::ui_font_family()))
             .text_size(px(display::ui_font_size()))

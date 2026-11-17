@@ -74,6 +74,28 @@ pub(crate) fn log(msg: &str) {
     }
 }
 
+/// GPUI 的呈现错误不会经过核心事件，必须接到宿主日志才能诊断空白窗口。
+struct GraphicsLogger;
+
+impl log::Log for GraphicsLogger {
+    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+        metadata.level() <= log::Level::Info
+    }
+
+    fn log(&self, record: &log::Record<'_>) {
+        if self.enabled(record.metadata()) {
+            log(&format!(
+                "{} {}: {}",
+                record.level(),
+                record.target(),
+                record.args()
+            ));
+        }
+    }
+
+    fn flush(&self) {}
+}
+
 /// 命令行参数。
 pub(crate) struct Args {
     pub selftest: bool,
@@ -330,6 +352,8 @@ pub fn run() -> i32 {
     if let Ok(f) = std::fs::File::create(&args.log_path) {
         let _ = LOG_FILE.set(Mutex::new(f));
     }
+    log::set_logger(&GraphicsLogger).expect("进程只初始化一次日志接收器");
+    log::set_max_level(log::LevelFilter::Info);
     log(&format!(
         "kanso-gpui {} 启动，数据目录 {}",
         env!("CARGO_PKG_VERSION"),

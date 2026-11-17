@@ -163,6 +163,7 @@ pub(crate) fn open_window(
 
 /// 设置窗口根视图。
 pub(crate) struct SettingsView {
+    titlebar_dark: Option<bool>,
     model: Entity<SettingsModel>,
     focus: FocusHandle,
     term_font: Entity<Dropdown>,
@@ -368,6 +369,7 @@ impl SettingsView {
         );
 
         let this = SettingsView {
+            titlebar_dark: None,
             model,
             focus: cx.focus_handle(),
             term_font,
@@ -701,6 +703,11 @@ fn boxed(control: impl IntoElement, width: f32) -> AnyElement {
 
 impl Render for SettingsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let dark = display::effective_dark(window);
+        if self.titlebar_dark != Some(dark) {
+            display::apply_titlebar(window);
+            self.titlebar_dark = Some(dark);
+        }
         let th = Th(display::window_appearance(window));
         let (d, a, t) = {
             let m = self.model.read(cx);

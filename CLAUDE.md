@@ -26,3 +26,7 @@ cargo build -p kanso-ffi       # 默认 direct 渠道
 cargo build -p kanso-ffi --no-default-features --features mas      # MAS 渠道
 cargo build -p kanso-ffi --no-default-features --features setapp   # Setapp 渠道
 ```
+
+## Windows GPUI 调试交接（2026-11-18）
+
+继续 GPUI 工作前先读 `docs/windows-gpui-handoff.md`：Codex 在 `codex/windows-debug` 上接手了已合并版本的调试。四个未合并模块仍留到下一轮，勿覆盖本轮修复或把临时 VM 测试配置当成用户配置。

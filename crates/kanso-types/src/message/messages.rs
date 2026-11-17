@@ -72,6 +72,18 @@ macro_rules! messages {
 }
 
 messages! {
+    /// Windows 本地会话的 Shell 选择。
+    UiLocalShell = "ui-local-shell" {},
+    /// 使用平台默认 Shell。
+    UiShellDefault = "ui-shell-default" {},
+    /// Shell 的完整命令行（可带参数）。
+    UiShellCommand = "ui-shell-command" {},
+    /// 自定义 Shell 命令（可带参数）。
+    UiShellCustom = "ui-shell-custom" {},
+    /// 侧栏路径筛选占位文字（ui-shell.md §2）。
+    UiFilterPath = "ui-filter-path" {},
+    /// 侧栏路径筛选无匹配项。
+    UiNoMatchingPaths = "ui-no-matching-paths" {},
     /// 小于一秒的命令耗时。
     CommandDurationMilliseconds = "command-duration-milliseconds" { value: String },
     /// 小于一分钟的命令耗时。
