@@ -5,9 +5,11 @@
 //! - `mock`（私有）：纯内存的 mock 实现，`Core::new_mock` 使用。
 //! - [`platform`]：宿主注入的平台 trait。
 //! - [`validate`]：Profile 保存校验，mock 与真实实现共用。
+//! - [`mcp`]：MCP 服务（kanso-mcp-server）使用的契约类型。
 
 pub mod api;
 pub mod git;
+pub mod mcp;
 mod mock;
 pub mod platform;
 mod real;

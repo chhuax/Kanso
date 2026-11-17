@@ -73,6 +73,10 @@ pub(crate) struct Scheduler {
     manual: Option<Job>,
     repeating: Option<Job>,
     status: SenderStatus,
+    /// 正在被 MCP 的 `mcp_terminal_run` 占用的标签（spec/mcp.md §4.2）。放在调度器里而不是 Core 的
+    /// 另一把锁里，是为了让"Sender 是否正在发送"的检查和占用登记在同一次加锁内完成，
+    /// `tick` 也在同一把锁下看到占用，Sender 与 MCP 的命令就不会互相插进对方的输入里。
+    mcp_busy: HashSet<SessionId>,
 }
 
 impl Scheduler {
@@ -202,6 +206,15 @@ impl Scheduler {
             }
             let recipients = job.recipients.as_mut().expect("本轮已开始");
             for recipient in recipients.iter_mut().filter(|item| !item.done) {
+                // MCP 的命令正在这个标签上运行：还没开始发的对象按"忙"跳过，与两个 Sender 任务
+                // 撞上同一个标签时的处理一致。已经发出第一行的对象不会出现在这里：
+                // `mcp_claim` 在 Sender 还要发内容时会被拒绝。
+                if recipient.next == 0 && self.mcp_busy.contains(&recipient.id) {
+                    recipient.done = true;
+                    recipient.failed = true;
+                    job.first_reason.get_or_insert(Message::SenderBusy {});
+                    continue;
+                }
                 let idle = match ready(recipient.id) {
                     Ok(idle) => idle,
                     Err(reason) => {
@@ -278,6 +291,33 @@ impl Scheduler {
             };
         }
         std::mem::take(&mut self.status)
+    }
+}
+
+impl Scheduler {
+    /// MCP 申请占用 `session` 来执行一条命令。Sender 这一轮还要给它发内容，或者它已被另一条
+    /// MCP 命令占用时返回 `false`，不登记。成功后必须在命令结束（含被取消）时调用 [`mcp_release`](Self::mcp_release)。
+    pub(crate) fn mcp_claim(&mut self, session: SessionId) -> bool {
+        !self.is_sending_to(session) && self.mcp_busy.insert(session)
+    }
+
+    /// 释放 [`mcp_claim`](Self::mcp_claim) 的占用；没有占用时忽略。
+    pub(crate) fn mcp_release(&mut self, session: SessionId) {
+        self.mcp_busy.remove(&session);
+    }
+
+    /// 这一轮里是否还有内容要发给 `session`（spec/mcp.md §4.2 的"Sender 正在发送"）。
+    ///
+    /// 重复任务在两轮之间没有接收方，此时不算正在发送：MCP 的命令可以插在两轮之间执行。
+    pub(crate) fn is_sending_to(&self, session: SessionId) -> bool {
+        [&self.manual, &self.repeating]
+            .into_iter()
+            .flatten()
+            .any(|job| {
+                job.recipients
+                    .as_ref()
+                    .is_some_and(|rs| rs.iter().any(|r| r.id == session && !r.done && !r.failed))
+            })
     }
 }
 
@@ -474,6 +514,62 @@ mod tests {
             let status = scheduler.tick(2, &[id(1)], &[id(1)], |_| Ok(false), |_, _, _| Ok(true));
             assert!(status.notices.contains(&Message::SenderRepeatReplaced {}));
         }
+    }
+
+    #[test]
+    fn mcp_claim_and_sender_exclude_each_other() {
+        // Sender 还有内容要发给 1 号标签：MCP 不能占用它，但可以占用别的标签。
+        let mut scheduler = Scheduler::default();
+        scheduler
+            .start(request(Some(id(1)), false), vec![id(1)], 0)
+            .unwrap();
+        assert!(scheduler.is_sending_to(id(1)));
+        assert!(!scheduler.mcp_claim(id(1)));
+        assert!(scheduler.mcp_claim(id(2)));
+        // 同一个标签不能被两条 MCP 命令同时占用；释放后可以再占用。
+        assert!(!scheduler.mcp_claim(id(2)));
+        scheduler.mcp_release(id(2));
+        assert!(scheduler.mcp_claim(id(2)));
+
+        // MCP 占着 2 号标签时启动的 Sender 任务：一行也不发给它，记为忙。
+        let mut scheduler = Scheduler::default();
+        assert!(scheduler.mcp_claim(id(2)));
+        scheduler
+            .start(request(None, false), vec![id(1), id(2)], 0)
+            .unwrap();
+        let mut written = Vec::new();
+        let mut now = 0;
+        let mut notices = Vec::new();
+        while now <= 1000 {
+            let status = scheduler.tick(
+                now,
+                &[id(1), id(2)],
+                &[id(1), id(2)],
+                |_| Ok(true),
+                |session, _, _| {
+                    written.push(session);
+                    Ok(false)
+                },
+            );
+            notices.extend(status.notices);
+            now += 100;
+        }
+        assert!(
+            written.iter().all(|s| *s == id(1)),
+            "wrote to MCP tab: {written:?}"
+        );
+        assert!(!written.is_empty());
+        assert!(
+            notices.iter().any(|m| matches!(
+                m,
+                Message::SenderSummary {
+                    success: 1,
+                    total: 2,
+                    ..
+                }
+            )),
+            "{notices:?}"
+        );
     }
 
     #[test]
