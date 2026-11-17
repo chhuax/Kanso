@@ -40,6 +40,9 @@ pub fn encode(command: AppCommand) -> String {
         AppCommand::ZoomIn => "zoom-in".into(),
         AppCommand::ZoomOut => "zoom-out".into(),
         AppCommand::ZoomReset => "zoom-reset".into(),
+        AppCommand::ToggleSender => "toggle-sender".into(),
+        AppCommand::ToggleCommandSuggestions => "toggle-command-suggestions".into(),
+        AppCommand::ClearCommandHistory => "clear-command-history".into(),
     }
 }
 
@@ -100,6 +103,9 @@ pub fn decode(id: &str) -> Option<AppCommand> {
         "zoom-in" => AppCommand::ZoomIn,
         "zoom-out" => AppCommand::ZoomOut,
         "zoom-reset" => AppCommand::ZoomReset,
+        "toggle-sender" => AppCommand::ToggleSender,
+        "toggle-command-suggestions" => AppCommand::ToggleCommandSuggestions,
+        "clear-command-history" => AppCommand::ClearCommandHistory,
         _ => return None,
     })
 }
@@ -188,6 +194,10 @@ pub struct AppMenuState {
     pub sidebar_visible: bool,
     /// 右键是否弹菜单（否则为“复制或粘贴”）。
     pub right_click_menu: bool,
+    /// Sender 面板是否显示。
+    pub sender_visible: bool,
+    /// “命令建议”是否开启。
+    pub command_suggestions: bool,
 }
 
 /// 窗口级应用菜单（Windows / Linux 没有系统菜单栏，spec §6 末段：放在应用内）。
@@ -218,6 +228,10 @@ pub fn app_menu(state: AppMenuState) -> Vec<MenuItem> {
                 MenuItem::separator(),
                 item("清除缓冲区", AppCommand::ClearBuffer),
                 MenuItem::separator(),
+                item("命令建议", AppCommand::ToggleCommandSuggestions)
+                    .checked(state.command_suggestions),
+                item("清除命令历史…", AppCommand::ClearCommandHistory),
+                MenuItem::separator(),
                 item("右键弹出菜单", AppCommand::ToggleRightClickMenu)
                     .checked(state.right_click_menu),
             ],
@@ -226,6 +240,7 @@ pub fn app_menu(state: AppMenuState) -> Vec<MenuItem> {
             "视图",
             vec![
                 item("标签栏", AppCommand::ToggleSidebar).checked(state.sidebar_visible),
+                item("Sender", AppCommand::ToggleSender).checked(state.sender_visible),
                 MenuItem::separator(),
                 item("向右拆分", AppCommand::SplitRight),
                 item("向下拆分", AppCommand::SplitDown),
@@ -299,6 +314,9 @@ mod tests {
             AppCommand::ZoomIn,
             AppCommand::ZoomOut,
             AppCommand::ZoomReset,
+            AppCommand::ToggleSender,
+            AppCommand::ToggleCommandSuggestions,
+            AppCommand::ClearCommandHistory,
         ];
         for c in cmds {
             assert_eq!(decode(&encode(c)), Some(c), "{c:?}");
@@ -320,6 +338,8 @@ mod tests {
         let state = AppMenuState {
             sidebar_visible: true,
             right_click_menu: true,
+            sender_visible: true,
+            command_suggestions: true,
         };
         for items in [terminal_menu(true), tab_menu(ctx), app_menu(state)] {
             for (id, _, label, _) in all(&items) {
@@ -388,6 +408,8 @@ mod tests {
         let items = app_menu(AppMenuState {
             sidebar_visible: false,
             right_click_menu: true,
+            sender_visible: false,
+            command_suggestions: true,
         });
         let flat = all(&items);
         for want in [
@@ -401,6 +423,9 @@ mod tests {
             "toggle-sidebar",
             "split-right",
             "open-settings",
+            "toggle-sender",
+            "toggle-command-suggestions",
+            "clear-command-history",
             "quit",
         ] {
             assert!(flat.iter().any(|a| a.0 == want), "缺少 {want}");
@@ -408,6 +433,8 @@ mod tests {
         let checked = |id: &str| flat.iter().find(|a| a.0 == id).map(|a| a.3);
         assert_eq!(checked("toggle-sidebar"), Some(false));
         assert_eq!(checked("toggle-right-click-menu"), Some(true));
+        assert_eq!(checked("toggle-sender"), Some(false));
+        assert_eq!(checked("toggle-command-suggestions"), Some(true));
     }
 
     #[test]

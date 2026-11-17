@@ -18,6 +18,7 @@ pub mod dialog;
 pub mod dropdown;
 pub mod edit;
 pub mod focus_chain;
+pub mod lines;
 pub mod menu;
 pub mod scroll;
 pub mod style;
