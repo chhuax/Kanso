@@ -69,6 +69,9 @@ impl KansoHandler {
     where
         F: Future<Output = Result<Value, ToolError>>,
     {
+        // 停止时 teardown 会等 `conns` 归零后才关闭审计队列。rmcp 把每个请求放在它自己 spawn 的任务里执行，
+        // 不在连接任务之内，所以只等连接任务不够：这里登记一个令牌，调用结束（含写审计）后才释放。
+        let _inflight = self.shared.conns.token();
         let started = Instant::now();
         let at_ms = now_ms();
         let client = self.shared.registry.add_call(self.client_id);
