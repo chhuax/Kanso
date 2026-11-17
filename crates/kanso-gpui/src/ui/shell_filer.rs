@@ -441,6 +441,7 @@ impl ShellView {
         .detach();
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn on_located(
         &mut self,
         sid: SessionId,
@@ -671,12 +672,7 @@ impl ShellView {
     }
 
     /// 终端上方的传输进度条（ZMODEM / XMODEM）；没有则 `None`。
-    pub(super) fn render_term_bar(
-        &self,
-        sid: SessionId,
-        th: Theme,
-        cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
+    pub(super) fn render_term_bar(&self, sid: SessionId, th: Theme) -> Option<AnyElement> {
         let now = self.filer.now_ms();
         let bar: Bar = self.filer.term.bar(sid, now)?;
         let color = match bar.finish {
@@ -759,10 +755,6 @@ impl ShellView {
                 .child(track)
                 .into_any_element(),
         )
-        .map(|el| {
-            let _ = cx;
-            el
-        })
     }
 
     // ---- ZMODEM / XMODEM ----
@@ -808,7 +800,7 @@ impl ShellView {
             }
             PickerPlan::Save { suggested_name } => {
                 let dir = PathBuf::from(kanso_gpui::app::term_transfer::default_save_dir(
-                    &self.ctl.home_dir().to_owned(),
+                    self.ctl.home_dir(),
                 ));
                 let rx = cx.prompt_for_new_path(Path::new(&dir), Some(&suggested_name));
                 cx.spawn_in(window, async move |this, cx| {

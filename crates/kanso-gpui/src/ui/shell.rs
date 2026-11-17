@@ -1189,7 +1189,8 @@ impl ShellView {
                                 this.activate_session(sid, window, cx)
                             }),
                         )
-                        .child(term);
+                        .child(term)
+                        .children(self.render_term_bar(sid, th));
                     // 会话已异常结束：窗格底部给出原因（退出码 / 断开），标签保留到用户手动关闭。
                     if let Some(item) = ws.item(sid)
                         && let Some(text) = closed_banner(&item.connection)

@@ -302,16 +302,6 @@ impl FilerPanel {
         self.by_session.contains_key(&sid)
     }
 
-    /// 栏在显示时的活动栏。
-    pub(crate) fn active(&self) -> Option<&Pane> {
-        self.panes.get(self.shown)
-    }
-
-    /// 是否有前台传输（关闭确认等用）。
-    pub(crate) fn busy(&self) -> bool {
-        self.panes.iter().any(|p| p.queue.is_busy())
-    }
-
     // ---- 启动一栏 ----
 
     /// 栏刚建立或连接成功：进入初始目录（`path` 优先，其次来源的家目录）。
