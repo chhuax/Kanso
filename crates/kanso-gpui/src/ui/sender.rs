@@ -253,11 +253,6 @@ impl SenderPanel {
         self.area.update(cx, |a, _| a.focus(window));
     }
 
-    /// 把焦点交给命令框。
-    pub(crate) fn focus_input(&self, window: &mut Window, cx: &mut Context<Self>) {
-        self.area.update(cx, |a, _| a.focus(window));
-    }
-
     /// 是否有任务在运行。
     pub(crate) fn running(&self) -> bool {
         self.manual_running || self.repeat_running

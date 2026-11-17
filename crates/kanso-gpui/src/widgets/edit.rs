@@ -109,6 +109,14 @@ fn floor_boundary(s: &str, mut i: usize) -> usize {
 }
 
 impl EditState {
+    /// 空的多行编辑状态。
+    pub fn new_multiline() -> EditState {
+        EditState {
+            multiline: true,
+            ..EditState::default()
+        }
+    }
+
     /// 以初始文本创建，光标在末尾。
     pub fn new(text: &str) -> EditState {
         let mut s = EditState::default();
@@ -1210,10 +1218,7 @@ mod tests {
     }
 
     fn ml(text: &str) -> EditState {
-        let mut s = EditState {
-            multiline: true,
-            ..EditState::default()
-        };
+        let mut s = EditState::new_multiline();
         s.set_text(text);
         s
     }

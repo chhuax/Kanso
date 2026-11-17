@@ -185,10 +185,7 @@ impl TextArea {
                 }
             }),
         ];
-        let state = EditState {
-            multiline: true,
-            ..EditState::default()
-        };
+        let state = EditState::new_multiline();
         TextArea {
             focus,
             state,
@@ -213,11 +210,6 @@ impl TextArea {
         self
     }
 
-    /// 当前内容。
-    pub fn text(&self) -> &str {
-        self.state.text()
-    }
-
     /// 整体设置内容（光标到末尾，清空撤销历史）。内容变化时发出 `Change`。
     pub fn set_text(&mut self, text: &str, cx: &mut Context<Self>) {
         let before = self.state.text().to_owned();
@@ -227,11 +219,6 @@ impl TextArea {
             cx.emit(TextAreaEvent::Change(self.state.text().to_owned().into()));
         }
         cx.notify();
-    }
-
-    /// 是否正在输入法组字。
-    pub fn is_composing(&self) -> bool {
-        self.state.is_composing()
     }
 
     /// 把焦点交给输入框。
@@ -874,7 +861,9 @@ impl Element for AreaElement {
         self.input.update(cx, |i, _| {
             // 空内容时 `lines` 里是占位符，点击定位仍按单行空文本处理。
             i.last_lines = lines;
-            i.last_ranges = if empty { vec![0..0] } else { ranges };
+            #[allow(clippy::single_range_in_vec_init)]
+            let single = vec![0..0];
+            i.last_ranges = if empty { single } else { ranges };
             i.last_bounds = Some(bounds);
             i.scroll_x = sx;
             i.scroll_y = sy;
