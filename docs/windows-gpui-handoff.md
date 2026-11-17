@@ -222,3 +222,7 @@ Division of labour (user decision, 2026-11-18): **Claude Code writes code, Codex
 ### Not done (waiting on user decisions)
 
 - Trial / License UI: the docs say paid channels are on hold and only the free open-source Direct build ships; plan I5 ("no trial") contradicts ui-shell §11 ("show the remaining trial days"). Not implemented.
+
+## 2026-11-18 本轮 GPUI 联调进度
+
+Codex 正在独立工作树 `/tmp/kanso-ui-integration` 的 `codex/windows-ui-integration` 合并四个模块与单行标题栏。Windows 已实测 OpenSSH 部分勾选导入、原生文件选择器导出和导入、Filer 双栏及回环 SFTP 握手和列目录。用户要求文件主题成为两端共同标准，设置的能力也须对齐。共享主题读取器与 Mac 的文件发现、切换、重启恢复和删除回落已通过 Intel 实机测试。Windows 数字输入和可编辑快捷键正在接线。整轮结果与提交号将在本节更新。
