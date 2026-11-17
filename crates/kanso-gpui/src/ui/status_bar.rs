@@ -171,6 +171,7 @@ impl ShellView {
             // 状态文字没有内容时也要占住中间的弹性空间，把右侧元素推到最右。
             .child(status.unwrap_or_else(|| div().flex_1()))
             .children(sender_chip)
+            .child(self.git_status_item(th, cx))
             .children(legacy)
             .child(
                 div()

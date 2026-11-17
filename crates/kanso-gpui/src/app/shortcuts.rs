@@ -96,6 +96,8 @@ pub enum AppCommand {
     ClearCommandHistory,
     /// 显示 / 隐藏 Filer（视图菜单；用已记住的浏览位置）。
     ToggleFiler,
+    /// 显示 / 隐藏 Git 改动面板（没有默认快捷键）。
+    ToggleGit,
     /// 在 Filer 中显示活动 shell 的工作目录（Ctrl+Shift+J，filer.md §2）。
     LocateFiler,
     /// 用 XMODEM（128 字节块）发送文件。

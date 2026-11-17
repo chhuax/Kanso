@@ -40,6 +40,7 @@ pub mod filer_state;
 pub mod filer_text;
 pub mod find;
 pub mod fspath;
+pub mod git_panel;
 pub mod gutter;
 pub mod i18n;
 pub mod launcher;

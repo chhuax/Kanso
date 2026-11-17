@@ -46,6 +46,9 @@ impl AssetSource for Icons {
             "icons/eye.svg" => include_bytes!("../../../assets/icons/eye.svg"),
             "icons/link.svg" => include_bytes!("../../../assets/icons/link.svg"),
             "icons/chevron-right.svg" => include_bytes!("../../../assets/icons/chevron-right.svg"),
+            "icons/git-branch.svg" => include_bytes!("../../../assets/icons/git-branch.svg"),
+            "icons/undo-2.svg" => include_bytes!("../../../assets/icons/undo-2.svg"),
+            "icons/copy.svg" => include_bytes!("../../../assets/icons/copy.svg"),
             _ => return Ok(None),
         };
         Ok(Some(Cow::Borrowed(bytes)))
