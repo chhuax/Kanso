@@ -16,7 +16,8 @@
 //! - [`launcher`]：启动器与编辑对话框的视图辅助（行展开、菜单项、确认文案）。
 //! - [`sessions`]：会话启动器模型与会话编辑模型。
 //! - [`settings`]：显示设置模型（字体、外观、时间轴）与持久化。
-//! - [`shortcuts`]：应用级快捷键表。
+//! - [`shortcuts`]：应用级快捷键默认表。
+//! - [`keybindings`]：可自定义快捷键（组合键、冲突、覆盖合并、序列化）。
 //! - [`shell`]：窗口外壳的纯逻辑（分隔条拖动换算）。
 //! - [`menus`]：终端 / 标签右键菜单与窗口级应用菜单的内容，菜单项 id 与 [`shortcuts::AppCommand`] 互转。
 //! - [`confirm`]：关闭 / 退出确认对话框的内容与结果判断。
@@ -42,6 +43,7 @@ pub mod find;
 pub mod fspath;
 pub mod gutter;
 pub mod i18n;
+pub mod keybindings;
 pub mod launcher;
 pub mod layout;
 pub mod links;

@@ -1133,4 +1133,72 @@ messages! {
     // ---- secret ----
     /// 凭据存储读写失败，`detail` 为英文技术细节。
     SecretStoreFailed = "secret-store-failed" { detail: String },
+
+    // ---- 键盘设置页与恢复默认设置（GPUI） ----
+    /// GPUI 界面文字：ui-keys-page
+    UiKeysPage = "ui-keys-page" {},
+    /// GPUI 界面文字：ui-keys-group-other
+    UiKeysGroupOther = "ui-keys-group-other" {},
+    /// GPUI 界面文字：ui-keys-hint
+    UiKeysHint = "ui-keys-hint" {},
+    /// GPUI 界面文字：ui-keys-recording
+    UiKeysRecording = "ui-keys-recording" {},
+    /// GPUI 界面文字：ui-keys-unbound
+    UiKeysUnbound = "ui-keys-unbound" {},
+    /// GPUI 界面文字：ui-keys-fixed-tabs
+    UiKeysFixedTabs = "ui-keys-fixed-tabs" {},
+    /// GPUI 界面文字：ui-keys-fixed-tabs-key
+    UiKeysFixedTabsKey = "ui-keys-fixed-tabs-key" {},
+    /// GPUI 界面文字：ui-keys-reserved
+    UiKeysReserved = "ui-keys-reserved" { chord: String },
+    /// GPUI 界面文字：ui-keys-needs-modifier
+    UiKeysNeedsModifier = "ui-keys-needs-modifier" {},
+    /// GPUI 界面文字：ui-keys-conflict-title
+    UiKeysConflictTitle = "ui-keys-conflict-title" { chord: String },
+    /// GPUI 界面文字：ui-keys-conflict-body
+    UiKeysConflictBody = "ui-keys-conflict-body" { chord: String, existing: String, new: String },
+    /// GPUI 界面文字：ui-keys-replace
+    UiKeysReplace = "ui-keys-replace" {},
+    /// GPUI 界面文字：ui-keys-restore-item
+    UiKeysRestoreItem = "ui-keys-restore-item" {},
+    /// GPUI 界面文字：ui-keys-restore-all
+    UiKeysRestoreAll = "ui-keys-restore-all" {},
+    /// GPUI 界面文字：ui-keys-customized
+    UiKeysCustomized = "ui-keys-customized" {},
+    /// GPUI 界面文字：ui-reset-menu
+    UiResetMenu = "ui-reset-menu" {},
+    /// GPUI 界面文字：ui-reset-title
+    UiResetTitle = "ui-reset-title" {},
+    /// GPUI 界面文字：ui-reset-body
+    UiResetBody = "ui-reset-body" {},
+    /// GPUI 界面文字：ui-reset-confirm
+    UiResetConfirm = "ui-reset-confirm" {},
+    /// GPUI 界面文字：ui-reset-failed
+    UiResetFailed = "ui-reset-failed" { detail: String },
+    /// GPUI 界面文字：ui-reset-done
+    UiResetDone = "ui-reset-done" {},
+    /// GPUI 界面文字：ui-keys-cmd-open-launcher
+    UiKeysCmdOpenLauncher = "ui-keys-cmd-open-launcher" {},
+    /// GPUI 界面文字：ui-keys-cmd-find
+    UiKeysCmdFind = "ui-keys-cmd-find" {},
+    /// GPUI 界面文字：ui-keys-cmd-find-next
+    UiKeysCmdFindNext = "ui-keys-cmd-find-next" {},
+    /// GPUI 界面文字：ui-keys-cmd-find-prev
+    UiKeysCmdFindPrev = "ui-keys-cmd-find-prev" {},
+    /// GPUI 界面文字：ui-keys-cmd-prev-block
+    UiKeysCmdPrevBlock = "ui-keys-cmd-prev-block" {},
+    /// GPUI 界面文字：ui-keys-cmd-next-block
+    UiKeysCmdNextBlock = "ui-keys-cmd-next-block" {},
+    /// GPUI 界面文字：ui-keys-cmd-toggle-sidebar
+    UiKeysCmdToggleSidebar = "ui-keys-cmd-toggle-sidebar" {},
+    /// GPUI 界面文字：ui-keys-cmd-toggle-sender
+    UiKeysCmdToggleSender = "ui-keys-cmd-toggle-sender" {},
+    /// GPUI 界面文字：ui-keys-cmd-toggle-filer
+    UiKeysCmdToggleFiler = "ui-keys-cmd-toggle-filer" {},
+    /// GPUI 界面文字：ui-keys-cmd-zoom-in
+    UiKeysCmdZoomIn = "ui-keys-cmd-zoom-in" {},
+    /// GPUI 界面文字：ui-keys-cmd-zoom-out
+    UiKeysCmdZoomOut = "ui-keys-cmd-zoom-out" {},
+    /// GPUI 界面文字：ui-keys-cmd-zoom-reset
+    UiKeysCmdZoomReset = "ui-keys-cmd-zoom-reset" {},
 }

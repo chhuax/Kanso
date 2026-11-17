@@ -34,6 +34,7 @@ mod shell;
 mod shell_completion;
 mod shell_data;
 mod shell_filer;
+mod shell_keys;
 mod shell_launcher;
 mod shell_selftest;
 mod shell_sender;

@@ -110,6 +110,8 @@ pub(crate) struct ShellView {
     pub(super) dialog: Option<Entity<Dialog>>,
     pub(super) dialog_sub: Option<Subscription>,
     pending_close: Option<CloseRequest>,
+    /// “恢复默认设置”的确认框正在显示。
+    pub(super) pending_reset: bool,
     /// 右键行为：弹菜单 / 复制或粘贴（terminal.md §8.1）。
     right_click_menu: bool,
     /// 状态栏时钟文字（整分钟刷新）。
@@ -212,6 +214,7 @@ impl ShellView {
             dialog: None,
             dialog_sub: None,
             pending_close: None,
+            pending_reset: false,
             right_click_menu: true,
             clock: clock_text(unix_ms(), tz::local_offset_minutes()),
             notice: None,
@@ -608,6 +611,7 @@ impl ShellView {
                 }
             }
             AppCommand::OpenSettings => self.open_settings(cx),
+            AppCommand::ResetSettings => self.request_reset_settings(window, cx),
             AppCommand::ToggleSender => self.toggle_sender(window, cx),
             AppCommand::ToggleCommandSuggestions => self.toggle_completion(window, cx),
             AppCommand::ClearCommandHistory => self.request_clear_history(window, cx),
@@ -739,6 +743,7 @@ impl ShellView {
                     this.core.setting("display"),
                     this.core.setting("appearance")
                 ));
+                this.run_keys_check(cx);
                 if !super::KEEP_OPEN.load(Ordering::Relaxed) {
                     cx.quit();
                 }
@@ -1025,6 +1030,14 @@ impl ShellView {
         }
         let pending = self.pending_close.take();
         let confirmed = is_confirmed(r);
+        if std::mem::take(&mut self.pending_reset) {
+            if confirmed {
+                self.reset_settings(cx);
+            }
+            self.sync_focus(window, cx);
+            cx.notify();
+            return;
+        }
         if std::mem::take(&mut self.completion.pending_clear) {
             if confirmed {
                 self.clear_history(cx);
