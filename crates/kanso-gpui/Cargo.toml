@@ -27,7 +27,9 @@ unicode-segmentation = "1"
 # GPUI 与其配套依赖只在 Windows 引入：macOS / Linux 的 `cargo build --workspace` 不需要图形系统库。
 # 用 crates.io 的发布版（Apache-2.0），不用 git 依赖；`=` 固定版本，升级要重新评估许可证与体积。
 [target.'cfg(windows)'.dependencies]
-gpui = "=0.2.2"
+# 关掉默认的 `windows-manifest`：gpui 会把自带的应用清单链接进最终 exe，与 build.rs 嵌入的 Kanso 清单
+# （含 PerMonitorV2、Common Controls 6、UTF-8、长路径）重复，链接器会报重复资源。其余默认特性原样保留。
+gpui = { version = "=0.2.2", default-features = false, features = ["font-kit", "wayland", "x11"] }
 # 接收 GPUI 的图形后端诊断，写入同一份运行日志（MIT / Apache-2.0）。
 log = "0.4"
 # 获取当前窗口句柄，让原生标题栏跟随应用外观（MIT / Apache-2.0 / Zlib）。
@@ -35,7 +37,7 @@ raw-window-handle = "0.6"
 # 核心事件从工作线程投递到 UI 线程的无界通道（MIT / Apache-2.0）。
 futures = { workspace = true, features = ["executor"] }
 # 读取进程工作集内存、系统界面语言、标题栏外观，只用相应特性（MIT / Apache-2.0；与 kanso-secret 同一个 crate）。
-windows-sys = { workspace = true, features = ["Win32_Globalization", "Win32_Graphics_Dwm", "Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_System_Time", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole", "Win32_UI_Shell"] }
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Globalization", "Win32_Graphics_Dwm", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_System_Time", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [features]
 default = ["direct"]

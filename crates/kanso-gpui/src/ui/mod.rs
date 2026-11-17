@@ -89,6 +89,8 @@ pub(crate) static FILER_TEST: AtomicBool = AtomicBool::new(false);
 /// `--git-selftest`：外壳启动后在临时仓库里走一遍 Git 面板（摘要、差异、提交、丢弃），写 PASS / FAIL。
 pub(crate) static GIT_TEST: AtomicBool = AtomicBool::new(false);
 static LOG_FILE: OnceLock<Mutex<std::fs::File>> = OnceLock::new();
+/// 日志文件路径（崩溃提示框里告诉用户去哪里找）。
+static LOG_PATH: OnceLock<PathBuf> = OnceLock::new();
 
 /// 应用标识：凭据管理器条目前缀与数据目录名，发布后不能改。
 const BUNDLE_ID: &str = "com.chhuax.kanso";
@@ -380,6 +382,51 @@ fn run_sftp(
     EXIT_CODE.load(Ordering::SeqCst)
 }
 
+/// panic 写进运行日志（含线程名、位置与回溯）：Release 是 GUI 子系统，没有控制台可看。
+fn install_panic_hook() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let thread = std::thread::current();
+        log(&format!(
+            "PANIC 线程 {}：{info}\n{}",
+            thread.name().unwrap_or("<未命名>"),
+            std::backtrace::Backtrace::force_capture()
+        ));
+        previous(info);
+    }));
+}
+
+/// 弹出一个原生错误框（GUI 子系统下没有控制台，崩溃时用户只能靠它知道发生了什么）。
+fn error_box(text: &str) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};
+    let wide = |s: &str| -> Vec<u16> { s.encode_utf16().chain(std::iter::once(0)).collect() };
+    let (text, title) = (wide(text), wide("Kanso"));
+    // SAFETY: 两个缓冲区都以 NUL 结尾且在调用期间存活；父窗口为空。
+    unsafe {
+        MessageBoxW(
+            std::ptr::null_mut(),
+            text.as_ptr(),
+            title.as_ptr(),
+            MB_OK | MB_ICONERROR,
+        );
+    }
+}
+
+/// 带兜底的进程入口：主线程上未被捕获的 panic 已由 hook 写进日志，这里再弹框并以 101 退出。
+pub fn run_guarded() -> i32 {
+    match std::panic::catch_unwind(run) {
+        Ok(code) => code,
+        Err(_) => {
+            let log_path = LOG_PATH.get().map(|p| p.display().to_string());
+            error_box(&format!(
+                "Kanso 遇到未预期的错误，需要退出。\n\n详细信息已写入日志：\n{}",
+                log_path.unwrap_or_else(|| "（日志不可用）".into())
+            ));
+            101
+        }
+    }
+}
+
 /// 进程入口，返回退出码。
 pub fn run() -> i32 {
     let t0 = Instant::now();
@@ -389,11 +436,17 @@ pub fn run() -> i32 {
         eprintln!("无法创建数据目录 {}: {e}", args.data_dir.display());
         return 1;
     }
+    // 默认日志位置：保留上一次运行的日志（kanso-gpui.log.1），崩溃后重启不会丢掉现场。
+    if args.log_path == args.data_dir.join("kanso-gpui.log") {
+        let _ = std::fs::rename(&args.log_path, args.data_dir.join("kanso-gpui.log.1"));
+    }
     if let Ok(f) = std::fs::File::create(&args.log_path) {
         let _ = LOG_FILE.set(Mutex::new(f));
+        let _ = LOG_PATH.set(args.log_path.clone());
     }
     log::set_logger(&GraphicsLogger).expect("进程只初始化一次日志接收器");
     log::set_max_level(log::LevelFilter::Info);
+    install_panic_hook();
     log(&format!(
         "kanso-gpui {} 启动，数据目录 {}",
         env!("CARGO_PKG_VERSION"),

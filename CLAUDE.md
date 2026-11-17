@@ -16,6 +16,7 @@
 cargo xtask ci                 # 本地 CI：fmt、clippy、test、渠道矩阵、cargo deny
 cargo xtask notices            # 重新生成第三方依赖与素材声明
 cargo xtask dmg                # Release 构建 Direct 并生成 arm64 DMG 与 SHA-256
+cargo xtask win-package        # 仅 Windows：Release 构建 kanso-gpui，生成绿色版 zip 与 NSIS 安装程序（有 makensis 时）及 SHA-256，见 docs/windows-release.md
 cargo xtask ci --skip-deny     # 本地没装 cargo-deny 时跳过许可证检查
 cargo xtask ci --skip-apple    # 没装 Xcode 时跳过 apple-build（ci 默认会构建三个渠道的 Debug）
 cargo xtask bindgen            # 重新生成 UniFFI Swift 绑定（改了 kanso-ffi 导出接口后必须运行并提交）
