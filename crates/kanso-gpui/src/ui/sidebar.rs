@@ -3,7 +3,7 @@
 //! 标签行：左侧会话色图标、主标题（本地 shell 显示当前目录，过长保留末尾）、副标题
 //! （状态或 Git 分支）、右侧未读 / 运行指示与关闭按钮。点击在鼠标按下时就切换。
 //! 右键标签行弹出标签菜单（关闭 / 关闭其他 / 左侧 / 右侧 / 全部），标签栏空白处右键打开会话启动器。
-//! 暂未实现：拖拽排序、悬停提示。
+//! 组内拖动先预览插入位置，松开时才改变顺序。
 
 use gpui::{Context, Hsla, MouseButton, MouseDownEvent, div, prelude::*, px, rgb};
 use kanso_gpui::app::i18n::t;
@@ -35,6 +35,12 @@ fn session_color(item: &TabItem) -> Hsla {
 }
 
 impl ShellView {
+    pub(super) fn cancel_tab_reorder(&mut self, cx: &mut Context<Self>) {
+        if self.tab_reorder.take().is_some() {
+            cx.notify();
+        }
+    }
+
     pub(super) fn render_sidebar(
         &self,
         width: f32,
@@ -58,6 +64,27 @@ impl ShellView {
             .gap(px(2.0))
             .px(px(8.0))
             .py(px(8.0))
+            .on_scroll_wheel(cx.listener(|this, _, _, cx| this.cancel_tab_reorder(cx)))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, ev: &MouseDownEvent, window, cx| {
+                    this.cancel_tab_reorder(cx);
+                    if ev.click_count == 2 {
+                        match this
+                            .ctl
+                            .duplicate_active_tab(kanso_gpui::app::controller::FALLBACK_GRID)
+                        {
+                            Ok(id) => {
+                                this.attach_session(id, window, cx);
+                                this.after_change(window, cx);
+                            }
+                            Err(e) => {
+                                this.show_notice(kanso_gpui::app::launcher::core_error_text(&e), cx)
+                            }
+                        }
+                    }
+                }),
+            )
             // 标签栏空白处右键：打开会话启动器（标签行的右键会先拦下，不会走到这里）。
             .on_mouse_down(
                 MouseButton::Right,
@@ -69,7 +96,14 @@ impl ShellView {
         let query = self.path_filter.read(cx).text().to_owned();
         let mut visible_count = 0;
         let mut global_index = 0usize;
-        for section in sections {
+        for mut section in sections {
+            if let Some(drag) = &self.tab_reorder
+                && let Some(index) = drag.insertion
+                && let Some(from) = section.tabs.iter().position(|item| item.id == drag.session)
+            {
+                let row = section.tabs.remove(from);
+                section.tabs.insert(index.min(section.tabs.len()), row);
+            }
             let pane = section.pane;
             if show_headers
                 && section
@@ -94,6 +128,7 @@ impl ShellView {
                         .on_mouse_down(
                             MouseButton::Left,
                             cx.listener(move |this, _: &MouseDownEvent, window, cx| {
+                                cx.stop_propagation();
                                 this.activate_pane(pane, window, cx)
                             }),
                         )
@@ -231,8 +266,31 @@ impl ShellView {
         };
         let (_, has_digit) = TabPresentation::shortcut_digit(index);
 
+        let rect = std::rc::Rc::new(std::cell::Cell::new(gpui::Bounds::<gpui::Pixels>::default()));
+        let measured = rect.clone();
         let mut row = div()
             .id(("tab", sid.raw() as usize))
+            .child(
+                gpui::canvas(move |b, _, _| rect.set(b), |_, _, _, _| {})
+                    .absolute()
+                    .size_full(),
+            )
+            .when(
+                self.tab_reorder
+                    .as_ref()
+                    .is_some_and(|drag| drag.session == sid && drag.insertion.is_some()),
+                |row| {
+                    row.child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .right_0()
+                            .h(px(2.))
+                            .bg(th.c("accent")),
+                    )
+                },
+            )
             .group(gpui::SharedString::from(format!("tab-{}", sid.raw())))
             .relative()
             .h(px(number("spacing", "tabRow.height")))
@@ -246,8 +304,31 @@ impl ShellView {
             .hover(|s| s.bg(th.c("bg.tabHover")))
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(move |this, _: &MouseDownEvent, window, cx| {
-                    this.activate_session(sid, window, cx)
+                cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
+                    cx.stop_propagation();
+                    this.cancel_tab_reorder(cx);
+                    this.activate_session(sid, window, cx);
+                    if this.path_filter.read(cx).text().trim().is_empty()
+                        && let Some(pane) = this.ctl.workspace().pane_of(sid)
+                    {
+                        let order: Vec<_> = this
+                            .ctl
+                            .workspace()
+                            .tabs_in(pane)
+                            .into_iter()
+                            .map(|t| t.id)
+                            .collect();
+                        if order.len() > 1 {
+                            let row = measured.get();
+                            this.tab_reorder = Some(kanso_gpui::app::tab::TabReorder::start(
+                                sid,
+                                order,
+                                ev.position.y.into(),
+                                (row.origin.y + row.size.height / 2.).into(),
+                                f32::from(row.size.height) + 2.,
+                            ));
+                        }
+                    }
                 }),
             )
             .on_mouse_down(

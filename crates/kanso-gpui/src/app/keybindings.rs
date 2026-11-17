@@ -552,7 +552,16 @@ impl KeybindingSettings {
 
     /// 恢复单个命令的默认键。若默认键正被别的命令占用，别的命令的覆盖优先，这里保持不绑定。
     pub fn restore(&mut self, id: &str) {
-        self.overrides.remove(id);
+        let Some(entry) = Self::entry(id) else {
+            return;
+        };
+        let available: Vec<_> = entry
+            .defaults
+            .iter()
+            .filter(|chord| self.holder(chord, id).is_none())
+            .cloned()
+            .collect();
+        self.store(&entry, &available);
     }
 
     /// 恢复整张表。
@@ -1001,6 +1010,25 @@ mod tests {
         );
         settings.clear("paste");
         assert_eq!(settings.keymap().text(AppCommand::Paste), None);
+        settings.restore("paste");
+        assert_eq!(
+            settings
+                .keymap()
+                .lookup(&input("insert", false, false, true)),
+            Some(AppCommand::Copy)
+        );
+        assert_eq!(
+            settings.keymap().lookup(&input("v", true, false, true)),
+            Some(AppCommand::Paste)
+        );
+        let paste = catalog()
+            .into_iter()
+            .find(|entry| entry.command == AppCommand::Paste)
+            .unwrap();
+        assert_eq!(
+            settings.chords_of(&paste),
+            vec![Chord::new(true, false, true, "v")]
+        );
         settings.restore_all();
         assert_eq!(
             settings.keymap().lookup(&input("a", true, false, true)),

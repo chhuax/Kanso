@@ -101,6 +101,7 @@ pub(crate) struct ShellView {
     subs: HashMap<SessionId, Subscription>,
     _window_subs: Vec<Subscription>,
     pub(super) sidebar_visible: bool,
+    pub(super) tab_reorder: Option<kanso_gpui::app::tab::TabReorder>,
     pub(super) palette: Option<super::toolbar::Palette>,
     pub(super) path_filter: Entity<super::widgets::text_input::TextInput>,
     drag: Option<DividerDrag>,
@@ -210,6 +211,7 @@ impl ShellView {
             subs: HashMap::new(),
             _window_subs: Vec::new(),
             sidebar_visible: true,
+            tab_reorder: None,
             palette: None,
             path_filter,
             drag: None,
@@ -307,6 +309,9 @@ impl ShellView {
 
         let activation = cx.observe_window_activation(window, |this, window, cx| {
             this.window_active = window.is_window_active();
+            if !this.window_active {
+                this.cancel_tab_reorder(cx);
+            }
             this.sync_focus(window, cx);
             let active = this.window_active;
             for t in this.terminals.values() {
@@ -599,6 +604,12 @@ impl ShellView {
             AppCommand::PrevBlock => self.with_active_terminal(cx, |t, cx| t.jump_block(false, cx)),
             AppCommand::NextBlock => self.with_active_terminal(cx, |t, cx| t.jump_block(true, cx)),
             AppCommand::ToggleTimeline => self.toggle_timeline(cx),
+            AppCommand::SetThemeMode(mode) => self
+                .settings
+                .update(cx, |m, cx| m.update_appearance(cx, |a| a.mode = mode)),
+            AppCommand::SetGutterMode(mode) => self
+                .settings
+                .update(cx, |m, cx| m.update_timeline(cx, |t| t.set_mode(mode))),
             AppCommand::CopyBlockCommand => {
                 self.with_active_terminal(cx, |t, cx| t.copy_menu_block(BlockPart::Command, cx))
             }
@@ -623,6 +634,17 @@ impl ShellView {
                 }
             }
             AppCommand::OpenSettings => self.open_settings(cx),
+            AppCommand::OpenDisplaySettings | AppCommand::OpenKeyboardSettings => {
+                self.open_settings(cx);
+                if let Some(handle) = self.settings_window {
+                    let page = if command == AppCommand::OpenDisplaySettings {
+                        1
+                    } else {
+                        2
+                    };
+                    let _ = handle.update(cx, |settings, _, cx| settings.select_page(page, cx));
+                }
+            }
             AppCommand::ResetSettings => self.request_reset_settings(window, cx),
             AppCommand::ToggleSender => self.toggle_sender(window, cx),
             AppCommand::ToggleCommandSuggestions => self.toggle_completion(window, cx),
@@ -865,7 +887,7 @@ impl ShellView {
         self.open_menu(tab_menu(ctx), position, window, cx);
     }
 
-    pub(super) fn app_menu_state(&self) -> AppMenuState {
+    pub(super) fn app_menu_state(&self, cx: &gpui::App) -> AppMenuState {
         AppMenuState {
             sidebar_visible: self.sidebar_visible,
             right_click_menu: self.right_click_menu,
@@ -873,6 +895,9 @@ impl ShellView {
             command_suggestions: self.completion.enabled,
             filer_visible: self.filer.visible(),
             git_visible: self.git.visible(),
+            gutter_mode: self.gutter_policy.global().mode,
+            theme_mode: self.settings.read(cx).appearance().mode,
+            tab_count: self.ctl.workspace().sidebar_order().len(),
         }
     }
 
@@ -882,7 +907,7 @@ impl ShellView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let items = app_menu(self.app_menu_state());
+        let items = app_menu(self.app_menu_state(cx));
         self.open_menu(items, anchor, window, cx);
     }
 
@@ -1303,6 +1328,14 @@ impl ShellView {
     }
 
     fn on_mouse_move(&mut self, ev: &MouseMoveEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(drag) = self.tab_reorder.as_mut() {
+            if ev.pressed_button != Some(MouseButton::Left) {
+                self.cancel_tab_reorder(cx);
+            } else if drag.update(ev.position.y.into()) {
+                cx.notify();
+            }
+            return;
+        }
         if self.sender_mouse_move(ev, cx) {
             return;
         }
@@ -1343,7 +1376,25 @@ impl ShellView {
         }
     }
 
-    fn on_mouse_up(&mut self, _ev: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    fn on_mouse_up(&mut self, ev: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(mut drag) = self.tab_reorder.take() {
+            drag.update(ev.position.y.into());
+            if let (Some(index), Some(pane)) =
+                (drag.insertion, self.ctl.workspace().pane_of(drag.session))
+            {
+                let same_group = self
+                    .ctl
+                    .workspace()
+                    .tabs_in(pane)
+                    .into_iter()
+                    .map(|item| item.id)
+                    .eq(drag.order);
+                if same_group {
+                    self.ctl.reorder_tab(drag.session, index);
+                }
+            }
+            cx.notify();
+        }
         self.sender.drag = None;
         self.filer_drag_end();
         self.git_drag_end();
@@ -1611,7 +1662,13 @@ impl Render for ShellView {
             .capture_key_down(cx.listener(Self::on_capture_key))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
-            .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|this, ev, window, cx| {
+                    this.cancel_tab_reorder(cx);
+                    this.on_mouse_up(ev, window, cx);
+                }),
+            )
             .children(sidebar)
             .children(filer_panels)
             .children(git_panels)

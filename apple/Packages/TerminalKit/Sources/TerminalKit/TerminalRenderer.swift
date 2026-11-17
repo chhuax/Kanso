@@ -241,7 +241,8 @@ public final class TerminalRenderer {
             pixelFormat: MetalResources.colorPixelFormat, width: width, height: height, mipmapped: false
         )
         desc.usage = .renderTarget
-        desc.storageMode = .shared
+        // 独显在 GPU 与 CPU 间分别保存纹理，读回前需要显式同步。
+        desc.storageMode = device.hasUnifiedMemory ? .shared : .managed
         guard let texture = device.makeTexture(descriptor: desc) else { return nil }
         guard draw(frame: frame, target: texture, scale: scale, appearance: appearance, present: nil, wait: true) else {
             return nil
@@ -327,6 +328,11 @@ public final class TerminalRenderer {
         drawGlyphs(layoutBuffers.color, color: true)
         drawRects(layoutBuffers.decoration)
         encoder.endEncoding()
+        if wait, target.storageMode == .managed {
+            guard let blit = commandBuffer.makeBlitCommandEncoder() else { return false }
+            blit.synchronize(resource: target)
+            blit.endEncoding()
+        }
 
         if let drawable { commandBuffer.present(drawable) }
         let semaphore = inFlight

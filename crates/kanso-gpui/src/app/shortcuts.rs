@@ -61,6 +61,10 @@ pub enum AppCommand {
     Quit,
     /// 打开设置（显示设置）。
     OpenSettings,
+    /// 从视图菜单直接打开显示设置页。
+    OpenDisplaySettings,
+    /// 从视图菜单直接打开键盘快捷键页。
+    OpenKeyboardSettings,
     /// 导出数据（`.kanso` 文件，会话菜单）。
     ExportData,
     /// 导入数据（`.kanso` 文件，会话菜单）。
@@ -85,6 +89,10 @@ pub enum AppCommand {
     NextBlock,
     /// 状态栏的时间戳栏开关（AI 会话里只作用于当前会话）。
     ToggleTimeline,
+    /// 设置时间戳与行号的全局显示模式。
+    SetGutterMode(super::settings::GutterMode),
+    /// 从视图菜单切换外观。
+    SetThemeMode(super::settings::ThemeMode),
     /// 复制右键所在命令块的命令。
     CopyBlockCommand,
     /// 复制右键所在命令块的输出。

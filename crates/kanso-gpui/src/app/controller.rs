@@ -123,6 +123,11 @@ impl<B: AppBackend + Clone> AppController<B> {
         &self.workspace
     }
 
+    /// 只调整同一分屏内的显示顺序，当前会话与终端可见性保持一致。
+    pub fn reorder_tab(&mut self, session: SessionId, index: usize) -> bool {
+        self.workspace.move_tab(session, index)
+    }
+
     /// 提示队列。视图用它读当前提示、写入输入、提交 / 取消。
     pub fn prompts(&self) -> &PromptQueue<B> {
         &self.prompts

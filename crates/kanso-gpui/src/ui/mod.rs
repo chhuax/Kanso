@@ -11,6 +11,7 @@
 //! - `selftest` / `shell_selftest`：`--selftest` 自检（终端阶段 + 多标签 / 分屏阶段）；
 //! - `memory`：进程内存读数（日志用）。
 
+mod clipboard;
 mod decor;
 mod demo_dialog;
 mod demo_dropdown;

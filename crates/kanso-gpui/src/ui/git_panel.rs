@@ -969,7 +969,7 @@ impl Render for GitPanelView {
                     .justify_center()
                     .text_size(px(12.0))
                     .text_color(th.c("text.secondary"))
-                    .child(div().text_center().child(text)),
+                    .child(div().w_full().min_w_0().text_center().child(text)),
             );
         } else {
             let files: Vec<FileRow> = self

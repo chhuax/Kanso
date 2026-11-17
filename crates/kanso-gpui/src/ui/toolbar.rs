@@ -64,6 +64,18 @@ enum Target {
     Tab(SessionId),
     Profile(ProfileId),
     Command(AppCommand),
+    File(SessionId, std::path::PathBuf),
+}
+
+impl Target {
+    fn group(&self) -> usize {
+        match self {
+            Self::Tab(_) => 0,
+            Self::Profile(_) => 1,
+            Self::Command(_) => 2,
+            Self::File(..) => 3,
+        }
+    }
 }
 
 struct Hit {
@@ -84,17 +96,26 @@ pub(super) struct Palette {
 impl Palette {
     fn filter(&mut self, query: &str) {
         let q = query.trim().to_lowercase();
-        self.visible = self
-            .hits
-            .iter()
-            .enumerate()
-            .filter(|(_, hit)| {
-                q.is_empty()
-                    || hit.title.to_lowercase().contains(&q)
-                    || hit.detail.to_lowercase().contains(&q)
-            })
-            .map(|(i, _)| i)
-            .collect();
+        let mut ranked = Vec::new();
+        for (index, hit) in self.hits.iter().enumerate() {
+            let score = if q.is_empty() {
+                Some(0)
+            } else {
+                [hit.title.as_str(), hit.detail.as_str()]
+                    .into_iter()
+                    .filter_map(|text| kanso_gpui::app::launcher::command_search_score(text, &q))
+                    .min()
+            };
+            if let Some(score) = score {
+                ranked.push((hit.target.group(), score, index));
+            }
+        }
+        ranked.sort_by(|a, b| {
+            (a.0, a.1)
+                .cmp(&(b.0, b.1))
+                .then_with(|| self.hits[a.2].title.cmp(&self.hits[b.2].title))
+        });
+        self.visible = ranked.into_iter().map(|(_, _, index)| index).collect();
         self.selected = 0;
         self.scroll.set_offset(point(px(0.), px(0.)));
     }
@@ -131,6 +152,10 @@ fn menu_hits(items: Vec<MenuItem>, out: &mut Vec<Hit>) {
 impl ShellView {
     pub(super) fn open_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let ws = self.ctl.workspace();
+        let local_session = ws.active_session().filter(|id| {
+            ws.item(*id)
+                .is_some_and(|item| item.kind == kanso_gpui::app::tab::TabKind::Local)
+        });
         let mut hits = Vec::new();
         for id in ws.sidebar_order() {
             if let Some(item) = ws.item(id) {
@@ -155,11 +180,11 @@ impl ShellView {
                 target: Target::Profile(p.id),
             });
         }
-        menu_hits(app_menu(self.app_menu_state()), &mut hits);
+        menu_hits(app_menu(self.app_menu_state(cx)), &mut hits);
         let input = cx.new(|cx| {
             TextInput::new(window, cx)
                 .search()
-                .placeholder(Message::UiSearch {})
+                .placeholder(Message::UiPaletteHint {})
         });
         let subscription = cx.subscribe_in(
             &input,
@@ -178,13 +203,52 @@ impl ShellView {
         );
         input.read(cx).focus(window);
         self.palette = Some(Palette {
-            input,
+            input: input.clone(),
             _subscription: subscription,
             visible: (0..hits.len()).collect(),
             hits,
             selected: 0,
             scroll: ScrollHandle::new(),
         });
+        if let Some(session) = local_session {
+            let core = self.core.clone();
+            cx.spawn(async move |this, cx| {
+                let Ok(dir) = core.working_directory(session).await else {
+                    return;
+                };
+                let files = cx
+                    .background_executor()
+                    .spawn(async move {
+                        std::fs::read_dir(dir)
+                            .into_iter()
+                            .flatten()
+                            .filter_map(Result::ok)
+                            .map(|entry| Hit {
+                                title: entry.file_name().to_string_lossy().into_owned(),
+                                detail: String::new(),
+                                target: Target::File(session, entry.path()),
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .await;
+                let _ = this.update(cx, |this, cx| {
+                    let Some(p) = this.palette.as_mut().filter(|p| p.input == input) else {
+                        return;
+                    };
+                    let previous = p.visible.get(p.selected).copied();
+                    let query = input.read(cx).text().to_owned();
+                    p.hits.extend(files);
+                    p.filter(&query);
+                    if let Some(position) =
+                        previous.and_then(|id| p.visible.iter().position(|index| *index == id))
+                    {
+                        p.selected = position;
+                    }
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
         cx.notify();
     }
 
@@ -205,6 +269,7 @@ impl ShellView {
             Target::Tab(id) => self.activate_session(id, window, cx),
             Target::Profile(id) => self.connect_profile(id, window, cx),
             Target::Command(cmd) => self.run_command(cmd, window, cx),
+            Target::File(sid, path) => self.reveal_palette_file(sid, &path, window, cx),
         }
     }
 
@@ -346,45 +411,65 @@ impl ShellView {
             .flex_col()
             .px(px(6.))
             .py(px(4.));
+        let mut last_group = None;
         for (row, &index) in p.visible.iter().enumerate() {
             let hit = &p.hits[index];
+            let group = hit.target.group();
+            let header = (last_group != Some(group)).then(|| {
+                let message = [
+                    Message::UiPaletteTabs {},
+                    Message::UiPaletteSessions {},
+                    Message::UiPaletteCommands {},
+                    Message::UiFiles {},
+                ];
+                div()
+                    .px(px(8.))
+                    .py(px(4.))
+                    .text_size(px(11.))
+                    .text_color(th.c("text.secondary"))
+                    .child(render_message(&message[group]))
+            });
+            last_group = Some(group);
             let symbol = match hit.target {
                 Target::Tab(_) => "square-terminal",
                 Target::Profile(_) => "server",
                 Target::Command(_) => "menu",
+                Target::File(..) => "file",
             };
             list = list.child(
-                div()
-                    .id(("result", row))
-                    .h(px(32.))
-                    .flex_none()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .px(px(8.))
-                    .rounded(px(5.))
-                    .cursor_pointer()
-                    .when(row == p.selected, |s| s.bg(th.c("bg.tabSelected")))
-                    .hover(|s| s.bg(th.c("bg.rowHover")))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, _: &MouseDownEvent, w, cx| {
-                            cx.stop_propagation();
-                            if let Some(p) = &mut this.palette {
-                                p.selected = row;
-                            }
-                            this.choose_result(w, cx);
-                        }),
-                    )
-                    .child(icon(symbol, 14., th.c("text.secondary")))
-                    .child(div().min_w_0().flex_1().truncate().child(hit.title.clone()))
-                    .child(
-                        div()
-                            .max_w(px(160.))
-                            .truncate()
-                            .text_color(th.c("text.secondary"))
-                            .child(hit.detail.clone()),
-                    ),
+                div().children(header).child(
+                    div()
+                        .id(("result", row))
+                        .h(px(32.))
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .px(px(8.))
+                        .rounded(px(5.))
+                        .cursor_pointer()
+                        .when(row == p.selected, |s| s.bg(th.c("bg.tabSelected")))
+                        .hover(|s| s.bg(th.c("bg.rowHover")))
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |this, _: &MouseDownEvent, w, cx| {
+                                cx.stop_propagation();
+                                if let Some(p) = &mut this.palette {
+                                    p.selected = row;
+                                }
+                                this.choose_result(w, cx);
+                            }),
+                        )
+                        .child(icon(symbol, 14., th.c("text.secondary")))
+                        .child(div().min_w_0().flex_1().truncate().child(hit.title.clone()))
+                        .child(
+                            div()
+                                .max_w(px(160.))
+                                .truncate()
+                                .text_color(th.c("text.secondary"))
+                                .child(hit.detail.clone()),
+                        ),
+                ),
             );
         }
         if p.visible.is_empty() {

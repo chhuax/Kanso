@@ -23,18 +23,11 @@ fn check(results: &mut Vec<bool>, name: &str, ok: bool, detail: &str) {
     results.push(ok);
 }
 
-/// 在 `dir` 里跑 git（带固定身份，不读用户配置里的钩子之类），返回标准输出。
+/// 在临时仓库中运行 Git 并取回标准输出。
 fn run(dir: &Path, args: &[&str]) -> Option<String> {
     let out = Command::new("git")
         .arg("-C")
         .arg(dir)
-        .args([
-            "-c",
-            "user.name=kanso",
-            "-c",
-            "user.email=kanso@example.invalid",
-        ])
-        .args(["-c", "commit.gpgsign=false", "-c", "core.autocrlf=false"])
         .args(args)
         .output()
         .ok()?;
@@ -54,6 +47,11 @@ impl ShellView {
 
             // 0. 准备仓库：一个提交，然后改一个文件、加一个未跟踪文件。
             let ready = run(&dir, &["init", "-q", "-b", "main"]).is_some()
+                // 面板会自行启动 Git，提交身份和换行规则须写进这个测试仓库。
+                && run(&dir, &["config", "user.name", "Kanso Test"]).is_some()
+                && run(&dir, &["config", "user.email", "test@example.invalid"]).is_some()
+                && run(&dir, &["config", "commit.gpgsign", "false"]).is_some()
+                && run(&dir, &["config", "core.autocrlf", "false"]).is_some()
                 && std::fs::write(dir.join("a.txt"), "one\ntwo\nthree\n").is_ok()
                 && run(&dir, &["add", "--all"]).is_some()
                 && run(&dir, &["commit", "-q", "-m", "init"]).is_some()

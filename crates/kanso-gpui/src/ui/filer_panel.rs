@@ -132,6 +132,8 @@ pub(crate) struct Pane {
     list_task: Option<Task<()>>,
     /// 连接成功后要进入的初始目录（定位请求先于连接完成时）。
     initial: Option<String>,
+    /// 当前目录读取结束后需要选中的文件。
+    reveal_name: Option<String>,
 }
 
 /// 文件面板。
@@ -285,6 +287,7 @@ impl FilerPanel {
             copy_cancel: Arc::new(AtomicBool::new(false)),
             list_task: None,
             initial: None,
+            reveal_name: None,
         });
         self.panes.len() - 1
     }
@@ -418,6 +421,19 @@ impl FilerPanel {
         }
     }
 
+    pub(super) fn reveal_file(
+        &mut self,
+        sid: SessionId,
+        dir: String,
+        name: String,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(&idx) = self.by_session.get(&sid) {
+            self.navigate(idx, dir, cx);
+            self.panes[idx].reveal_name = Some(name);
+        }
+    }
+
     // ---- 目录读取 ----
 
     /// 进入目录 `path`：先读取，成功后才换掉当前列表；失败时保留旧列表并显示原因。
@@ -426,6 +442,7 @@ impl FilerPanel {
             let p = &self.panes[idx];
             (p.source, p.style)
         };
+        self.panes[idx].reveal_name = None;
         let generation = self.panes[idx].browse.begin(&path);
         log(&format!(
             "Filer 读取 {path:?}（栏 {idx}，请求 #{generation}）"
@@ -568,6 +585,15 @@ impl FilerPanel {
                     if clear {
                         pane.model.clear();
                         pane.sel.clear();
+                    }
+                    if let Some(name) = pane.reveal_name.take()
+                        && let Some((pos, id)) = (0..pane.model.visible_len()).find_map(|pos| {
+                            let (id, row) = pane.model.visible_at(pos)?;
+                            (row.name == name).then_some((pos, id))
+                        })
+                    {
+                        pane.sel.select_only(id);
+                        pane.scroll.scroll_to_item(pos, ScrollStrategy::Center);
                     }
                     let path = pane.browse.path.clone();
                     pane.path_input.update(cx, |i, cx| i.set_text(&path, cx));

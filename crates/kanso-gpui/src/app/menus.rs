@@ -43,6 +43,8 @@ pub fn encode(command: AppCommand) -> String {
         AppCommand::OpenPalette => "open-palette".into(),
         AppCommand::OpenLauncher => "open-launcher".into(),
         AppCommand::OpenSettings => "open-settings".into(),
+        AppCommand::OpenDisplaySettings => "open-display-settings".into(),
+        AppCommand::OpenKeyboardSettings => "open-keyboard-settings".into(),
         AppCommand::NewSession => "new-session".into(),
         AppCommand::ExportData => "export-data".into(),
         AppCommand::ImportData => "import-data".into(),
@@ -55,7 +57,9 @@ pub fn encode(command: AppCommand) -> String {
         AppCommand::FindPrev => "find-prev".into(),
         AppCommand::PrevBlock => "prev-block".into(),
         AppCommand::NextBlock => "next-block".into(),
+        AppCommand::SetThemeMode(mode) => format!("appearance:{}", mode.storage()),
         AppCommand::ToggleTimeline => "toggle-timeline".into(),
+        AppCommand::SetGutterMode(mode) => format!("gutter:{}", mode.storage()),
         AppCommand::CopyBlockCommand => "copy-block-command".into(),
         AppCommand::CopyBlockOutput => "copy-block-output".into(),
         AppCommand::ToggleSender => "toggle-sender".into(),
@@ -107,6 +111,12 @@ pub fn decode(id: &str) -> Option<AppCommand> {
         let (scope, sid) = rest.split_once(':')?;
         return Some(AppCommand::CloseGroup(scope_from(scope)?, session(sid)?));
     }
+    if let Some(mode) = id.strip_prefix("appearance:") {
+        return super::settings::ThemeMode::from_storage(mode).map(AppCommand::SetThemeMode);
+    }
+    if let Some(mode) = id.strip_prefix("gutter:") {
+        return super::settings::GutterMode::from_storage(mode).map(AppCommand::SetGutterMode);
+    }
     Some(match id {
         "new-local-tab" => AppCommand::NewLocalTab,
         "close-session" => AppCommand::CloseSession,
@@ -126,6 +136,8 @@ pub fn decode(id: &str) -> Option<AppCommand> {
         "open-palette" => AppCommand::OpenPalette,
         "open-launcher" => AppCommand::OpenLauncher,
         "open-settings" => AppCommand::OpenSettings,
+        "open-display-settings" => AppCommand::OpenDisplaySettings,
+        "open-keyboard-settings" => AppCommand::OpenKeyboardSettings,
         "new-session" => AppCommand::NewSession,
         "export-data" => AppCommand::ExportData,
         "import-data" => AppCommand::ImportData,
@@ -271,6 +283,12 @@ pub struct AppMenuState {
     pub filer_visible: bool,
     /// Git 改动面板是否显示。
     pub git_visible: bool,
+    /// 全局时间栏设置。
+    pub gutter_mode: super::settings::GutterMode,
+    /// 外观的设置值（包括跟随系统）。
+    pub theme_mode: super::settings::ThemeMode,
+    /// 可选的前九个标签数量。
+    pub tab_count: usize,
 }
 
 /// 窗口级应用菜单（Windows / Linux 没有系统菜单栏，spec §6 末段：放在应用内）。
@@ -281,23 +299,42 @@ pub fn app_menu(state: AppMenuState) -> Vec<MenuItem> {
         MenuItem::submenu(
             label(Message::UiSession {}),
             vec![
-                item(label(Message::UiNewSession2 {}), AppCommand::OpenLauncher),
+                item(label(Message::UiNewSession2 {}), AppCommand::NewSession),
                 item(label(Message::UiNewLocalShell {}), AppCommand::NewLocalTab),
                 MenuItem::separator(),
                 item(label(Message::UiPreviousTab {}), AppCommand::PrevTab),
                 item(label(Message::UiNextTab {}), AppCommand::NextTab),
                 item(label(Message::UiPreviousPane {}), AppCommand::PrevPane),
                 item(label(Message::UiNextPane {}), AppCommand::NextPane),
-                MenuItem::separator(),
-                item(label(Message::UiCloseSession {}), AppCommand::CloseSession),
-                MenuItem::separator(),
-                item(label(Message::UiExportData {}), AppCommand::ExportData),
-                item(label(Message::UiImportData2 {}), AppCommand::ImportData),
-                item(
-                    label(Message::UiImportOpensshConfig2 {}),
-                    AppCommand::ImportSshConfig,
+                MenuItem::submenu(
+                    label(Message::UiGoToTab {}),
+                    (0..9)
+                        .map(|index| {
+                            let entry = item(
+                                &t(Message::UiTabNumber {
+                                    number: (index + 1) as i64,
+                                }),
+                                AppCommand::SelectTab(index),
+                            );
+                            if index < state.tab_count {
+                                entry
+                            } else {
+                                entry.disabled()
+                            }
+                        })
+                        .collect(),
                 ),
                 MenuItem::separator(),
+                MenuItem::submenu(
+                    label(Message::UiGutterMenu {}),
+                    super::settings::GutterMode::ALL
+                        .into_iter()
+                        .map(|mode| {
+                            item(mode.label(), AppCommand::SetGutterMode(mode))
+                                .checked(mode == state.gutter_mode)
+                        })
+                        .collect(),
+                ),
                 MenuItem::submenu(
                     msg(Message::UiXferMenu {}),
                     vec![
@@ -314,6 +351,15 @@ pub fn app_menu(state: AppMenuState) -> Vec<MenuItem> {
                         ),
                     ],
                 ),
+                MenuItem::separator(),
+                item(
+                    label(Message::UiImportOpensshConfig2 {}),
+                    AppCommand::ImportSshConfig,
+                ),
+                item(label(Message::UiExportData {}), AppCommand::ExportData),
+                item(label(Message::UiImportData2 {}), AppCommand::ImportData),
+                MenuItem::separator(),
+                item(label(Message::UiCloseSession {}), AppCommand::CloseSession),
             ],
         ),
         MenuItem::submenu(
@@ -324,6 +370,12 @@ pub fn app_menu(state: AppMenuState) -> Vec<MenuItem> {
                 item(label(Message::UiSelectAll {}), AppCommand::SelectAll),
                 MenuItem::separator(),
                 item(label(Message::UiClearBuffer {}), AppCommand::ClearBuffer),
+                item(label(Message::UiKeysCmdPrevBlock {}), AppCommand::PrevBlock),
+                item(label(Message::UiKeysCmdNextBlock {}), AppCommand::NextBlock),
+                MenuItem::separator(),
+                item(label(Message::UiKeysCmdFind {}), AppCommand::Find),
+                item(label(Message::UiKeysCmdFindNext {}), AppCommand::FindNext),
+                item(label(Message::UiKeysCmdFindPrev {}), AppCommand::FindPrev),
                 MenuItem::separator(),
                 item(
                     &t(Message::UiMenuCommandSuggestions {}),
@@ -354,8 +406,41 @@ pub fn app_menu(state: AppMenuState) -> Vec<MenuItem> {
                 item(&msg(Message::UiGitMenuView {}), AppCommand::ToggleGit)
                     .checked(state.git_visible),
                 MenuItem::separator(),
+                item(
+                    label(Message::UiFilerMenuLocate {}),
+                    AppCommand::LocateFiler,
+                ),
+                item(
+                    label(Message::UiKeysCmdOpenPalette {}),
+                    AppCommand::OpenPalette,
+                ),
+                MenuItem::separator(),
                 item(label(Message::UiSplitRight {}), AppCommand::SplitRight),
                 item(label(Message::UiSplitDown {}), AppCommand::SplitDown),
+                MenuItem::separator(),
+                item(label(Message::UiKeysCmdZoomIn {}), AppCommand::ZoomIn),
+                item(label(Message::UiKeysCmdZoomOut {}), AppCommand::ZoomOut),
+                item(label(Message::UiKeysCmdZoomReset {}), AppCommand::ZoomReset),
+                MenuItem::separator(),
+                MenuItem::submenu(
+                    label(Message::UiAppearance {}),
+                    super::settings::ThemeMode::ALL
+                        .into_iter()
+                        .map(|mode| {
+                            item(mode.label(), AppCommand::SetThemeMode(mode))
+                                .checked(mode == state.theme_mode)
+                        })
+                        .collect(),
+                ),
+                MenuItem::separator(),
+                item(
+                    label(Message::UiDisplaySettingsMenu {}),
+                    AppCommand::OpenDisplaySettings,
+                ),
+                item(
+                    label(Message::UiKeyboardSettingsMenu {}),
+                    AppCommand::OpenKeyboardSettings,
+                ),
             ],
         ),
         MenuItem::separator(),
@@ -423,6 +508,8 @@ mod tests {
             AppCommand::Quit,
             AppCommand::OpenLauncher,
             AppCommand::OpenSettings,
+            AppCommand::OpenDisplaySettings,
+            AppCommand::OpenKeyboardSettings,
             AppCommand::NewSession,
             AppCommand::ExportData,
             AppCommand::ImportData,
@@ -474,6 +561,9 @@ mod tests {
             command_suggestions: true,
             filer_visible: false,
             git_visible: false,
+            gutter_mode: super::super::settings::GutterMode::Off,
+            theme_mode: super::super::settings::ThemeMode::System,
+            tab_count: 2,
         };
         for items in [
             terminal_menu(true, Some(BlockMenu { copy_command: true })),
@@ -569,10 +659,17 @@ mod tests {
             command_suggestions: true,
             filer_visible: true,
             git_visible: false,
+            gutter_mode: super::super::settings::GutterMode::Off,
+            theme_mode: super::super::settings::ThemeMode::System,
+            tab_count: 2,
         });
         let flat = all(&items);
         for want in [
-            "open-launcher",
+            "new-session",
+            "gutter:timestamps",
+            "appearance:system",
+            "find",
+            "select-tab:0",
             "new-local-tab",
             "close-session",
             "export-data",

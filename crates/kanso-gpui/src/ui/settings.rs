@@ -2,7 +2,7 @@
 //!
 //! - [`SettingsModel`]：持有 [`SettingsStore`]（纯逻辑，写核心的设置表）的实体，任何改动都会发出
 //!   [`SettingsEvent::Changed`]；外壳订阅它来即时刷新终端与界面，设置窗口订阅它来刷新控件。
-//! - [`SettingsView`]：独立的设置窗口。分组卡片：外观、终端字体、光标、回滚、时间轴、界面字体。
+//! - [`SettingsView`]：独立的设置窗口。分组卡片：外观、终端字体、光标、回滚、对比度、界面字体。
 //!   外观与分组的结构照 mac 版 `DisplaySettingsViewController`；改动立即生效并持久化。
 //!
 //! 字体：终端字体下拉只列等宽字体（用步进宽度探测，后台线程完成，列表稍后补齐），界面字体下拉列全部；
@@ -21,7 +21,7 @@ use kanso_gpui::app::i18n::{Lang, LanguageSetting, label, lang};
 use kanso_gpui::app::keybindings::{self, KeybindingSettings};
 use kanso_gpui::app::settings::NumericSetting;
 use kanso_gpui::app::settings::{
-    AppearanceSettings, BUILTIN_THEMES, CursorShapeSetting, DisplaySettings, GutterMode, Section,
+    AppearanceSettings, BUILTIN_THEMES, CursorShapeSetting, DisplaySettings, Section,
     SettingsStore, ThemeMode, TimelineSettings, clean_font_names, is_monospace, pick_nerd_fallback,
 };
 use kanso_gpui::widgets::dropdown::Item;
@@ -299,6 +299,12 @@ fn theme_index(themes: &[(String, String)], id: &str, fallback: usize) -> usize 
 }
 
 impl SettingsView {
+    pub(super) fn select_page(&mut self, page: usize, cx: &mut Context<Self>) {
+        self.page = page;
+        self.keys.cancel();
+        cx.notify();
+    }
+
     pub(crate) fn new(
         model: Entity<SettingsModel>,
         window: &mut Window,
@@ -832,9 +838,9 @@ impl Render for SettingsView {
             self.titlebar_dark = Some(dark);
         }
         let th = Th(display::window_appearance(window));
-        let (d, t, a) = {
+        let (d, a) = {
             let m = self.model.read(cx);
-            (m.display().clone(), *m.timeline(), m.appearance().clone())
+            (m.display().clone(), m.appearance().clone())
         };
 
         if self.labels_language != lang() {
@@ -1029,33 +1035,6 @@ impl Render for SettingsView {
             ],
         );
 
-        // 时间轴
-        let gutter_idx = GutterMode::ALL
-            .iter()
-            .position(|g| *g == t.mode)
-            .unwrap_or(0);
-        let timeline_card = card(
-            &th,
-            &render_message(&Message::UiTimeline {}),
-            "clock",
-            vec![row(
-                &th,
-                &render_message(&Message::UiDisplay {}),
-                segmented(
-                    &th,
-                    cx,
-                    "gutter",
-                    &GutterMode::ALL.map(GutterMode::label),
-                    gutter_idx,
-                    |this, i, cx| {
-                        this.model.update(cx, |m, cx| {
-                            m.update_timeline(cx, |t| t.set_mode(GutterMode::ALL[i]))
-                        })
-                    },
-                ),
-            )],
-        );
-
         // 界面字体
         let ui_card = card(
             &th,
@@ -1154,9 +1133,7 @@ impl Render for SettingsView {
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _, _, cx| {
-                            this.page = i;
-                            this.keys.cancel();
-                            cx.notify();
+                            this.select_page(i, cx);
                         }),
                     )
                     .child(icon(symbol, 22.0, th.c("text.secondary")))
@@ -1164,8 +1141,8 @@ impl Render for SettingsView {
             );
         }
         let cards = match self.page {
-            0 => vec![appearance_card, language_card, timeline_card, ui_card],
-            1 => vec![font_card, cursor_card, scroll_card, contrast_card],
+            0 => vec![appearance_card, language_card],
+            1 => vec![font_card, cursor_card, scroll_card, contrast_card, ui_card],
             _ => self.keys_cards(&th, cx),
         };
         div()

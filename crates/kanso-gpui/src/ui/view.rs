@@ -310,6 +310,7 @@ impl TerminalView {
     /// 显示设置里的字体 / 字号 / 行距变了：重新量字体，并把新的单元格像素尺寸告知会话。
     /// 行列数由绘制时的元素按新度量重新计算（变了会走 `apply_resize`）。
     pub(crate) fn apply_display(&mut self, window: &Window, cx: &mut Context<Self>) {
+        self.sync_find_bar(cx);
         if self.set_min_contrast(super::display::min_contrast()) {
             cx.notify();
         }
@@ -750,10 +751,10 @@ impl TerminalView {
     }
 
     pub(crate) fn paste(&mut self, cx: &mut Context<Self>) {
-        if let Some(text) = cx.read_from_clipboard().and_then(|i| i.text()) {
+        if let Some(content) = super::clipboard::read_terminal_paste(cx) {
             self.snap_to_bottom();
             self.block_sel.clear();
-            if let Err(e) = self.core.paste(self.session, PasteContent::Text(text)) {
+            if let Err(e) = self.core.paste(self.session, content) {
                 log(&format!("paste 失败：{e}"));
             }
         }

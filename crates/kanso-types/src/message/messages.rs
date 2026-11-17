@@ -247,9 +247,23 @@ messages! {
     /// 主窗口：文件浏览器。
     UiFileBrowser = "ui-file-browser" {},
     /// 主窗口：没有匹配结果。
+    UiPaletteTabs = "ui-palette-tabs" {},
+    /// 命令面板的已保存会话。
+    UiPaletteSessions = "ui-palette-sessions" {},
+    /// 命令面板的命令分组。
+    UiPaletteCommands = "ui-palette-commands" {},
+    /// 命令面板搜索范围。
+    UiPaletteHint = "ui-palette-hint" {},
+    /// 搜索没有匹配项。
     UiSearchEmpty = "ui-search-empty" {},
     /// GPUI 设置页面：时间轴。
     UiTimeline = "ui-timeline" {},
+    /// 会话菜单的时间栏模式选择。
+    UiGoToTab = "ui-go-to-tab" {},
+    /// 按序号切换标签。
+    UiTabNumber = "ui-tab-number" { number: i64 },
+    /// 切换时间栏模式。
+    UiGutterMenu = "ui-gutter-menu" {},
     /// GPUI 设置页面：界面字体。
     UiInterfaceFont = "ui-interface-font" {},
     /// GPUI 设置页面：设置。
@@ -1249,6 +1263,10 @@ messages! {
     // ---- 键盘设置页与恢复默认设置（GPUI） ----
     /// GPUI 界面文字：ui-keys-page
     UiKeysPage = "ui-keys-page" {},
+    /// 视图菜单的显示设置入口。
+    UiDisplaySettingsMenu = "ui-display-settings-menu" {},
+    /// 视图菜单的键盘快捷键入口。
+    UiKeyboardSettingsMenu = "ui-keyboard-settings-menu" {},
     /// GPUI 界面文字：ui-keys-group-other
     UiKeysGroupOther = "ui-keys-group-other" {},
     /// GPUI 界面文字：ui-keys-hint

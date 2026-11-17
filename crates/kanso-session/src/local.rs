@@ -14,9 +14,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use kanso_encoding::{StreamDecoder, TextEncoding, encode_text};
 use kanso_frame::Frame;
 use kanso_pty::{
-    EnvOptions, EnvSnapshot, Platform as PtyPlatform, PtyError, PtySession, SpawnConfig,
-    SystemLocaleInfo, ZshIntegration, build_env, decide_locale, install_zsh_shim, resolve_command,
-    system_locale_exists,
+    CommandSpec, EnvChange, EnvOptions, EnvSnapshot, Platform as PtyPlatform, PtyError, PtySession,
+    SpawnConfig, SystemLocaleInfo, ZshIntegration, build_env, decide_locale, install_zsh_shim,
+    resolve_command, system_locale_exists,
 };
 use kanso_term::{
     InputKind, KeyOptions, MouseOutcome, OptionAsMeta, Platform as KeyPlatform, Registered,
@@ -299,6 +299,46 @@ pub(crate) enum StartError {
     Thread(std::io::Error),
 }
 
+/// 只在交互 CMD 提示符中报告目录，保留用户可见的提示符和批处理的输出。
+fn cmd_cwd_prompt(
+    command: &CommandSpec,
+    platform: PtyPlatform,
+    env: &EnvSnapshot,
+) -> Option<EnvChange> {
+    let name = command.program.rsplit(['/', '\\']).next()?;
+    if platform != PtyPlatform::Windows
+        || !(name.eq_ignore_ascii_case("cmd") || name.eq_ignore_ascii_case("cmd.exe"))
+        || !command.args.iter().all(|arg| {
+            matches!(
+                arg.to_ascii_lowercase().as_str(),
+                "/d" | "/q"
+                    | "/a"
+                    | "/u"
+                    | "/s"
+                    | "/e:on"
+                    | "/e:off"
+                    | "/v:on"
+                    | "/v:off"
+                    | "/f:on"
+                    | "/f:off"
+            )
+        })
+    {
+        return None;
+    }
+    let inherited = env
+        .iter()
+        .find(|(key, _)| key.eq_ignore_ascii_case("PROMPT"));
+    let (key, visible) = inherited.unwrap_or(("PROMPT".as_ref(), "$P$G".as_ref()));
+    let marker = r#"$E]9;9;"$P"$E\"#;
+    if visible.to_string_lossy().starts_with(marker) {
+        return None;
+    }
+    let mut prompt = std::ffi::OsString::from(marker);
+    prompt.push(visible);
+    Some((key.to_owned(), Some(prompt)))
+}
+
 impl LocalSession {
     /// 启动 shell 并创建会话，但还不开始读输出、不发任何事件；随后必须调用 [`LocalSession::activate`]。
     ///
@@ -347,7 +387,7 @@ impl LocalSession {
             },
             system_locale_exists,
         );
-        let changes = build_env(
+        let mut changes = build_env(
             &base,
             &EnvOptions {
                 term_program_version: cfg.app_version.clone(),
@@ -355,6 +395,11 @@ impl LocalSession {
                 zsh,
             },
         );
+        if cfg.shell_integration
+            && let Some(prompt) = cmd_cwd_prompt(&command, platform, &base)
+        {
+            changes.push(prompt);
+        }
         let env = base.apply(&changes);
 
         let home = env.get_non_empty("HOME").map(PathBuf::from);
@@ -1213,6 +1258,35 @@ fn expand_home(dir: PathBuf, home: Option<&Path>) -> PathBuf {
     match dir.strip_prefix("~") {
         Ok(rest) => home.join(rest),
         Err(_) => dir,
+    }
+}
+
+#[cfg(test)]
+mod cmd_prompt_tests {
+    use super::*;
+
+    #[test]
+    fn windows_interactive_cmd_reports_each_prompt_without_replacing_it() {
+        let mut command = CommandSpec {
+            program: r"C:\Windows\System32\CMD.EXE".into(),
+            args: vec!["/D".into()],
+        };
+        let base = EnvSnapshot::from_pairs([("Prompt", "$T $P$G")]);
+        let (key, value) = cmd_cwd_prompt(&command, PtyPlatform::Windows, &base).unwrap();
+        assert_eq!(key, "Prompt");
+        assert_eq!(value.unwrap(), r#"$E]9;9;"$P"$E\$T $P$G"#);
+        assert!(cmd_cwd_prompt(&command, PtyPlatform::Linux, &base).is_none());
+        for arguments in [
+            vec!["/C", "echo hello > result"],
+            vec!["/cecho"],
+            vec!["/K", "custom.cmd"],
+        ] {
+            command.args = arguments.into_iter().map(str::to_owned).collect();
+            assert!(cmd_cwd_prompt(&command, PtyPlatform::Windows, &base).is_none());
+        }
+        command.program = "powershell.exe".into();
+        command.args.clear();
+        assert!(cmd_cwd_prompt(&command, PtyPlatform::Windows, &base).is_none());
     }
 }
 

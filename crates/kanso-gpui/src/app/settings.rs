@@ -394,7 +394,7 @@ impl ThemeMode {
     /// 全部取值。
     pub const ALL: [ThemeMode; 3] = [ThemeMode::System, ThemeMode::Light, ThemeMode::Dark];
 
-    fn storage(self) -> &'static str {
+    pub(super) fn storage(self) -> &'static str {
         match self {
             ThemeMode::System => "system",
             ThemeMode::Light => "light",
@@ -402,7 +402,7 @@ impl ThemeMode {
         }
     }
 
-    fn from_storage(s: &str) -> Option<Self> {
+    pub(super) fn from_storage(s: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|v| v.storage() == s)
     }
 
@@ -528,7 +528,7 @@ impl GutterMode {
         GutterMode::Both,
     ];
 
-    fn storage(self) -> &'static str {
+    pub(super) fn storage(self) -> &'static str {
         match self {
             GutterMode::Off => "off",
             GutterMode::LineNumbers => "lineNumbers",
@@ -537,7 +537,7 @@ impl GutterMode {
         }
     }
 
-    fn from_storage(s: &str) -> Option<Self> {
+    pub(super) fn from_storage(s: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|v| v.storage() == s)
     }
 

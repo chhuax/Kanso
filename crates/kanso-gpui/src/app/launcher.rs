@@ -232,6 +232,26 @@ pub fn editor_error_text(error: &EditorError, render: impl Fn(&Message) -> Strin
     }
 }
 
+/// 命令面板按子序列匹配，优先相邻字符、靠前的起点和短结果；调用者先折叠查询的大小写。
+pub fn command_search_score(text: &str, query: &str) -> Option<i64> {
+    let text = text.to_lowercase();
+    let mut chars = text.chars().enumerate();
+    let mut score = text.chars().count() as i64;
+    let mut last = None;
+    for wanted in query.chars() {
+        let (i, _) = chars.find(|(_, ch)| *ch == wanted)?;
+        score += i as i64;
+        if last.is_none() {
+            score += i as i64;
+        }
+        if last == i.checked_sub(1) && last.is_some() {
+            score -= 2;
+        }
+        last = Some(i);
+    }
+    Some(score)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

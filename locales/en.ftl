@@ -322,6 +322,9 @@ ui-contrast-ratio = Contrast Ratio
 ui-contrast-hint = Text below this contrast ratio is lightened or darkened automatically.
 
 ui-timeline = Timeline
+ui-go-to-tab = Go to Tab
+ui-tab-number = Tab { $number }
+ui-gutter-menu = Timestamps and Line Numbers
 
 ui-interface-font = Interface Font
 
@@ -815,6 +818,10 @@ ui-search = Search
 
 ui-file-browser = File Browser
 
+ui-palette-tabs = Tabs
+ui-palette-sessions = Sessions
+ui-palette-commands = Commands
+ui-palette-hint = Search tabs, sessions, commands, files
 ui-search-empty = No matches
 
 ui-git-title = Changes
@@ -905,3 +912,6 @@ ui-filer-drag-failed = Can't prepare “{ $name }” for drag: { $why }
 ui-filer-drag-too-late = Preparation finished after the drag ended; drag again.
 ui-filer-drag-not-ready = The remote file wasn't ready and was cancelled; keep the button held until it is ready.
 ui-filer-drag-cancelled = Drag preparation cancelled
+
+ui-display-settings-menu = Display Settings…
+ui-keyboard-settings-menu = Keyboard Shortcuts…

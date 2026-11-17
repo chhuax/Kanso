@@ -316,6 +316,9 @@ ui-contrast-ratio = 对比度比例
 ui-contrast-hint = 文字与背景的对比度低于此比例时，会自动调亮或调暗文字。
 
 ui-timeline = 时间轴
+ui-go-to-tab = 前往标签页
+ui-tab-number = 标签页 { $number }
+ui-gutter-menu = 时间戳与行号
 
 ui-interface-font = 界面字体
 
@@ -809,6 +812,10 @@ ui-search = 搜索
 
 ui-file-browser = 文件浏览器
 
+ui-palette-tabs = 标签页
+ui-palette-sessions = 会话
+ui-palette-commands = 命令
+ui-palette-hint = 搜索标签页、会话、命令和文件
 ui-search-empty = 没有匹配结果
 
 ui-git-title = 改动
@@ -899,3 +906,6 @@ ui-filer-drag-failed = 无法准备拖出“{ $name }”：{ $why }
 ui-filer-drag-too-late = 准备完成但拖动已结束，请重新拖动
 ui-filer-drag-not-ready = 远端文件还在准备，已取消；请按住鼠标等准备完成再松手
 ui-filer-drag-cancelled = 已取消拖出准备
+
+ui-display-settings-menu = 显示设置…
+ui-keyboard-settings-menu = 键盘快捷键…

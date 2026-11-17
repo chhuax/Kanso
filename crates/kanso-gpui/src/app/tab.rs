@@ -439,6 +439,52 @@ impl TabDescriptions {
     }
 }
 
+/// 标签拖拽使用按下瞬间的行中点。预览重新排版时仍以同一组中点判定插入位置。
+#[derive(Clone, Debug)]
+pub struct TabReorder {
+    pub session: SessionId,
+    pub order: Vec<SessionId>,
+    start_y: f32,
+    other_midpoints: Vec<f32>,
+    pub insertion: Option<usize>,
+}
+
+impl TabReorder {
+    pub fn start(
+        session: SessionId,
+        order: Vec<SessionId>,
+        pointer_y: f32,
+        center_y: f32,
+        row_stride: f32,
+    ) -> Self {
+        let start = order
+            .iter()
+            .position(|id| *id == session)
+            .expect("按下的标签属于该分屏");
+        let other_midpoints = (0..order.len())
+            .filter(|i| *i != start)
+            .map(|i| center_y + (i as f32 - start as f32) * row_stride)
+            .collect();
+        Self {
+            session,
+            order,
+            start_y: pointer_y,
+            other_midpoints,
+            insertion: None,
+        }
+    }
+
+    pub fn update(&mut self, y: f32) -> bool {
+        if self.insertion.is_none() && (y - self.start_y).abs() <= 5.0 {
+            return false;
+        }
+        let next = Some(self.other_midpoints.partition_point(|m| *m < y));
+        let changed = self.insertion != next;
+        self.insertion = next;
+        changed
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -724,5 +770,26 @@ mod tests {
             TabDescriptions::directory_text(Some(&local(Some("/h/x"))), "/h"),
             Some("~/x".into())
         );
+    }
+}
+
+#[cfg(test)]
+mod reorder_tests {
+    use super::*;
+    #[test]
+    fn click_preview_move_back_and_group_boundaries() {
+        let ids: Vec<_> = (1..=4).map(SessionId::from_raw).collect();
+        let mut drag = TabReorder::start(ids[1], ids.clone(), 71.0, 66.0, 44.0);
+        assert!(!drag.update(76.0));
+        assert_eq!(drag.insertion, None);
+        assert!(drag.update(114.0));
+        assert_eq!(drag.insertion, Some(2));
+        assert!(drag.update(71.0));
+        assert_eq!(drag.insertion, Some(1));
+        assert!(drag.update(-100.0));
+        assert_eq!(drag.insertion, Some(0));
+        assert!(drag.update(1000.0));
+        assert_eq!(drag.insertion, Some(3));
+        assert_eq!(drag.order, ids);
     }
 }

@@ -128,6 +128,36 @@ impl ShellView {
         ws.active_session().and_then(|s| ws.item(s)).map(|i| i.kind)
     }
 
+    /// 来自命令面板的本地文件结果，定位到原会话的目录并选中条目。
+    pub(super) fn reveal_palette_file(
+        &mut self,
+        sid: SessionId,
+        path: &std::path::Path,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.ctl.workspace().active_session() != Some(sid) {
+            return;
+        }
+        let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+            return;
+        };
+        if !self.filer.layout.visible {
+            self.filer.layout.visible = true;
+            self.save_filer_layout();
+        }
+        self.sync_filer_session(window, cx);
+        self.filer.panel.update(cx, |p, cx| {
+            p.reveal_file(
+                sid,
+                parent.to_string_lossy().into_owned(),
+                name.to_string_lossy().into_owned(),
+                cx,
+            )
+        });
+        cx.notify();
+    }
+
     /// 标签对应的文件来源与标题里的来源标识。
     fn filer_identity(&self, sid: SessionId) -> Option<(Source, String)> {
         let item = self.ctl.workspace().item(sid)?;
