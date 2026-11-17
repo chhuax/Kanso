@@ -186,3 +186,39 @@ Division of labour (user decision, 2026-11-18): **Claude Code writes code, Codex
 6. 条目拖动：mouse down 后重绘是否影响 `on_drag`（每行每帧新建载荷，依赖按下时的重绘换新 `DragPrep`）；拖到终端松手插入路径；远端大目录拖动中途松手应立刻停止下载；`has_active_drag` 轮询是否在松手后 50 ms 内触发收尾。
 7. 终端落点：分屏时落到哪个终端就插入哪个；该终端是否同时成为活动终端（目前只 `window.focus`，未必切换活动标签 / 分屏）；弹出对话框时不应接收落下。
 8. 下次启动清理：`%TEMP%\kanso-remote-edit` 下旧运行目录里已同步的记录被删，未同步的保留。
+
+
+## 2026-11-18 Round 4 merge (Claude Code → Codex)
+
+### Branch
+
+- `proto/gpui-integrate` is now at `e2cdefc` (first-parent: 34f5c93 ace4163 → 30b4eb4 git → c87a824 keys → 1d9c1d0 redit → 2 post-merge fix commits).
+- **Codex's `ace4163` has been merged in** (single-row title bar, window controls, restorable sidebar, Ctrl+Shift+P command search). Codex can base the next round of debugging directly on `e2cdefc`, so there's no need to merge ace4163 again.
+- Checks: Mac `cargo test -p kanso-gpui -p kanso-types -p kanso-l10n` (597 / 19 / 15), `check-locales` (607 messages), `check-bindings`; VM `clippy --all-targets -D warnings` with zero warnings. **The program has not been run.**
+
+### How the title bar and round 3's layout were combined (check visually first)
+
+- The title bar is `toolbar::HEIGHT` (34 px) tall, covers the top of the whole window, and the window buttons are on the top layer.
+- `split_area`: horizontally it subtracts `sidebar_width + filer_width` on the left and `git_width` on the right; vertically it subtracts the title bar at the top and status bar plus Sender at the bottom. The new `ShellView::sidebar_width(window)` takes at most 40% on narrow windows.
+- The sidebar runs from the bottom edge of the title bar to the bottom of the window. The Filer and Git panels both start below the title bar.
+- The status bar starts at the right edge of the sidebar and spans the area under the Filer and the terminal. It keeps the working Filer toggle and timeline toggle, plus Codex's folder icon before the directory and the behaviour of collapsing text in narrow windows.
+- **The Git "Changes" button has moved to the right side of the title bar** (left of the app menu, matching mac `GitTitlebarButton`). That element uses `.occlude()` so the drag region doesn't swallow clicks, and the search box gives up about 96 px on the right.
+- Still to check: whether the status bar covers the bottom of the Filer; whether the Git button and search box overlap in a narrow window; vertical alignment of the Git panel, Filer, Sender, and title bar; whether the Git button receives clicks; whether window dragging and double-click to maximize still work.
+
+### New self-test entry points this round (none run yet)
+
+| Argument | Module | Notes |
+|---|---|---|
+| `--git-selftest [--keep]` | Git changes panel | Needs `git` on PATH; creates a repo in a temp directory and runs summary / diff / commit / refresh / discard |
+| `--settings-test` (new `[test] keys` at the end) | Keyboard settings | **Clears the settings table in the current data directory**; run it only with isolated HOME/APPDATA |
+| `--remote-edit-test` | Remote editing | No window, no network; polling / debounce / replace-style save / cleanup |
+
+### What each module added
+
+- **git** (`app/git_panel.rs`, `ui/git_panel.rs`, `ui/shell_git.rs`): the right-side panel can be open alongside the Filer, initial width 420, adjustable 280–760, not persisted (per filer.md D8; ui-shell.md says to restore the width, and the two specs disagree, pending a user decision). Only reads local shells, using the shell's cwd; SSH/SFTP show an empty state. The data comes from `kanso_core::git::GitPanel` in the core. Auto-refresh is throttled to 800 ms. Commit and discard (with confirmation) are supported. There's a "Git 改动" (Git changes) item in the View menu, with no default shortcut. The agent's 15-item checklist: in narrow windows the Filer/terminal/Git make way for each other; card header click-through (the copy/discard buttons use stop_propagation); horizontal scrolling of the diff vs. vertical wheel scrolling; diff row width is estimated as `chars × 12 × 0.62`, which will be wide for CJK; Enter in the commit box during IME composition; status button jitter; refresh frequency under heavy output; `cd` into/out of a repo, submodules, worktrees; switching tabs during a write operation; discard confirmation text; modal exclusivity; switching between Chinese and English; Windows path separators and case-insensitive `COMPUTERNAME` matching; error message when `git` is missing; width-drag boundaries; light/dark `diff.*` colours.
+- **keys** (`app/keybindings.rs`, `ui/settings_keys.rs`, `ui/shell_keys.rs`): third settings page, "键盘" (Keyboard): record a shortcut (Esc cancels, Backspace clears), a "replace / cancel" bar on conflict, reset one or reset all. App-level shortcuts are looked up in the shell's capture phase via `keybindings::current()`; `clear_key_bindings` is not used, so text_input's bindings are unaffected. Stored in the settings key **`keybindings-win`** (mac uses `keybindings`; the format is the same, `{"v":1,"bindings":{...}}`, with command ids taken from mac). "Restore default settings…" was added to the app menu (it only clears the settings table, not sessions/history). Copy/paste/select all are not on the Keyboard page (they go through the terminal's key path). Things to check: what key names GPUI reports on Windows (`escape`/`esc`, whether Ctrl+Shift+\ arrives as `\` or `|`, etc.); whether Alt alone triggers the system menu; whether Ctrl+Tab can be recorded; after rebinding, the old key stops working and menu hints update; the 4 consecutive Changed events on reset causing flicker; persistence across restarts.
+- **redit** (`app/remote_edit.rs`, `app/drag_out.rs`, `ui/filer_edit.rs`, `ui/filer_drag.rs`): double-click / Enter / "打开" (Open) on a remote file → download to `%TEMP%\kanso-remote-edit\...` → open with the system default application; "打开方式…" (Open with…) uses rundll32 OpenAs_RunDLL. Save detection polls size+mtime every 150 ms, waits 300 ms of quiet, then uploads; on remote conflict a three-button dialog appears (overwrite remote / discard local and re-download / decide later; Esc defaults to decide later; D5 not decided). Failed uploads retry with backoff of 6/12/24/48/60 seconds. Dragging Filer items or external files into the terminal inserts the path. **Dragging out to Explorer is not supported** (gpui 0.2.2 has no API for it; OLE DoDragDrop needs unsafe). Manual steps and an 11-item checklist are in the "远程编辑与条目拖出" (remote editing and item drag-out) section of this document above; real SFTP can use the private sshd on 127.0.0.1:2299 under `C:\kt\launcher\sshd\`.
+
+### Not done (waiting on user decisions)
+
+- Trial / License UI: the docs say paid channels are on hold and only the free open-source Direct build ships; plan I5 ("no trial") contradicts ui-shell §11 ("show the remaining trial days"). Not implemented.
