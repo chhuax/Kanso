@@ -7,7 +7,7 @@
 //!   文件传输类提问（需要系统文件选择器）暂不支持，直接按取消回答，免得核心空等到超时。
 //! - 浮层打开期间不处理应用级快捷键（键盘归浮层）。
 
-use gpui::{Context, Window};
+use gpui::{Context, Window, prelude::*};
 use kanso_gpui::app::controller::FALLBACK_GRID;
 use kanso_gpui::app::launcher::core_error_text;
 use kanso_gpui::app::prompt_dialogs::{response_for, spec_for};

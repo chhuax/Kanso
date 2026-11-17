@@ -888,29 +888,30 @@ impl Render for SessionEditorView {
         }
         use EditorField as F;
 
-        let mut rows: Vec<(Row, gpui::AnyElement)> = Vec::new();
-        rows.push((
-            Row::Kind,
-            self.field(th, "类型", self.kind.clone()).into_any_element(),
-        ));
-        rows.push((
-            Row::Name,
-            self.field(th, "名称", self.name.clone()).into_any_element(),
-        ));
-        rows.push((
-            Row::Color,
-            self.field(
-                th,
-                "颜色（再次点击已选颜色可取消）",
-                self.render_palette(th, cx),
-            )
-            .into_any_element(),
-        ));
-        rows.push((
-            Row::Group,
-            self.field(th, "分组", self.group.clone())
+        let mut rows: Vec<(Row, gpui::AnyElement)> = vec![
+            (
+                Row::Kind,
+                self.field(th, "类型", self.kind.clone()).into_any_element(),
+            ),
+            (
+                Row::Name,
+                self.field(th, "名称", self.name.clone()).into_any_element(),
+            ),
+            (
+                Row::Color,
+                self.field(
+                    th,
+                    "颜色（再次点击已选颜色可取消）",
+                    self.render_palette(th, cx),
+                )
                 .into_any_element(),
-        ));
+            ),
+            (
+                Row::Group,
+                self.field(th, "分组", self.group.clone())
+                    .into_any_element(),
+            ),
+        ];
         if self.vis(F::ShellCommand) {
             rows.push((
                 Row::Shell,
