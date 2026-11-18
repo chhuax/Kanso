@@ -12,8 +12,9 @@ use kanso_types::fs::FileStat;
 use kanso_types::message::Message;
 use serde::{Deserialize, Serialize};
 
+use crate::app::filer_ops::name_error_text;
 use crate::app::filer_text::msg;
-use crate::app::fspath::{PathStyle, validate_child_name};
+use crate::app::fspath::{NameError, PathStyle, validate_child_name};
 use crate::filer::format_size;
 use crate::widgets::dialog::{ButtonSpec, DialogResult, DialogSpec, InputSpec};
 
@@ -400,6 +401,7 @@ pub const COPY_FIELD: &str = "name";
 /// 取消（默认 / Esc）、覆盖、重新下载、另存副本…。默认是取消，不会悄悄覆盖。
 pub fn conflict_spec(name: &str, source: &str) -> DialogSpec {
     DialogSpec::new(&msg(Message::RemoteEditConflictTitle {}))
+        .dismiss_on_scrim()
         .text(&msg(Message::RemoteEditConflictBody {
             name: name.to_owned(),
             source: source.to_owned(),
@@ -442,13 +444,11 @@ pub fn default_copy_name(name: &str) -> String {
 }
 
 /// 另存副本的文件名输入框。`error` 非空时显示在输入框上方（上一次提交被拒绝）。
-pub fn copy_spec(initial: &str, error: Option<&str>) -> DialogSpec {
-    let mut spec = DialogSpec::new(&msg(Message::RemoteEditConflictSaveCopy {}))
-        .text(&msg(Message::RemoteEditCopyPrompt {}));
-    if let Some(e) = error {
-        spec = spec.text(e);
-    }
-    spec.input(InputSpec::new(COPY_FIELD, &msg(Message::UiFilerName {})).initial(initial))
+pub fn copy_spec(initial: &str, error: Option<NameError>) -> DialogSpec {
+    let prompt = error.map_or_else(|| msg(Message::RemoteEditCopyPrompt {}), name_error_text);
+    DialogSpec::new(&msg(Message::RemoteEditConflictSaveCopy {}))
+        .text(&prompt)
+        .input(InputSpec::new(COPY_FIELD, &msg(Message::UiFilerName {})).initial(initial))
         .button(ButtonSpec::secondary(BTN_CANCEL, &msg(Message::UiFilerCancel {})).cancel())
         .button(ButtonSpec::primary(BTN_COPY_OK, &msg(Message::UiSave {})).default_button())
 }
@@ -458,8 +458,8 @@ pub fn copy_spec(initial: &str, error: Option<&str>) -> DialogSpec {
 pub enum CopyOutcome {
     /// 取消：保持暂停。
     Cancel,
-    /// 名称不合规，或与原文件同名（需要提示后让用户重输）。
-    Invalid,
+    /// 名称不合规或与原文件同名。没有具体格式错误时使用通用提示。
+    Invalid(Option<NameError>),
     /// 合规的新名称。
     Name(String),
 }
@@ -471,9 +471,10 @@ pub fn parse_copy_name(result: &DialogResult, original: &str) -> CopyOutcome {
         return CopyOutcome::Cancel;
     }
     let raw = result.value(COPY_FIELD).unwrap_or_default();
-    match validate_child_name(PathStyle::Posix, raw) {
+    match validate_child_name(PathStyle::Windows, raw) {
         Ok(name) if name != original && local_name_ok(&name) => CopyOutcome::Name(name),
-        _ => CopyOutcome::Invalid,
+        Ok(_) => CopyOutcome::Invalid(None),
+        Err(error) => CopyOutcome::Invalid(Some(error)),
     }
 }
 
@@ -787,6 +788,17 @@ mod tests {
             ids,
             [BTN_CANCEL, BTN_OVERWRITE, BTN_REDOWNLOAD, BTN_SAVE_COPY]
         );
+        assert_eq!(spec.default_button(), Some(0));
+        assert!(spec.dismiss_on_scrim);
+        for trigger in [
+            crate::widgets::dialog::Trigger::Escape,
+            crate::widgets::dialog::Trigger::Scrim,
+        ] {
+            assert_eq!(
+                conflict_choice(&crate::widgets::dialog::result_for_cancel(&spec, trigger)),
+                ConflictChoice::Cancel
+            );
+        }
         assert_eq!(
             conflict_choice(&pressed(&spec, BTN_SAVE_COPY, "")),
             ConflictChoice::SaveCopy
@@ -825,10 +837,24 @@ mod tests {
         let spec = copy_spec("a-copy.txt", None);
         let ok = |n: &str| parse_copy_name(&pressed(&spec, BTN_COPY_OK, n), "a.txt");
         assert_eq!(ok(" b.txt "), CopyOutcome::Name("b.txt".into()));
-        assert_eq!(ok("a.txt"), CopyOutcome::Invalid);
-        assert_eq!(ok(""), CopyOutcome::Invalid);
-        assert_eq!(ok("x/y"), CopyOutcome::Invalid);
-        assert_eq!(ok("a:b"), CopyOutcome::Invalid);
+        assert_eq!(ok("a.txt"), CopyOutcome::Invalid(None));
+        assert_eq!(ok(""), CopyOutcome::Invalid(Some(NameError::Empty)));
+        assert_eq!(
+            ok("x/y"),
+            CopyOutcome::Invalid(Some(NameError::HasSeparator))
+        );
+        assert_eq!(
+            ok("a:b"),
+            CopyOutcome::Invalid(Some(NameError::InvalidChar(':')))
+        );
+        assert_eq!(
+            ok("a*b"),
+            CopyOutcome::Invalid(Some(NameError::InvalidChar('*')))
+        );
+        assert_eq!(
+            copy_spec("x/y", Some(NameError::HasSeparator)).body.len(),
+            1
+        );
         assert_eq!(
             parse_copy_name(&pressed(&spec, BTN_CANCEL, "b.txt"), "a.txt"),
             CopyOutcome::Cancel

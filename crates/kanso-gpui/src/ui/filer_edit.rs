@@ -838,10 +838,9 @@ impl FilerPanel {
         };
         match remote_edit::parse_copy_name(result, &e.name) {
             CopyOutcome::Cancel => e.conflict_paused = true,
-            CopyOutcome::Invalid => {
+            CopyOutcome::Invalid(error) => {
                 let initial = result.value(remote_edit::COPY_FIELD).unwrap_or_default();
-                let spec =
-                    remote_edit::copy_spec(initial, Some(&msg(Message::RemoteEditCopyPrompt {})));
+                let spec = remote_edit::copy_spec(initial, error);
                 self.pending = Some(Pending::EditCopyName(key));
                 cx.emit(FilerEvent::Dialog(spec));
             }

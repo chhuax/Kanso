@@ -1,4 +1,4 @@
-//! Windows 本地会话：shell 自己退出时会话必须结束（ConPTY 不关闭伪控制台就没有 EOF）。
+//! Windows 本地会话的退出、目录上报与路径粘贴实测。
 
 #![cfg(windows)]
 
@@ -9,6 +9,7 @@ use std::time::Duration;
 use common::*;
 use kanso_types::CoreEvent;
 use kanso_types::event::{CloseReason, SessionState};
+use kanso_types::input::PasteContent;
 
 fn closed_reasons(fx: &Fixture) -> Vec<CloseReason> {
     fx.rec
@@ -65,4 +66,33 @@ fn powershell_reports_directory_changes_through_conpty() {
     session.text_input("Set-Location -LiteralPath 'project with spaces'\r");
     assert!(sees(&dir), "切换目录后应上报带空格的路径");
     fx.mgr.close(id);
+}
+
+#[test]
+fn pasted_file_paths_are_readable_through_cmd_and_powershell() {
+    for (shell, command) in [
+        ("cmd.exe /d", "type "),
+        (
+            "powershell.exe -NoLogo -NoProfile",
+            "Get-Content -LiteralPath ",
+        ),
+    ] {
+        let fx = fixture(shell, false);
+        let path = fx.home.join("drop 文档 & copy.txt");
+        std::fs::write(&path, "KANSO_DROP_CONTENT_OK\r\n").unwrap();
+        let (id, session) = fx.open();
+        let mut screen = Screen::new(&session);
+        assert!(screen.wait_contains(">"), "{shell}: {}", screen.text);
+        session.text_input(command);
+        session.paste(&PasteContent::Files(vec![
+            path.to_string_lossy().into_owned(),
+        ]));
+        session.text_input("\r");
+        assert!(
+            screen.wait_contains("KANSO_DROP_CONTENT_OK"),
+            "{shell}: {}",
+            screen.text
+        );
+        fx.mgr.close(id);
+    }
 }
