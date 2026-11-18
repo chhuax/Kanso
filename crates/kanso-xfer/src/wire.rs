@@ -297,6 +297,8 @@ impl CancelTail {
                             if prefix.iter().all(|b| *b == ZDLE) {
                                 return false;
                             }
+                            // 十六进制头后面的 XON 可能晚于头本身到达：它是流控字节，不属于终端输出。
+                            self.bytes.drain(..start);
                             return true;
                         }
                         let header = &prefix[1..];
@@ -308,8 +310,15 @@ impl CancelTail {
                     // parse 在 CRC 出错时也会消费输入，验证成功之前须保留原字节。
                     let mut candidate = self.bytes.clone();
                     match parse(&mut candidate, crc) {
+                        // ZDATA 之外，对端发完最后一个子包后可能紧接着发 ZEOF（11），
+                        // 甚至 ZFIN（8）；校验通过的协议头照样剥离，不能当二进制漏给终端。
+                        // 不剥离 ZFIN 之后可能出现的 "OO"：那只在我们回 ZFIN 之后才会发，
+                        // 本端取消后不会回，没有把握的字节宁可交还终端。
                         Ok(Some(Frame::Header(10, _, wide))) => {
                             self.phase = CancelPhase::Frame(Some(wide))
+                        }
+                        Ok(Some(Frame::Header(8 | 11, _, _))) => {
+                            self.phase = CancelPhase::Frame(None)
                         }
                         Ok(Some(Frame::Data(_, end))) => {
                             if matches!(end, b'h' | b'k') {
