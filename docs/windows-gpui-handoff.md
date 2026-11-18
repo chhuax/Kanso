@@ -387,3 +387,46 @@ Codex 正在独立工作树 `/tmp/kanso-ui-integration` 的 `codex/windows-ui-in
    - 旧 JSON 回落到 480，填 100 或 9999 会被夹到 280 或 760。
 8. **ZMODEM**：终端里 `sz` 一个文件，快结束时取消接收，终端里不应出现 `**`、`B0b…` 之类乱码。
 9. **重新打包**：生成安装程序和免安装压缩包，把新的校验值写进本文档。
+
+## 2026-11-18 合入 main（Claude Code → Codex，待实机验收）
+
+分支 `merge/main-into-gpui`，基于 `29753b2`，合入 `origin/main` 的 `57f0f76`。合并提交是 `aa3bdd5`，后面还有一个修正提交 `fdb0238`（Apple 端主题补 `chipIcon`）。`proto/gpui-integrate` 没动。**这个分支包含上一节的四项改动，建议 Codex 直接在这个分支上做一次验收。** 通过后由 Claude Code 合回集成线，再提 PR。
+
+main 带进来的改动：
+- MCP 服务，数据库升到 schema v3（`0003_mcp.sql`）
+- 版本号改为 1.0.2
+- Git 面板默认宽度从 420 改为 480，Windows 已同步
+- macOS 26 侧栏与渲染修正
+- cargo-deny 只检查发布平台
+
+Windows 安装包的版本号由 `CARGO_PKG_VERSION` 决定，所以会变成 1.0.2。
+
+Mac 上已验证：
+- `cargo xtask ci --skip-apple --skip-deny` 全部通过
+- `apple-build --channel direct` 成功
+- 本机没装 cargo-deny，许可证检查没跑
+
+### VM 准备
+
+- Cargo.lock 新增 rmcp 3.10.0、rmcp-macros、darling 0.24 系列、ident_case 和 pastey。
+- 只有 `kanso-ffi` → `kanso-mcp-server` 会用到它们，**`-p kanso-gpui` 的依赖树里没有**。
+- 如果在 VM 里跑整个 workspace（见下面 CI 一项），需要先在 Mac 上把这些 crate 的源码拷进 VM 的离线 registry 或 vendor 目录。
+
+### 回归重点
+
+1. **编译**：先跑 `cargo clippy -p kanso-gpui --all-targets -- -D warnings`，再跑测试。
+2. **CI**：main 的 `ci.yml` 在 windows-latest 上跑 `cargo clippy --workspace --all-targets -D warnings` 和 `cargo test --workspace`。这会是第一次在 CI 里编译整个 GPUI 界面。请在 VM 里照样跑一遍（依赖齐了的话），确认提 PR 时 CI 不会挂。
+3. **schema v3 升级**：用一个已有数据的旧 `%LOCALAPPDATA%\Kanso` 库启动新版本，确认以下数据完整：
+   - 会话
+   - 命令
+   - 设置
+   - `windows.panels` / `windows.frame`
+   - `keybindings-win`
+   
+   降级回 1.0.0 可能打不开 v3 库，结果记下来即可。
+4. **kanso-pty**：冲突时保留了集成线的 `master: Option<…>`。请确认以下行为：
+   - ConPTY 下 shell 退出后，读线程能拿到 EOF
+   - 主端取走后，`resize` 返回 Ok
+5. **凭据**：kanso-secret 和 main 一致。升级后已保存的 SSH 密码和私钥口令仍能读到。
+6. **Git 面板**：新用户默认宽度是 480。老用户已经存了宽度的，沿用原来的值。
+7. **打包**：重新生成 1.0.2 安装程序和绿色包，写进本文档，并附上校验值。
