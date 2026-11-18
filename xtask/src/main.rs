@@ -55,7 +55,7 @@ fn usage() {
          check-bindings              重新生成到临时目录并与入库绑定逐字节比较，不一致即失败\n  \
          xcode                       生成 design token 产物并用 XcodeGen 生成 apple/Kanso.xcodeproj\n  \
          apple-build [--channel <direct|mas|setapp>|--all] [--configuration debug|release] [--arch <arm64|x86_64>]\n                                     先运行 xcode，再用 xcodebuild 构建（默认 direct / debug / 本机架构；--all 构建三个渠道；x86_64 的 Release 只支持 direct）\n  \
-         apple-test [--only-testing <标识>]\n                                     先运行 xcode，再在 Direct scheme 下跑 xcodebuild test（KANSO_RECORD_SNAPSHOTS=1 重录参考截图）\n  \
+         apple-test [--only-testing <标识>] [--skip-testing <标识>]...\n                                     先运行 xcode，再在 Direct scheme 下跑 xcodebuild test（KANSO_RECORD_SNAPSHOTS=1 重录参考截图）\n  \
          apple-lib --channel <c> --profile <debug|release> --out <dir> [--arch <arm64|x86_64>]\n                                     构建 libkanso_ffi.a 并复制到 <dir>（Xcode 的 Run Script 调用）\n  \
          xcframework --channel <c>   release 构建并打包 KansoCore.xcframework（仅供发布流水线，Xcode 日常构建不用）"
     );

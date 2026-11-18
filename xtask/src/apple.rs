@@ -482,7 +482,7 @@ fn test_destination(arch: Arch) -> &'static str {
     }
 }
 
-/// `cargo xtask apple-test [--only-testing <标识>]`：先 `xcode`，再在 Direct scheme 下跑 `xcodebuild test`
+/// `cargo xtask apple-test [--only-testing <标识>] [--skip-testing <标识>]...`：先 `xcode`，再在 Direct scheme 下跑 `xcodebuild test`
 /// （单元测试与截图测试，Debug 配置）。
 ///
 /// 不提供 release 配置：Release 的 Hardened Runtime 会拒绝加载自签名的测试包（Team ID 不一致）。
@@ -490,11 +490,14 @@ fn test_destination(arch: Arch) -> &'static str {
 /// 传给测试进程，不转发的话录制开关到不了测试里。
 pub fn apple_test(args: &[String]) -> ExitCode {
     let mut only: Option<String> = None;
+    // 可重复：GitHub CI 用它跳过像素比对的截图测试（runner 的系统版本、字体渲染与录制参考图的机器不同）。
+    let mut skip: Vec<String> = Vec::new();
     let arch = Arch::native();
     let mut it = args.iter();
     while let Some(a) = it.next() {
         let r = match a.as_str() {
             "--only-testing" => take_value(&mut it, a).map(|v| only = Some(v.to_string())),
+            "--skip-testing" => take_value(&mut it, a).map(|v| skip.push(v.to_string())),
             other => Err(format!("未知参数：{other}")),
         };
         if let Err(e) = r {
@@ -516,6 +519,9 @@ pub fn apple_test(args: &[String]) -> ExitCode {
         .arg(format!("ARCHS={}", arch.name()));
     if let Some(o) = &only {
         cmd.arg(format!("-only-testing:{o}"));
+    }
+    for s in &skip {
+        cmd.arg(format!("-skip-testing:{s}"));
     }
     cmd.arg("test");
     if let Ok(v) = env::var("KANSO_RECORD_SNAPSHOTS") {

@@ -71,7 +71,7 @@ jobs:
 
   apple:
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust toolchain
@@ -85,8 +85,13 @@ jobs:
         run: cargo xtask apple-build --all
       # Swift 单元测试。以前只在本地 `cargo xtask ci` 里跑，两个分支各自通过、合并后才失败的情况
       # 在 GitHub 上看不出来（#20 合并时即如此）。测试本身隔离了钥匙串、HOME 与剪贴板，可以在 runner 上跑。
+      # 跳过像素比对的截图测试：参考图在开发机上录制，runner 的 macOS 版本、字体光栅化和 Metal（虚拟机里
+      # 可能没有）都不同，比对结果反映的是环境差异而不是回归。截图测试仍由本地 `cargo xtask ci` 覆盖。
       - name: Swift tests
-        run: cargo xtask apple-test
+        run: >-
+          cargo xtask apple-test
+          --skip-testing KansoTests/SnapshotTests
+          --skip-testing KansoTests/UISnapshotTests
       # runner 是 arm64；这里只做 Direct 的 x86_64 交叉编译检查，防止 Intel 包悄悄编不过。
       - name: Cross-check x86_64 (Direct)
         run: cargo build -p kanso-ffi --target x86_64-apple-darwin
