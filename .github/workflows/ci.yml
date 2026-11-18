@@ -21,6 +21,7 @@ env:
   MACOSX_DEPLOYMENT_TARGET: "14.0"
 
 # 任务名 rust / macos 与分支保护要求的检查名保持一致。
+# macos 是汇总任务：arm64 Direct 与 Intel 并行，它只负责等它们都成功。
 jobs:
   rust:
     runs-on: macos-15
@@ -69,7 +70,9 @@ jobs:
       - name: Check locales
         run: cargo run --quiet -p xtask -- check-locales
 
-  macos:
+  # Direct 编完立刻测。x86_64 在 Intel 机器上同时编，不再排在测试后面。
+  macos-arm64:
+    name: macos (arm64)
     runs-on: macos-15
     timeout-minutes: 60
     steps:
@@ -79,10 +82,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Install XcodeGen
         run: brew install xcodegen
-      # 三个渠道都编：Swift 里按渠道裁剪的界面（MCP 页、启动器菜单、窗口菜单项等）只有编过才知道没断。
-      # 比只编 Direct 多几分钟，换来 PR 阶段就能拦住只在 MAS / Setapp 编不过的改动。
-      - name: Build all channels
-        run: cargo xtask apple-build --all
+      - name: Build Direct channel
+        run: cargo xtask apple-build --channel direct
       # Swift 单元测试。以前只在本地 `cargo xtask ci` 里跑，两个分支各自通过、合并后才失败的情况
       # 在 GitHub 上看不出来（#20 合并时即如此）。测试本身隔离了钥匙串、HOME 与剪贴板，可以在 runner 上跑。
       # 跳过像素比对的截图测试：参考图在开发机上录制，runner 的 macOS 版本、字体光栅化和 Metal（虚拟机里
@@ -92,6 +93,36 @@ jobs:
           cargo xtask apple-test
           --skip-testing KansoTests/SnapshotTests
           --skip-testing KansoTests/UISnapshotTests
-      # runner 是 arm64；这里只做 Direct 的 x86_64 交叉编译检查，防止 Intel 包悄悄编不过。
-      - name: Cross-check x86_64 (Direct)
-        run: cargo build -p kanso-ffi --target x86_64-apple-darwin
+
+  # Intel 机器原生编译。不再在 arm64 上交叉编译 x86_64-apple-darwin。
+  macos-intel:
+    name: macos (x86_64)
+    runs-on: macos-15-intel
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: x86_64-ffi
+      - name: Build Direct static lib (x86_64)
+        run: cargo build -p kanso-ffi
+
+  macos:
+    needs: [macos-arm64, macos-intel]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Confirm arm64 and Intel
+        run: |
+          for result in \
+            "${{ needs.macos-arm64.result }}" \
+            "${{ needs.macos-intel.result }}"
+          do
+            [ "$result" = success ] || {
+              echo "构建未全部成功：arm64=${{ needs.macos-arm64.result }} x86_64=${{ needs.macos-intel.result }}" >&2
+              exit 1
+            }
+          done

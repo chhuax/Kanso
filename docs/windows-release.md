@@ -97,7 +97,7 @@ cargo xtask win-package
 推送 `v*` 标签后，`.github/workflows/release.yml` 会在 GitHub 上自动打包，并上传到同名 Release 草稿。
 
 - **Windows：** 在 `windows-latest` 机器上安装 NSIS，执行 `cargo xtask win-package`，上传安装程序、免安装 ZIP 和各自的 `.sha256`。
-- **macOS：** 在 `macos-15` 机器上执行 `cargo xtask dmg --arch arm64` 和 `--arch x86_64`，上传两个 DMG 和各自的 `.sha256`。
+- **macOS：** arm64 在 `macos-15` 上执行 `cargo xtask dmg --arch arm64`，x86_64 在 `macos-15-intel` 上原生执行 `cargo xtask dmg --arch x86_64`，两个任务并行。上传两个 DMG 和各自的 `.sha256`。
 
 发布步骤：
 

@@ -2,7 +2,7 @@ name: Release
 
 # 推送 v* 标签时自动打包并上传到同名 GitHub Release（草稿）：
 # - Windows：GitHub 的 Windows 机器上 `cargo xtask win-package`，生成安装程序和免安装 ZIP。
-# - macOS：arm64 机器上 `cargo xtask dmg`，生成 arm64 与 x86_64 两个 DMG（临时签名、未公证）。
+# - macOS：arm64 在 macos-15 上、x86_64 在 macos-15-intel 上各自原生 `cargo xtask dmg`，两个 DMG 并行（临时签名、未公证）。
 # 全部上传完成后在 Release 页面检查草稿，再点发布。
 on:
   push:
@@ -87,13 +87,18 @@ jobs:
 
   macos:
     needs: prepare
-    runs-on: macos-15
+    name: macos (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        # arm64 机器上用 Xcode 交叉编译 x86_64（与本地 `cargo xtask dmg --arch x86_64` 相同）。
-        arch: [arm64, x86_64]
+        include:
+          # 各在自己的架构上原生编译。本地仍可用 `cargo xtask dmg --arch x86_64` 在 Apple Silicon 上交叉编译。
+          - arch: arm64
+            runner: macos-15
+          - arch: x86_64
+            runner: macos-15-intel
     steps:
       - uses: actions/checkout@v4
         with:
