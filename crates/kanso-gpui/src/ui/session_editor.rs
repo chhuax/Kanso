@@ -20,13 +20,17 @@ use kanso_core::Core;
 use kanso_gpui::app::launcher::{
     auth_label, editor_error_text, kind_label, render_message, toggle_color,
 };
-use kanso_gpui::app::sessions::{EditorField, EncodingOption, SaveOutcome, SessionEditor};
+use kanso_gpui::app::sessions::{
+    EditorField, EditorOptions, EncodingOption, SaveOutcome, SessionEditor,
+};
 use kanso_gpui::widgets::dropdown::Item;
 use kanso_gpui::widgets::style::{Appearance, color, number};
 use kanso_types::ProfileId;
+use kanso_types::mcp::McpAccess;
 use kanso_types::profile::{AuthMethod, Group, LocalProfile, Profile, ProfileKind, SessionKind};
 
 use super::log;
+use super::settings::{MCP_ACCESS_LEVELS, mcp_access_title};
 use super::shell::Theme;
 use super::widgets::dropdown::{Dropdown, DropdownEvent};
 use super::widgets::text_input::{TextInput, TextInputEvent};
@@ -43,6 +47,8 @@ const AUTHS: [AuthMethod; 3] = [
 pub(crate) enum EditorEvent {
     /// 取消（Esc、取消按钮）。
     Cancel,
+    /// 会话列表发生变化，授权或凭据部分保存失败时也会发出。
+    LibraryChanged,
     /// 打开临时本地 Shell。
     OpenLocal(LocalProfile),
     /// 已保存（`connect` 为真时宿主接着连接它）。
@@ -71,6 +77,7 @@ enum Pick {
     Kind,
     Shell,
     Group,
+    McpAccess,
     Auth,
     Jump,
     Encoding,
@@ -89,6 +96,7 @@ enum Row {
     Kind,
     Name,
     Group,
+    McpAccess,
     Shell,
     StartDir,
     HostPort,
@@ -106,6 +114,7 @@ fn row_of(stop: Stop) -> Row {
         Stop::Pick(Pick::Kind) => Row::Kind,
         Stop::Text(Text::Name) => Row::Name,
         Stop::Pick(Pick::Group) => Row::Group,
+        Stop::Pick(Pick::McpAccess) => Row::McpAccess,
         Stop::Text(Text::Shell) | Stop::Pick(Pick::Shell) => Row::Shell,
         Stop::Text(Text::StartDir) => Row::StartDir,
         Stop::Text(Text::Host | Text::Port) => Row::HostPort,
@@ -160,6 +169,8 @@ pub(crate) struct SessionEditorView {
     shell_pick: Entity<Dropdown>,
     shell_commands: Vec<String>,
     group: Entity<Dropdown>,
+    mcp_access: Entity<Dropdown>,
+    show_mcp_sensitive_notice: bool,
     auth: Entity<Dropdown>,
     jump: Entity<Dropdown>,
     encoding: Entity<Dropdown>,
@@ -184,11 +195,12 @@ fn appearance(window: &Window) -> Appearance {
     super::display::window_appearance(window)
 }
 
-const ALL_FIELDS: [EditorField; 17] = [
+const ALL_FIELDS: [EditorField; 18] = [
     EditorField::Name,
     EditorField::Kind,
     EditorField::Color,
     EditorField::Group,
+    EditorField::McpAccess,
     EditorField::ShellCommand,
     EditorField::StartDir,
     EditorField::Host,
@@ -213,9 +225,13 @@ impl SessionEditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let options = EditorOptions {
+            supports_mcp: kanso_mcp_server::supported(),
+            ..EditorOptions::default()
+        };
         let mut model = match editing {
-            Some(p) => SessionEditor::editing(core.clone(), Default::default(), p),
-            None => SessionEditor::new(core.clone(), Default::default()),
+            Some(p) => SessionEditor::editing(core.clone(), options, p),
+            None => SessionEditor::new(core.clone(), options),
         };
         let is_editing = model.is_editing();
         if custom_local {
@@ -374,6 +390,19 @@ impl SessionEditorView {
             window,
             cx,
         );
+        let mcp_access = dropdown(
+            Pick::McpAccess,
+            MCP_ACCESS_LEVELS
+                .iter()
+                .map(|&level| Item::option(mcp_access_title(level)))
+                .collect(),
+            MCP_ACCESS_LEVELS
+                .iter()
+                .position(|&level| level == model.mcp_access())
+                .expect("MCP 访问级别必须有对应的选项"),
+            window,
+            cx,
+        );
         let auth = dropdown(
             Pick::Auth,
             AUTHS.iter().map(|a| Item::option(auth_label(*a))).collect(),
@@ -437,6 +466,8 @@ impl SessionEditorView {
             shell_pick,
             shell_commands,
             group,
+            mcp_access,
+            show_mcp_sensitive_notice: false,
             auth,
             jump,
             encoding,
@@ -539,6 +570,13 @@ impl SessionEditorView {
                     .checked_sub(1)
                     .and_then(|i| self.groups.get(i))
                     .map(|g| g.id)
+            }
+            Pick::McpAccess => {
+                let next = MCP_ACCESS_LEVELS[index];
+                if m.mcp_access() == McpAccess::Off && next != McpAccess::Off {
+                    self.show_mcp_sensitive_notice = true;
+                }
+                m.edit_mcp_access(next);
             }
             Pick::Auth => m.auth = AUTHS[index.min(AUTHS.len() - 1)],
             Pick::Jump => {
@@ -644,6 +682,7 @@ impl SessionEditorView {
         };
         self.refresh_visible_from(&model);
         self.saving = true;
+        self.mcp_access.update(cx, |d, cx| d.set_disabled(true, cx));
         self.error = None;
         cx.notify();
         cx.spawn_in(window, async move |this, cx| {
@@ -653,11 +692,17 @@ impl SessionEditorView {
                 this.error = model.error().map(|e| editor_error_text(e, render_message));
                 this.model = Some(model);
                 this.saving = false;
+                this.mcp_access
+                    .update(cx, |d, cx| d.set_disabled(false, cx));
                 if log_enabled() {
                     log(&format!("session-editor save -> {outcome:?} id={id}"));
                 }
+                if outcome != SaveOutcome::Failed {
+                    cx.emit(EditorEvent::LibraryChanged);
+                }
                 match outcome {
                     SaveOutcome::Saved => cx.emit(EditorEvent::Saved { id, connect }),
+                    SaveOutcome::SavedButMcpAccessFailed => this.wipe_secrets(cx),
                     SaveOutcome::Failed | SaveOutcome::SavedButCredentialFailed => {}
                 }
                 cx.notify();
@@ -712,6 +757,7 @@ impl SessionEditorView {
             Pick::Kind => unreachable!("类型使用分段卡片，不是下拉框"),
             Pick::Shell => &self.shell_pick,
             Pick::Group => &self.group,
+            Pick::McpAccess => &self.mcp_access,
             Pick::Auth => &self.auth,
             Pick::Jump => &self.jump,
             Pick::Encoding => &self.encoding,
@@ -725,6 +771,7 @@ impl SessionEditorView {
             (F::Kind, Stop::Pick(Pick::Kind)),
             (F::Name, Stop::Text(Text::Name)),
             (F::Group, Stop::Pick(Pick::Group)),
+            (F::McpAccess, Stop::Pick(Pick::McpAccess)),
             (F::ShellCommand, Stop::Pick(Pick::Shell)),
             (F::ShellCommand, Stop::Text(Text::Shell)),
             (F::StartDir, Stop::Text(Text::StartDir)),
@@ -788,6 +835,7 @@ impl SessionEditorView {
         [
             Pick::Shell,
             Pick::Group,
+            Pick::McpAccess,
             Pick::Auth,
             Pick::Jump,
             Pick::Encoding,
@@ -1134,6 +1182,29 @@ impl Render for SessionEditorView {
                     .into_any_element(),
             ),
         ];
+        if self.vis(F::McpAccess) {
+            rows.push((
+                Row::McpAccess,
+                self.field(
+                    th,
+                    &tr(Message::WinMcpAccess {}),
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(6.0))
+                        .child(self.mcp_access.clone())
+                        .when(self.show_mcp_sensitive_notice, |d| {
+                            d.child(
+                                div()
+                                    .text_size(px(number("font", "ui.caption")))
+                                    .text_color(th.c("text.tertiary"))
+                                    .child(tr(Message::WinMcpSensitiveNotice {})),
+                            )
+                        }),
+                )
+                .into_any_element(),
+            ));
+        }
         if self.custom_local {
             rows.clear();
         }

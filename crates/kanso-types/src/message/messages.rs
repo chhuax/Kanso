@@ -1355,4 +1355,104 @@ messages! {
     UiKeysCmdZoomOut = "ui-keys-cmd-zoom-out" {},
     /// GPUI 界面文字：ui-keys-cmd-zoom-reset
     UiKeysCmdZoomReset = "ui-keys-cmd-zoom-reset" {},
+
+    // ---- Windows MCP 设置与状态 ----
+    /// 导航标签及 MCP 设置总开关卡片标题。
+    WinMcpPage = "win-mcp-page" {},
+    /// MCP 设置页总开关。
+    WinMcpEnable = "win-mcp-enable" {},
+    /// MCP 启用后的授权说明。
+    WinMcpEnableHint = "win-mcp-enable-hint" {},
+    /// MCP 服务状态卡片标题。
+    WinMcpService = "win-mcp-service" {},
+    /// MCP 正在提供服务。
+    WinMcpRunning = "win-mcp-running" {},
+    /// MCP 服务已停止。
+    WinMcpStopped = "win-mcp-stopped" {},
+    /// MCP 服务不可用。
+    WinMcpUnavailable = "win-mcp-unavailable" {},
+    /// MCP 服务启动失败。
+    WinMcpStartFailed = "win-mcp-start-failed" {},
+    /// 保存 MCP 总开关失败。
+    WinMcpStopFailed = "win-mcp-stop-failed" {},
+    /// MCP 令牌无法从安全存储中读取或写入。
+    WinMcpTokenStoreFailed = "win-mcp-token-store-failed" {},
+    /// 此构建的渠道不支持 MCP。
+    WinMcpNotSupported = "win-mcp-not-supported" {},
+    /// 另一 Kanso 实例已经提供服务。
+    WinMcpAnotherInstance = "win-mcp-another-instance" {},
+    /// 转发程序的路径标签。
+    WinMcpHelperPath = "win-mcp-helper-path" {},
+    /// MCP 客户端接入卡片标题。
+    WinMcpConfiguration = "win-mcp-configuration" {},
+    /// MCP 配置客户端标签，亦用于审计筛选。
+    WinMcpClient = "win-mcp-client" {},
+    /// MCP 接入客户端 Claude Code 的名称。
+    WinMcpClaudeCode = "win-mcp-claude-code" {},
+    /// MCP 接入客户端 Codex 的名称。
+    WinMcpCodex = "win-mcp-codex" {},
+    /// 供粘贴到 PowerShell 的接入指令。
+    WinMcpPowerShellCommand = "win-mcp-powershell-command" {},
+    /// 重新生成 MCP 令牌的按钮。
+    WinMcpRegenerate = "win-mcp-regenerate" {},
+    /// 未初始化令牌时的命令区提示。
+    WinMcpTokenNeeded = "win-mcp-token-needed" {},
+    /// 接入命令旁的敏感信息提示。
+    WinMcpTokenHistory = "win-mcp-token-history" {},
+    /// MCP 已连接客户端卡片。
+    WinMcpConnectedClients = "win-mcp-connected-clients" {},
+    /// MCP 没有已连接客户端。
+    WinMcpNoClients = "win-mcp-no-clients" {},
+    /// 没有自报名称的 MCP 客户端。
+    WinMcpUnknownClient = "win-mcp-unknown-client" {},
+    /// 断开这一位 MCP 客户端的按钮。
+    WinMcpDisconnect = "win-mcp-disconnect" {},
+    /// 会话编辑器里的 MCP 访问字段。
+    WinMcpAccess = "win-mcp-access" {},
+    /// MCP 访问关闭。
+    WinMcpAccessOff = "win-mcp-access-off" {},
+    /// MCP 访问级别为只读。
+    WinMcpAccessReadOnly = "win-mcp-access-read-only" {},
+    /// MCP 访问级别为完全。
+    WinMcpAccessFull = "win-mcp-access-full" {},
+    /// 设置页的会话授权卡片标题。
+    WinMcpSessionAccess = "win-mcp-session-access" {},
+    /// 批量设置分组内的会话授权。
+    WinMcpSetGroup = "win-mcp-set-group" {},
+    /// 没有可设置授权的已保存会话。
+    WinMcpNoSessions = "win-mcp-no-sessions" {},
+    /// 开启会话访问时显示的敏感信息提示。
+    WinMcpSensitiveNotice = "win-mcp-sensitive-notice" {},
+    /// 设置页写入会话授权级别失败。
+    WinMcpGrantFailed = "win-mcp-grant-failed" {},
+    /// 会话编辑器已保存会话但授权写入失败。
+    WinMcpAccessSaveFailed = "win-mcp-access-save-failed" { detail: String },
+    /// MCP 审计记录的卡片标题。
+    WinMcpAudit = "win-mcp-audit" {},
+    /// 审计记录筛选不限会话。
+    WinMcpAllSessions = "win-mcp-all-sessions" {},
+    /// 审计记录仅显示失败或被拒绝的调用。
+    WinMcpErrorsOnly = "win-mcp-errors-only" {},
+    /// 当前筛选没有审计记录。
+    WinMcpNoAudit = "win-mcp-no-audit" {},
+    /// 查询下一页较早的审计记录。
+    WinMcpAuditMore = "win-mcp-audit-more" {},
+    /// 清空本机 MCP 审计日志。
+    WinMcpAuditClear = "win-mcp-audit-clear" {},
+    /// 审计日志读取失败。
+    WinMcpAuditReadFailed = "win-mcp-audit-read-failed" {},
+    /// 审计日志清空失败。
+    WinMcpAuditClearFailed = "win-mcp-audit-clear-failed" {},
+    /// 审计记录引用的已删除会话。
+    WinMcpAuditDeleted = "win-mcp-audit-deleted" {},
+    /// 审计记录引用当前未授权的会话。
+    WinMcpAuditUnauthorized = "win-mcp-audit-unauthorized" {},
+    /// MCP 客户端工具调用次数。
+    WinMcpCalls = "win-mcp-calls" { count: i64 },
+    /// 状态栏 MCP 客户端指示器。
+    WinMcpStatusIndicator = "win-mcp-status-indicator" { count: i64 },
+    /// MCP 打开的标签标记提示。
+    WinMcpTabOpened = "win-mcp-tab-opened" { client: String },
+    /// MCP 正在操作标签时的标记提示。
+    WinMcpTabActivity = "win-mcp-tab-activity" { client: String, tool: String },
 }

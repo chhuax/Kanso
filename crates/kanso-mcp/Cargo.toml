@@ -15,16 +15,19 @@ path = "src/lib.rs"
 name = "kanso-mcp"
 path = "src/main.rs"
 
-# 只依赖 std 与 libc：体积和启动时间都要小，也不碰 tokio、serde（architecture §16.2）。
+# 只依赖 std 与系统 API 绑定：体积和启动时间都要小，也不碰 tokio、serde（architecture §16.2）。
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Pipes", "Win32_System_Threading"] }
 
 [dev-dependencies]
 tempfile.workspace = true
 
 # 端到端测试用真实服务（mock core）。kanso-mcp-server 反过来依赖本 crate 的库，
-# dev-dependency 形成的环 Cargo 允许；服务只在 Unix 上存在，所以限定平台。
-[target.'cfg(unix)'.dev-dependencies]
+# dev-dependency 形成的环 Cargo 允许；只在提供真实本机通道的平台运行。
+[target.'cfg(any(unix, windows))'.dev-dependencies]
 kanso-mcp-server = { workspace = true, features = ["direct"] }
 kanso-core.workspace = true
 kanso-types.workspace = true

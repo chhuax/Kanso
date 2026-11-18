@@ -12,9 +12,10 @@ use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
 use gpui::{
-    AnyElement, App, Bounds, Context, Entity, EventEmitter, FocusHandle, Focusable, Hsla,
-    KeyDownEvent, MouseButton, MouseDownEvent, SharedString, Subscription, TitlebarOptions, Window,
-    WindowBounds, WindowHandle, WindowOptions, div, prelude::*, px, rgba, size,
+    AnyElement, App, Bounds, Context, Div, Entity, EventEmitter, FocusHandle, Focusable, Hsla,
+    KeyDownEvent, MouseButton, MouseDownEvent, SharedString, Stateful, Subscription,
+    TitlebarOptions, Window, WindowBounds, WindowHandle, WindowOptions, div, prelude::*, px, rgba,
+    size,
 };
 use kanso_core::Core;
 use kanso_gpui::app::i18n::{Lang, LanguageSetting, label, lang};
@@ -29,6 +30,7 @@ use kanso_gpui::widgets::style::{Appearance, color, number};
 
 use super::display;
 use super::log;
+use super::mcp::McpModel;
 use super::widgets::dropdown::{Dropdown, DropdownEvent};
 use super::widgets::icons::icon;
 use super::widgets::text_input::{TextInput, TextInputEvent};
@@ -37,6 +39,12 @@ use kanso_types::message::Message;
 
 #[path = "settings_keys.rs"]
 mod keys;
+#[path = "settings_mcp.rs"]
+mod mcp_page;
+
+pub(super) use mcp_page::{MCP_ACCESS_LEVELS, mcp_access_title};
+
+const MCP_PAGE: usize = 3;
 
 // ---- 模型 ----
 
@@ -190,12 +198,19 @@ fn nerd_fallback(cx: &App) -> Option<String> {
 pub(crate) fn open_window(
     model: Entity<SettingsModel>,
     existing: Option<WindowHandle<SettingsView>>,
+    mcp: Entity<McpModel>,
+    select_mcp: bool,
     cx: &mut App,
 ) -> Option<WindowHandle<SettingsView>> {
     model.update(cx, |m, cx| m.reload_themes(cx));
     if let Some(handle) = existing
         && handle
-            .update(cx, |_, window, _| window.activate_window())
+            .update(cx, |settings, window, cx| {
+                if select_mcp && kanso_mcp_server::supported() {
+                    settings.select_page(MCP_PAGE, window, cx);
+                }
+                window.activate_window();
+            })
             .is_ok()
     {
         return Some(handle);
@@ -210,7 +225,7 @@ pub(crate) fn open_window(
             }),
             ..Default::default()
         },
-        move |window, cx| cx.new(|cx| SettingsView::new(model, window, cx)),
+        move |window, cx| cx.new(|cx| SettingsView::new(model, mcp, select_mcp, window, cx)),
     );
     match opened {
         Ok(handle) => {
@@ -230,6 +245,7 @@ pub(crate) struct SettingsView {
     labels_language: Lang,
     page: usize,
     model: Entity<SettingsModel>,
+    mcp: Entity<mcp_page::McpPage>,
     focus: FocusHandle,
     term_font: Entity<Dropdown>,
     term_font_input: Entity<TextInput>,
@@ -297,14 +313,23 @@ fn theme_index(themes: &[(String, String)], id: &str, fallback: usize) -> usize 
 }
 
 impl SettingsView {
-    pub(super) fn select_page(&mut self, page: usize, cx: &mut Context<Self>) {
+    pub(super) fn select_page(&mut self, page: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.page == MCP_PAGE || page == MCP_PAGE {
+            self.mcp
+                .update(cx, |mcp, cx| mcp.set_shown(page == MCP_PAGE, cx));
+        }
         self.page = page;
+        if page == MCP_PAGE {
+            self.focus.focus(window);
+        }
         self.keys.cancel();
         cx.notify();
     }
 
     pub(crate) fn new(
         model: Entity<SettingsModel>,
+        mcp: Entity<McpModel>,
+        select_mcp: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -453,11 +478,13 @@ impl SettingsView {
             }),
         );
 
-        let this = SettingsView {
+        let mcp = cx.new(|cx| mcp_page::McpPage::new(mcp, window, cx));
+        let mut this = SettingsView {
             titlebar_dark: None,
             labels_language: lang(),
             page: 0,
             model,
+            mcp,
             focus: cx.focus_handle(),
             term_font,
             term_font_input,
@@ -474,6 +501,9 @@ impl SettingsView {
             probing: true,
             _subs: subs,
         };
+        if select_mcp && kanso_mcp_server::supported() {
+            this.select_page(MCP_PAGE, window, cx);
+        }
         this.probe_monospace(all_names, cx);
         this
     }
@@ -786,13 +816,23 @@ impl SettingsView {
 }
 
 /// 复选行（右侧一个方框）。
-fn checkbox(
+fn checkbox<V: 'static>(
     th: &Th,
-    cx: &mut Context<SettingsView>,
+    cx: &mut Context<V>,
     id: &'static str,
     checked: bool,
-    on_toggle: impl Fn(&mut SettingsView, bool, &mut Context<SettingsView>) + 'static,
+    on_toggle: impl Fn(&mut V, bool, &mut Context<V>) + 'static,
 ) -> AnyElement {
+    checkbox_box(th, id, checked)
+        .cursor_pointer()
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, _: &MouseDownEvent, _w, cx| on_toggle(this, !checked, cx)),
+        )
+        .into_any_element()
+}
+
+fn checkbox_box(th: &Th, id: &'static str, checked: bool) -> Stateful<Div> {
     div()
         .id(id)
         .size(px(18.0))
@@ -800,7 +840,6 @@ fn checkbox(
         .items_center()
         .justify_center()
         .rounded(px(number("radius", "sm")))
-        .cursor_pointer()
         .border_1()
         .border_color(if checked {
             th.c("accent")
@@ -814,14 +853,9 @@ fn checkbox(
         })
         .text_color(th.c("text.onAccent"))
         .text_size(px(12.0))
-        .on_mouse_down(
-            MouseButton::Left,
-            cx.listener(move |this, _: &MouseDownEvent, _w, cx| on_toggle(this, !checked, cx)),
-        )
         .when(checked, |d| {
             d.child(icon("check", 13.0, th.c("text.onAccent")))
         })
-        .into_any_element()
 }
 
 fn boxed(control: impl IntoElement, width: f32) -> AnyElement {
@@ -861,6 +895,7 @@ impl Render for SettingsView {
                 picker.update(cx, |picker, cx| picker.set_items(items, cx));
             }
             self.sync_widgets(window, cx);
+            self.mcp.update(cx, |_, cx| cx.notify());
         }
 
         // 外观
@@ -1108,7 +1143,11 @@ impl Render for SettingsView {
             (0, Message::UiGeneral {}, "sun-moon"),
             (1, Message::UiDisplay {}, "type"),
             (2, Message::UiKeysPage {}, "keyboard"),
+            (MCP_PAGE, Message::WinMcpPage {}, "plug"),
         ] {
+            if i == MCP_PAGE && !kanso_mcp_server::supported() {
+                continue;
+            }
             toolbar = toolbar.child(
                 div()
                     .id(("settings-tab", i))
@@ -1130,8 +1169,8 @@ impl Render for SettingsView {
                     .hover(|s| s.bg(th.c("bg.rowHover")))
                     .on_mouse_down(
                         MouseButton::Left,
-                        cx.listener(move |this, _, _, cx| {
-                            this.select_page(i, cx);
+                        cx.listener(move |this, _, window, cx| {
+                            this.select_page(i, window, cx);
                         }),
                     )
                     .child(icon(symbol, 22.0, th.c("text.secondary")))
@@ -1141,6 +1180,7 @@ impl Render for SettingsView {
         let cards = match self.page {
             0 => vec![appearance_card, language_card],
             1 => vec![font_card, cursor_card, scroll_card, contrast_card, ui_card],
+            MCP_PAGE => vec![self.mcp.clone().into_any_element()],
             _ => self.keys_cards(&th, cx),
         };
         div()
@@ -1152,7 +1192,21 @@ impl Render for SettingsView {
             .text_size(px(display::ui_font_size()))
             .text_color(th.c("text.primary"))
             .track_focus(&self.focus)
-            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _w, cx| this.keys_on_key(ev, cx)))
+            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
+                let key = &ev.keystroke;
+                let m = &key.modifiers;
+                if this.page == MCP_PAGE && key.key == "tab" && !m.control && !m.alt && !m.platform
+                {
+                    if m.shift {
+                        window.focus_prev();
+                    } else {
+                        window.focus_next();
+                    }
+                    cx.stop_propagation();
+                } else {
+                    this.keys_on_key(ev, cx);
+                }
+            }))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _: &MouseDownEvent, _w, cx| {
@@ -1165,11 +1219,18 @@ impl Render for SettingsView {
             .child(toolbar)
             .child(
                 div()
-                    .id("settings-scroll")
+                    .id(if self.page == MCP_PAGE {
+                        "settings-mcp-scroll"
+                    } else {
+                        "settings-scroll"
+                    })
                     .flex_1()
                     .min_h_0()
                     .w_full()
                     .overflow_y_scroll()
+                    .when(self.page == MCP_PAGE, |d| {
+                        d.tab_group().track_scroll(&self.mcp.read(cx).scroll)
+                    })
                     .child(
                         div()
                             .flex()

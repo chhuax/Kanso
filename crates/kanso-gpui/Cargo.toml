@@ -27,6 +27,9 @@ unicode-segmentation = "1"
 # GPUI 与其配套依赖只在 Windows 引入：macOS / Linux 的 `cargo build --workspace` 不需要图形系统库。
 # 用 crates.io 的发布版（Apache-2.0），不用 git 依赖；`=` 固定版本，升级要重新评估许可证与体积。
 [target.'cfg(windows)'.dependencies]
+kanso-mcp-server.workspace = true
+# 系统随机源生成 MCP 客户端令牌（MIT / Apache-2.0，Cargo.lock 和 Windows 声明已有）。
+getrandom = "0.4"
 # 关掉默认的 `windows-manifest`：gpui 会把自带的应用清单链接进最终 exe，与 build.rs 嵌入的 Kanso 清单
 # （含 PerMonitorV2、Common Controls 6、UTF-8、长路径）重复，链接器会报重复资源。其余默认特性原样保留。
 gpui = { version = "=0.2.2", default-features = false, features = ["font-kit", "wayland", "x11"] }
@@ -46,7 +49,7 @@ windows-core = "0.61"
 
 [features]
 default = ["direct"]
-direct = ["kanso-core/direct"]
+direct = ["kanso-core/direct", "kanso-mcp-server/direct"]
 
 [lints]
 workspace = true

@@ -70,7 +70,7 @@ Windows / Linux（M6）：kanso-gpui 直接依赖 kanso-core，不经过 FFI。
 | 门面 | `kanso-mcp-server` | MCP 服务（仅 Direct）：工具定义、授权、审计，是 `Core` 公开 API 的又一个使用方，见 §16 | rmcp、schemars | ❌ |
 | 绑定 | `kanso-ffi` | UniFFI 导出 Core 与镜像类型；帧通过 `FrameHandle` 交出缓冲区地址，Swift 按 `kanso_frame.h` 零拷贝读取（见 `docs/frame-abi.md` §8） | uniffi | ❌ |
 | 工具 | `xtask` | 构建 XCFramework、生成 design token 和多语言目录、校验许可证与多语言 key | — | — |
-| 工具 | `kanso-mcp` | 随 App 打包的 stdio 转发小程序，只做 stdio 与本机 socket 之间的字节转发，见 §16 | libc | ❌ |
+| 工具 | `kanso-mcp` | 随 App 打包的 stdio 转发小程序，通过仅限当前用户的本机通道转发字节，见 §16 | libc（Unix）、windows-sys（Windows） | ❌ |
 | 工具 | `kanso-bench` | 吞吐和延迟基准测试（大量 cat 输出、多会话并发、SFTP） | criterion | — |
 
 "sans-IO"指 crate 里只有纯逻辑和状态机，不直接做网络或文件读写。这类 crate 最容易并行开发、做单元测试，也最适合将来以 MIT 协议开源。
@@ -326,10 +326,10 @@ core 定义 trait，宿主实现后在启动时注入：
 ```
 AI 工具（Claude Code / Codex …）
    │ stdio（JSON-RPC，按 MCP stdio 传输分帧）
-kanso-mcp（随 App 打包的小程序，Kanso.app/Contents/MacOS/kanso-mcp）
-   │ Unix domain socket（仅当前用户）
+kanso-mcp（随 App 打包，macOS 在 App 包内，Windows 在 Kanso.exe 旁）
+   │ 本机 Unix socket 或 Windows 命名管道（仅当前用户）
 Kanso App 进程
-   └ kanso-ffi 导出的 McpServer 对象 → kanso-mcp-server（rmcp）→ kanso-core 公开 API
+   └ AppKit 通过 kanso-ffi 或 GPUI 直接接入 → kanso-mcp-server（rmcp）→ kanso-core 公开 API
 ```
 
 - **`kanso-mcp` 不理解 MCP**，连上 socket 后只做双向字节转发。MCP 协议处理、授权、审计全部在 App 进程里进行。这样做有三个好处：
@@ -337,24 +337,25 @@ Kanso App 进程
   - 凭据、数据库、钥匙串只有 App 进程能碰，`kanso-mcp` 被替换或被单独调用也拿不到任何东西。
   - 不需要像独立 MCP 服务那样单独分发、单独更新。
 - **握手**：`kanso-mcp` 连上后先发一行 JSON（客户端令牌、控制终端设备名），之后才是 MCP 字节流。App 读走第一行，再把剩下的流交给 rmcp。
-  - **令牌**（`spec/mcp.md` §1.1）：`kanso-mcp` 从环境变量 `KANSO_MCP_TOKEN` 读取并原样转交，自己不做校验。App 用常量时间比较；不匹配时，由 App 以 MCP 服务端身份对 `initialize` 回错误后关闭连接。令牌由宿主保存在钥匙串里（PlatformMac），启动服务时传给 `McpServer`，重新生成时由宿主调用 `McpServer` 更新并断开旧连接；core 和数据库都不经手令牌。不走 SecretStore 的原因：现有条目按会话组织（`profile/<uuid>/...`），塞进一个全局令牌要改条目命名格式和 FFI。
+  - **令牌**（`spec/mcp.md` §1.1）：`kanso-mcp` 从环境变量 `KANSO_MCP_TOKEN` 读取并原样转交。App 用常量时间比较，不匹配时对 `initialize` 回错误后关闭连接。令牌由宿主保存在 macOS 钥匙串或 Windows 凭据管理器的 `mcp/client-token` 条目。重新生成后，宿主更新 `McpServer` 并断开旧连接。core、数据库和按 `profile/<uuid>/...` 存放的会话凭据使用独立的契约。
   - **识别客户端所在标签**（`spec/mcp.md` §2.5）有两条线索，命中任一条即标记：
     - 控制终端：把握手里的设备名与本地会话 PTY 的从设备名比对。
     - 进程祖先链：App 用 `LOCAL_PEERPID` 套接字选项取得对端的真实 pid（不信任自报的 pid），再沿父进程向上查找，直到遇到某个本地会话的 shell 进程，或者到达 launchd。
   - 用户在本地标签里套了 tmux 或 screen 时，AI 工具的祖先是 tmux 服务进程，控制终端也是 tmux 的伪终端，两条线索都不会命中。这是已知的盲区，规格里也写明了。
-- **连不上 socket 时**，`kanso-mcp` 先用非阻塞 `flock` 试探单实例锁文件，借此区分两种情况：
+- **Unix 上连不上 socket 时**，`kanso-mcp` 用非阻塞 `flock` 试探单实例锁文件，借此区分两种情况：
   - 锁被占着，说明 App 在运行、只是 MCP 开关关闭，回"MCP is disabled"。
   - 能拿到锁，说明 App 没有运行，回"Kanso is not running"；随即释放锁，不改动任何文件。
   - 两种情况下，`kanso-mcp` 都从 stdin 读第一条 JSON-RPC 请求，以相同 id 回错误后退出。这是它唯一需要理解的 JSON-RPC 内容。
 - **socket 位置**：`~/Library/Application Support/<bundle id>/mcp/kanso.sock`。目录权限 0700，socket 权限 0600；App 用 `getpeereid` 校验对端 uid 与自己相同。macOS 的 socket 路径上限是 104 字节，超出时两边都改用 `$TMPDIR/<bundle id>.mcp.sock`。`kanso-mcp` 和 App 用同一个按渠道编译进去的 bundle id 计算路径，不靠配置文件互相告知。
-- **单实例**：App **启动时就**对同目录的锁文件加 `flock`，不管 MCP 开关是开是关，一直持有到退出；上一条区分"开关关闭"和"未运行"就靠这一点，所以不能改成开关打开时才加锁。拿不到锁说明另一个 Kanso 实例（例如同时打开的 Debug 版，它和 Release 版用同一个 bundle id）已经持有，本实例不提供 MCP 服务，设置页说明原因。开始监听前删除残留的旧 socket 文件。
+- **单实例（Unix）**：App 从启动到退出持有同目录锁文件的 `flock`。拿不到锁时设置页显示另一个实例已占用。开始监听前删除残留的旧 socket 文件。
+- **Windows**：两端用 App ID 和当前用户 SID 计算命名管道名称。App 启动即独占运行探测管道，启用 MCP 后才创建数据管道。转发程序用探测管道区分未运行与已关闭。管道本机限定，DACL 仅允许当前用户，两端从对端进程的令牌再次核对 SID。句柄关闭时系统回收管道。stdin 结束时，转发程序在数据管道中发送一个原始 NUL 表示半关闭，仍保持读取方向以接收最后一条回复。
 
 ### 16.2 模块落点
 
 | 组件 | 位置 | 说明 |
 |---|---|---|
-| `kanso-mcp-server`（新 crate） | 与 `kanso-ffi` 同层，依赖 `kanso-core` | 工具定义与参数 schema、授权判断、标签写锁、用户接管判断、输出截断、审计记录。它只是 `Core` 公开 API 的又一个使用方，和 FFI、GPUI 地位相同；GPUI 版将来可以直接复用。公开接口 `McpServer` / `McpServerDelegate` 已定；内含 mock 服务（不监听 socket，模拟一个客户端，供 Swift 开发），真实服务在 F9 完成前 `start` 返回 `NotSupported` |
-| `kanso-mcp`（新 crate，二进制） | `crates/kanso-mcp` | 只依赖 std 和 `libc`（用于 `flock` 和取控制终端名）。不依赖 tokio，体积和启动时间都要小 |
+| `kanso-mcp-server` | 与 `kanso-ffi` 同层，依赖 `kanso-core` | 工具、授权和审计。AppKit 与 GPUI 通过 `McpServer` / `McpServerDelegate` 共用真实服务。界面测试可使用 mock 服务 |
+| `kanso-mcp`（二进制） | `crates/kanso-mcp` | std 加系统 API 绑定。Unix 用 `libc` 处理文件锁和控制终端，Windows 用 `windows-sys` 处理命名管道 |
 | `kanso-ffi` | 现有 | `KansoCore` 导出授权、总开关、审计读写；导出 `KansoMcpServer` 对象（`start`、`stop`、`set_token`、状态、客户端列表、断开客户端，mock 另有 `debug_*`）、回调接口 `FfiMcpServerDelegate`（状态、客户端、标签摆放、MCP 标识、标签释放）和 `mcp_client_config`。**三个渠道都导出**：Swift 绑定只生成一份、三个渠道共用，按渠道裁剪会让 MAS 版链接失败；非 Direct 渠道的服务恒为"不支持"。界面**只按 `mcp_supported()`** 决定是否显示 MCP 页面，不看 `start` 的结果：Direct 构建里 `start` 失败要在页面上显示错误，若因此隐藏页面，用户就再也关不掉开关 |
 | `kanso-store` | 现有 | 新增 `mcp_grants`、`mcp_local`、`mcp_audit` 三张表（§16.4） |
 | Swift | KansoUI、KansoApp | 设置 → MCP 页面、会话编辑对话框字段、标签行 MCP 标识、状态栏指示器、处理 MCP 打开标签的事件 |

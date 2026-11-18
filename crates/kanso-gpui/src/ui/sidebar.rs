@@ -264,6 +264,18 @@ impl ShellView {
             .or_else(|| TabPresentation::subtitle(item).map(str::to_owned));
         let closed = matches!(item.connection, TabConnection::Closed(_));
         let busy = item.activity.is_busy();
+        let mcp_mark = self.mcp.read(cx).tab_mark(sid).map(|(active, lines)| {
+            let color = th.c(if active { "accent" } else { "text.tertiary" });
+            div()
+                .id(("tab-mcp", sid.raw() as usize))
+                .flex_none()
+                .child(icon("plug", 13.0, color))
+                .tooltip(move |_, cx| {
+                    let lines = lines.clone();
+                    cx.new(|_| super::status_bar::LinesTooltip { lines, th })
+                        .into()
+                })
+        });
         let (bg, show_bar) = if selected && in_active_pane {
             (Some(th.c("bg.tabSelected")), true)
         } else if pane_current {
@@ -428,6 +440,7 @@ impl ShellView {
                 .child((index + 1).to_string())
         }))
         // 未读完成 / 运行中指示点。
+        .children(mcp_mark)
         .children((item.unread_done || busy).then(|| {
             div()
                 .flex_none()

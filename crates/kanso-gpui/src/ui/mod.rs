@@ -30,6 +30,7 @@ mod find_bar;
 mod git_panel;
 mod git_selftest;
 mod launcher;
+mod mcp;
 mod memory;
 mod os_drag;
 mod remote_edit_selftest;

@@ -124,19 +124,28 @@ impl ShellView {
             &editor,
             window,
             |this, editor, ev: &EditorEvent, window, cx| {
+                if matches!(ev, EditorEvent::LibraryChanged) {
+                    this.mcp.update(cx, |_, cx| cx.notify());
+                    return;
+                }
+                let open_local = match ev {
+                    EditorEvent::OpenLocal(profile) => Some(profile.clone()),
+                    _ => None,
+                };
+                let saved = match ev {
+                    EditorEvent::Saved { id, connect } => Some((*id, *connect)),
+                    _ => None,
+                };
                 editor.update(cx, |e, cx| e.wipe_secrets(cx));
                 this.editor = None;
                 this.editor_sub = None;
-                match ev {
-                    EditorEvent::Cancel => {}
-                    EditorEvent::OpenLocal(profile) => {
-                        this.open_shell(Some(profile.clone()), window, cx)
-                    }
-                    EditorEvent::Saved { id, connect } => {
-                        log(&format!("会话已保存 {id}"));
-                        if *connect {
-                            this.connect_profile(*id, window, cx);
-                        }
+                if let Some(profile) = open_local {
+                    this.open_shell(Some(profile), window, cx);
+                }
+                if let Some((id, connect)) = saved {
+                    log(&format!("会话已保存 {id}"));
+                    if connect {
+                        this.connect_profile(id, window, cx);
                     }
                 }
                 this.sync_focus(window, cx);

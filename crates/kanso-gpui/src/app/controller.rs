@@ -284,7 +284,7 @@ impl<B: AppBackend + Clone> AppController<B> {
         size: GridSize,
     ) -> CoreResult<SessionId> {
         let id = self.backend.open_session(target, size)?;
-        self.adopt(id, pane, None);
+        self.adopt(id, pane, None, true);
         Ok(id)
     }
 
@@ -298,7 +298,7 @@ impl<B: AppBackend + Clone> AppController<B> {
         let id = self
             .backend
             .open_session(OpenTarget::Profile(profile), size)?;
-        self.adopt(id, pane, None);
+        self.adopt(id, pane, None, true);
         Ok(id)
     }
 
@@ -310,7 +310,7 @@ impl<B: AppBackend + Clone> AppController<B> {
         let id = self
             .backend
             .open_session(OpenTarget::Duplicate(active), size)?;
-        self.adopt(id, None, None);
+        self.adopt(id, None, None, true);
         Ok(id)
     }
 
@@ -322,7 +322,7 @@ impl<B: AppBackend + Clone> AppController<B> {
             .active_session()
             .map_or(OpenTarget::DefaultLocalShell, OpenTarget::Duplicate);
         let id = self.backend.open_session(target, size)?;
-        self.adopt(id, None, Some(axis));
+        self.adopt(id, None, Some(axis), true);
         Ok(id)
     }
 
@@ -330,8 +330,22 @@ impl<B: AppBackend + Clone> AppController<B> {
     ///
     /// 标签的初始连接状态取自 `session_info`：核心在 `open_session` 里已经发过 `Connecting`
     /// （甚至 `Connected`）事件，而它们要到下一次处理事件时才到达，不能依赖它们来初始化。
-    fn adopt(&mut self, id: SessionId, pane: Option<PaneId>, split: Option<SplitAxis>) {
+    fn adopt(
+        &mut self,
+        id: SessionId,
+        pane: Option<PaneId>,
+        split: Option<SplitAxis>,
+        activate: bool,
+    ) -> bool {
         let info = self.backend.session_info(id);
+        if !activate
+            && (self.workspace.item(id).is_some()
+                || info
+                    .as_ref()
+                    .is_none_or(|i| matches!(i.state, kanso_types::event::SessionState::Closed(_))))
+        {
+            return false;
+        }
         let mut item = TabItem::new(
             id,
             info.as_ref().map_or(TabKind::Local, |i| i.kind.into()),
@@ -349,9 +363,15 @@ impl<B: AppBackend + Clone> AppController<B> {
             Some(axis) => {
                 self.workspace.split_active_pane(axis, item);
             }
-            None => self.workspace.add_tab(item, pane, true),
+            None => self.workspace.add_tab(item, pane, activate),
         }
         self.sync_visibility();
+        true
+    }
+
+    /// 接管 MCP 已打开的标签，保持前台会话与输入焦点。
+    pub fn adopt_mcp_session(&mut self, id: SessionId) -> bool {
+        self.adopt(id, None, None, false)
     }
 
     // ---- 关闭 ----
@@ -717,6 +737,19 @@ mod tests {
             TabConnection::Closed(Some(CloseNote::Exited { code: Some(1) })),
             "退出码保留在标签上"
         );
+    }
+
+    #[test]
+    fn mcp_adoption_keeps_the_user_tab_active() {
+        let (mut c, backend) = controller();
+        let current = c.open_local_shell(None, GRID).unwrap();
+        let opened = backend
+            .open_session(OpenTarget::DefaultLocalShell, GRID)
+            .unwrap();
+        assert!(c.adopt_mcp_session(opened));
+        assert_eq!(c.workspace().active_session(), Some(current));
+        assert!(c.workspace().item(opened).is_some());
+        assert!(!c.adopt_mcp_session(opened));
     }
 
     #[test]

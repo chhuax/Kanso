@@ -11,6 +11,7 @@ use std::str::Chars;
 use kanso_core::{CoreError, DeleteImpact};
 use kanso_secret::SecretKind;
 use kanso_types::geometry::Rgb;
+use kanso_types::mcp::McpAccess;
 use kanso_types::message::Message;
 use kanso_types::profile::{
     AuthMethod, EncodingLabel, Group, LocalProfile, Locale, Profile, ProfileKind, SessionKind,
@@ -499,6 +500,8 @@ pub enum EditorField {
     Color,
     /// 分组。
     Group,
+    /// MCP 访问级别。
+    McpAccess,
     /// Shell 命令行（本地）。
     ShellCommand,
     /// 起始目录（本地）。
@@ -527,7 +530,7 @@ pub enum EditorField {
     Locale,
 }
 
-/// 保存失败 / 部分失败的原因（视图本地化：`Save` 与 `Credential` 用 `CoreError::user_message` 渲染）。
+/// 保存失败 / 部分失败的原因（视图用 `CoreError::user_message` 本地化核心错误）。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EditorError {
     /// 名称为空。
@@ -538,15 +541,24 @@ pub enum EditorError {
     LocaleInvalid,
     /// 核心拒绝保存（校验失败等）。
     Save(CoreError),
-    /// 会话已保存，但写凭据失败。
-    Credential(CoreError),
+    /// 会话已保存，但写凭据失败。MCP 授权也可能同时写失败。
+    Credential {
+        /// 写凭据的错误。
+        error: CoreError,
+        /// 写授权的错误。
+        mcp_access: Option<Box<CoreError>>,
+    },
+    /// 会话已保存，但写 MCP 授权失败。
+    McpAccess(CoreError),
 }
 
 impl EditorError {
     /// 可直接展示的核心消息（只有核心给出用户级错误时有）。
     pub fn core_message(&self) -> Option<&Message> {
         match self {
-            EditorError::Save(e) | EditorError::Credential(e) => e.user_message(),
+            EditorError::Save(e)
+            | EditorError::Credential { error: e, .. }
+            | EditorError::McpAccess(e) => e.user_message(),
             _ => None,
         }
     }
@@ -555,12 +567,14 @@ impl EditorError {
 /// `save` 的结果。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SaveOutcome {
-    /// 会话与凭据都已保存，对话框可以关闭。
+    /// 会话、凭据与授权已保存，对话框可以关闭。
     Saved,
     /// 校验或保存失败，`error()` 有原因；会话没有改动，对话框保持打开。
     Failed,
     /// 会话已保存，但写凭据失败；对话框保持打开让用户重试（重试会覆盖同一个 id，不会产生重复会话）。
     SavedButCredentialFailed,
+    /// 会话已保存，但写 MCP 授权失败；对话框保持打开让用户重试。
+    SavedButMcpAccessFailed,
 }
 
 /// 编辑模型的发行渠道相关选项。
@@ -568,12 +582,15 @@ pub enum SaveOutcome {
 pub struct EditorOptions {
     /// ProxyCommand 只在 Direct 渠道提供（沙盒渠道不允许启动任意命令，ssh.md §5）。
     pub supports_proxy_command: bool,
+    /// 当前构建支持 MCP 服务，允许管理已保存会话的授权。
+    pub supports_mcp: bool,
 }
 
 impl Default for EditorOptions {
     fn default() -> Self {
         EditorOptions {
             supports_proxy_command: cfg!(feature = "direct"),
+            supports_mcp: false,
         }
     }
 }
@@ -598,6 +615,8 @@ pub struct SessionEditor<S: ProfileStore> {
     pub color: Option<Rgb>,
     /// 所属分组。
     pub group: Option<GroupId>,
+    mcp_access: McpAccess,
+    mcp_access_changed: bool,
 
     /// Shell 命令行（本地）。
     pub shell_command: String,
@@ -648,6 +667,10 @@ impl<S: ProfileStore> SessionEditor<S> {
     }
 
     fn build(store: S, options: EditorOptions, original: Option<Profile>) -> Self {
+        let mcp_access = original
+            .as_ref()
+            .filter(|_| options.supports_mcp)
+            .map_or(McpAccess::Off, |p| store.mcp_access(p.id));
         let mut e = SessionEditor {
             store,
             profile_id: original.as_ref().map_or_else(ProfileId::new, |p| p.id),
@@ -656,6 +679,8 @@ impl<S: ProfileStore> SessionEditor<S> {
             kind: SessionKind::Local,
             color: None,
             group: None,
+            mcp_access,
+            mcp_access_changed: false,
             shell_command: String::new(),
             start_dir: String::new(),
             host: String::new(),
@@ -731,6 +756,17 @@ impl<S: ProfileStore> SessionEditor<S> {
         self.error.as_ref()
     }
 
+    /// 编辑器显示的 MCP 访问级别。新建会话默认关闭。
+    pub fn mcp_access(&self) -> McpAccess {
+        self.mcp_access
+    }
+
+    /// 只记录用户主动修改的值，避免普通编辑覆盖设置页随后修改的授权。
+    pub fn edit_mcp_access(&mut self, level: McpAccess) {
+        self.mcp_access = level;
+        self.mcp_access_changed = true;
+    }
+
     // ---- 选项 ----
 
     /// 分组选项（按名称排序）。
@@ -781,6 +817,7 @@ impl<S: ProfileStore> SessionEditor<S> {
         use EditorField::*;
         match field {
             Name | Kind | Color | Group => true,
+            McpAccess => self.options.supports_mcp,
             ShellCommand | StartDir => self.kind == SessionKind::Local,
             Host | Port | User | Auth | Jump => self.is_ssh_like(),
             Password => self.is_ssh_like() && self.auth == AuthMethod::Password,
@@ -868,11 +905,11 @@ impl<S: ProfileStore> SessionEditor<S> {
 
     // ---- 保存 ----
 
-    /// 保存会话，成功后再写凭据。
+    /// 保存会话，成功后再写授权和凭据。
     ///
     /// 顺序不能反：`set_credential` 要求会话已存在（核心会报 `NoSuchProfile`）。
     /// 密码 / 口令留空 = 不修改已保存的值，所以留空时一定不调用 `set_credential`。
-    /// 完全成功后清空内存里的明文。
+    /// 凭据保存成功后清空内存里的明文。
     pub async fn save(&mut self) -> SaveOutcome {
         self.error = None;
         if self.name.trim().is_empty() {
@@ -890,6 +927,13 @@ impl<S: ProfileStore> SessionEditor<S> {
             self.error = Some(EditorError::Save(e));
             return SaveOutcome::Failed;
         }
+        let mcp_error = if self.options.supports_mcp && self.mcp_access_changed {
+            let result = self.store.set_mcp_access(self.profile_id, self.mcp_access);
+            self.mcp_access_changed = result.is_err();
+            result.err()
+        } else {
+            None
+        };
         let credential = if !self.is_ssh_like() {
             None
         } else if self.auth == AuthMethod::Password && !self.password.is_empty() {
@@ -905,11 +949,18 @@ impl<S: ProfileStore> SessionEditor<S> {
                 .set_credential(self.profile_id, kind, SecretString::new(secret))
                 .await
         {
-            self.error = Some(EditorError::Credential(e));
+            self.error = Some(EditorError::Credential {
+                error: e,
+                mcp_access: mcp_error.map(Box::new),
+            });
             return SaveOutcome::SavedButCredentialFailed;
         }
         self.password.clear();
         self.key_passphrase.clear();
+        if let Some(e) = mcp_error {
+            self.error = Some(EditorError::McpAccess(e));
+            return SaveOutcome::SavedButMcpAccessFailed;
+        }
         SaveOutcome::Saved
     }
 }
@@ -1190,6 +1241,7 @@ mod tests {
     fn opts(proxy: bool) -> EditorOptions {
         EditorOptions {
             supports_proxy_command: proxy,
+            supports_mcp: false,
         }
     }
 
@@ -1517,7 +1569,7 @@ mod tests {
         let mut e = ssh_editor(&store);
         e.password = "p".into();
         assert_eq!(block_on(e.save()), SaveOutcome::SavedButCredentialFailed);
-        assert!(matches!(e.error(), Some(EditorError::Credential(_))));
+        assert!(matches!(e.error(), Some(EditorError::Credential { .. })));
         assert_eq!(e.password, "p", "保留输入以便重试");
         store.0.borrow_mut().fail_credential = false;
         assert_eq!(block_on(e.save()), SaveOutcome::Saved);
@@ -1525,6 +1577,78 @@ mod tests {
         assert_eq!(i.profiles.len(), 1, "重试覆盖同一个 id，不产生重复会话");
         assert_eq!(i.saved.len(), 2);
         assert_eq!(i.saved[0].id, i.saved[1].id);
+    }
+
+    #[test]
+    fn grants_are_visible_for_mcp_supported_builds_and_written_after_creation() {
+        let store = FakeStore::default();
+        let mut options = opts(true);
+        assert!(!SessionEditor::new(store.clone(), options).is_visible(EditorField::McpAccess));
+        options.supports_mcp = true;
+        let mut e = SessionEditor::new(store.clone(), options);
+        assert!(e.is_visible(EditorField::McpAccess));
+        assert_eq!(e.mcp_access(), McpAccess::Off);
+        e.edit_mcp_access(McpAccess::ReadOnly);
+        assert_eq!(store.mcp_access(e.profile_id()), McpAccess::Off);
+        e.name = "local".into();
+        assert_eq!(block_on(e.save()), SaveOutcome::Saved);
+        assert_eq!(store.mcp_access(e.profile_id()), McpAccess::ReadOnly);
+    }
+
+    #[test]
+    fn untouched_grant_does_not_overwrite_an_external_update() {
+        let p = local_profile("local", "");
+        let store = FakeStore::with(vec![p.clone()], vec![]);
+        store.set_mcp_access(p.id, McpAccess::Full).unwrap();
+        let mut e = SessionEditor::editing(
+            store.clone(),
+            EditorOptions {
+                supports_mcp: true,
+                ..opts(true)
+            },
+            p.clone(),
+        );
+        assert_eq!(e.mcp_access(), McpAccess::Full);
+        store.set_mcp_access(p.id, McpAccess::ReadOnly).unwrap();
+        e.name = "renamed".into();
+        assert_eq!(block_on(e.save()), SaveOutcome::Saved);
+        assert_eq!(store.mcp_access(p.id), McpAccess::ReadOnly);
+        e.edit_mcp_access(McpAccess::Off);
+        assert_eq!(block_on(e.save()), SaveOutcome::Saved);
+        assert_eq!(store.mcp_access(p.id), McpAccess::Off);
+    }
+
+    #[test]
+    fn retries_save_the_pending_grant_without_rewriting_a_saved_credential() {
+        let store = FakeStore::default();
+        let mut e = ssh_editor(&store);
+        e.options.supports_mcp = true;
+        e.password = "p".into();
+        e.edit_mcp_access(McpAccess::ReadOnly);
+        {
+            let mut i = store.0.borrow_mut();
+            i.fail_mcp_access = true;
+            i.fail_credential = true;
+        }
+        assert_eq!(block_on(e.save()), SaveOutcome::SavedButCredentialFailed);
+        assert!(matches!(
+            e.error(),
+            Some(EditorError::Credential {
+                mcp_access: Some(_),
+                ..
+            })
+        ));
+        assert_eq!(e.password, "p");
+        store.0.borrow_mut().fail_credential = false;
+        assert_eq!(block_on(e.save()), SaveOutcome::SavedButMcpAccessFailed);
+        assert!(matches!(e.error(), Some(EditorError::McpAccess(_))));
+        assert!(e.password.is_empty());
+        store.0.borrow_mut().fail_mcp_access = false;
+        assert_eq!(block_on(e.save()), SaveOutcome::Saved);
+        assert_eq!(store.mcp_access(e.profile_id()), McpAccess::ReadOnly);
+        let i = store.0.borrow();
+        assert_eq!(i.profiles.len(), 1);
+        assert_eq!(i.credentials.len(), 1);
     }
 
     #[test]

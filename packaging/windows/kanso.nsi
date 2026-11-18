@@ -4,7 +4,7 @@
 ; 由 `cargo xtask win-package` 调用 makensis 编译，不要手工运行；需要的参数都用 /D 传入：
 ;   VERSION          产品版本，如 1.0.2
 ;   VERSION_NUMERIC  四段数字版本，如 1.0.2.0（VIProductVersion 要求）
-;   STAGE_DIR        Windows 暂存目录（GPUI Kanso.exe、LICENSE.txt、THIRD_PARTY_NOTICES.windows.md）
+;   STAGE_DIR        Windows 暂存目录（GPUI Kanso.exe、kanso-mcp.exe、GPL 许可、Windows 声明）
 ;   OUT_FILE         输出的安装程序路径
 ;   INSTALLER_ICON   安装 / 卸载程序图标（.ico）
 ;   SIGN_CMD         可选。签名命令模板，%1 会被替换为待签名文件（安装程序与卸载程序都会过一遍），
@@ -39,6 +39,7 @@ SetCompressorDictSize 16
 
 !define APP_NAME "Kanso"
 !define APP_EXE "Kanso.exe"
+!define MCP_EXE "kanso-mcp.exe"
 !define PUBLISHER "chhuax"
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\Kanso"
 !define APP_KEY "Software\Kanso"
@@ -111,21 +112,27 @@ LangString STR_PURGE ${LANG_ENGLISH} "Also delete your Kanso data (saved session
 LangString STR_PURGE ${LANG_SIMPCHINESE} "是否同时删除 Kanso 的用户数据（$LOCALAPPDATA\Kanso 中的会话、设置与日志）？$\r$\n$\r$\n保存在 Windows 凭据管理器中的密码不会被删除。$\r$\n$\r$\n选“否”则保留数据。"
 
 ; ---- 检测 Kanso 是否正在运行 ----
-; 做法：以写入方式打开 Kanso.exe。正在运行的 exe 被系统锁定，打开会失败；失败就提示用户关闭，绝不强杀进程。
+; 以写入方式检查主程序与 MCP 转发程序。正在运行的 exe 被系统锁定，提示用户关闭。
+!macro CheckExecutable FILE
+  ${If} ${FileExists} "$INSTDIR\${FILE}"
+    ClearErrors
+    FileOpen $0 "$INSTDIR\${FILE}" a
+    ${If} ${Errors}
+      Goto busy
+    ${EndIf}
+    FileClose $0
+  ${EndIf}
+!macroend
 !macro CheckRunningMacro PREFIX
   Function ${PREFIX}CheckRunning
-    IfFileExists "$INSTDIR\${APP_EXE}" 0 done
     retry:
-    ClearErrors
-    FileOpen $0 "$INSTDIR\${APP_EXE}" a
-    ${IfNot} ${Errors}
-      FileClose $0
-      Goto done
-    ${EndIf}
+    !insertmacro CheckExecutable "${APP_EXE}"
+    !insertmacro CheckExecutable "${MCP_EXE}"
+    Return
+    busy:
     ; /SD IDCANCEL：静默模式下无人可以关程序，直接中止。
     MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(STR_RUNNING)" /SD IDCANCEL IDRETRY retry
     Abort
-    done:
   FunctionEnd
 !macroend
 !insertmacro CheckRunningMacro ""
@@ -152,6 +159,7 @@ Section "Kanso" SecMain
 
   SetOutPath "$INSTDIR"
   File "${STAGE_DIR}\${APP_EXE}"
+  File "${STAGE_DIR}\${MCP_EXE}"
   File "${STAGE_DIR}\LICENSE.txt"
   File "${STAGE_DIR}\THIRD_PARTY_NOTICES.windows.md"
   ; 旧 Windows 安装曾附带 macOS 声明。升级时只清理这一个已知的旧发行文件。
@@ -183,6 +191,7 @@ FunctionEnd
 
 Section "Uninstall"
   Delete "$INSTDIR\${APP_EXE}"
+  Delete "$INSTDIR\${MCP_EXE}"
   Delete "$INSTDIR\LICENSE.txt"
   Delete "$INSTDIR\THIRD_PARTY_NOTICES.md"
   Delete "$INSTDIR\THIRD_PARTY_NOTICES.windows.md"

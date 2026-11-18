@@ -216,6 +216,13 @@ pub fn toggle_color(current: Option<Rgb>, picked: Rgb) -> Option<Rgb> {
 
 /// 保存失败的提示文字。`render` 把核心的用户级消息渲染成当前语言（视图用 `kanso-l10n`）。
 pub fn editor_error_text(error: &EditorError, render: impl Fn(&Message) -> String) -> String {
+    let access_error = |e: &CoreError| {
+        t(&Message::WinMcpAccessSaveFailed {
+            detail: e
+                .user_message()
+                .map_or_else(|| label(Message::UiSaveFailed {}).to_owned(), &render),
+        })
+    };
     match error {
         EditorError::NameEmpty => label(Message::UiEnterSessionName {}).to_owned(),
         EditorError::PortInvalid => label(Message::UiPortMustBeNumberFrom {}).to_owned(),
@@ -223,12 +230,16 @@ pub fn editor_error_text(error: &EditorError, render: impl Fn(&Message) -> Strin
         EditorError::Save(e) => e
             .user_message()
             .map_or_else(|| label(Message::UiSaveFailed {}).to_owned(), render),
-        EditorError::Credential(e) => {
-            let detail = e.user_message().map(render).unwrap_or_default();
-            t(&Message::UiSessionSavedButCredentialsCould {
-                detail: detail.to_string(),
-            })
+        EditorError::Credential { error, mcp_access } => {
+            let detail = error.user_message().map(&render).unwrap_or_default();
+            let mut message = t(&Message::UiSessionSavedButCredentialsCould { detail });
+            if let Some(e) = mcp_access {
+                message.push('\n');
+                message.push_str(&access_error(e));
+            }
+            message
         }
+        EditorError::McpAccess(e) => access_error(e),
     }
 }
 

@@ -3812,10 +3812,12 @@ name = "kanso-gpui"
 version = "1.0.3"
 dependencies = [
  "futures",
+ "getrandom 0.4.3",
  "gpui",
  "kanso-core",
  "kanso-frame",
  "kanso-l10n",
+ "kanso-mcp-server",
  "kanso-secret",
  "kanso-types",
  "log",
@@ -3855,6 +3857,7 @@ dependencies = [
  "libc",
  "serde_json",
  "tempfile",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

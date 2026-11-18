@@ -53,6 +53,7 @@ use kanso_types::{CoreEvent, PromptId, SessionId};
 
 use super::display;
 use super::launcher::LauncherView;
+use super::mcp::{McpModel, TabOpened};
 use super::session_editor::SessionEditorView;
 use super::settings::{self, SettingsEvent, SettingsModel, SettingsView};
 use super::shell_selftest::ShellSelfTest;
@@ -125,6 +126,7 @@ pub(crate) struct ShellView {
     dark: bool,
     /// 显示设置模型（字体 / 外观 / 时间轴），设置窗口与外壳共用。
     pub(super) settings: Entity<SettingsModel>,
+    pub(super) mcp: Entity<McpModel>,
     settings_window: Option<WindowHandle<SettingsView>>,
     window_active: bool,
     /// 最近一次通知核心“有输入焦点”的会话。
@@ -175,6 +177,7 @@ impl ShellView {
             .or_else(|_| std::env::var("HOME"))
             .unwrap_or_default();
         let settings = cx.new(|_| SettingsModel::new(core.clone(), themes_dir));
+        let mcp = cx.new(|cx| McpModel::new(core.clone(), cx));
         settings.read(cx).push_to_display(cx);
         let dark = display::effective_dark(window);
         display::apply_titlebar(window);
@@ -231,6 +234,7 @@ impl ShellView {
             notice: None,
             dark,
             settings,
+            mcp,
             settings_window: None,
             window_active: true,
             focused: None,
@@ -345,7 +349,22 @@ impl ShellView {
                 this.refresh_display(window, cx);
             },
         );
-        this._window_subs = vec![activation, appearance, settings_sub, filter_sub, sender_sub];
+        let mcp_sub = cx.observe(&this.mcp, |_, _, cx| cx.notify());
+        let mcp_tabs = cx.subscribe_in(&this.mcp, window, |this, _, ev: &TabOpened, window, cx| {
+            if this.ctl.adopt_mcp_session(ev.0) {
+                this.attach_session(ev.0, window, cx);
+                cx.notify();
+            }
+        });
+        this._window_subs = vec![
+            activation,
+            appearance,
+            settings_sub,
+            filter_sub,
+            sender_sub,
+            mcp_sub,
+            mcp_tabs,
+        ];
         {
             let m = this.settings.read(cx);
             log(&format!(
@@ -649,7 +668,9 @@ impl ShellView {
                     } else {
                         2
                     };
-                    let _ = handle.update(cx, |settings, _, cx| settings.select_page(page, cx));
+                    let _ = handle.update(cx, |settings, window, cx| {
+                        settings.select_page(page, window, cx);
+                    });
                 }
             }
             AppCommand::About => self.show_about(window, cx),
@@ -678,8 +699,21 @@ impl ShellView {
 
     /// 打开设置窗口（已打开就带到前台）。
     pub(super) fn open_settings(&mut self, cx: &mut Context<Self>) {
-        let model = self.settings.clone();
-        self.settings_window = settings::open_window(model, self.settings_window, cx);
+        self.show_settings(false, cx);
+    }
+
+    pub(super) fn open_mcp_settings(&mut self, cx: &mut Context<Self>) {
+        self.show_settings(true, cx);
+    }
+
+    fn show_settings(&mut self, mcp: bool, cx: &mut Context<Self>) {
+        self.settings_window = settings::open_window(
+            self.settings.clone(),
+            self.settings_window,
+            self.mcp.clone(),
+            mcp,
+            cx,
+        );
     }
 
     /// 终端文字放大 / 缩小：直接改显示设置里的终端字号（所有终端一起变）。
@@ -1163,6 +1197,13 @@ impl ShellView {
         self.completion_reset();
         for id in &closed {
             self.filer_forget(*id, cx);
+        }
+        if !closed.is_empty() {
+            self.mcp.update(cx, |m, _| {
+                for id in &closed {
+                    m.forget(*id);
+                }
+            });
         }
         for id in closed {
             self.terminals.remove(&id);
