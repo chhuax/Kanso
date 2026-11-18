@@ -69,6 +69,33 @@ private final class TestClock {
     }
 }
 
+/// 启动必定失败的假服务：先经 delegate 报告不可用状态，再抛出对应错误。
+/// 用它代替真实 `KansoMcpServer`：真实服务构造时会在真实 HOME 建目录并抢单实例锁，违反测试隔离。
+private final class FailingMcpServer: KansoMcpServerProtocol, @unchecked Sendable {
+    private let delegate: FfiMcpServerDelegate
+    private let reason: FfiMcpUnavailable
+    private let error: FfiMcpServerError
+
+    init(delegate: FfiMcpServerDelegate, reason: FfiMcpUnavailable, error: FfiMcpServerError) {
+        self.delegate = delegate
+        self.reason = reason
+        self.error = error
+    }
+
+    func start(bundleId: String, token: String) throws {
+        delegate.onStatusChanged(status: .unavailable(reason: reason))
+        throw error
+    }
+
+    func stop() {}
+    func setToken(token: String) {}
+    func status() -> FfiMcpServerStatus { .unavailable(reason: reason) }
+    func clients() -> [FfiMcpClientInfo] { [] }
+    func disconnect(clientId: UInt64) {}
+    func debugActivity(sessionId: UInt64, tool: String?) throws {}
+    func debugOpenTab(profileId: String) async throws -> UInt64 { throw error }
+}
+
 /// 可控的访问级别存储：记录写入次数，可让读或写失败。
 private final class AccessStub: McpAccessStoring, @unchecked Sendable {
     struct Failure: Error {}
@@ -119,7 +146,7 @@ final class McpUITests: XCTestCase {
     }
 
     private func makeCoordinator(
-        useMockServer: Bool = true,
+        failing: (reason: FfiMcpUnavailable, error: FfiMcpServerError)? = nil,
         supported: Bool = true,
         keychain: MemoryKeychain = MemoryKeychain(),
         schedule: TestClock = TestClock()
@@ -127,7 +154,10 @@ final class McpUITests: XCTestCase {
         let core = KansoCore.newMock(listener: CoreEventDispatcher())
         let coordinator = McpCoordinator(
             core: core,
-            useMockServer: useMockServer,
+            makeServer: { core, delegate in
+                guard let failing else { return KansoMcpServer.newMock(core: core, delegate: delegate) }
+                return FailingMcpServer(delegate: delegate, reason: failing.reason, error: failing.error)
+            },
             tokens: KeychainSecretStore(service: "app.kanso.mcp.test", client: keychain),
             supported: supported,
             bundleId: "app.kanso.mcp.test",
@@ -176,13 +206,13 @@ final class McpUITests: XCTestCase {
         hidden.select(.mcp)
         XCTAssertNotEqual(hidden.selectedTab, .mcp)
 
-        let (real, _, _) = makeCoordinator(useMockServer: false)
-        try real.setEnabled(true)
+        let (coordinator, _, _) = makeCoordinator(failing: (reason: .notSupported, error: .NotSupported))
+        try coordinator.setEnabled(true)
         await flush()
-        guard case .unavailable(.notSupported) = real.status else {
-            return XCTFail("真实服务应报本构建不支持，实际 \(real.status)")
+        guard case .unavailable(.notSupported) = coordinator.status else {
+            return XCTFail("服务应报本构建不支持，实际 \(coordinator.status)")
         }
-        let page = makeSettings(mcp: real)
+        let page = makeSettings(mcp: coordinator)
         XCTAssertTrue(page.tabsInWindow.contains(.mcp))
         _ = page.mcpViewController?.view
         XCTAssertTrue(page.mcpViewController?.statusLabel.stringValue.contains(
@@ -694,10 +724,10 @@ final class McpUITests: XCTestCase {
     }
 
     func testStartFailureOnEnableIsRecorded() async throws {
-        let (real, _, _) = makeCoordinator(useMockServer: false)
-        try real.setEnabled(true)
+        let (coordinator, _, _) = makeCoordinator(failing: (reason: .failed(detail: "boom"), error: .Failed(detail: "boom")))
+        try coordinator.setEnabled(true)
         await flush()
-        XCTAssertNotNil(real.startError)
+        XCTAssertNotNil(coordinator.startError)
     }
 
     func testRegenerateDuringStartupKeepsStartupAndUsesTheNewToken() async throws {
