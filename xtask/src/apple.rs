@@ -180,6 +180,38 @@ fn build_static_lib(channel: Channel, release: bool, arch: Arch) -> Result<PathB
     }
 }
 
+/// 构建随 Direct 版 App 打包的 `kanso-mcp` 转发程序（architecture §16.1）。
+/// 与静态库用同一个 target 目录、profile 与架构。它只依赖 std 与 libc，不带渠道 feature。
+fn build_mcp_relay(channel: Channel, release: bool, arch: Arch) -> Result<PathBuf, String> {
+    let target_dir = channel_target_dir(channel);
+    let mut cmd = cargo();
+    cmd.args([
+        "build",
+        "-p",
+        "kanso-mcp",
+        "--target",
+        arch.rust_target(),
+        "--target-dir",
+    ])
+    .arg(&target_dir);
+    if release {
+        cmd.arg("--release");
+    }
+    if !run("构建 kanso-mcp 转发程序", &mut cmd) {
+        return Err("kanso-mcp 构建失败".into());
+    }
+    let profile = if release { "release" } else { "debug" };
+    let bin = target_dir
+        .join(arch.rust_target())
+        .join(profile)
+        .join("kanso-mcp");
+    if bin.exists() {
+        Ok(bin)
+    } else {
+        Err(format!("找不到构建产物 {}", bin.display()))
+    }
+}
+
 /// `cargo xtask apple-lib`：供 Xcode 的 Run Script 调用。
 pub fn apple_lib(args: &[String]) -> ExitCode {
     let (mut channel, mut profile, mut out, mut arch) = (None, None, None, None);
@@ -226,10 +258,21 @@ pub fn apple_lib(args: &[String]) -> ExitCode {
         Ok(l) => l,
         Err(e) => return fail(&e),
     };
-    match copy_if_changed(&lib, &out.join("libkanso_ffi.a")) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => fail(&format!("复制静态库失败：{e}")),
+    if let Err(e) = copy_if_changed(&lib, &out.join("libkanso_ffi.a")) {
+        return fail(&format!("复制静态库失败：{e}"));
     }
+    // 只有 Direct 渠道打包转发程序；MAS / Setapp 不提供 MCP（spec/mcp.md §11）。
+    // 复制进 App 包并签名由 project.yml 的 "Embed kanso-mcp" 构建阶段完成。
+    if channel == Channel::Direct {
+        let bin = match build_mcp_relay(channel, release, arch) {
+            Ok(b) => b,
+            Err(e) => return fail(&e),
+        };
+        if let Err(e) = copy_if_changed(&bin, &out.join("kanso-mcp")) {
+            return fail(&format!("复制 kanso-mcp 失败：{e}"));
+        }
+    }
+    ExitCode::SUCCESS
 }
 
 /// 内容相同则不覆盖：覆盖会更新修改时间，导致 Xcode 每次都重新链接。
