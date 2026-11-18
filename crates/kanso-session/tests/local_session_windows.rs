@@ -4,6 +4,7 @@
 
 mod common;
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use common::*;
@@ -50,6 +51,18 @@ fn cmd_exit_0_closes_session_with_code() {
     exit_code_is_reported(0);
 }
 
+fn submit(session: &Arc<kanso_session::LocalSession>, mode: &str) {
+    if mode == "wait" {
+        std::thread::sleep(Duration::from_millis(700));
+    }
+    let enter = match mode {
+        "win32" => "\x1b[13;28;13;1;0;1_\x1b[13;28;13;0;0;1_",
+        "lf" => "\n",
+        _ => "\r",
+    };
+    session.text_input(enter);
+}
+
 #[test]
 fn powershell_reports_directory_changes_through_conpty() {
     let fx = fixture("powershell.exe -NoLogo -NoProfile", true);
@@ -63,7 +76,14 @@ fn powershell_reports_directory_changes_through_conpty() {
         })
     };
     assert!(sees(&fx.home), "PowerShell 应上报初始工作目录");
-    session.text_input("Set-Location -LiteralPath 'project with spaces'\r");
+    let mode = std::env::var("KANSO_PTY_PROBE").unwrap_or_default();
+    let change = "Set-Location -LiteralPath 'project with spaces'";
+    if mode == "original" {
+        session.text_input(&format!("{change}\r"));
+    } else {
+        session.text_input(change);
+        submit(&session, &mode);
+    }
     assert!(sees(&dir), "切换目录后应上报带空格的路径");
     fx.mgr.close(id);
 }
@@ -87,7 +107,11 @@ fn pasted_file_paths_are_readable_through_cmd_and_powershell() {
         session.paste(&PasteContent::Files(vec![
             path.to_string_lossy().into_owned(),
         ]));
-        session.text_input("\r");
+        if shell.starts_with("powershell") {
+            submit(&session, &std::env::var("KANSO_PTY_PROBE").unwrap_or_default());
+        } else {
+            session.text_input("\r");
+        }
         assert!(
             screen.wait_contains("KANSO_DROP_CONTENT_OK"),
             "{shell}: {}",

@@ -1083,6 +1083,10 @@ pub(crate) fn join_with_timeout(handle: JoinHandle<()>, timeout: Duration) -> bo
 /// 之后 `Shared::send` 发现通道断开也会直接丢弃。
 fn write_loop(mut writer: Box<dyn Write + Send>, rx: Receiver<Vec<u8>>) {
     while let Ok(bytes) = rx.recv() {
+        #[cfg(windows)]
+        if std::env::var_os("KANSO_PTY_PROBE").is_some() {
+            eprintln!("PTY IN {:?}", String::from_utf8_lossy(&bytes));
+        }
         if writer
             .write_all(&bytes)
             .and_then(|()| writer.flush())
@@ -1189,6 +1193,10 @@ fn read_loop(shared: &Arc<Shared>, reader: &mut dyn Read) {
 
         // 每次读到的数据都立刻交给终端，不攒批（local-shell.md §7：避免最后一点输出卡在缓冲里）；
         // 一次读取就是终端的一个"批次"（kanso-term 的 clear 语义按批次判断）。
+        #[cfg(windows)]
+        if std::env::var_os("KANSO_PTY_PROBE").is_some() {
+            eprintln!("PTY OUT {:?}", String::from_utf8_lossy(&buf[..n]));
+        }
         shared.transfer.feed(&buf[..n]);
     }
 }

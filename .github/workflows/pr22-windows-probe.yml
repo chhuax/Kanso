@@ -1,0 +1,30 @@
+name: PR22 Windows probe
+on:
+  push:
+    branches: [codex/pr22-windows-probe]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      CARGO_PROFILE_TEST_DEBUG: 0
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2.7.8
+      - name: Trace PowerShell ConPTY input
+        run: |
+          cargo test --locked -p kanso-session --test local_session_windows --no-run
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($mode in 'original', 'wait', 'win32', 'lf') {
+            Write-Host "::group::$mode"
+            $env:KANSO_PTY_PROBE = $mode
+            cargo test --locked -p kanso-session --test local_session_windows powershell -- --nocapture --test-threads=1
+            Write-Host "$mode exit=$LASTEXITCODE"
+            Write-Host '::endgroup::'
+          }
+          exit 0
