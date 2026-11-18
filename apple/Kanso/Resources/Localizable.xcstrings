@@ -2880,6 +2880,270 @@
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Sender" } },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "Sender" } }
       }
+    },
+    "MCP" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "MCP" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "MCP" } }
+      }
+    },
+    "When on, AI tools on this Mac can access the sessions authorized below." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "When on, AI tools on this Mac can access the sessions authorized below." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "开启后，本机的 AI 工具可以访问下方已授权的会话。" } }
+      }
+    },
+    "If an AI tool runs inside tmux or screen in a local tab, Kanso cannot tell which tab it is in." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "If an AI tool runs inside tmux or screen in a local tab, Kanso cannot tell which tab it is in." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "如果 AI 工具运行在本地标签里的 tmux 或 screen 中，Kanso 识别不出它所在的标签。" } }
+      }
+    },
+    "Enable MCP" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Enable MCP" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "启用 MCP" } }
+      }
+    },
+    "Running" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Running" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "运行中" } }
+      }
+    },
+    "Stopped" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Stopped" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "已停止" } }
+      }
+    },
+    "Unavailable" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unavailable" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "不可用" } }
+      }
+    },
+    "MCP is not available in this build." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "MCP is not available in this build." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "当前构建不提供 MCP。" } }
+      }
+    },
+    "Another copy of Kanso is already providing MCP." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Another copy of Kanso is already providing MCP." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "另一个 Kanso 已经在提供 MCP 服务。" } }
+      }
+    },
+    "MCP failed to start." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "MCP failed to start." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "MCP 启动失败。" } }
+      }
+    },
+    "MCP service" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "MCP service" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "MCP 服务" } }
+      }
+    },
+    "Configuration" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Configuration" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "配置" } }
+      }
+    },
+    "Copy Claude Code Configuration" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Copy Claude Code Configuration" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "复制 Claude Code 配置" } }
+      }
+    },
+    "Copy Codex Configuration" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Copy Codex Configuration" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "复制 Codex 配置" } }
+      }
+    },
+    "The command contains a token and may be saved in shell history. If that is a concern, clear the history after running it, or regenerate the token." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The command contains a token and may be saved in shell history. If that is a concern, clear the history after running it, or regenerate the token." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "命令里含有令牌，可能被记入 shell 历史；介意的话可在执行后清理历史，或重新生成令牌。" } }
+      }
+    },
+    "Client token" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Client token" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "客户端令牌" } }
+      }
+    },
+    "Copy Token" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Copy Token" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "复制令牌" } }
+      }
+    },
+    "Regenerate" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Regenerate" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "重新生成" } }
+      }
+    },
+    "Connected clients" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connected clients" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "已连接的客户端" } }
+      }
+    },
+    "No clients connected." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No clients connected." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "没有已连接的客户端。" } }
+      }
+    },
+    "Unknown client" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unknown client" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "未知客户端" } }
+      }
+    },
+    "MCP is turned on, but the service did not start." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "MCP is turned on, but the service did not start." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "MCP 已打开，但服务没有启动。" } }
+      }
+    },
+    "Could not regenerate the token. The old token is still valid. %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not regenerate the token. The old token is still valid. %@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "无法重新生成令牌，旧令牌仍然有效。%@" } }
+      }
+    },
+    "Could not change the MCP access level: %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not change the MCP access level: %@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "无法修改 MCP 访问级别：%@" } }
+      }
+    },
+    "Could not read the MCP access level: %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not read the MCP access level: %@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "无法读取 MCP 访问级别：%@" } }
+      }
+    },
+    "The session was saved, but its MCP access level could not be saved: %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The session was saved, but its MCP access level could not be saved: %@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "会话已保存，但 MCP 访问级别没有保存成功：%@" } }
+      }
+    },
+    "Disconnect" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Disconnect" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "断开" } }
+      }
+    },
+    "%lld calls" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%lld calls" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "%lld 次调用" } }
+      }
+    },
+    "Session access" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Session access" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "会话授权" } }
+      }
+    },
+    "Terminal contents may include sensitive information." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Terminal contents may include sensitive information." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "终端内容可能含敏感信息。" } }
+      }
+    },
+    "Set group" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Set group" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "设置整组" } }
+      }
+    },
+    "Read only" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Read only" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "只读" } }
+      }
+    },
+    "Full" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Full" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "完全" } }
+      }
+    },
+    "Audit log" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Audit log" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "审计日志" } }
+      }
+    },
+    "Client" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Client" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "客户端" } }
+      }
+    },
+    "All sessions" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "All sessions" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "全部会话" } }
+      }
+    },
+    "Errors only" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Errors only" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "只看失败" } }
+      }
+    },
+    "Deleted session" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Deleted session" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "已删除的会话" } }
+      }
+    },
+    "No audit records." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No audit records." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "没有审计记录。" } }
+      }
+    },
+    "Opened by MCP" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Opened by MCP" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "由 MCP 打开" } }
+      }
+    },
+    "Opened by MCP · %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Opened by MCP · %@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "由 MCP 打开 · %@" } }
+      }
+    },
+    "MCP · %@ · %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "MCP · %@ · %@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "MCP · %@ · %@" } }
+      }
+    },
+    "MCP %lld" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "MCP %lld" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "MCP %lld" } }
+      }
+    },
+    "MCP access" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "MCP access" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "MCP 访问" } }
+      }
     }
   },
   "version" : "1.0"

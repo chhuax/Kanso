@@ -6,6 +6,8 @@ import KansoUI
 final class TabSidebarViewController: NSViewController, NSTextFieldDelegate, NSMenuItemValidation {
     private let controller: WorkspaceController
     private var workspace: Workspace { controller.workspace }
+    /// 标签上的 MCP 标记。由主窗口注入。
+    var mcpMark: (SessionID) -> McpTabMark? = { _ in nil }
 
     private let searchField = SidebarFilterField()
     private let plusButton = NSButton()
@@ -128,7 +130,9 @@ final class TabSidebarViewController: NSViewController, NSTextFieldDelegate, NSM
             let activeTab = workspace.activeTab(in: section.pane)
             let rows = section.tabs.map { item -> TabRowView.Model in
                 let selection: TabRowSelection = item.id == activeTab ? (section.pane == activePane ? .windowActive : .paneActive) : .none
-                return TabRowView.Model(item: item, sidebarIndex: indexes[item.id] ?? 0, selection: selection)
+                return TabRowView.Model(
+                    item: item, sidebarIndex: indexes[item.id] ?? 0, selection: selection, mcp: mcpMark(item.id)
+                )
             }
             return SidebarListView.Section(
                 pane: section.pane, titleIndex: section.titleIndex, showsHeader: showHeaders,

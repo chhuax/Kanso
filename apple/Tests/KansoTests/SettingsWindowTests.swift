@@ -64,11 +64,11 @@ final class SettingsWindowTests: XCTestCase {
 
     func testHasThreePagesAndCanSelectEachWithTitle() {
         withController { controller, _, _, _ in
-            XCTAssertEqual(SettingsTab.allCases.map(\.title), [
+            XCTAssertEqual(controller.tabsInWindow.map(\.title), [
                 String(localized: "General"), String(localized: "Display"),
                 String(localized: "Keyboard Shortcuts"),
             ])
-            for tab in SettingsTab.allCases {
+            for tab in controller.tabsInWindow {
                 controller.select(tab)
                 XCTAssertEqual(controller.selectedTab, tab)
                 XCTAssertEqual(controller.window?.title, tab.title)

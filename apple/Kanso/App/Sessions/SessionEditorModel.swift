@@ -29,9 +29,17 @@ enum SessionColorPresets {
     ]
 }
 
+/// 会话的 MCP 访问级别。与设置页读写同一份 `mcpAccess`。
+protocol McpAccessStoring: AnyObject, Sendable {
+    func mcpAccess(profileId: String) throws -> FfiMcpAccess
+    func setMcpAccess(profileId: String, level: FfiMcpAccess) throws
+}
+
+extension KansoCore: McpAccessStoring {}
+
 /// 编辑对话框里可显隐的字段行。
 enum SessionEditorField: CaseIterable {
-    case name, kind, color, group
+    case name, kind, color, group, mcpAccess
     case shellCommand, startDir
     case host, port, user, auth, password, keyPath, keyPassphrase, jump, proxyCommand
     case encoding, locale
@@ -45,6 +53,8 @@ enum SessionSaveOutcome: Equatable {
     case failed
     /// 会话已保存，但写凭据失败；对话框保持打开让用户重试（重试会覆盖同一个 id，不会产生重复会话）。
     case savedButCredentialFailed
+    /// 会话已保存，但 MCP 访问级别没写成功；对话框保持打开，重试会再写一次。
+    case savedButMcpAccessFailed
 }
 
 /// 会话编辑对话框的视图模型：新建与编辑共用，不依赖 AppKit，可直接驱动测试。
@@ -83,6 +93,18 @@ final class SessionEditorModel {
 
     var encoding = ""
     var locale = ""
+    /// 新建会话默认关闭。`showsMcpAccess` 为假时界面不显示，保存也不写。
+    /// 只有用户改过它，保存时才写回：打开对话框后别处（设置页）改了级别，不改这个字段的保存不能用旧值覆盖。
+    var mcpAccess: FfiMcpAccess = .off {
+        didSet { mcpAccessEdited = true }
+    }
+
+    private var mcpAccessEdited = false
+    let showsMcpAccess: Bool
+    /// 打开时读取已有会话的访问级别失败的原因。非 nil 时字段禁用且不会写回（不能把读不到当成「关闭」）。
+    private(set) var mcpAccessLoadError: String?
+    var isMcpAccessEnabled: Bool { mcpAccessLoadError == nil }
+    private let mcpAccessStore: (any McpAccessStoring)?
 
     /// 最近一次保存失败的错误文字（显示在对话框底部）。
     private(set) var errorText: String?
@@ -93,12 +115,24 @@ final class SessionEditorModel {
         store: SessionStore,
         editing profile: FfiProfile? = nil,
         channel: String = KansoChannel.current,
-        makeID: () -> String = { UUID().uuidString.lowercased() }
+        makeID: () -> String = { UUID().uuidString.lowercased() },
+        showsMcpAccess: Bool = false,
+        mcpAccessStore: (any McpAccessStoring)? = nil
     ) {
         self.store = store
         self.original = profile
         self.channel = channel
+        self.showsMcpAccess = showsMcpAccess
+        self.mcpAccessStore = mcpAccessStore
         self.profileID = profile?.id ?? makeID()
+        if showsMcpAccess, let mcpAccessStore, original != nil {
+            // init 里赋值不触发 didSet，不算用户改动。
+            do {
+                self.mcpAccess = try mcpAccessStore.mcpAccess(profileId: profileID)
+            } catch {
+                mcpAccessLoadError = CoreMessageText.text(for: error)
+            }
+        }
         guard let profile else { return }
         name = profile.name
         color = profile.color
@@ -164,6 +198,8 @@ final class SessionEditorModel {
         switch field {
         case .name, .kind, .color, .group:
             true
+        case .mcpAccess:
+            showsMcpAccess
         case .shellCommand, .startDir:
             kind == .local
         case .host, .port, .user, .auth, .jump:
@@ -264,11 +300,21 @@ final class SessionEditorModel {
         }
         do {
             try store.saveProfile(profile: profile)
-            store.notifyLibraryChanged()
         } catch {
             errorText = CoreMessageText.text(for: error)
             return .failed
         }
+        var accessError: Error?
+        if showsMcpAccess, mcpAccessEdited, isMcpAccessEnabled, let mcpAccessStore {
+            do {
+                try mcpAccessStore.setMcpAccess(profileId: profileID, level: mcpAccess)
+            } catch {
+                accessError = error
+            }
+        }
+        // 会话已经落库，无论访问级别写入是否成功都要通知刷新；放在写入之后，
+        // 设置页收到通知重读时才能读到新级别。
+        store.notifyLibraryChanged()
         do {
             if isSSHLike, auth == .password, !password.isEmpty {
                 try await store.setCredential(profile: profileID, kind: .password, secret: password)
@@ -277,8 +323,17 @@ final class SessionEditorModel {
                 try await store.setCredential(profile: profileID, kind: .keyPassphrase, secret: keyPassphrase)
             }
         } catch {
-            errorText = String(localized: "The session was saved, but its credential could not be stored: \(CoreMessageText.text(for: error))")
+            var text = String(localized: "The session was saved, but its credential could not be stored: \(CoreMessageText.text(for: error))")
+            // 两处都失败时都要告诉用户，不能让凭据的提示盖掉访问级别的。
+            if let accessError {
+                text += "\n" + String(localized: "The session was saved, but its MCP access level could not be saved: \(CoreMessageText.text(for: accessError))")
+            }
+            errorText = text
             return .savedButCredentialFailed
+        }
+        if let accessError {
+            errorText = String(localized: "The session was saved, but its MCP access level could not be saved: \(CoreMessageText.text(for: accessError))")
+            return .savedButMcpAccessFailed
         }
         return .saved
     }

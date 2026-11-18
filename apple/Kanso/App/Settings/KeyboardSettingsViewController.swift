@@ -35,8 +35,6 @@ final class AlertKeybindingConflictPrompter: KeybindingConflictPrompter {
 /// "恢复默认"恢复整张表。⌘1–⌘9 显示但不可改。命令的绑定读写与生效都在 `KeybindingController`，这里只管界面。
 @MainActor
 final class KeyboardSettingsViewController: SettingsPageViewController {
-    static let pageHeight: CGFloat = 620
-
     private let keybindings: KeybindingController
     private let prompter: KeybindingConflictPrompter
 
@@ -87,15 +85,7 @@ final class KeyboardSettingsViewController: SettingsPageViewController {
             stack.leadingAnchor.constraint(equalTo: document.leadingAnchor, constant: inset),
             stack.trailingAnchor.constraint(equalTo: document.trailingAnchor, constant: -inset),
         ])
-        let scroll = NSScrollView()
-        scroll.documentView = document
-        scroll.drawsBackground = false
-        scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
-        scroll.scrollerStyle = .overlay
-        scroll.borderType = .noBorder
-        document.translatesAutoresizingMaskIntoConstraints = false
-        document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor).isActive = true
+        let scroll = makeScrollView(document: document)
 
         // 底部：提示 / 错误 + 恢复默认。
         messageLabel.font = .systemFont(ofSize: DesignTokens.Font.uiCaption)
@@ -120,7 +110,7 @@ final class KeyboardSettingsViewController: SettingsPageViewController {
         root.addSubview(column)
         NSLayoutConstraint.activate([
             root.widthAnchor.constraint(equalToConstant: Self.pageWidth),
-            root.heightAnchor.constraint(equalToConstant: Self.pageHeight),
+            root.heightAnchor.constraint(equalToConstant: Self.maxPageHeight),
             column.topAnchor.constraint(equalTo: root.topAnchor),
             column.bottomAnchor.constraint(equalTo: root.bottomAnchor),
             column.leadingAnchor.constraint(equalTo: root.leadingAnchor),
