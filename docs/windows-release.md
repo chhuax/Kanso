@@ -12,9 +12,9 @@
 
 | 文件 | 说明 |
 |---|---|
-| `Kanso-<版本>-x64/` | `Kanso.exe`、`kanso-mcp.exe`、`LICENSE.txt`（GPL-3.0）和 `THIRD_PARTY_NOTICES.windows.md` |
-| `Kanso-<版本>-x64-portable.zip` | 绿色版：解压即用，zip 内有同名顶层目录。用户数据仍在 `%LOCALAPPDATA%\Kanso`，不写进解压目录 |
-| `Kanso-<版本>-x64-setup.exe` | 安装程序（仅在找到 makensis 时生成） |
+| `Kanso-<版本>-Windows-x64/` | `Kanso.exe`、`kanso-mcp.exe`、`LICENSE.txt`（GPL-3.0）和 `THIRD_PARTY_NOTICES.windows.md` |
+| `Kanso-<版本>-Windows-x64-portable.zip` | 绿色版：解压即用，zip 内有同名顶层目录。用户数据仍在 `%LOCALAPPDATA%\Kanso`，不写进解压目录 |
+| `Kanso-<版本>-Windows-x64-setup.exe` | 安装程序（仅在找到 makensis 时生成） |
 | 以上每个 zip / exe 的 `.sha256` | 内容 `<哈希>  <文件名>`，用 `certutil -hashfile <文件> SHA256` 或 `shasum -c` 校验 |
 
 ## 构建环境
@@ -59,7 +59,7 @@ cargo xtask notices                     # 重新生成 THIRD_PARTY_NOTICES.md �
 - 开始菜单快捷方式 `Kanso`。卸载信息写在 `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Kanso`（DisplayName、DisplayVersion、Publisher、DisplayIcon、UninstallString、InstallLocation、EstimatedSize、NoModify、NoRepair），可在“设置 → 应用”里卸载。
 - 安装和卸载前检查 `Kanso.exe` 和 `kanso-mcp.exe` 是否被运行中的进程锁定。遇到占用时提示“重试 / 取消”。静默模式下视为取消。
 - 卸载：删除程序文件与快捷方式，只对空的安装目录做 `RMDir`。**默认保留用户数据**；交互卸载时会询问是否同时删除 `%LOCALAPPDATA%\Kanso`（会话、设置、日志；默认“否”），静默卸载（`/S`）一律保留。保存在 Windows 凭据管理器里的密码（目标名前缀 `com.chhuax.kanso/`）不会被卸载程序删除，需要的话在“控制面板 → 凭据管理器”里手动清理。
-- 静默安装 / 卸载：`Kanso-<版本>-x64-setup.exe /S [/D=<目录>]`、`"%LOCALAPPDATA%\Programs\Kanso\Uninstall.exe" /S`。
+- 静默安装 / 卸载：`Kanso-<版本>-Windows-x64-setup.exe /S [/D=<目录>]`、`"%LOCALAPPDATA%\Programs\Kanso\Uninstall.exe" /S`。
 
 ## 首次安装与代码签名
 

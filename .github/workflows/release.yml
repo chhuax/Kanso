@@ -81,7 +81,7 @@ jobs:
         shell: bash
         run: |
           cd target/win-package
-          files=(Kanso-*-x64-setup.exe Kanso-*-x64-setup.exe.sha256 Kanso-*-x64-portable.zip Kanso-*-x64-portable.zip.sha256)
+          files=(Kanso-*-Windows-x64-setup.exe Kanso-*-Windows-x64-setup.exe.sha256 Kanso-*-Windows-x64-portable.zip Kanso-*-Windows-x64-portable.zip.sha256)
           for f in "${files[@]}"; do [ -f "$f" ] || { echo "缺少 $f" >&2; exit 1; }; done
           gh release upload "$TAG" "${files[@]}" --clobber
 
