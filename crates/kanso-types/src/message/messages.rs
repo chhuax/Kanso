@@ -1300,7 +1300,7 @@ messages! {
     /// 关于窗口和菜单的标题。
     UiAboutKanso = "ui-about-kanso" {},
     /// 当前软件版本。
-    UiAboutVersion = "ui-about-version" { version: String },
+    UiAboutVersion = "ui-about-version" { app_version: String },
     /// 关于窗口显示项目许可。
     UiAboutLicense = "ui-about-license" {},
     /// 关于窗口打开项目源码。

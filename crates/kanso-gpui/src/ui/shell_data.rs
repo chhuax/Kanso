@@ -94,7 +94,7 @@ impl ShellView {
     pub(super) fn show_about(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let spec = DialogSpec::new(label(Message::UiAboutKanso {}))
             .text(&t(&Message::UiAboutVersion {
-                version: env!("CARGO_PKG_VERSION").into(),
+                app_version: env!("CARGO_PKG_VERSION").into(),
             }))
             .text(label(Message::UiAboutLicense {}))
             .button(ButtonSpec::secondary(
