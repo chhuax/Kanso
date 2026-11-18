@@ -20,7 +20,7 @@ concurrency:
 env:
   MACOSX_DEPLOYMENT_TARGET: "14.0"
 
-# 任务名 rust / apple 是分支保护要求的检查名，不要改。
+# 任务名 rust / macos 与分支保护要求的检查名保持一致。
 jobs:
   rust:
     runs-on: macos-15
@@ -69,7 +69,7 @@ jobs:
       - name: Check locales
         run: cargo run --quiet -p xtask -- check-locales
 
-  apple:
+  macos:
     runs-on: macos-15
     timeout-minutes: 60
     steps:
