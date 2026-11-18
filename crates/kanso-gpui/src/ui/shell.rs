@@ -848,9 +848,14 @@ impl ShellView {
             }
             let _ = this.update_in(cx, |this, _w, cx| {
                 let saved = DisplaySettings::decode(this.core.setting("display").as_deref());
+                let expected_family = if cfg!(windows) {
+                    "Consolas"
+                } else {
+                    "DejaVu Sans Mono"
+                };
                 if saved.font_size != 20.0
                     || saved.line_height != 1.5
-                    || saved.font_family != "Consolas"
+                    || saved.font_family != expected_family
                 {
                     super::EXIT_CODE.store(1, Ordering::SeqCst);
                     log("[test] display 持久化 FAIL");

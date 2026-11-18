@@ -28,6 +28,9 @@ use crate::{SecretError, SecretKind, SecretRef, SecretStore};
 /// 条目的 content type。
 const CONTENT_TYPE: &str = "text/plain";
 
+/// MCP 客户端令牌的 account，与 Windows 凭据管理器使用同一个键。
+const MCP_TOKEN_ACCOUNT: &str = "mcp/client-token";
+
 /// 基于 Secret Service 的凭据存储。
 #[derive(Clone, Debug)]
 pub struct SecretServiceStore {
@@ -41,6 +44,34 @@ impl SecretServiceStore {
         Self {
             service: service.into(),
         }
+    }
+
+    /// 读取独立于会话凭据的 MCP 客户端令牌。
+    pub fn mcp_token(&self) -> Result<Option<SecretString>, SecretError> {
+        let account = MCP_TOKEN_ACCOUNT;
+        self.with_collection(|c| {
+            let items = c.search_items(self.attributes(account))?;
+            match items.first() {
+                None => Ok(None),
+                Some(item) => read_item(item).map(Some),
+            }
+        })
+        .and_then(|bytes| bytes.map(decode).transpose())
+    }
+
+    /// 保存 MCP 客户端令牌，重新生成时覆盖同一个条目。
+    pub fn set_mcp_token(&self, value: &SecretString) -> Result<(), SecretError> {
+        let account = MCP_TOKEN_ACCOUNT;
+        self.with_collection(|c| {
+            c.create_item(
+                &self.label(account),
+                self.attributes(account),
+                value.expose().as_bytes(),
+                true,
+                CONTENT_TYPE,
+            )
+            .map(|_| ())
+        })
     }
 
     /// 定位条目的查询属性。
