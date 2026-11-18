@@ -1,6 +1,7 @@
 name: Release
 
 # 推送 v* 标签时自动打包并上传到同名 GitHub Release（草稿）：
+# - Linux：Ubuntu 上运行 scripts/linux-package.sh，生成 x64 tar.gz。
 # - Windows：GitHub 的 Windows 机器上 `cargo xtask win-package`，生成安装程序和免安装 ZIP。
 # - macOS：arm64 在 macos-15 上、x86_64 在 macos-15-intel 上各自原生 `cargo xtask dmg`，两个 DMG 并行（临时签名、未公证）。
 # 全部上传完成后在 Release 页面检查草稿，再点发布。
@@ -11,6 +12,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/release.yml"
+      - "scripts/linux-package.sh"
       - "xtask/src/windows.rs"
       - "xtask/src/apple.rs"
       - "packaging/windows/**"
@@ -55,7 +57,7 @@ jobs:
         run: |
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --draft --verify-tag --title "Kanso ${TAG#v}" \
-              --notes "macOS DMG 为临时签名、未公证；Windows 安装包未签名。安装包由 CI 构建。"
+              --notes "macOS DMG 为临时签名、未公证；Windows 安装包与 Linux tar.gz 未签名。安装包由 CI 构建。"
           fi
 
   windows:
@@ -121,3 +123,48 @@ jobs:
         run: |
           cd target/dist
           gh release upload "$TAG" Kanso-*-macOS-${{ matrix.arch }}.dmg Kanso-*-macOS-${{ matrix.arch }}.dmg.sha256 --clobber
+
+  linux:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.sha || env.TAG }}
+      - name: Install Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config clang libssl-dev \
+            libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+            libvulkan-dev libfontconfig1-dev libfreetype-dev
+      - name: Build archive
+        run: |
+          set -euo pipefail
+          if [ -f scripts/linux-package.sh ]; then
+            bash scripts/linux-package.sh
+          else
+            # v1.0.4 及更早的标签里没有打包脚本；从触发本次工作流的提交取出。
+            git fetch --depth 1 origin "$GITHUB_SHA"
+            git show FETCH_HEAD:scripts/linux-package.sh > /tmp/linux-package.sh
+            # 旧标签的 Cargo.lock 与当前工作区版本不完全一致，Linux 解析需要补一行。
+            KANSO_ALLOW_LOCK_UPDATE=1 bash /tmp/linux-package.sh
+          fi
+      - name: Upload to GitHub Release
+        if: env.PUBLISH == 'true'
+        run: |
+          set -euo pipefail
+          cd target/linux-package
+          files=(Kanso-*-Linux-x64.tar.gz Kanso-*-Linux-x64.tar.gz.sha256)
+          for f in "${files[@]}"; do [ -f "$f" ] || { echo "缺少 $f" >&2; exit 1; }; done
+          gh release upload "$TAG" "${files[@]}" --clobber
+          body=$(gh release view "$TAG" --json body --jq .body)
+          case "$body" in
+            *Linux*) ;;
+            *)
+              gh release edit "$TAG" --notes "$(printf '%s\n\n%s\n' "$body" "Linux：\`Kanso-<版本>-Linux-x64.tar.gz\`，在 Ubuntu 上构建，未签名。解压后运行 \`Kanso\`，运行库见压缩包内 README.txt。")"
+              ;;
+          esac

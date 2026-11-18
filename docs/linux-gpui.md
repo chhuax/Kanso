@@ -23,6 +23,10 @@ cargo build -p kanso-gpui --release --locked
 - 主窗口沿用现有工具栏。拖动、双击最大化、窗口按钮与边缘缩放接到 GPUI 的 Linux 窗口 API，关闭仍经过会话确认。不支持客户端装饰的窗口管理器使用原生标题栏，避免重复显示窗口按钮。
 - 设置窗口创建后补写 UTF-8 标题，修正 GPUI 0.2.2 在 X11 初始标题中的中文乱码。
 
+## 发行包
+
+推送 `v*` 标签时，发布流程在 Ubuntu 上运行 `scripts/linux-package.sh`，把 `Kanso`、`kanso-mcp`、`LICENSE.txt`、`README.txt` 和 `THIRD_PARTY_NOTICES.linux.md` 打成 `Kanso-<版本>-Linux-x64.tar.gz`，并附 SHA-256。压缩包未签名。运行库与 glibc 要求写在压缩包内的 `README.txt`。
+
 ## 验证
 
 ```sh
