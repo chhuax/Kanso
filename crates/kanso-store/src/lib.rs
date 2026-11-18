@@ -22,3 +22,6 @@ pub use store::{GroupDeleteImpact, MAX_SNIPPETS, Store, visible_snippets};
 
 #[cfg(test)]
 mod tests;
+
+/// 仅在当前设备保存的本地 Shell 默认配置键。
+pub const LOCAL_SHELL_DEFAULTS: &str = "local-shell";

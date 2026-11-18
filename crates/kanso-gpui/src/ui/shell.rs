@@ -999,7 +999,18 @@ impl ShellView {
     }
 
     pub(super) fn open_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        match self.ctl.open_local_shell(None, FALLBACK_GRID) {
+        self.open_shell(None, window, cx);
+    }
+
+    pub(super) fn open_shell(
+        &mut self,
+        profile: Option<kanso_types::profile::LocalProfile>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use kanso_core::OpenTarget;
+        let target = profile.map_or(OpenTarget::DefaultLocalShell, OpenTarget::LocalShell);
+        match self.ctl.open_shell(target, None, FALLBACK_GRID) {
             Ok(id) => {
                 self.attach_terminal(id, window, cx);
                 self.after_change(window, cx);

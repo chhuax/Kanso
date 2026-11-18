@@ -324,7 +324,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         if !senderItem.isCollapsed { restoreSenderHeight() }
         restoringSenderHeight = false
         PerformanceProbe.mark("window")
-        try controller.openLocalShell()
+        controller.perform { try controller.openLocalShell() }
         PerformanceProbe.mark("shell")
         modelChanged()
     }

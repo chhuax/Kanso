@@ -1609,6 +1609,9 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "新建会话" } }
       }
     },
+    "Customize Launch" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "Customize Launch" } }, "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "自定义启动" } } } },
+    "Set as Default" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "Set as Default" } }, "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "设为默认" } } } },
+    "Saved as Default" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "Saved as Default" } }, "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "已设为默认" } } } },
     "Edit Session" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Edit Session" } },

@@ -529,6 +529,11 @@ RustBuffer uniffi_kanso_ffi_fn_method_kansocore_jump_command_block(uint64_t ptr,
 void uniffi_kanso_ffi_fn_method_kansocore_key(uint64_t ptr, uint64_t session_id, RustBuffer event, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_LOCAL_SHELL_DEFAULTS
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_LOCAL_SHELL_DEFAULTS
+RustBuffer uniffi_kanso_ffi_fn_method_kansocore_local_shell_defaults(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_MOUSE
 #define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_MOUSE
 void uniffi_kanso_ffi_fn_method_kansocore_mouse(uint64_t ptr, uint64_t session_id, RustBuffer event, RustCallStatus *_Nonnull out_status
@@ -662,6 +667,11 @@ RustBuffer uniffi_kanso_ffi_fn_method_kansocore_sessions(uint64_t ptr, RustCallS
 #ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_SET_CREDENTIAL
 #define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_SET_CREDENTIAL
 uint64_t uniffi_kanso_ffi_fn_method_kansocore_set_credential(uint64_t ptr, RustBuffer profile, RustBuffer kind, RustBuffer secret
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_SET_LOCAL_SHELL_DEFAULTS
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_SET_LOCAL_SHELL_DEFAULTS
+void uniffi_kanso_ffi_fn_method_kansocore_set_local_shell_defaults(uint64_t ptr, RustBuffer profile, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_SET_SETTING
@@ -1499,6 +1509,12 @@ uint16_t uniffi_kanso_ffi_checksum_method_kansocore_key(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_LOCAL_SHELL_DEFAULTS
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_LOCAL_SHELL_DEFAULTS
+uint16_t uniffi_kanso_ffi_checksum_method_kansocore_local_shell_defaults(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_MOUSE
 #define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_MOUSE
 uint16_t uniffi_kanso_ffi_checksum_method_kansocore_mouse(void
@@ -1658,6 +1674,12 @@ uint16_t uniffi_kanso_ffi_checksum_method_kansocore_sessions(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_SET_CREDENTIAL
 #define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_SET_CREDENTIAL
 uint16_t uniffi_kanso_ffi_checksum_method_kansocore_set_credential(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_SET_LOCAL_SHELL_DEFAULTS
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_SET_LOCAL_SHELL_DEFAULTS
+uint16_t uniffi_kanso_ffi_checksum_method_kansocore_set_local_shell_defaults(void
     
 );
 #endif

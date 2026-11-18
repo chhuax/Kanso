@@ -250,6 +250,10 @@ ui-cancel = 取消
 ui-save = 保存
 
 ui-connect = 连接
+ui-customize-shell = 自定义启动
+ui-set-shell-default = 设为默认
+ui-shell-defaults-saved = 已设为默认
+ui-open-shell = 打开
 
 ui-automatic = 自动
 

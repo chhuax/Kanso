@@ -34,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             PerformanceProbe.mark("shown")
             PerformanceProbe.savePhases()
         } catch {
-            // 真实 core 创建失败（数据目录不可用等）或 shell 启动失败：告诉用户，然后退出；没有窗口可显示。
+            // 真实 core 创建失败（数据目录不可用等）：告诉用户，然后退出。
             let alert = NSAlert()
             alert.alertStyle = .critical
             alert.messageText = String(localized: "Failed to start the terminal")

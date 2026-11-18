@@ -56,6 +56,39 @@ fn fixture() -> Fixture {
     }
 }
 
+#[test]
+fn local_launch_override_does_not_change_defaults_or_create_profiles() {
+    use kanso_types::profile::LocalProfile;
+
+    let fixture = fixture();
+    let defaults = LocalProfile {
+        shell_command: "/bin/sh -c 'echo default-shell-marker; read value'".into(),
+        ..LocalProfile::default()
+    };
+    fixture.core.set_local_shell_defaults(&defaults).unwrap();
+    let temporary = LocalProfile {
+        shell_command: "/bin/sh -c 'echo temporary-shell-marker; read value'".into(),
+        ..LocalProfile::default()
+    };
+    let id = fixture
+        .core
+        .open_session(OpenTarget::LocalShell(temporary), GRID)
+        .unwrap();
+    assert!(
+        fixture
+            .wait_screen(id, "temporary-shell-marker")
+            .contains("temporary-shell-marker")
+    );
+    assert_eq!(fixture.core.local_shell_defaults(), defaults);
+    let id = fixture.open();
+    assert!(
+        fixture
+            .wait_screen(id, "default-shell-marker")
+            .contains("default-shell-marker")
+    );
+    assert!(fixture.core.profiles().is_empty());
+}
+
 impl Fixture {
     fn events(&self) -> Vec<CoreEvent> {
         let mut log = self.log.lock().unwrap();

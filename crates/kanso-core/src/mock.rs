@@ -631,7 +631,9 @@ impl MockCore {
                     .ok_or(CoreError::NoSuchProfile(id))?;
                 (Some(id), p.kind.kind(), p.name.clone())
             }
-            OpenTarget::DefaultLocalShell => (None, SessionKind::Local, "Local".to_owned()),
+            OpenTarget::DefaultLocalShell | OpenTarget::LocalShell(_) => {
+                (None, SessionKind::Local, "Local".to_owned())
+            }
             OpenTarget::Duplicate(src) => {
                 let s = st
                     .sessions

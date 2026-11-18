@@ -164,6 +164,7 @@ final class SessionEditorModel {
     }
 
     var isEditing: Bool { original != nil }
+    var opensTemporaryShell: Bool { !isEditing && kind == .local }
 
     // MARK: - 选项
 
@@ -196,10 +197,12 @@ final class SessionEditorModel {
 
     func isVisible(_ field: SessionEditorField) -> Bool {
         switch field {
-        case .name, .kind, .color, .group:
+        case .kind:
             true
+        case .name, .color, .group:
+            !opensTemporaryShell
         case .mcpAccess:
-            showsMcpAccess
+            showsMcpAccess && !opensTemporaryShell
         case .shellCommand, .startDir:
             kind == .local
         case .host, .port, .user, .auth, .jump:

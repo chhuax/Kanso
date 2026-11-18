@@ -235,10 +235,10 @@ final class WorkspaceController {
     // MARK: - 打开会话
 
     @discardableResult
-    func openLocalShell(in pane: PaneID? = nil) throws -> SessionID {
+    func openLocalShell(in pane: PaneID? = nil, profile: FfiLocalProfile? = nil) throws -> SessionID {
         let size = estimateGrid(for: pane ?? workspace.activePane, splitAxis: nil)
         PerformanceProbe.mark("grid")
-        let id = try core.openSession(target: .defaultLocalShell, size: size)
+        let id = try core.openSession(target: profile.map { .localShell(profile: $0) } ?? .defaultLocalShell, size: size)
         PerformanceProbe.mark("pty")
         adopt(id, in: pane, splitAxis: nil)
         return id

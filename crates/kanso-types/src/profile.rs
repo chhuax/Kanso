@@ -121,7 +121,7 @@ impl From<Locale> for String {
 }
 
 /// 本地 shell 会话配置。
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LocalProfile {
     /// 启动命令；空表示使用默认 shell。
     pub shell_command: String,

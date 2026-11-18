@@ -2079,6 +2079,11 @@ public protocol KansoCoreProtocol: AnyObject, Sendable {
     func key(sessionId: UInt64, event: FfiKeyEvent) throws 
     
     /**
+     * 读取本地 Shell 默认配置。
+     */
+    func localShellDefaults()  -> FfiLocalProfile
+    
+    /**
      * 鼠标事件。
      */
     func mouse(sessionId: UInt64, event: FfiMouseEvent) throws 
@@ -2212,6 +2217,11 @@ public protocol KansoCoreProtocol: AnyObject, Sendable {
      * 保存某个 Profile 的凭据。明文只在本次调用里存在，core 不写日志与数据库。
      */
     func setCredential(profile: String, kind: FfiSecretKind, secret: String) async throws 
+    
+    /**
+     * 保存本地 Shell 默认配置。
+     */
+    func setLocalShellDefaults(profile: FfiLocalProfile) throws 
     
     /**
      * 写设置值；`json` 必须是合法 JSON。
@@ -2836,6 +2846,18 @@ open func key(sessionId: UInt64, event: FfiKeyEvent)throws   {try rustCallWithEr
 }
     
     /**
+     * 读取本地 Shell 默认配置。
+     */
+open func localShellDefaults() -> FfiLocalProfile  {
+    return try!  FfiConverterTypeFfiLocalProfile_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_method_kansocore_local_shell_defaults(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
      * 鼠标事件。
      */
 open func mouse(sessionId: UInt64, event: FfiMouseEvent)throws   {try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
@@ -3205,6 +3227,18 @@ open func setCredential(profile: String, kind: FfiSecretKind, secret: String)asy
             liftFunc: { $0 },
             errorHandler: FfiConverterTypeFfiCoreError_lift
         )
+}
+    
+    /**
+     * 保存本地 Shell 默认配置。
+     */
+open func setLocalShellDefaults(profile: FfiLocalProfile)throws   {try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_method_kansocore_set_local_shell_defaults(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeFfiLocalProfile_lower(profile),uniffiCallStatus
+    )
+}
 }
     
     /**
@@ -11518,6 +11552,14 @@ public enum FfiOpenTarget: Equatable, Hashable {
      */
     case defaultLocalShell
     /**
+     * 使用本次配置打开临时本地 shell。
+     */
+    case localShell(
+        /**
+         * 本次启动配置。
+         */profile: FfiLocalProfile
+    )
+    /**
      * 复制标签。
      */
     case duplicate(
@@ -11551,7 +11593,10 @@ public struct FfiConverterTypeFfiOpenTarget: FfiConverterRustBuffer {
         
         case 2: return .defaultLocalShell
         
-        case 3: return .duplicate(session: try FfiConverterUInt64.read(from: &buf)
+        case 3: return .localShell(profile: try FfiConverterTypeFfiLocalProfile.read(from: &buf)
+        )
+        
+        case 4: return .duplicate(session: try FfiConverterUInt64.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -11571,8 +11616,13 @@ public struct FfiConverterTypeFfiOpenTarget: FfiConverterRustBuffer {
             writeInt(&buf, Int32(2))
         
         
-        case let .duplicate(session):
+        case let .localShell(profile):
             writeInt(&buf, Int32(3))
+            FfiConverterTypeFfiLocalProfile.write(profile, into: &buf)
+            
+        
+        case let .duplicate(session):
+            writeInt(&buf, Int32(4))
             FfiConverterUInt64.write(session, into: &buf)
             
         }
@@ -14358,6 +14408,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_kanso_ffi_checksum_method_kansocore_key() != 16167) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_kanso_ffi_checksum_method_kansocore_local_shell_defaults() != 24042) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_kanso_ffi_checksum_method_kansocore_mouse() != 51674) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -14437,6 +14490,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_kanso_ffi_checksum_method_kansocore_set_credential() != 37697) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_kanso_ffi_checksum_method_kansocore_set_local_shell_defaults() != 19650) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_kanso_ffi_checksum_method_kansocore_set_setting() != 57606) {
