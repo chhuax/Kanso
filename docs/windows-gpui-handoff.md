@@ -500,3 +500,9 @@ PR #22（`proto/gpui-integrate` → main）的线上检查，除下面这项外�
 
   如果是程序本身的问题，**英文 Windows 用户在 PowerShell 里回车也可能失效**，所以请先确认是不是只有测试受影响，再决定是改实现还是改测试。
 - 日志：`gh run view 44248463127 --log-failed`。
+
+### Codex 复验
+
+托管 Windows Runner 上，PowerShell 的 `Console.ReadKey` 收到了无修饰键的 Enter。用原始启动参数、原始输入和四线程并发复跑三轮，两条 PowerShell 用例都实际返回了新目录或文件内容，最慢约 33 秒。原来的 15 秒和 20 秒上限会提前判失败。[按键诊断](https://github.com/chhuax/Kanso/actions/runs/44262638152/job/134659433938) · [并发复验](https://github.com/chhuax/Kanso/actions/runs/44265559973/job/134669079977)
+
+PowerShell 用例的等待上限调到 60 秒，观察到预期事件或内容时立即通过。目录上报、含中文与空格的路径粘贴和 CMD 退出码都继续走真实 ConPTY。开发虚拟机上的会话模块测试和严格 Clippy 均已通过。

@@ -11,6 +11,9 @@ use kanso_types::CoreEvent;
 use kanso_types::event::{CloseReason, SessionState};
 use kanso_types::input::PasteContent;
 
+// Windows 托管 Runner 上，PowerShell 5.1 首条交互命令回显后有时要等约半分钟才返回结果。
+const POWERSHELL_TIMEOUT: Duration = Duration::from_secs(60);
+
 fn closed_reasons(fx: &Fixture) -> Vec<CloseReason> {
     fx.rec
         .all()
@@ -57,7 +60,7 @@ fn powershell_reports_directory_changes_through_conpty() {
     std::fs::create_dir(&dir).unwrap();
     let (id, session) = fx.open();
     let sees = |path: &std::path::Path| {
-        fx.rec.wait_for(Duration::from_secs(15), |event| {
+        fx.rec.wait_for(POWERSHELL_TIMEOUT, |event| {
             matches!(event, CoreEvent::LocationChanged { session, cwd: Some(cwd), .. }
             if *session == id && std::path::Path::new(cwd) == path)
         })
@@ -70,11 +73,12 @@ fn powershell_reports_directory_changes_through_conpty() {
 
 #[test]
 fn pasted_file_paths_are_readable_through_cmd_and_powershell() {
-    for (shell, command) in [
-        ("cmd.exe /d", "type "),
+    for (shell, command, timeout) in [
+        ("cmd.exe /d", "type ", TIMEOUT),
         (
             "powershell.exe -NoLogo -NoProfile",
             "Get-Content -LiteralPath ",
+            POWERSHELL_TIMEOUT,
         ),
     ] {
         let fx = fixture(shell, false);
@@ -89,7 +93,7 @@ fn pasted_file_paths_are_readable_through_cmd_and_powershell() {
         ]));
         session.text_input("\r");
         assert!(
-            screen.wait_contains("KANSO_DROP_CONTENT_OK"),
+            screen.wait_for(timeout, |text| text.contains("KANSO_DROP_CONTENT_OK")),
             "{shell}: {}",
             screen.text
         );
