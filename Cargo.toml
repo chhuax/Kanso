@@ -129,3 +129,9 @@ lto = "thin"
 codegen-units = 1
 # 保留行号信息是为了崩溃报告的符号化，不要改成 false。
 debug = "line-tables-only"
+
+# gpui 0.2.2 把 taffy 钉在 =0.9.0，taffy 0.9.0 又要求 grid ^0.18.0。
+# grid 0.18.0 至 1.0.0 的 expand_rows 有整数溢出（GHSA-38c5-483c-4qqp），修复在 1.0.1。
+# 上游 taffy 0.9.2 只改了这一行依赖，接口不变。这里用同版本副本把 grid 升到 1.0.1。
+[patch.crates-io]
+taffy = { path = "third_party/taffy" }
