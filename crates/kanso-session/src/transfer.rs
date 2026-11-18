@@ -90,6 +90,7 @@ struct State {
     error: Option<Message>,
     prompt: Option<PromptRequest>,
     closed: bool,
+    clock_id: Option<TransferId>,
     protocol: XferProtocol,
     selecting: bool,
     buffered: Vec<u8>,
@@ -123,6 +124,7 @@ impl TerminalTransfer {
                 error: None,
                 prompt: None,
                 closed: false,
+                clock_id: None,
                 protocol: XferProtocol::Zmodem,
                 selecting: false,
                 buffered: Vec::new(),
@@ -220,7 +222,12 @@ impl TerminalTransfer {
         Ok(id)
     }
 
-    fn clock(self: &Arc<Self>, id: TransferId) {
+    fn clock(self: &Arc<Self>, state: &mut State) {
+        let id = state.id;
+        if state.clock_id == Some(id) {
+            return;
+        }
+        state.clock_id = Some(id);
         let weak = Arc::downgrade(self);
         std::thread::spawn(move || {
             while let Some(transfer) = weak.upgrade() {
@@ -229,12 +236,16 @@ impl TerminalTransfer {
                 if state.id != id {
                     break;
                 }
-                let Some(machine) = &mut state.machine else {
-                    break;
-                };
-                let actions = machine.tick(100);
                 let mut terminal = Vec::new();
-                transfer.actions(&mut state, actions, &mut terminal);
+                if let Some(machine) = &mut state.machine {
+                    let actions = machine.tick(100);
+                    transfer.actions(&mut state, actions, &mut terminal);
+                } else if state.sentinel.cancel_tail_pending() && !state.closed {
+                    terminal = state.sentinel.poll_cancel_tail();
+                } else {
+                    state.clock_id = None;
+                    break;
+                }
                 transfer.queue_output(&mut terminal);
                 drop(state);
                 transfer.output();
@@ -297,11 +308,14 @@ impl TerminalTransfer {
             if direction == Handshake::Receive {
                 self.notice(Message::ZmodemWaitingSender {});
             }
-            self.clock(state.id);
+            self.clock(&mut state);
             actions
         } else {
             vec![]
         };
+        if state.sentinel.cancel_tail_pending() {
+            self.clock(&mut state);
+        }
         self.actions(&mut state, actions, &mut terminal);
         let prompt = state.prompt.take();
         self.queue_output(&mut terminal);
@@ -379,7 +393,7 @@ impl TerminalTransfer {
             let bytes = std::mem::take(&mut state.buffered);
             let actions = state.machine.as_mut().expect("活动传输").receive(&bytes);
             self.actions(&mut state, actions, &mut terminal);
-            self.clock(id);
+            self.clock(&mut state);
         }
         let prompt = state.prompt.take();
         self.queue_output(&mut terminal);
@@ -673,7 +687,13 @@ impl TerminalTransfer {
         if id.is_some_and(|id| id != state.id) {
             return;
         }
-        if let Some(machine) = &mut state.machine {
+        let State {
+            machine, sentinel, ..
+        } = &mut *state;
+        if let Some(machine) = machine {
+            if let Machine::Zmodem(zmodem) = machine {
+                zmodem.hand_off_cancelled_receive(sentinel);
+            }
             let actions = machine.cancel();
             let mut terminal = Vec::new();
             self.actions(&mut state, actions, &mut terminal);
@@ -736,6 +756,41 @@ mod tests {
                 .sender_input(|| -> Result<(), Message> { panic!("结束后不能输入") })
                 .is_err()
         );
+    }
+
+    #[test]
+    fn cancelled_zmodem_receive_releases_input_and_the_first_unterminated_shell_prompt() {
+        let host = Arc::new(Host::default());
+        let transfer = TerminalTransfer::new(SessionId::from_raw(22), host.clone());
+        transfer.set_writer(Arc::new(|_| Ok(())));
+        let (tx, rx) = std::sync::mpsc::channel();
+        transfer.set_terminal_output(Arc::new(move |bytes| tx.send(bytes).unwrap()));
+        transfer.feed(b"**\x18B00000000000000\r\n\x11");
+        assert_eq!(rx.recv().unwrap(), b"\r\x1b[2K");
+        let mut peer = Zmodem::new(Handshake::Send);
+        for action in peer.next_file(Some(FileInfo {
+            name: "test.bin".into(),
+            size: Some(14),
+        })) {
+            if let Action::Send(bytes) = action {
+                transfer.feed(&bytes);
+            }
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.bin");
+        lock(&host.1).take().unwrap()(PromptResponse::SavePath(path.to_str().unwrap().into()));
+        let frames = peer.read(b"discarded data");
+        let [Action::Send(header), Action::Send(packet)] = frames.as_slice() else {
+            panic!("接收一个数据子包")
+        };
+        transfer.feed(header);
+        transfer.feed(&packet[..3]);
+        transfer.cancel(None);
+        assert!(transfer.sender_input(|| Ok(())).is_ok());
+        // 对端中止尚未发完的子包，不回 CAN，马上交回不带换行的提示符。
+        transfer.feed(b"host$ ");
+        assert_eq!(rx.recv_timeout(Duration::from_secs(2)).unwrap(), b"host$ ");
+        assert_eq!(std::fs::metadata(path).unwrap().len(), 0);
     }
 
     #[test]
