@@ -28,7 +28,7 @@ use kanso_gpui::ime::ImeState;
 use kanso_gpui::keys::{KeyAction, KeyInput, classify_key};
 use kanso_gpui::metrics::{cell_at, grid_size, scroll_lines};
 use kanso_gpui::render::{
-    RenderGrid, build_render_grid_with, hyperlink_at, line_texts, screen_text,
+    RenderGrid, build_render_grid_with, hyperlink_at, line_texts, logical_screen_text,
 };
 use kanso_gpui::theme::Palette;
 
@@ -121,7 +121,7 @@ pub(crate) struct TerminalView {
     pub palette: Arc<Palette>,
     pub frame: Option<Frame>,
     pub grid: Option<Arc<RenderGrid>>,
-    /// 整屏文本（只在自检时维护）。
+    /// 整屏逻辑行（只在自检时维护）。
     pub screen: Vec<String>,
     pub ime: ImeState,
     pub metrics: Metrics,
@@ -352,7 +352,7 @@ impl TerminalView {
                     self.contrast.as_mut(),
                 )));
                 if self.track_screen || self.selftest.is_some() {
-                    self.screen = screen_text(&view);
+                    self.screen = logical_screen_text(&view);
                 }
             }
             Err(e) => log(&format!("帧解析失败：{e}")),

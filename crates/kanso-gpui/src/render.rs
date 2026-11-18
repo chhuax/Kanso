@@ -454,6 +454,12 @@ fn same_style(span: &TextSpan, s: &SpanStyle) -> bool {
 /// 取一行的纯文本（宽字符占位格跳过，空单元格当空格），去掉行尾空白。自检与测试用。
 pub fn row_text(view: &FrameView<'_>, row: u16) -> String {
     let mut out = String::new();
+    append_row_text(view, row, &mut out);
+    out.truncate(out.trim_end().len());
+    out
+}
+
+fn append_row_text(view: &FrameView<'_>, row: u16, out: &mut String) {
     for cell in view.row(row) {
         if cell.flags & CELL_WIDE_SPACER != 0 {
             continue;
@@ -466,8 +472,23 @@ pub fn row_text(view: &FrameView<'_>, row: u16) -> String {
             }),
         }
     }
-    out.truncate(out.trim_end().len());
-    out
+}
+
+/// 自检要区分 shell 的命令回显和执行输出，按逻辑行计数，不能把窄分屏中的软折行算作换行。
+pub fn logical_screen_text(view: &FrameView<'_>) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    for row in 0..view.header().rows {
+        append_row_text(view, row, &mut line);
+        let wrapped = view
+            .line_meta(row)
+            .is_some_and(|m| m.flags & LINE_WRAPPED != 0);
+        if !wrapped || row + 1 == view.header().rows {
+            line.truncate(line.trim_end().len());
+            lines.push(std::mem::take(&mut line));
+        }
+    }
+    lines
 }
 
 /// 整屏文本，每行一项。
@@ -984,6 +1005,20 @@ mod tests {
         assert_eq!(hyperlink_at(&v, 0, 3), Some(7));
         assert_eq!(hyperlink_at(&v, 0, 0), None);
         assert_eq!(hyperlink_at(&v, 5, 0), None);
+    }
+
+    #[test]
+    fn selftest_keeps_wrapped_echo_and_output_on_separate_logical_lines() {
+        let mut b = FrameBuilder::new(8, 3);
+        put(&mut b, 0, 0, "echo KT_");
+        put(&mut b, 1, 0, "TAB");
+        put(&mut b, 2, 0, "KT_TAB");
+        b.line_meta_mut(0).unwrap().flags |= LINE_WRAPPED;
+        let f = frame(b);
+        assert_eq!(
+            logical_screen_text(&f.view().unwrap()),
+            ["echo KT_TAB", "KT_TAB"]
+        );
     }
 
     #[test]
