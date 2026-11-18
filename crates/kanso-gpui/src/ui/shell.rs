@@ -17,8 +17,8 @@
 //! 主机密钥 / 密码提问的对话框由提示框模块负责，这里只留 TODO。
 
 use kanso_gpui::app::i18n::{label, t};
-use kanso_types::message::Message;
 use kanso_types::GroupId;
+use kanso_types::message::Message;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
