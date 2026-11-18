@@ -528,7 +528,11 @@ impl Store {
             groups: groups_on(&self.conn)?,
             profiles: profiles_on(&self.conn)?,
             snippets: snippets_on(&self.conn)?,
-            settings: self.settings_all()?,
+            settings: self
+                .settings_all()?
+                .into_iter()
+                .filter(|(key, _)| key != crate::LOCAL_SHELL_DEFAULTS)
+                .collect(),
         })
     }
 
@@ -691,7 +695,9 @@ impl Store {
 
         // 设置：同键覆盖，不在本地的键新增。不计入新增 / 更新数。
         for (key, value) in data.settings {
-            upsert_setting_on(&tx, &key, &value, now)?;
+            if key != crate::LOCAL_SHELL_DEFAULTS {
+                upsert_setting_on(&tx, &key, &value, now)?;
+            }
         }
 
         tx.commit()?;

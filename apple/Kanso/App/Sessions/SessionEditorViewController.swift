@@ -12,6 +12,9 @@ final class SessionEditorViewController: NSViewController, NSTextFieldDelegate {
     var onFinish: (() -> Void)?
     /// 点"连接"且保存成功后调用，参数是会话 id；晚于 `onFinish`（先收起对话框，再开会话，
     /// 避免连接过程中的凭据提示 sheet 与编辑 sheet 叠在一起）。保存失败不会调用。
+    var onLocalShellAction: ((FfiLocalProfile, Bool) throws -> Void)?
+    private let customLocal: Bool
+    private let kinds: [SessionKindChoice]
     var onConnect: ((String) -> Void)?
 
     static let width: CGFloat = 560
@@ -23,7 +26,7 @@ final class SessionEditorViewController: NSViewController, NSTextFieldDelegate {
 
     private let model: SessionEditorModel
 
-    let kindCards = KSegmentedCards(segments: SessionKindChoice.allCases.map { .init(title: $0.title, symbol: $0.symbol) })
+    let kindCards: KSegmentedCards
     let nameField = KTextField()
     let colorPalette = ColorPaletteView()
     let groupPopup = KPopUpField()
@@ -57,8 +60,11 @@ final class SessionEditorViewController: NSViewController, NSTextFieldDelegate {
     private var fieldViews: [SessionEditorField: NSView] = [:]
     private var isSaving = false
 
-    init(model: SessionEditorModel) {
+    init(model: SessionEditorModel, customLocal: Bool = false, remoteOnly: Bool = false) {
         self.model = model
+        self.customLocal = customLocal
+        kinds = remoteOnly ? [.ssh, .sftp] : SessionKindChoice.allCases
+        kindCards = KSegmentedCards(segments: kinds.map { .init(title: $0.title, symbol: $0.symbol) })
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -66,7 +72,7 @@ final class SessionEditorViewController: NSViewController, NSTextFieldDelegate {
     required init?(coder: NSCoder) { fatalError("SessionEditorViewController 只支持代码创建") }
 
     override func loadView() {
-        let title = model.isEditing ? String(localized: "Edit Session") : String(localized: "New Session")
+        let title = customLocal ? String(localized: "Customize Launch") : model.isEditing ? String(localized: "Edit Session") : String(localized: "New Session")
         let shell = DialogShellView(title: title, symbol: "server.rack", width: Self.width)
         self.shell = shell
         view = shell
@@ -84,6 +90,10 @@ final class SessionEditorViewController: NSViewController, NSTextFieldDelegate {
         cancelButton.onPress = { [weak self] in self?.cancel() }
         // 回车 = 保存（与改版前一致）；"连接"是显式的第二个动作，不抢默认键。
         saveButton.keyEquivalent = "\r"
+        if customLocal {
+            saveButton.title = String(localized: "Set as Default")
+            connectButton.title = String(localized: "Open")
+        }
         saveButton.onPress = { [weak self] in self?.save() }
         connectButton.onPress = { [weak self] in self?.connect() }
         shell.setFooterButtons([cancelButton, saveButton, connectButton])
@@ -95,7 +105,7 @@ final class SessionEditorViewController: NSViewController, NSTextFieldDelegate {
 
     override func viewDidAppear() {
         super.viewDidAppear()
-        view.window?.makeFirstResponder(nameField.textField)
+        view.window?.makeFirstResponder(customLocal ? shellField.textField : nameField.textField)
     }
 
     // MARK: - 构建
@@ -120,8 +130,9 @@ final class SessionEditorViewController: NSViewController, NSTextFieldDelegate {
         keyPassphraseField.placeholder = model.isEditing ? keepHint : ""
 
         kindCards.onSelect = { [weak self] index in
-            self?.model.kind = SessionKindChoice.allCases[index]
-            self?.applyVisibility()
+            guard let self else { return }
+            model.kind = kinds[index]
+            applyVisibility()
         }
 
         authPopup.setItems([String(localized: "Password"), String(localized: "Private Key"), String(localized: "ssh-agent")])
@@ -223,7 +234,7 @@ final class SessionEditorViewController: NSViewController, NSTextFieldDelegate {
 
     private func loadValues() {
         nameField.stringValue = model.name
-        kindCards.selectedIndex = SessionKindChoice.allCases.firstIndex(of: model.kind) ?? 0
+        kindCards.selectedIndex = kinds.firstIndex(of: model.kind) ?? 0
         colorPalette.selected = model.color
         groupPopup.selectItem(at: model.groupID.flatMap { id in model.groups.firstIndex { $0.id == id } }.map { $0 + 1 } ?? 0)
         mcpPopup.selectItem(at: McpText.accessIndex(model.mcpAccess))
@@ -275,7 +286,11 @@ final class SessionEditorViewController: NSViewController, NSTextFieldDelegate {
     /// 按模型显隐字段、卡片，并重新计算对话框高度。
     func applyVisibility() {
         for (field, view) in fieldViews { view.isHidden = !model.isVisible(field) }
-        localCard.isHidden = model.kind != .local
+        sessionCard.isHidden = customLocal
+        saveButton.isHidden = model.opensTemporaryShell && !customLocal
+        saveButton.keyEquivalent = model.opensTemporaryShell ? "" : "\r"
+        connectButton.keyEquivalent = model.opensTemporaryShell ? "\r" : ""
+        localCard.isHidden = model.kind != .local || (model.opensTemporaryShell && !customLocal)
         sshCard.isHidden = !model.isSSHLike
 
         // 编码 | Locale 只有一份控件，跟着类型换卡片。
@@ -359,6 +374,19 @@ final class SessionEditorViewController: NSViewController, NSTextFieldDelegate {
         Task { @MainActor in
             // 保存中再点一次直接忽略：save 是异步的（写凭据），重复触发会产生重复写入。
             guard !isSaving else { return }
+            if customLocal {
+                syncTextToModel()
+                guard let profile = model.assemble(), case .local(let local) = profile.kind else { return }
+                do {
+                    try onLocalShellAction?(local, thenConnect)
+                    if thenConnect { onFinish?() }
+                    else { shell.setMessage(String(localized: "Saved as Default")) }
+                } catch {
+                    shell.setMessage(CoreMessageText.text(for: error))
+                }
+                resizeSheet()
+                return
+            }
             syncTextToModel()
             isSaving = true
             saveButton.isEnabled = false

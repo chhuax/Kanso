@@ -255,6 +255,16 @@ impl KansoCore {
         Ok(self.inner.set_setting(&key, json)?)
     }
 
+    /// 读取本地 Shell 默认配置。
+    pub fn local_shell_defaults(&self) -> FfiLocalProfile {
+        (&self.inner.local_shell_defaults()).into()
+    }
+
+    /// 保存本地 Shell 默认配置。
+    pub fn set_local_shell_defaults(&self, profile: FfiLocalProfile) -> Result<(), FfiCoreError> {
+        Ok(self.inner.set_local_shell_defaults(&profile.try_into()?)?)
+    }
+
     /// 清空全部设置（不动会话、分组、Sender 命令与历史）。
     pub fn reset_settings(&self) -> Result<(), FfiCoreError> {
         Ok(self.inner.reset_settings()?)

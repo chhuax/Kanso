@@ -256,6 +256,10 @@ ui-cancel = Cancel
 ui-save = Save
 
 ui-connect = Connect
+ui-customize-shell = Customize Launch
+ui-set-shell-default = Set as Default
+ui-shell-defaults-saved = Saved as Default
+ui-open-shell = Open
 
 ui-automatic = Automatic
 

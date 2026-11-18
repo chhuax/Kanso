@@ -9,7 +9,7 @@ use kanso_types::{CursorShape, DirEntry, SessionId, TerminalOptions};
 
 use super::event::FfiSessionState;
 use super::message::FfiMessage;
-use super::profile::FfiSessionKind;
+use super::profile::{FfiLocalProfile, FfiSessionKind};
 use super::{FfiCoreError, mirror_enum, parse_id};
 
 /// 光标前输入及当前会话的目录上报。
@@ -192,6 +192,11 @@ pub enum FfiOpenTarget {
     },
     /// 用默认配置打开本地 shell。
     DefaultLocalShell,
+    /// 使用本次配置打开临时本地 shell。
+    LocalShell {
+        /// 本次启动配置。
+        profile: FfiLocalProfile,
+    },
     /// 复制标签。
     Duplicate {
         /// 被复制的会话。
@@ -206,6 +211,7 @@ impl TryFrom<FfiOpenTarget> for OpenTarget {
         Ok(match t {
             FfiOpenTarget::Profile { id } => OpenTarget::Profile(parse_id(&id, "profile")?),
             FfiOpenTarget::DefaultLocalShell => OpenTarget::DefaultLocalShell,
+            FfiOpenTarget::LocalShell { profile } => OpenTarget::LocalShell(profile.try_into()?),
             FfiOpenTarget::Duplicate { session } => {
                 OpenTarget::Duplicate(SessionId::from_raw(session))
             }

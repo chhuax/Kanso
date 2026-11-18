@@ -1033,6 +1033,24 @@ fn import_settings_overrides_same_key_and_keeps_others() {
     assert_eq!(s.get_setting("c").unwrap().as_deref(), Some(r#""z""#));
 }
 
+#[test]
+fn local_shell_defaults_stay_on_this_device() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = store();
+    let key = crate::LOCAL_SHELL_DEFAULTS;
+    let local = r#"{"shell_command":"local"}"#;
+    s.set_setting(key, local).unwrap();
+    let doc = json!({"app":"kanso-data","formatVersion":1,"settings":{(key): {"shell_command":"imported"}}});
+    s.import_file(&write(dir.path(), "import.kanso", &doc), &ok)
+        .unwrap();
+    assert_eq!(s.get_setting(key).unwrap().as_deref(), Some(local));
+
+    let path = s.export(&dir.path().join("export.kanso"), "1").unwrap();
+    let exported: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    assert!(exported["settings"].get(key).is_none());
+}
+
 // ---- MCP 授权与审计（schema v3，spec/mcp.md §2.2、§6）----
 
 mod mcp {

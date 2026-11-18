@@ -75,7 +75,7 @@ final class SessionLauncherViewController: NSViewController, NSTextFieldDelegate
 
         newShellRow.onClick = { [weak self] in self?.actions.newLocalShell() }
         newSessionRow.onClick = { [weak self] in self?.actions.newSession() }
-        settingsButton.toolTip = String(localized: "Settings…")
+        settingsButton.toolTip = String(localized: "Customize Launch")
         settingsButton.onPress = { [weak self] in self?.actions.openSettings() }
 
         searchField.placeholder = String(localized: "Search saved sessions")

@@ -992,6 +992,7 @@ impl RealCore {
                 }
             }
             OpenTarget::DefaultLocalShell => OpenRequest::DefaultLocalShell,
+            OpenTarget::LocalShell(profile) => OpenRequest::Local(profile),
             OpenTarget::Duplicate(src) => {
                 // 复制由 Profile 打开的会话时，副本也属于同一个 Profile。
                 opened_profile = self.profile_of(src);

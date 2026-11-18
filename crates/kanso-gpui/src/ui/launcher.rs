@@ -47,7 +47,7 @@ pub(crate) enum LauncherEvent {
     /// 关闭（Esc、点浮层外）。
     Close,
     /// 打开设置。
-    OpenSettings,
+    CustomizeShell,
     /// 新建本地 shell 标签。
     OpenLocal,
     /// 打开新建会话对话框。
@@ -754,7 +754,7 @@ impl Render for LauncherView {
                                 MouseButton::Left,
                                 cx.listener(|_, _, _, cx| {
                                     cx.stop_propagation();
-                                    cx.emit(LauncherEvent::OpenSettings);
+                                    cx.emit(LauncherEvent::CustomizeShell);
                                 }),
                             )
                             .child(icon("settings", 16.0, th.c("text.secondary"))),

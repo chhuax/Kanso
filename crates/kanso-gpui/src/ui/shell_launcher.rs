@@ -72,11 +72,7 @@ impl ShellView {
         self.close_launcher(window, cx);
         match ev {
             LauncherEvent::Close => {}
-            LauncherEvent::OpenSettings => self.run_command(
-                kanso_gpui::app::shortcuts::AppCommand::OpenSettings,
-                window,
-                cx,
-            ),
+            LauncherEvent::CustomizeShell => self.present_editor(None, true, window, cx),
             LauncherEvent::OpenLocal => self.open_tab(window, cx),
             LauncherEvent::NewSession => self.open_editor(None, window, cx),
             LauncherEvent::Connect(id) => self.connect_profile(id, window, cx),
@@ -95,6 +91,16 @@ impl ShellView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.present_editor(profile, false, window, cx);
+    }
+
+    fn present_editor(
+        &mut self,
+        profile: Option<ProfileId>,
+        custom_local: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.editor.is_some() || self.prompt.is_some() {
             return;
         }
@@ -109,10 +115,11 @@ impl ShellView {
             None => None,
         };
         // 从启动器进入时它已经关闭；直接从菜单进入时关掉可能开着的启动器。
-        self.launcher = None;
-        self.launcher_sub = None;
+        if self.launcher.is_some() {
+            self.close_launcher(window, cx);
+        }
         let core = self.core.clone();
-        let editor = cx.new(|cx| SessionEditorView::new(core, existing, window, cx));
+        let editor = cx.new(|cx| SessionEditorView::new(core, existing, custom_local, window, cx));
         self.editor_sub = Some(cx.subscribe_in(
             &editor,
             window,
@@ -122,6 +129,9 @@ impl ShellView {
                 this.editor_sub = None;
                 match ev {
                     EditorEvent::Cancel => {}
+                    EditorEvent::OpenLocal(profile) => {
+                        this.open_shell(Some(profile.clone()), window, cx)
+                    }
                     EditorEvent::Saved { id, connect } => {
                         log(&format!("会话已保存 {id}"));
                         if *connect {

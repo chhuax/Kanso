@@ -6,12 +6,13 @@ import XCTest
 /// 编辑对话框视图层（重做后的布局与"连接"按钮）的测试。视图模型逻辑见 `SessionEditorTests`。
 @MainActor
 final class SessionEditorViewTests: XCTestCase {
-    private func makeEditor(kind: SessionKindChoice = .local, name: String = "n", store: SessionStore = MemoryStore())
+    private func makeEditor(kind: SessionKindChoice = .ssh, name: String = "n", store: SessionStore = MemoryStore())
         -> (SessionEditorViewController, SessionEditorModel)
     {
         let model = SessionEditorModel(store: store, channel: "Direct")
         model.name = name
         model.kind = kind
+        model.host = "example.test"
         let editor = SessionEditorViewController(model: model)
         _ = editor.view
         return (editor, model)
@@ -33,6 +34,24 @@ final class SessionEditorViewTests: XCTestCase {
         await editor.performSave(thenConnect: true).value
         XCTAssertEqual(store.storedProfiles.map(\.id), [model.profileID])
         XCTAssertEqual(events, ["finish", "connect:\(model.profileID)"], "先收起对话框，再开会话")
+    }
+
+    func testCustomLocalShellOpensWithoutSavingAProfile() async {
+        let store = MemoryStore()
+        let model = SessionEditorModel(store: store)
+        model.shellCommand = "/bin/zsh"
+        let editor = SessionEditorViewController(model: model, customLocal: true)
+        _ = editor.view
+        var events: [String] = []
+        editor.onFinish = { events.append("finish") }
+        editor.onLocalShellAction = { profile, open in
+            XCTAssertEqual(profile.shellCommand, "/bin/zsh")
+            events.append(open ? "open" : "default")
+        }
+        await editor.performSave(thenConnect: false).value
+        await editor.performSave(thenConnect: true).value
+        XCTAssertTrue(store.storedProfiles.isEmpty)
+        XCTAssertEqual(events, ["default", "open", "finish"])
     }
 
     func testConnectDoesNotOpenWhenSaveFails() async {
@@ -111,8 +130,10 @@ final class SessionEditorViewTests: XCTestCase {
     func testCardsFollowKind() {
         let (editor, model) = makeEditor(kind: .local)
         XCTAssertTrue(editor.hostField.isHiddenOrHasHiddenAncestor)
-        XCTAssertFalse(editor.shellField.isHiddenOrHasHiddenAncestor)
-        XCTAssertFalse(editor.encodingPopup.isHiddenOrHasHiddenAncestor)
+        XCTAssertTrue(editor.shellField.isHiddenOrHasHiddenAncestor)
+        XCTAssertTrue(editor.encodingPopup.isHiddenOrHasHiddenAncestor)
+        XCTAssertTrue(editor.saveButton.isHidden)
+        XCTAssertEqual(editor.connectButton.keyEquivalent, "\r")
 
         editor.kindCards.select(1)  // SSH
         XCTAssertEqual(model.kind, .ssh)
