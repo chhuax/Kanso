@@ -276,6 +276,7 @@ pub struct LocalSession {
     shared: Arc<Shared>,
     name: String,
     launch: LocalLaunch,
+    shell_flavor: ShellFlavor,
     /// 读线程的启动闸门：`activate` 发出 `Connecting` / `Connected` 之后才放行读线程，
     /// 保证这两个事件一定排在任何输出相关事件之前。发送端被丢弃（启动失败）时读线程直接退出。
     gate: Mutex<Option<Sender<()>>>,
@@ -299,24 +300,27 @@ pub(crate) enum StartError {
     Thread(std::io::Error),
 }
 
+/// 按已解析的启动程序识别 Windows 的内置 shell。其他本地程序沿用 POSIX 约定。
+fn local_shell_flavor(platform: PtyPlatform, program: &str) -> ShellFlavor {
+    if platform != PtyPlatform::Windows {
+        return ShellFlavor::Posix;
+    }
+    let name = program.rsplit(['/', '\\']).next().unwrap_or_default();
+    match name.to_ascii_lowercase().as_str() {
+        "cmd" | "cmd.exe" => ShellFlavor::Cmd,
+        "powershell" | "powershell.exe" | "pwsh" | "pwsh.exe" => ShellFlavor::PowerShell,
+        _ => ShellFlavor::Posix,
+    }
+}
+
 /// 在 Windows 交互提示符中报告当前目录。显式命令、脚本和非交互调用保持原样。
 fn configure_windows_prompt(
     command: &mut CommandSpec,
     platform: PtyPlatform,
     env: &EnvSnapshot,
 ) -> Option<EnvChange> {
-    if platform != PtyPlatform::Windows {
-        return None;
-    }
-    let name = command
-        .program
-        .rsplit(['/', '\\'])
-        .next()?
-        .to_ascii_lowercase();
-    if matches!(
-        name.as_str(),
-        "powershell" | "powershell.exe" | "pwsh" | "pwsh.exe"
-    ) {
+    let flavor = local_shell_flavor(platform, &command.program);
+    if flavor == ShellFlavor::PowerShell {
         if command.args.iter().all(|arg| {
             matches!(
                 arg.to_ascii_lowercase().as_str(),
@@ -338,7 +342,7 @@ fn configure_windows_prompt(
         }
         return None;
     }
-    if !matches!(name.as_str(), "cmd" | "cmd.exe")
+    if flavor != ShellFlavor::Cmd
         || !command.args.iter().all(|arg| {
             matches!(
                 arg.to_ascii_lowercase().as_str(),
@@ -390,6 +394,7 @@ impl LocalSession {
 
         let mut command =
             resolve_command(&launch.command_line, &base, platform).map_err(StartError::Command)?;
+        let shell_flavor = local_shell_flavor(platform, &command.program);
 
         // 只有开启了集成才生成 shim；失败不是致命错误：不设 ZDOTDIR，shell 按原样启动，只是没有提示符集成。
         let zsh = if cfg.shell_integration {
@@ -545,6 +550,7 @@ impl LocalSession {
             shared,
             name,
             launch,
+            shell_flavor,
             gate: Mutex::new(Some(gate_tx)),
             threads: Mutex::new(threads),
         }))
@@ -677,12 +683,12 @@ impl LocalSession {
         }
         match content {
             PasteContent::Text(text) => self.paste_text(text),
-            // AI CLI 会话原样粘贴路径，让工具把它识别成附件；普通 shell 按 POSIX 转义（terminal.md §8.3）。
+            // AI CLI 会话原样粘贴路径，让工具识别为附件；普通会话按启动的 shell 转义。
             PasteContent::Files(paths) => {
                 let text = if self.shared.activity.agent().is_some() {
                     paths.join(" ")
                 } else {
-                    quote_paths(paths, ShellFlavor::Posix)
+                    quote_paths(paths, self.shell_flavor)
                 };
                 self.paste_text(&text);
             }
