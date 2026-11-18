@@ -196,7 +196,7 @@ Metadata comes from `cargo metadata`; `cargo tree` selects the normal dependency
 | gpui_sum_tree | 0.2.2 | Apache-2.0 | https://crates.io/crates/gpui_sum_tree |
 | gpui_util | 0.2.2 | Apache-2.0 | https://crates.io/crates/gpui_util |
 | gpui_util_macros | 0.2.2 | Apache-2.0 | https://crates.io/crates/gpui_util_macros |
-| grid | 0.18.0 | MIT | https://github.com/becheran/grid |
+| grid | 1.0.1 | MIT | https://github.com/becheran/grid |
 | group | 0.14.0 | MIT/Apache-2.0 | https://github.com/zkcrypto/group |
 | h2 | 0.4.20 | MIT | https://github.com/hyperium/h2 |
 | half | 2.7.1 | MIT OR Apache-2.0 | https://github.com/VoidStarKat/half-rs |
@@ -20239,7 +20239,7 @@ DEALINGS IN THE SOFTWARE.
 
 Used by:
 
-- grid@0.18.0 — `LICENSE`
+- grid@1.0.1 — `LICENSE`
 
 ```text
 MIT License
