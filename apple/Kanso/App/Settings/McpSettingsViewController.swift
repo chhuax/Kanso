@@ -21,10 +21,10 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
     /// 操作失败（授权写入、重新生成令牌）的原因；没有错误时隐藏。
     let errorLabel = NSTextField(wrappingLabelWithString: "")
     let pathLabel = NSTextField(wrappingLabelWithString: "")
-    let copyClaudeButton = KButton(title: String(localized: "Copy Claude Code Configuration"), style: .secondary)
-    let copyCodexButton = KButton(title: String(localized: "Copy Codex Configuration"), style: .secondary)
-    let copyTokenButton = KButton(title: String(localized: "Copy Token"), style: .secondary)
-    let regenerateButton = KButton(title: String(localized: "Regenerate"), style: .secondary)
+    let clientPopup = KPopUpField()
+    let commandLabel = NSTextField(wrappingLabelWithString: "")
+    let copyCommandButton = KButton(title: String(localized: "Copy Command"), style: .primary)
+    let regenerateButton = KButton(title: String(localized: "Regenerate Token"), style: .secondary)
     let sensitiveNotice = SettingsPageViewController.caption(McpText.sensitiveNotice)
     let auditClientField = KTextField()
     let auditSessionPopup = KPopUpField()
@@ -79,9 +79,7 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
         errorLabel.textColor = .token(DesignTokens.Color.statusError)
         errorLabel.isHidden = true
 
-        copyClaudeButton.onPress = { [weak self] in self?.copyConfig(.claudeCode) }
-        copyCodexButton.onPress = { [weak self] in self?.copyConfig(.codex) }
-        copyTokenButton.onPress = { [weak self] in self?.copyToken() }
+        copyCommandButton.onPress = { [weak self] in self?.copyConfig() }
         regenerateButton.onPress = { [weak self] in self?.regenerate() }
 
         let switchCard = KCard(title: String(localized: "MCP"), symbol: "point.3.connected.trianglepath.dotted")
@@ -99,11 +97,37 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
         serviceCard.addRow(errorLabel)
 
         let configCard = KCard(title: String(localized: "Configuration"), symbol: "doc.on.clipboard")
-        configCard.addRow(buttonRow([copyClaudeButton, copyCodexButton]))
+        clientPopup.setItems([String(localized: "Claude Code"), String(localized: "Codex")])
+        clientPopup.selectItem(at: 0)
+        clientPopup.onChange = { [weak self] _ in
+            self?.reloadCommand()
+            self?.relayout()
+        }
+        configCard.addRow(LabeledField(title: String(localized: "Client"), control: clientPopup))
+        commandLabel.font = .monospacedSystemFont(ofSize: DesignTokens.Font.uiCaption, weight: .regular)
+        commandLabel.textColor = .token(DesignTokens.Color.textPrimary)
+        commandLabel.isSelectable = true
+        commandLabel.maximumNumberOfLines = 0
+        commandLabel.lineBreakMode = .byCharWrapping
+        commandLabel.preferredMaxLayoutWidth =
+            Self.pageWidth - Self.inset * 2 - KCard.padding * 2 - DesignTokens.Spacing.fieldPaddingX * 2
+        let commandBox = StyledBoxView()
+        commandBox.fillToken = DesignTokens.Color.bgField
+        commandBox.borderToken = DesignTokens.Color.borderField
+        commandBox.cornerRadius = DesignTokens.Radius.md
+        commandLabel.translatesAutoresizingMaskIntoConstraints = false
+        commandBox.addSubview(commandLabel)
+        NSLayoutConstraint.activate([
+            commandLabel.topAnchor.constraint(equalTo: commandBox.topAnchor, constant: 8),
+            commandLabel.bottomAnchor.constraint(equalTo: commandBox.bottomAnchor, constant: -8),
+            commandLabel.leadingAnchor.constraint(equalTo: commandBox.leadingAnchor, constant: DesignTokens.Spacing.fieldPaddingX),
+            commandLabel.trailingAnchor.constraint(equalTo: commandBox.trailingAnchor, constant: -DesignTokens.Spacing.fieldPaddingX),
+        ])
+        configCard.addRow(commandBox)
+        configCard.addRow(buttonRow([copyCommandButton, regenerateButton]))
         configCard.addRow(SettingsPageViewController.caption(String(
             localized: "The command contains a token and may be saved in shell history. If that is a concern, clear the history after running it, or regenerate the token."
         )))
-        configCard.addRow(LabeledField(title: String(localized: "Client token"), control: buttonRow([copyTokenButton, regenerateButton])))
 
         clientStack.orientation = .vertical
         clientStack.alignment = .leading
@@ -267,21 +291,31 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
     /// 按钮状态只看协调器的令牌缓存，不在页面路径上读钥匙串。
     private func reloadTokenButtons() {
         let hasToken = mcp.cachedToken != nil
-        copyClaudeButton.isEnabled = hasToken
-        copyCodexButton.isEnabled = hasToken
-        copyTokenButton.isEnabled = hasToken
+        copyCommandButton.isEnabled = hasToken
         regenerateButton.isEnabled = hasToken
+        reloadCommand()
     }
 
-    private func copyConfig(_ kind: FfiMcpClientKind) {
-        guard let token = mcp.cachedToken else { return }
+    private var selectedKind: FfiMcpClientKind {
+        clientPopup.selectedIndex == 1 ? .codex : .claudeCode
+    }
+
+    private func reloadCommand() {
+        // 显示和复制共用完整命令；令牌读取或轮换后在同一处刷新，避免复制到旧命令。
+        let command = configurationCommand(selectedKind)
+        // 状态事件不改变命令时，保留用户正在选择的文字。
+        if commandLabel.stringValue != command { commandLabel.stringValue = command }
+    }
+
+    private func configurationCommand(_ kind: FfiMcpClientKind) -> String {
+        guard let token = mcp.cachedToken else { return "" }
+        return mcpClientConfig(kind: kind, helperPath: mcpHelperPath(), token: token)
+    }
+
+    private func copyConfig() {
+        guard mcp.cachedToken != nil else { return }
         // 原样复制，保留开头的空格。
-        copyText(mcpClientConfig(kind: kind, helperPath: mcpHelperPath(), token: token))
-    }
-
-    private func copyToken() {
-        guard let token = mcp.cachedToken else { return }
-        copyText(token)
+        copyText(configurationCommand(selectedKind))
     }
 
     private func regenerate() {
