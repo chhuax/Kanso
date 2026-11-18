@@ -594,8 +594,8 @@ impl FilerPanel {
                         row
                     } else {
                         let panel = cx.entity();
-                        row.on_drag(this.make_drag(idx, id), move |d, _off, _window, app| {
-                            let label = panel.update(app, |p, cx| p.start_drag(d, cx));
+                        row.on_drag(this.make_drag(idx, id), move |d, _off, window, app| {
+                            let label = panel.update(app, |p, cx| p.start_drag(d, window, cx));
                             app.new(|_| DragChip::new(label, th))
                         })
                     };

@@ -1132,7 +1132,8 @@ impl FilerPanel {
 
     /// 外部拖入（filer.md §7.1）：整个面板是落点，写入当前显示的目录。
     pub(crate) fn drop_paths(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
-        if self.mode != PanelMode::Aux {
+        // 自己拖出的文件落回本窗口：不回传一遍（§7.5）。
+        if kanso_gpui::app::os_drag::self_dragging() || self.mode != PanelMode::Aux {
             return;
         }
         let idx = self.shown;

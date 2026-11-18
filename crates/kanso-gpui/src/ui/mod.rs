@@ -9,7 +9,8 @@
 //! - `element`：自绘元素（度量字体、算行列数、画背景 / 文字 / 光标 / 预编辑）；
 //! - `settings` / `display`：显示设置窗口与模型、字体 / 外观的生效状态；
 //! - `selftest` / `shell_selftest`：`--selftest` 自检（终端阶段 + 多标签 / 分屏阶段）；
-//! - `memory`：进程内存读数（日志用）。
+//! - `memory`：进程内存读数（日志用）；
+//! - `os_drag`：向资源管理器等其他应用发起系统文件拖放（OLE `DoDragDrop`）。
 
 mod clipboard;
 mod decor;
@@ -30,6 +31,7 @@ mod git_panel;
 mod git_selftest;
 mod launcher;
 mod memory;
+mod os_drag;
 mod remote_edit_selftest;
 mod selftest;
 mod sender;
