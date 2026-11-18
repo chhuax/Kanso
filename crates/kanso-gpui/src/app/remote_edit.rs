@@ -400,6 +400,7 @@ pub const COPY_FIELD: &str = "name";
 /// 取消（默认 / Esc）、覆盖、重新下载、另存副本…。默认是取消，不会悄悄覆盖。
 pub fn conflict_spec(name: &str, source: &str) -> DialogSpec {
     DialogSpec::new(&msg(Message::RemoteEditConflictTitle {}))
+        .dismiss_on_scrim()
         .text(&msg(Message::RemoteEditConflictBody {
             name: name.to_owned(),
             source: source.to_owned(),
@@ -787,6 +788,17 @@ mod tests {
             ids,
             [BTN_CANCEL, BTN_OVERWRITE, BTN_REDOWNLOAD, BTN_SAVE_COPY]
         );
+        assert_eq!(spec.default_button(), Some(0));
+        assert!(spec.dismiss_on_scrim);
+        for trigger in [
+            crate::widgets::dialog::Trigger::Escape,
+            crate::widgets::dialog::Trigger::Scrim,
+        ] {
+            assert_eq!(
+                conflict_choice(&crate::widgets::dialog::result_for_cancel(&spec, trigger)),
+                ConflictChoice::Cancel
+            );
+        }
         assert_eq!(
             conflict_choice(&pressed(&spec, BTN_SAVE_COPY, "")),
             ConflictChoice::SaveCopy
