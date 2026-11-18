@@ -7,12 +7,12 @@ import XCTest
 final class FilerFileSystemTests: XCTestCase {
     private var root: URL!
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("filer-fs-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     }
 
-    override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
+    override func tearDown() async throws { try? FileManager.default.removeItem(at: root) }
 
     private func path(_ name: String) -> String { root.appendingPathComponent(name).path }
     private func write(_ name: String, _ text: String = "x") throws {
