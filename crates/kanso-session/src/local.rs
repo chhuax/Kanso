@@ -299,15 +299,46 @@ pub(crate) enum StartError {
     Thread(std::io::Error),
 }
 
-/// 只在交互 CMD 提示符中报告目录，保留用户可见的提示符和批处理的输出。
-fn cmd_cwd_prompt(
-    command: &CommandSpec,
+/// 在 Windows 交互提示符中报告当前目录。显式命令、脚本和非交互调用保持原样。
+fn configure_windows_prompt(
+    command: &mut CommandSpec,
     platform: PtyPlatform,
     env: &EnvSnapshot,
 ) -> Option<EnvChange> {
-    let name = command.program.rsplit(['/', '\\']).next()?;
-    if platform != PtyPlatform::Windows
-        || !(name.eq_ignore_ascii_case("cmd") || name.eq_ignore_ascii_case("cmd.exe"))
+    if platform != PtyPlatform::Windows {
+        return None;
+    }
+    let name = command
+        .program
+        .rsplit(['/', '\\'])
+        .next()?
+        .to_ascii_lowercase();
+    if matches!(
+        name.as_str(),
+        "powershell" | "powershell.exe" | "pwsh" | "pwsh.exe"
+    ) {
+        if command.args.iter().all(|arg| {
+            matches!(
+                arg.to_ascii_lowercase().as_str(),
+                "-nologo" | "-noprofile" | "-noexit"
+            )
+        }) {
+            // 配置文件加载之后再包裹原提示符，保留用户样式，不写入系统或用户的 profile。
+            if !command
+                .args
+                .iter()
+                .any(|arg| arg.eq_ignore_ascii_case("-NoExit"))
+            {
+                command.args.push("-NoExit".into());
+            }
+            command.args.push("-Command".into());
+            command
+                .args
+                .push(include_str!("windows_prompt.ps1").trim().into());
+        }
+        return None;
+    }
+    if !matches!(name.as_str(), "cmd" | "cmd.exe")
         || !command.args.iter().all(|arg| {
             matches!(
                 arg.to_ascii_lowercase().as_str(),
@@ -357,7 +388,7 @@ impl LocalSession {
             .clone()
             .unwrap_or_else(EnvSnapshot::from_current);
 
-        let command =
+        let mut command =
             resolve_command(&launch.command_line, &base, platform).map_err(StartError::Command)?;
 
         // 只有开启了集成才生成 shim；失败不是致命错误：不设 ZDOTDIR，shell 按原样启动，只是没有提示符集成。
@@ -396,7 +427,7 @@ impl LocalSession {
             },
         );
         if cfg.shell_integration
-            && let Some(prompt) = cmd_cwd_prompt(&command, platform, &base)
+            && let Some(prompt) = configure_windows_prompt(&mut command, platform, &base)
         {
             changes.push(prompt);
         }
@@ -1272,21 +1303,48 @@ mod cmd_prompt_tests {
             args: vec!["/D".into()],
         };
         let base = EnvSnapshot::from_pairs([("Prompt", "$T $P$G")]);
-        let (key, value) = cmd_cwd_prompt(&command, PtyPlatform::Windows, &base).unwrap();
+        let (key, value) =
+            configure_windows_prompt(&mut command, PtyPlatform::Windows, &base).unwrap();
         assert_eq!(key, "Prompt");
         assert_eq!(value.unwrap(), r#"$E]9;9;"$P"$E\$T $P$G"#);
-        assert!(cmd_cwd_prompt(&command, PtyPlatform::Linux, &base).is_none());
+        assert!(configure_windows_prompt(&mut command, PtyPlatform::Linux, &base).is_none());
         for arguments in [
             vec!["/C", "echo hello > result"],
             vec!["/cecho"],
             vec!["/K", "custom.cmd"],
         ] {
             command.args = arguments.into_iter().map(str::to_owned).collect();
-            assert!(cmd_cwd_prompt(&command, PtyPlatform::Windows, &base).is_none());
+            assert!(configure_windows_prompt(&mut command, PtyPlatform::Windows, &base).is_none());
         }
         command.program = "powershell.exe".into();
         command.args.clear();
-        assert!(cmd_cwd_prompt(&command, PtyPlatform::Windows, &base).is_none());
+        assert!(configure_windows_prompt(&mut command, PtyPlatform::Windows, &base).is_none());
+    }
+    #[test]
+    fn powershell_wraps_interactive_prompts_only() {
+        let base = EnvSnapshot::from_pairs([("HOME", "unused")]);
+        for program in ["powershell.exe", r"C:\Program Files\PowerShell\7\pwsh.exe"] {
+            for args in [
+                vec!["-File", "build.ps1"],
+                vec!["-Command", "Get-Location"],
+                vec!["-NonInteractive"],
+                vec!["-EncodedCommand", "QQA="],
+            ] {
+                let mut command = CommandSpec {
+                    program: program.into(),
+                    args: args.iter().map(|s| s.to_string()).collect(),
+                };
+                configure_windows_prompt(&mut command, PtyPlatform::Windows, &base);
+                assert_eq!(command.args, args);
+            }
+            let mut command = CommandSpec {
+                program: program.into(),
+                args: vec!["-NoProfile".into(), "-NoExit".into()],
+            };
+            configure_windows_prompt(&mut command, PtyPlatform::Windows, &base);
+            assert_eq!(&command.args[..3], &["-NoProfile", "-NoExit", "-Command"]);
+            assert_eq!(command.args.len(), 4);
+        }
     }
 }
 

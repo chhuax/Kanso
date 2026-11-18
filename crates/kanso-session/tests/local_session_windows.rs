@@ -48,3 +48,21 @@ fn cmd_exit_3_closes_session_with_code() {
 fn cmd_exit_0_closes_session_with_code() {
     exit_code_is_reported(0);
 }
+
+#[test]
+fn powershell_reports_directory_changes_through_conpty() {
+    let fx = fixture("powershell.exe -NoLogo -NoProfile", true);
+    let dir = fx.home.join("project with spaces");
+    std::fs::create_dir(&dir).unwrap();
+    let (id, session) = fx.open();
+    let sees = |path: &std::path::Path| {
+        fx.rec.wait_for(Duration::from_secs(15), |event| {
+            matches!(event, CoreEvent::LocationChanged { session, cwd: Some(cwd), .. }
+            if *session == id && std::path::Path::new(cwd) == path)
+        })
+    };
+    assert!(sees(&fx.home), "PowerShell 应上报初始工作目录");
+    session.text_input("Set-Location -LiteralPath 'project with spaces'\r");
+    assert!(sees(&dir), "切换目录后应上报带空格的路径");
+    fx.mgr.close(id);
+}

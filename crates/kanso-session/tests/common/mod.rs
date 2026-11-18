@@ -112,10 +112,21 @@ pub fn fixture(shell: &str, integration: bool) -> Fixture {
     ];
     // Windows 的 cmd.exe / PowerShell 需要系统变量才能正常启动。
     #[cfg(windows)]
-    for key in ["SystemRoot", "ComSpec", "windir", "TEMP", "TMP"] {
+    for key in ["SystemRoot", "ComSpec", "windir"] {
         if let Ok(v) = std::env::var(key) {
             pairs.push((key.to_owned(), v));
         }
+    }
+    #[cfg(windows)]
+    for (key, dir) in [
+        ("USERPROFILE", home.clone()),
+        ("APPDATA", home.join("AppData/Roaming")),
+        ("LOCALAPPDATA", home.join("AppData/Local")),
+        ("TEMP", tmp.path().join("temp")),
+        ("TMP", tmp.path().join("temp")),
+    ] {
+        std::fs::create_dir_all(&dir).unwrap();
+        pairs.push((key.to_owned(), dir.to_string_lossy().into_owned()));
     }
     let env = EnvSnapshot::from_pairs(pairs);
     let mgr = SessionManager::new(
