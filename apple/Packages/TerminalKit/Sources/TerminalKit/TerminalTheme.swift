@@ -28,7 +28,7 @@ public struct TerminalTheme: Identifiable, Equatable, Sendable {
             ansi: file.ansi.map(RGB8.init(hex:)), semantic: file.semantic.map(RGB8.init(hex:)),
             gutterText: base.gutterText, gutterCursorLine: base.gutterCursorLine,
             commandSeparator: base.commandSeparator, blockSelection: base.blockSelection,
-            chipBackground: base.chipBackground, chipBorder: base.chipBorder
+            chipBackground: base.chipBackground, chipBorder: base.chipBorder, chipIcon: base.chipIcon
         ))
     }
 
