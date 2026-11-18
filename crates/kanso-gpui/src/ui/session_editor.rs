@@ -24,7 +24,7 @@ use kanso_gpui::app::sessions::{EditorField, EncodingOption, SaveOutcome, Sessio
 use kanso_gpui::widgets::dropdown::Item;
 use kanso_gpui::widgets::style::{Appearance, color, number};
 use kanso_types::ProfileId;
-use kanso_types::profile::{AuthMethod, Group, Profile, SessionKind};
+use kanso_types::profile::{AuthMethod, Group, LocalProfile, Profile, ProfileKind, SessionKind};
 
 use super::log;
 use super::shell::Theme;
@@ -43,6 +43,8 @@ const AUTHS: [AuthMethod; 3] = [
 pub(crate) enum EditorEvent {
     /// 取消（Esc、取消按钮）。
     Cancel,
+    /// 打开临时本地 Shell。
+    OpenLocal(LocalProfile),
     /// 已保存（`connect` 为真时宿主接着连接它）。
     Saved { id: ProfileId, connect: bool },
 }
@@ -133,6 +135,8 @@ pub(crate) struct SessionEditorView {
     /// 每帧从模型刷新的可见字段快照（保存期间模型不在手里，界面仍要能画）。
     visible: Vec<EditorField>,
     editing: bool,
+    custom_local: bool,
+    core: Arc<Core>,
     error: Option<String>,
 
     groups: Vec<Group>,
@@ -205,14 +209,28 @@ impl SessionEditorView {
     pub(crate) fn new(
         core: Arc<Core>,
         editing: Option<Profile>,
+        custom_local: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let model = match editing {
+        let mut model = match editing {
             Some(p) => SessionEditor::editing(core.clone(), Default::default(), p),
             None => SessionEditor::new(core.clone(), Default::default()),
         };
         let is_editing = model.is_editing();
+        if custom_local {
+            let defaults = core.local_shell_defaults();
+            model.kind = SessionKind::Local;
+            model.shell_command = defaults.shell_command;
+            model.start_dir = defaults.start_dir.unwrap_or_default();
+            model.encoding = defaults.encoding.as_str().to_owned();
+            model.locale = defaults
+                .locale
+                .map(|locale| locale.as_str().to_owned())
+                .unwrap_or_default();
+        } else if !is_editing {
+            model.kind = SessionKind::Ssh;
+        }
         let groups = model.groups();
         let jumps = model.jump_candidates();
         let encodings = model.encoding_options();
@@ -238,7 +256,15 @@ impl SessionEditorView {
                 window,
                 move |this, _i, ev: &TextInputEvent, window, cx| match ev {
                     TextInputEvent::Change(s) => this.on_text(t, s, cx),
-                    TextInputEvent::Submit(_) => this.activate(Btn::Save, window, cx),
+                    TextInputEvent::Submit(_) => this.activate(
+                        if this.custom_local {
+                            Btn::Connect
+                        } else {
+                            Btn::Save
+                        },
+                        window,
+                        cx,
+                    ),
                     TextInputEvent::Escape => this.cancel(cx),
                     _ => {}
                 },
@@ -388,6 +414,8 @@ impl SessionEditorView {
             saving: false,
             visible: Vec::new(),
             editing: is_editing,
+            custom_local,
+            core,
             error: None,
             groups,
             jumps,
@@ -420,19 +448,25 @@ impl SessionEditorView {
         };
         view.refresh_visible();
         view.sync_exclusive(cx);
-        view.name.read(cx).focus(window);
+        if custom_local {
+            view.shell.read(cx).focus(window);
+        } else {
+            view.name.read(cx).focus(window);
+        }
         // 首帧渲染之后再聚焦一次，保证焦点节点已进入调度树。
-        cx.defer_in(window, |this, window, cx| this.name.read(cx).focus(window));
+        cx.defer_in(window, |this, window, cx| {
+            if this.custom_local {
+                this.shell.read(cx).focus(window);
+            } else {
+                this.name.read(cx).focus(window);
+            }
+        });
         view
     }
 
     fn refresh_visible(&mut self) {
-        if let Some(m) = &self.model {
-            self.visible = ALL_FIELDS
-                .iter()
-                .copied()
-                .filter(|f| m.is_visible(*f))
-                .collect();
+        if let Some(model) = &self.model {
+            self.visible = Self::visible_fields(model, self.custom_local);
         }
     }
 
@@ -493,7 +527,7 @@ impl SessionEditorView {
     fn on_pick(&mut self, pick: Pick, index: usize, cx: &mut Context<Self>) {
         let Some(m) = self.model.as_mut() else { return };
         match pick {
-            Pick::Kind => m.kind = KINDS[index.min(KINDS.len() - 1)],
+            Pick::Kind => m.kind = KINDS[index.clamp(usize::from(!self.editing), KINDS.len() - 1)],
             Pick::Shell => {
                 if let Some(command) = self.shell_commands.get(index) {
                     m.shell_command = command.clone();
@@ -582,6 +616,29 @@ impl SessionEditorView {
         if self.saving {
             return;
         }
+        if self.custom_local {
+            let model = self.model.as_ref().expect("本地 Shell 表单存在");
+            match model.assemble() {
+                Ok(profile) => {
+                    let ProfileKind::Local(local) = profile.kind else {
+                        unreachable!("本地 Shell 配置")
+                    };
+                    if connect {
+                        cx.emit(EditorEvent::OpenLocal(local));
+                    } else {
+                        self.error = self
+                            .core
+                            .set_local_shell_defaults(&local)
+                            .err()
+                            .map(|error| kanso_gpui::app::launcher::core_error_text(&error))
+                            .or_else(|| Some(render_message(&Message::UiShellDefaultsSaved {})));
+                    }
+                }
+                Err(error) => self.error = Some(editor_error_text(&error, render_message)),
+            }
+            cx.notify();
+            return;
+        }
         let Some(mut model) = self.model.take() else {
             return;
         };
@@ -611,11 +668,25 @@ impl SessionEditorView {
     }
 
     fn refresh_visible_from(&mut self, model: &SessionEditor<Arc<Core>>) {
-        self.visible = ALL_FIELDS
+        self.visible = Self::visible_fields(model, self.custom_local);
+    }
+
+    fn visible_fields(model: &SessionEditor<Arc<Core>>, custom_local: bool) -> Vec<EditorField> {
+        ALL_FIELDS
             .iter()
             .copied()
-            .filter(|f| model.is_visible(*f))
-            .collect();
+            .filter(|f| {
+                model.is_visible(*f)
+                    && (!custom_local
+                        || matches!(
+                            f,
+                            EditorField::ShellCommand
+                                | EditorField::StartDir
+                                | EditorField::Encoding
+                                | EditorField::Locale
+                        ))
+            })
+            .collect()
     }
 
     // ---- 焦点 ----
@@ -797,7 +868,14 @@ impl SessionEditorView {
             } else {
                 1
             };
-            self.on_pick(Pick::Kind, (current + delta) % KINDS.len(), cx);
+            let next = if self.editing {
+                (current + delta) % KINDS.len()
+            } else if current == 1 {
+                2
+            } else {
+                1
+            };
+            self.on_pick(Pick::Kind, next, cx);
             cx.stop_propagation();
             return;
         }
@@ -983,7 +1061,12 @@ impl Render for SessionEditorView {
             .track_focus(&self.kind)
             .flex()
             .gap(px(8.0));
-        for (i, kind) in KINDS.iter().copied().enumerate() {
+        for (i, kind) in KINDS
+            .iter()
+            .copied()
+            .enumerate()
+            .skip(usize::from(!self.editing))
+        {
             let on = selected == kind;
             let symbol = ["square-terminal", "server", "folder"][i];
             kinds = kinds.child(
@@ -1051,6 +1134,9 @@ impl Render for SessionEditorView {
                     .into_any_element(),
             ),
         ];
+        if self.custom_local {
+            rows.clear();
+        }
         let session_len = rows.len();
         if self.vis(F::ShellCommand) {
             rows.push((
@@ -1195,7 +1281,9 @@ impl Render for SessionEditorView {
             .flex_col()
             .gap(px(16.0))
             .p(px(20.0))
-            .child(card(th, tr(Message::UiSession {}), "tag", elements))
+            .when(!self.custom_local, |body| {
+                body.child(card(th, tr(Message::UiSession {}), "tag", elements))
+            })
             .child(card(
                 th,
                 tr(if self.vis(F::Host) {
@@ -1210,7 +1298,9 @@ impl Render for SessionEditorView {
                 },
                 connection_rows,
             ));
-        let title = tr(if self.editing {
+        let title = tr(if self.custom_local {
+            Message::UiCustomizeShell {}
+        } else if self.editing {
             Message::UiEditSession {}
         } else {
             Message::UiNewSession {}
@@ -1308,7 +1398,11 @@ impl Render for SessionEditorView {
                     ))
                     .child(self.render_button(
                         Btn::Save,
-                        tr(Message::UiSave {}),
+                        tr(if self.custom_local {
+                            Message::UiSetShellDefault {}
+                        } else {
+                            Message::UiSave {}
+                        }),
                         false,
                         window,
                         th,
@@ -1316,7 +1410,11 @@ impl Render for SessionEditorView {
                     ))
                     .child(self.render_button(
                         Btn::Connect,
-                        tr(Message::UiConnect {}),
+                        tr(if self.custom_local {
+                            Message::UiOpenShell {}
+                        } else {
+                            Message::UiConnect {}
+                        }),
                         true,
                         window,
                         th,

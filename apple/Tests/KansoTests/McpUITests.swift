@@ -296,7 +296,7 @@ final class McpUITests: XCTestCase {
         XCTAssertEqual(try core.mcpAccess(profileId: created.profileID), .off)
         let shownEditor = SessionEditorViewController(model: created)
         _ = shownEditor.view
-        XCTAssertFalse(shownEditor.mcpPopup.isHiddenOrHasHiddenAncestor)
+        XCTAssertTrue(shownEditor.mcpPopup.isHiddenOrHasHiddenAncestor)
         XCTAssertEqual(shownEditor.mcpPopup.indexOfSelectedItem, McpText.accessIndex(.off))
     }
 

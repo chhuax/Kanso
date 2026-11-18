@@ -273,9 +273,17 @@ impl<B: AppBackend + Clone> AppController<B> {
         pane: Option<PaneId>,
         size: GridSize,
     ) -> CoreResult<SessionId> {
-        let id = self
-            .backend
-            .open_session(OpenTarget::DefaultLocalShell, size)?;
+        self.open_shell(OpenTarget::DefaultLocalShell, pane, size)
+    }
+
+    /// 打开本地 Shell 并登记到目标面板。
+    pub fn open_shell(
+        &mut self,
+        target: OpenTarget,
+        pane: Option<PaneId>,
+        size: GridSize,
+    ) -> CoreResult<SessionId> {
+        let id = self.backend.open_session(target, size)?;
         self.adopt(id, pane, None);
         Ok(id)
     }
@@ -467,11 +475,13 @@ mod tests {
             if s.fail_open {
                 return Err(CoreError::NotSupported);
             }
-            s.opened.push(target);
+            s.opened.push(target.clone());
             s.next += 1;
             let id = sid(s.next);
             let (profile, kind, name) = match target {
-                OpenTarget::DefaultLocalShell => (None, SessionKind::Local, "Local".to_owned()),
+                OpenTarget::DefaultLocalShell | OpenTarget::LocalShell(_) => {
+                    (None, SessionKind::Local, "Local".to_owned())
+                }
                 OpenTarget::Profile(p) => {
                     let prof = s
                         .profiles

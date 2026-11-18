@@ -41,7 +41,7 @@ use kanso_license::{Entitlement, PurchaseOutcome};
 use kanso_secret::SecretKind;
 use kanso_types::event::SessionState;
 use kanso_types::mcp::{McpAccess, McpAuditEntry, McpAuditFilter, McpAuditRecord};
-use kanso_types::profile::{Group, Profile, SessionKind, Snippet};
+use kanso_types::profile::{Group, LocalProfile, Profile, SessionKind, Snippet};
 use kanso_types::secret::SecretString;
 use kanso_types::transfer::ConflictPolicy;
 use kanso_types::{
@@ -187,12 +187,14 @@ impl fmt::Display for CoreError {
 impl std::error::Error for CoreError {}
 
 /// 打开会话的目标。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OpenTarget {
     /// 按已保存的 Profile 打开。
     Profile(ProfileId),
     /// 用默认配置打开本地 shell（没有对应 Profile）。
     DefaultLocalShell,
+    /// 使用本次配置打开临时本地 shell。
+    LocalShell(LocalProfile),
     /// 复制标签：SSH 复用已认证的连接再开一个 shell 通道，
     /// 本地 shell 用同一配置重新启动（ui-shell.md §3.3、ssh.md §6）。
     Duplicate(SessionId),
@@ -774,6 +776,19 @@ impl Core {
         dispatch!(self, reset_settings())
     }
 
+    /// 读取新建本地 Shell 的默认配置。
+    pub fn local_shell_defaults(&self) -> LocalProfile {
+        self.setting(kanso_store::LOCAL_SHELL_DEFAULTS)
+            .and_then(|json| serde_json::from_str(&json).ok())
+            .unwrap_or_default()
+    }
+
+    /// 保存以后新建本地 Shell 使用的默认配置。
+    pub fn set_local_shell_defaults(&self, profile: &LocalProfile) -> Result<()> {
+        let json = serde_json::to_string(profile).expect("本地 Shell 配置可序列化");
+        self.set_setting(kanso_store::LOCAL_SHELL_DEFAULTS, json)
+    }
+
     // ---- 会话 ----
 
     /// 打开会话，立即返回会话 id；连接进度通过 `SessionStateChanged`、`Prompt` 等事件推送。
@@ -794,6 +809,10 @@ impl Core {
     ///   以 `SshSharedConnectionClosed` 关闭，不偷偷重连。
     /// - 规格：ui-shell.md §3.3、ssh.md §5、§6、local-shell.md。实现：I1（本地）、I2（单跳 SSH）、T6b（跳板链、ProxyCommand）、T7b（纯 SFTP）。
     pub fn open_session(&self, target: OpenTarget, size: GridSize) -> Result<SessionId> {
+        let target = match target {
+            OpenTarget::DefaultLocalShell => OpenTarget::LocalShell(self.local_shell_defaults()),
+            target => target,
+        };
         dispatch!(self, open_session(target, size))
     }
 

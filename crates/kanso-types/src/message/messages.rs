@@ -318,6 +318,14 @@ messages! {
     UiSave = "ui-save" {},
     /// GPUI 会话页面：连接。
     UiConnect = "ui-connect" {},
+    /// 打开本地 Shell 自定义启动表单。
+    UiCustomizeShell = "ui-customize-shell" {},
+    /// 将表单配置保存为本地 Shell 默认值。
+    UiSetShellDefault = "ui-set-shell-default" {},
+    /// 本地 Shell 默认值保存成功。
+    UiShellDefaultsSaved = "ui-shell-defaults-saved" {},
+    /// 使用本次配置打开本地 Shell。
+    UiOpenShell = "ui-open-shell" {},
     /// GPUI 会话页面：自动。
     UiAutomatic = "ui-automatic" {},
     /// GPUI 会话页面：留空则保持已保存的值。

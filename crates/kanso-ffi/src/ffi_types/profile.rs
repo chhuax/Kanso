@@ -320,17 +320,37 @@ impl TryFrom<FfiSshTarget> for SshTarget {
     }
 }
 
+impl From<&LocalProfile> for FfiLocalProfile {
+    fn from(profile: &LocalProfile) -> Self {
+        Self {
+            shell_command: profile.shell_command.clone(),
+            start_dir: profile.start_dir.clone(),
+            encoding: profile.encoding.as_str().to_owned(),
+            locale: profile
+                .locale
+                .as_ref()
+                .map(|locale| locale.as_str().to_owned()),
+        }
+    }
+}
+
+impl TryFrom<FfiLocalProfile> for LocalProfile {
+    type Error = FfiCoreError;
+
+    fn try_from(profile: FfiLocalProfile) -> Result<Self, Self::Error> {
+        Ok(Self {
+            shell_command: profile.shell_command,
+            start_dir: profile.start_dir,
+            encoding: EncodingLabel::new(&profile.encoding),
+            locale: parse_locale(profile.locale)?,
+        })
+    }
+}
+
 impl From<&Profile> for FfiProfile {
     fn from(p: &Profile) -> Self {
         let kind = match &p.kind {
-            ProfileKind::Local(l) => FfiProfileKind::Local {
-                profile: FfiLocalProfile {
-                    shell_command: l.shell_command.clone(),
-                    start_dir: l.start_dir.clone(),
-                    encoding: l.encoding.as_str().to_owned(),
-                    locale: l.locale.as_ref().map(|l| l.as_str().to_owned()),
-                },
-            },
+            ProfileKind::Local(l) => FfiProfileKind::Local { profile: l.into() },
             ProfileKind::Ssh(s) => FfiProfileKind::Ssh {
                 profile: FfiSshProfile {
                     target: (&s.target).into(),
@@ -355,12 +375,7 @@ impl TryFrom<FfiProfile> for Profile {
 
     fn try_from(p: FfiProfile) -> Result<Self, FfiCoreError> {
         let kind = match p.kind {
-            FfiProfileKind::Local { profile: l } => ProfileKind::Local(LocalProfile {
-                shell_command: l.shell_command,
-                start_dir: l.start_dir,
-                encoding: EncodingLabel::new(&l.encoding),
-                locale: parse_locale(l.locale)?,
-            }),
+            FfiProfileKind::Local { profile: l } => ProfileKind::Local(l.try_into()?),
             FfiProfileKind::Ssh { profile: s } => ProfileKind::Ssh(SshProfile {
                 target: s.target.try_into()?,
                 encoding: EncodingLabel::new(&s.encoding),

@@ -72,7 +72,7 @@ final class SessionPresenter {
             },
             openSettings: { [weak self] in
                 self?.closeLauncher()
-                self?.openSettings()
+                self?.presentEditor(editing: nil, customLocal: true)
             },
             // 弹确认框 / 输入框（sheet）会让主窗口失去 key，面板随之关闭，所以先主动关、做完再按原锚点重开。
             withDialog: { [weak self] work in
@@ -111,23 +111,25 @@ final class SessionPresenter {
         launcherContent = nil
     }
 
-    /// 打开设置窗口。设置入口在 AppDelegate（持有外观控制器），通过应用代理派发，避免把外观控制器一路传进来；
-    /// 测试可替换，不真的打开窗口。
-    var openSettings: () -> Void = {
-        // 与主菜单「设置…」同一个目标（`NSApp.delegate`），不依赖响应链上恰好有谁。
-        NSApp.sendAction(#selector(AppDelegate.kansoShowSettings(_:)), to: NSApp.delegate, from: nil)
-    }
-
     // MARK: - 编辑对话框
 
     /// 以 sheet 打开编辑对话框；`profile` 为 nil 表示新建。已有 sheet 时忽略（避免叠多个）。
-    func presentEditor(editing profile: FfiProfile?) {
+    func presentEditor(editing profile: FfiProfile?, customLocal: Bool = false) {
         guard editorSheet == nil, let window else { return }
         let model = SessionEditorModel(
             store: store, editing: profile,
             showsMcpAccess: mcpSupported(), mcpAccessStore: controller.core
         )
-        let editor = SessionEditorViewController(model: model)
+        if customLocal {
+            let defaults = controller.core.localShellDefaults()
+            model.shellCommand = defaults.shellCommand
+            model.startDir = defaults.startDir ?? ""
+            model.encoding = defaults.encoding
+            model.locale = defaults.locale ?? ""
+        } else if profile == nil {
+            model.kind = .ssh
+        }
+        let editor = SessionEditorViewController(model: model, customLocal: customLocal, remoteOnly: profile == nil && !customLocal)
         // 先加载视图再量尺寸；主体放不下时滚动，所以按主窗口高度留出上下边距。
         editor.maxHeight = max(360, window.frame.height - 120)
         _ = editor.view
@@ -146,6 +148,15 @@ final class SessionPresenter {
         }
         editor.onFinish = finish
         sheet.onCancel = finish
+        editor.onLocalShellAction = { [weak self] profile, open in
+            guard let self else { return }
+            if open {
+                try controller.openLocalShell(profile: profile)
+                controller.requestTerminalFocus?()
+            } else {
+                try controller.core.setLocalShellDefaults(profile: profile)
+            }
+        }
         editor.onConnect = { [weak self] id in
             guard let self else { return }
             controller.perform { try self.controller.openProfile(id) }
