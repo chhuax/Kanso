@@ -1,7 +1,7 @@
 //! Kanso 的 Windows / Linux 前端原型（GPUI）。
 //!
 //! 本库只放**与窗口系统无关的纯逻辑**，三个平台都能编译、都跑单元测试；
-//! 真正的窗口、渲染与输入法接线在二进制（`src/ui`，只在 Windows 编译）里。
+//! 真正的窗口、渲染与输入法接线在二进制（`src/ui`，Windows / Linux 共用）里。
 //!
 //! 模块导览：
 //! - [`theme`]：终端配色（取自 `design/terminal-themes`，与 macOS 前端同一份来源）。

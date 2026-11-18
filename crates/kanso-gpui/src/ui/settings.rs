@@ -225,7 +225,12 @@ pub(crate) fn open_window(
             }),
             ..Default::default()
         },
-        move |window, cx| cx.new(|cx| SettingsView::new(model, mcp, select_mcp, window, cx)),
+        move |window, cx| {
+            // GPUI 0.2.2 的 X11 初始标题只写 WM_NAME；此 API 同时写入 UTF-8 标题。
+            #[cfg(target_os = "linux")]
+            window.set_window_title(&render_message(&Message::UiSettings {}));
+            cx.new(|cx| SettingsView::new(model, mcp, select_mcp, window, cx))
+        },
     );
     match opened {
         Ok(handle) => {

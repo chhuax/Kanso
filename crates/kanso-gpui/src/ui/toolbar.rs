@@ -17,8 +17,20 @@ use kanso_types::{ProfileId, SessionId, message::Message};
 pub(super) const HEIGHT: f32 = 34.0;
 const CAPTION_BUTTON_W: f32 = 44.0;
 
-/// 让 GPUI 把这三个区域交给 Windows 处理，沿用系统的贴靠、最大化和关闭确认。
-pub(super) fn window_buttons(th: Theme, window: &Window) -> impl IntoElement {
+pub(super) fn custom_decorations(window: &Window) -> bool {
+    cfg!(windows)
+        || matches!(
+            window.window_decorations(),
+            gpui::Decorations::Client { .. }
+        )
+}
+
+/// Windows 使用系统命中区域；Linux 将相同按钮接到 GPUI 窗口动作。
+pub(super) fn window_buttons(
+    th: Theme,
+    window: &Window,
+    cx: &mut Context<ShellView>,
+) -> impl IntoElement {
     use gpui::WindowControlArea::{Close, Max, Min};
     let button = |id, area, symbol, close| {
         div()
@@ -30,6 +42,14 @@ pub(super) fn window_buttons(th: Theme, window: &Window) -> impl IntoElement {
             .justify_center()
             .occlude()
             .window_control_area(area)
+            .when(cfg!(target_os = "linux"), |button| {
+                button.on_click(cx.listener(move |this, _, window, cx| match area {
+                    Min => window.minimize_window(),
+                    Max => window.zoom_window(),
+                    Close => this.run_command(AppCommand::Quit, window, cx),
+                    _ => unreachable!("窗口按钮只有最小化、最大化与关闭"),
+                }))
+            })
             .hover(|s| {
                 s.bg(if close {
                     th.c("status.error")
@@ -57,6 +77,85 @@ pub(super) fn window_buttons(th: Theme, window: &Window) -> impl IntoElement {
             false,
         ))
         .child(button("caption-close", Close, "x", true))
+}
+
+/// Linux 客户端装饰只补窗口边缘的命中区，缩放仍由窗口管理器执行。
+pub(super) fn resize_borders(window: &Window) -> Vec<gpui::AnyElement> {
+    use gpui::{CursorStyle as C, ResizeEdge as E};
+    let w = f32::from(window.viewport_size().width);
+    let h = f32::from(window.viewport_size().height);
+    let border = 4.;
+    [
+        (E::Top, border, 0., w - 2. * border, border, C::ResizeUpDown),
+        (
+            E::Bottom,
+            border,
+            h - border,
+            w - 2. * border,
+            border,
+            C::ResizeUpDown,
+        ),
+        (
+            E::Left,
+            0.,
+            border,
+            border,
+            h - 2. * border,
+            C::ResizeLeftRight,
+        ),
+        (
+            E::Right,
+            w - border,
+            border,
+            border,
+            h - 2. * border,
+            C::ResizeLeftRight,
+        ),
+        (E::TopLeft, 0., 0., border, border, C::ResizeUpLeftDownRight),
+        (
+            E::TopRight,
+            w - border,
+            0.,
+            border,
+            border,
+            C::ResizeUpRightDownLeft,
+        ),
+        (
+            E::BottomLeft,
+            0.,
+            h - border,
+            border,
+            border,
+            C::ResizeUpRightDownLeft,
+        ),
+        (
+            E::BottomRight,
+            w - border,
+            h - border,
+            border,
+            border,
+            C::ResizeUpLeftDownRight,
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(id, (edge, x, y, width, height, cursor))| {
+        div()
+            .id(("window-resize", id))
+            .absolute()
+            .left(px(x))
+            .top(px(y))
+            .w(px(width))
+            .h(px(height))
+            .occlude()
+            .cursor(cursor)
+            .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                cx.stop_propagation();
+                window.start_window_resize(edge);
+            })
+            .into_any_element()
+    })
+    .collect()
 }
 
 #[derive(Clone)]
@@ -301,7 +400,7 @@ impl ShellView {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let width = f32::from(window.viewport_size().width);
-        let controls = if window.is_fullscreen() {
+        let controls = if window.is_fullscreen() || !custom_decorations(window) {
             0.0
         } else {
             3.0 * CAPTION_BUTTON_W
@@ -344,7 +443,16 @@ impl ShellView {
                     .id("caption-drag")
                     .absolute()
                     .inset_0()
-                    .window_control_area(gpui::WindowControlArea::Drag),
+                    .window_control_area(gpui::WindowControlArea::Drag)
+                    .when(cfg!(target_os = "linux"), |drag| {
+                        drag.on_mouse_down(MouseButton::Left, |event, window, _| {
+                            if event.click_count == 2 {
+                                window.zoom_window();
+                            } else {
+                                window.start_window_move();
+                            }
+                        })
+                    }),
             )
             .child(button("sidebar-toggle", "panel-left").on_mouse_down(
                 MouseButton::Left,

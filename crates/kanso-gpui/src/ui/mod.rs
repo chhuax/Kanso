@@ -1,4 +1,4 @@
-//! Windows 窗口前端：GPUI 窗口、终端渲染与输入法接线。
+//! Windows / Linux 共用前端：GPUI 窗口、终端渲染与输入法接线。
 //!
 //! 结构：
 //! - 本文件：命令行参数、日志与计时、核心装配、`run`；
@@ -10,7 +10,7 @@
 //! - `settings` / `display`：显示设置窗口与模型、字体 / 外观的生效状态；
 //! - `selftest` / `shell_selftest`：`--selftest` 自检（终端阶段 + 多标签 / 分屏阶段）；
 //! - `memory`：进程内存读数（日志用）；
-//! - `os_drag`：向资源管理器等其他应用发起系统文件拖放（OLE `DoDragDrop`）。
+//! - `os_drag`：向资源管理器等其他应用发起系统文件拖放（OLE `DoDragDrop`，仅 Windows）。
 
 mod clipboard;
 mod decor;
@@ -32,6 +32,7 @@ mod git_selftest;
 mod launcher;
 mod mcp;
 mod memory;
+#[cfg(windows)]
 mod os_drag;
 mod remote_edit_selftest;
 mod selftest;
@@ -140,7 +141,7 @@ pub(crate) struct Args {
     pub log_path: PathBuf,
     /// `--sftp user@host[:port][:/path]`：打开远程文件列表而不是本地终端。
     pub sftp: Option<kanso_gpui::filer::SftpSpec>,
-    /// `--key`：私钥文件路径（缺省 `%USERPROFILE%\.ssh\id_ed25519`）。
+    /// `--key`：私钥文件路径（缺省用户主目录下的 `.ssh/id_ed25519`）。
     pub key: Option<String>,
     /// `--expect-count`：自检要求目录条目数恰好等于它。
     pub expect_count: Option<usize>,
@@ -159,10 +160,16 @@ pub(crate) struct Args {
 }
 
 fn parse_args() -> Args {
+    #[cfg(windows)]
     let default_dir = std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
         .unwrap_or_else(std::env::temp_dir)
         .join("Kanso");
+    #[cfg(target_os = "linux")]
+    let default_dir = linux_data_dir(
+        std::env::var_os("XDG_DATA_HOME").map(PathBuf::from),
+        home_dir(),
+    );
     let mut args = Args {
         selftest: false,
         timeout_secs: 30,
@@ -230,6 +237,40 @@ fn parse_args() -> Args {
     args
 }
 
+fn home_dir() -> Option<PathBuf> {
+    #[cfg(windows)]
+    let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"));
+    #[cfg(target_os = "linux")]
+    let home = std::env::var_os("HOME");
+    home.map(PathBuf::from)
+}
+
+#[cfg(target_os = "linux")]
+fn linux_data_dir(xdg: Option<PathBuf>, home: Option<PathBuf>) -> PathBuf {
+    xdg.filter(|path| path.is_absolute())
+        .or_else(|| home.map(|path| path.join(".local/share")))
+        .unwrap_or_else(std::env::temp_dir)
+        .join("Kanso")
+}
+
+#[cfg(all(test, target_os = "linux"))]
+#[test]
+fn linux_data_directory_follows_xdg_without_reading_user_environment() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let data = temp.path().join("data");
+    assert_eq!(
+        linux_data_dir(Some(data.clone()), Some(home.clone())),
+        data.join("Kanso")
+    );
+    for invalid in [None, Some(PathBuf::new()), Some(PathBuf::from("relative"))] {
+        assert_eq!(
+            linux_data_dir(invalid, Some(home.clone())),
+            home.join(".local/share/Kanso")
+        );
+    }
+}
+
 /// 把核心事件（任意工作线程）转进 UI 线程的通道。
 struct ChannelSink(UnboundedSender<CoreEvent>);
 
@@ -243,17 +284,23 @@ impl EventSink for ChannelSink {
 fn build_core(args: &Args, tx: UnboundedSender<CoreEvent>) -> Result<Arc<Core>, String> {
     let config = CoreConfig::new(&args.data_dir, env!("CARGO_PKG_VERSION"), BUNDLE_ID);
     let mut platform = Platform::for_tests(Arc::new(ChannelSink(tx)));
-    // Windows 凭据管理器。
-    platform.secrets = Arc::new(kanso_secret::PlatformSecretStore::new(BUNDLE_ID));
-    // 主机密钥用核心内置的 ~/.ssh/known_hosts（与 mac 前端一致）。
-    platform.host_keys = None;
-    // 交互式桌面会话里通常没有 HOME，而核心按 `$HOME/.ssh/known_hosts` 找主机密钥：用 USERPROFILE 补上。
-    let mut env: Vec<(String, String)> = std::env::vars().collect();
-    if !env.iter().any(|(k, _)| k == "HOME")
-        && let Some(profile) = std::env::var_os("USERPROFILE")
-    {
-        env.push(("HOME".into(), profile.to_string_lossy().into_owned()));
+    // 自检使用内存替身；正常运行接入系统凭据库和核心的 known_hosts。
+    if !args.selftest && !SETTINGS_TEST.load(Ordering::Relaxed) {
+        platform.secrets = Arc::new(kanso_secret::PlatformSecretStore::new(BUNDLE_ID));
+        platform.host_keys = None;
     }
+    // 交互式桌面会话里通常没有 HOME，而核心按 `$HOME/.ssh/known_hosts` 找主机密钥：用 USERPROFILE 补上。
+    let env: Vec<(String, String)> = std::env::vars().collect();
+    #[cfg(windows)]
+    let env = {
+        let mut env = env;
+        if !env.iter().any(|(k, _)| k == "HOME")
+            && let Some(profile) = std::env::var_os("USERPROFILE")
+        {
+            env.push(("HOME".into(), profile.to_string_lossy().into_owned()));
+        }
+        env
+    };
     Core::new_with_base_env(config, platform, env)
         .map(Arc::new)
         .map_err(|e| e.to_string())
@@ -270,9 +317,8 @@ pub(crate) fn open_sftp_session(
 ) -> Result<kanso_types::SessionId, String> {
     use kanso_types::profile::{AuthMethod, Profile, ProfileKind, SshTarget};
     let key = args.key.clone().or_else(|| {
-        std::env::var_os("USERPROFILE").map(|h| {
-            PathBuf::from(h)
-                .join(".ssh")
+        home_dir().map(|h| {
+            h.join(".ssh")
                 .join("id_ed25519")
                 .to_string_lossy()
                 .into_owned()
@@ -401,6 +447,7 @@ fn install_panic_hook() {
 }
 
 /// 弹出一个原生错误框（GUI 子系统下没有控制台，崩溃时用户只能靠它知道发生了什么）。
+#[cfg(windows)]
 #[allow(unsafe_code)]
 fn error_box(text: &str) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};
@@ -415,6 +462,12 @@ fn error_box(text: &str) {
             MB_OK | MB_ICONERROR,
         );
     }
+}
+
+/// Linux 没有内置的模态框；崩溃信息已写进日志，这里只补一行 stderr。
+#[cfg(target_os = "linux")]
+fn error_box(text: &str) {
+    eprintln!("{text}");
 }
 
 /// 带兜底的进程入口：主线程上未被捕获的 panic 已由 hook 写进日志，这里再弹框并以 101 退出。
@@ -525,6 +578,9 @@ pub fn run() -> i32 {
                         appears_transparent: true,
                         ..Default::default()
                     }),
+                    app_id: Some(BUNDLE_ID.into()),
+                    window_decorations: cfg!(target_os = "linux")
+                        .then_some(gpui::WindowDecorations::Client),
                     ..Default::default()
                 },
                 move |window, cx| {

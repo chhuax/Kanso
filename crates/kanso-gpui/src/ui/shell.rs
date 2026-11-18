@@ -173,8 +173,8 @@ impl ShellView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let home = std::env::var("USERPROFILE")
-            .or_else(|_| std::env::var("HOME"))
+        let home = super::home_dir()
+            .map(|path| path.to_string_lossy().into_owned())
             .unwrap_or_default();
         let settings = cx.new(|_| SettingsModel::new(core.clone(), themes_dir));
         let mcp = cx.new(|cx| McpModel::new(core.clone(), cx));
@@ -775,8 +775,17 @@ impl ShellView {
                     Box::new(|m, cx| m.update_display(cx, |d| d.line_height = 1.5)),
                 ),
                 (
-                    "字体 Consolas",
-                    Box::new(|m, cx| m.update_display(cx, |d| d.font_family = "Consolas".into())),
+                    "切换终端字体",
+                    Box::new(|m, cx| {
+                        m.update_display(cx, |d| {
+                            d.font_family = if cfg!(windows) {
+                                "Consolas"
+                            } else {
+                                "DejaVu Sans Mono"
+                            }
+                            .into();
+                        })
+                    }),
                 ),
                 (
                     "强制浅色",
@@ -1818,8 +1827,16 @@ impl Render for ShellView {
             .children(self.editor.clone())
             .children(self.ssh_import.clone())
             .children(self.prompt.as_ref().map(|(_, d)| d.clone()))
-            .when(!window.is_fullscreen(), |root| {
-                root.child(super::toolbar::window_buttons(th, window))
-            })
+            .when(
+                !window.is_fullscreen() && super::toolbar::custom_decorations(window),
+                |root| root.child(super::toolbar::window_buttons(th, window, cx)),
+            )
+            .when(
+                cfg!(target_os = "linux")
+                    && super::toolbar::custom_decorations(window)
+                    && !window.is_fullscreen()
+                    && !window.is_maximized(),
+                |root| root.children(super::toolbar::resize_borders(window)),
+            )
     }
 }

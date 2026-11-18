@@ -116,14 +116,14 @@ Metadata comes from `cargo metadata`; `cargo tree` selects the normal dependency
 | itoa | 1.0.19 | MIT OR Apache-2.0 | https://github.com/dtolnay/itoa |
 | keccak | 0.2.2 | Apache-2.0 OR MIT | https://github.com/RustCrypto/sponges |
 | kem | 0.3.0 | Apache-2.0 OR MIT | https://github.com/RustCrypto/traits |
-| libc | 0.2.191 | MIT OR Apache-2.0 | https://github.com/rust-lang/libc |
+| libc | 0.2.189 | MIT OR Apache-2.0 | https://github.com/rust-lang/libc |
 | libsqlite3-sys | 0.39.1 | MIT | https://github.com/rusqlite/rusqlite |
 | lock_api | 0.4.14 | MIT OR Apache-2.0 | https://github.com/Amanieu/parking_lot |
 | log | 0.4.35 | MIT OR Apache-2.0 | https://github.com/rust-lang/log |
 | md5 | 0.8.1 | Apache-2.0 OR MIT | https://github.com/stainless-steel/md5 |
 | memchr | 2.8.3 | Unlicense OR MIT | https://github.com/BurntSushi/memchr |
 | miniz_oxide | 0.9.1 | MIT OR Zlib OR Apache-2.0 | https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide |
-| mio | 1.2.5 | MIT | https://github.com/tokio-rs/mio |
+| mio | 1.2.4 | MIT | https://github.com/tokio-rs/mio |
 | ml-kem | 0.3.4 | Apache-2.0 OR MIT | https://github.com/RustCrypto/KEMs |
 | module-lattice | 0.2.4 | Apache-2.0 OR MIT | https://github.com/RustCrypto/KEMs |
 | multiversion_no_op | 1.0.0 | Apache-2.0 OR MIT | https://github.com/hsivonen/multiversion_no_op |
@@ -2554,7 +2554,7 @@ Used by:
 - anyhow@1.0.104 — `LICENSE-APACHE`
 - dyn-clone@1.0.20 — `LICENSE-APACHE`
 - itoa@1.0.19 — `LICENSE-APACHE`
-- libc@0.2.191 — `LICENSE-APACHE`
+- libc@0.2.189 — `LICENSE-APACHE`
 - pastey@0.2.3 — `LICENSE-APACHE`
 - proc-macro2@1.0.107 — `LICENSE-APACHE`
 - quote@1.0.47 — `LICENSE-APACHE`
@@ -7823,7 +7823,7 @@ DEALINGS IN THE SOFTWARE.
 
 Used by:
 
-- mio@1.2.5 — `LICENSE`
+- mio@1.2.4 — `LICENSE`
 
 ```text
 Copyright (c) 2014 Carl Lerche and other MIO contributors
@@ -10445,7 +10445,7 @@ SOFTWARE.
 
 Used by:
 
-- libc@0.2.191 — `LICENSE-MIT`
+- libc@0.2.189 — `LICENSE-MIT`
 
 ```text
 Copyright (c) The Rust Project Developers

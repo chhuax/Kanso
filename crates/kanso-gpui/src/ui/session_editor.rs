@@ -296,7 +296,11 @@ impl SessionEditorView {
         let shell = text(
             Text::Shell,
             &model.shell_command,
-            "cmd.exe",
+            if cfg!(windows) {
+                "cmd.exe"
+            } else {
+                "/bin/bash"
+            },
             false,
             window,
             cx,
@@ -351,30 +355,57 @@ impl SessionEditorView {
             dd
         };
         let kind = cx.focus_handle().tab_stop(true);
-        // 系统自带 Shell 始终可选；PowerShell 7 只在安装路径里存在时显示。
-        let mut shell_commands = vec![String::new(), "cmd.exe".into(), "powershell.exe".into()];
-        let mut shell_items = vec![
-            Item::option(render_message(&Message::UiShellDefault {})),
-            Item::option("CMD"),
-            Item::option("Windows PowerShell"),
-        ];
-        let mut paths: Vec<_> = std::env::var_os("PATH")
-            .map(|p| std::env::split_paths(&p).collect())
-            .unwrap_or_default();
-        if let Some(dir) = std::env::var_os("ProgramFiles") {
-            paths.push(std::path::PathBuf::from(dir).join("PowerShell/7"));
-        }
-        if let Some(path) = paths
-            .into_iter()
-            .map(|p| p.join("pwsh.exe"))
-            .find(|p| p.is_file())
-        {
-            shell_items.push(Item::option("PowerShell 7"));
-            shell_commands.push(format!("\"{}\"", path.display()));
-        }
+        #[cfg(windows)]
+        let (shell_commands, mut shell_items) = {
+            // 系统自带 Shell 始终可选；PowerShell 7 只在安装路径里存在时显示。
+            let mut shell_commands = vec![String::new(), "cmd.exe".into(), "powershell.exe".into()];
+            let mut shell_items = vec![
+                Item::option(render_message(&Message::UiShellDefault {})),
+                Item::option("CMD"),
+                Item::option("Windows PowerShell"),
+            ];
+            let mut paths: Vec<_> = std::env::var_os("PATH")
+                .map(|p| std::env::split_paths(&p).collect())
+                .unwrap_or_default();
+            if let Some(dir) = std::env::var_os("ProgramFiles") {
+                paths.push(std::path::PathBuf::from(dir).join("PowerShell/7"));
+            }
+            if let Some(path) = paths
+                .into_iter()
+                .map(|p| p.join("pwsh.exe"))
+                .find(|p| p.is_file())
+            {
+                shell_items.push(Item::option("PowerShell 7"));
+                shell_commands.push(format!("\"{}\"", path.display()));
+            }
+            (shell_commands, shell_items)
+        };
+        #[cfg(target_os = "linux")]
+        let (shell_commands, mut shell_items) = {
+            let mut commands = vec![String::new()];
+            let mut items = vec![Item::option(render_message(&Message::UiShellDefault {}))];
+            for (path, label) in [
+                ("/bin/bash", "Bash"),
+                ("/bin/zsh", "Zsh"),
+                ("/usr/bin/fish", "Fish"),
+                ("/bin/sh", "sh"),
+            ] {
+                if std::path::Path::new(path).is_file() {
+                    commands.push(path.into());
+                    items.push(Item::option(label));
+                }
+            }
+            (commands, items)
+        };
         let shell_selected = shell_commands
             .iter()
-            .position(|s| s.eq_ignore_ascii_case(model.shell_command.trim()))
+            .position(|s| {
+                if cfg!(windows) {
+                    s.eq_ignore_ascii_case(model.shell_command.trim())
+                } else {
+                    s == model.shell_command.trim()
+                }
+            })
             .unwrap_or(shell_commands.len());
         shell_items.push(Item::option(render_message(&Message::UiShellCustom {})));
         let shell_pick = dropdown(Pick::Shell, shell_items, shell_selected, window, cx);

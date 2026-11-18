@@ -13,9 +13,16 @@ use kanso_gpui::app::settings::{DisplaySettings, ThemeMode};
 use kanso_gpui::widgets::style::Appearance;
 
 /// 界面字体的缺省值（Windows 11 自带，中文显示正常）。
+#[cfg(windows)]
 pub(crate) const DEFAULT_UI_FONT: &str = "Microsoft YaHei UI";
 /// 终端字体的缺省值。
+#[cfg(windows)]
 const DEFAULT_TERMINAL_FONT: &str = "Cascadia Mono";
+/// Linux 使用发行版提供的字体，不内置字体文件。
+#[cfg(target_os = "linux")]
+pub(crate) const DEFAULT_UI_FONT: &str = "DejaVu Sans";
+#[cfg(target_os = "linux")]
+const DEFAULT_TERMINAL_FONT: &str = "DejaVu Sans Mono";
 
 struct State {
     term_family: String,
@@ -96,7 +103,7 @@ pub(crate) fn ui_font_size() -> f32 {
     read().ui_size
 }
 
-/// 终端字体：用户指定的族优先，缺字形时依次回退到 Nerd Font（有的话）、Cascadia Mono、Consolas、中文字体与符号字体。
+/// 终端字体：用户指定的族优先，缺字形时回退到已安装的 Nerd Font 和平台字体。
 pub(crate) fn terminal_font() -> Font {
     let s = read();
     let mut fallbacks: Vec<String> = Vec::new();
@@ -111,11 +118,15 @@ pub(crate) fn terminal_font() -> Font {
         fallbacks.push(DEFAULT_TERMINAL_FONT.to_owned());
         s.term_family.clone()
     };
-    fallbacks.extend(
-        ["Consolas", "Microsoft YaHei UI", "Segoe UI Symbol"]
-            .into_iter()
-            .map(str::to_owned),
-    );
+    #[cfg(windows)]
+    let platform_fonts = ["Consolas", "Microsoft YaHei UI", "Segoe UI Symbol"];
+    #[cfg(target_os = "linux")]
+    let platform_fonts = [
+        "DejaVu Sans Mono",
+        "Noto Sans CJK SC",
+        "Noto Sans Symbols 2",
+    ];
+    fallbacks.extend(platform_fonts.into_iter().map(str::to_owned));
     Font {
         family: family.into(),
         features: FontFeatures::default(),
@@ -150,6 +161,7 @@ pub(crate) fn effective_dark(window: &Window) -> bool {
 
 /// 系统的界面语言偏好（BCP 47，按偏好顺序，如 `zh-CN`、`en-US`）；取不到返回空。
 /// 语言设置选“跟随系统”时交给 `LanguageSetting::resolve`。
+#[cfg(windows)]
 #[allow(unsafe_code)] // Win32 语言列表 API；缓冲区由本函数分配并限定长度。
 pub(crate) fn system_languages() -> Vec<String> {
     use windows_sys::Win32::Globalization::{GetUserPreferredUILanguages, MUI_LANGUAGE_NAME};
@@ -183,6 +195,34 @@ pub(crate) fn system_languages() -> Vec<String> {
         .collect()
 }
 
+/// Linux 上按 POSIX 语言环境变量取界面语言。
+#[cfg(target_os = "linux")]
+pub(crate) fn system_languages() -> Vec<String> {
+    ["LC_ALL", "LC_MESSAGES", "LANG"]
+        .into_iter()
+        .filter_map(|key| std::env::var(key).ok())
+        .find(|value| !value.trim().is_empty())
+        .map(|value| value.split(':').filter_map(posix_locale).collect())
+        .unwrap_or_default()
+}
+
+/// `zh_CN.UTF-8` → `zh-CN`；`C`、`POSIX` 与空值不算偏好。
+#[cfg(target_os = "linux")]
+fn posix_locale(value: &str) -> Option<String> {
+    let base = value.split(['.', '@']).next()?;
+    let mut parts = base.split(['_', '-']);
+    let language = parts.next()?.to_ascii_lowercase();
+    if language.is_empty() || language == "c" || language == "posix" {
+        return None;
+    }
+    let mut tag = language;
+    if let Some(region) = parts.next().filter(|region| !region.is_empty()) {
+        tag.push('-');
+        tag.push_str(&region.to_ascii_uppercase());
+    }
+    Some(tag)
+}
+
 /// 按设置里的语言选项算出实际界面语言并写进全局。
 pub(crate) fn apply_language(setting: LanguageSetting) {
     let system = system_languages();
@@ -191,6 +231,7 @@ pub(crate) fn apply_language(setting: LanguageSetting) {
 }
 
 /// 原生标题栏使用同一套外观色；只更新当前窗口，不改 Windows 全局主题。
+#[cfg(windows)]
 #[allow(unsafe_code)] // DWM 只有原生 API；句柄与参数生命周期由本函数限定。
 pub(crate) fn apply_titlebar(window: &Window) {
     use kanso_gpui::widgets::style::color;
@@ -229,5 +270,24 @@ pub(crate) fn apply_titlebar(window: &Window) {
                 "标题栏外观更新失败：{attribute} HRESULT={result:#x}"
             ));
         }
+    }
+}
+
+/// Linux 标题栏由窗口管理器负责；应用内工具栏直接使用当前主题。
+#[cfg(target_os = "linux")]
+pub(crate) fn apply_titlebar(_window: &Window) {}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::posix_locale;
+
+    #[test]
+    fn posix_locale_becomes_bcp47() {
+        assert_eq!(posix_locale("zh_CN.UTF-8").as_deref(), Some("zh-CN"));
+        assert_eq!(posix_locale("en_US").as_deref(), Some("en-US"));
+        assert_eq!(posix_locale("zh@euro").as_deref(), Some("zh"));
+        assert_eq!(posix_locale("C"), None);
+        assert_eq!(posix_locale("POSIX"), None);
+        assert_eq!(posix_locale(""), None);
     }
 }

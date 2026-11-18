@@ -87,7 +87,7 @@ Debug 版在 `target/apple/DerivedData.noindex/Build/Products/Debug-Direct/Kanso
 
 ## 路线图
 
-- Linux 和 Windows 版：基于 GPUI，共用同一个 Rust 核心。在那之前，Windows 和 Linux 用户请继续使用 [chhuax/Kanso-legacy](https://github.com/chhuax/Kanso-legacy) 的 0.x 版本。
+- Linux 和 Windows 共用 GPUI 界面与 Rust 核心；Linux 构建依赖及验证范围见 [docs/linux-gpui.md](docs/linux-gpui.md)。
 - 经过苹果公证的安装包。
 
 本仓库是独立重写，与基于 EdgeTerm 的旧版 Tauri 应用 Kanso-legacy 不共享任何代码。
