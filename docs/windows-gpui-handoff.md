@@ -318,3 +318,72 @@ Codex 正在独立工作树 `/tmp/kanso-ui-integration` 的 `codex/windows-ui-in
 - Git 面板宽度（D8）已定照 mac 版：记住，存在 `windows.panels` 的 `git_width`。
 
 用户选定下一步之前，Claude Code 不会往 `proto/gpui-integrate` 提交 Windows 代码。表里“尚需验收”那一列的场景继续由 Codex 按自己的节奏补验。
+
+## 2026-11-18 照 Mac 版补齐（Claude Code → Codex，待实机验收）
+
+用户决定，剩下几处差异都照 Mac 版做。安装包不签名，和 Mac 版一致：Mac 版也只做临时签名，没有公证。合并提交为 `409ade9`（feat/win-mac-parity）和 `a8e4a46`（feat/win-drag-out）。
+
+在 Mac 上验证了以下几项，全部通过：
+
+- 格式检查
+- kanso-gpui 616 项测试，以及 xfer 和 session 的测试
+- 对 kanso-gpui 与 kanso-xfer 跨平台部分的严格 Clippy 检查
+- check-locales，625 条消息
+
+`ui/` 下的 Windows 代码**一次都没有编译过**，请 Codex 先编译。
+
+### 改动
+
+1. **远程编辑冲突框改为四个按钮**：取消、覆盖、重新下载、另存副本…。
+   - 取消是默认按钮，Esc 和点遮罩也是取消。
+   - “另存副本”把本地内容上传到远端同一目录下的新名字（预填 `名称-copy.扩展名`），不覆盖已有文件。
+   - 规格 D5 已定。改动在 `app/remote_edit.rs`、`ui/filer_edit.rs` 和 `ui/filer_panel.rs`。
+   - `RemoteEditConflictPause` 文案已删除，新增 `RemoteEditConflictSaveCopy` 和 `RemoteEditCopyPrompt`。
+2. **Git 面板记住宽度**：`windows.panels` 新增 `git_width`。
+   - 范围 280–760，旧数据没有这一项时取 420。
+   - 是否显示面板不记住，和 Mac 一样。
+   - 规格 D8 已经改成记住宽度。
+3. **ZMODEM 取消后的尾包**：`wire.rs` 现在会剥离已校验的 ZEOF 和 ZFIN 头，以及晚到的 XON。
+   - ZFIN 后面的 “OO” 不剥离，原样交给终端。
+   - 新增单测 `local_cancel_filters_trailing_zeof_and_zfin_headers`。
+4. **Filer 拖出到资源管理器**：新增 `ui/os_drag.rs`（OLE：自实现 IDataObject 提供 CF_HDROP，加上 IDropSource 和 `DoDragDrop`，只允许 COPY）和 `app/os_drag.rs`（纯逻辑和单测）。
+   - 应用内拖动时，指针离开窗口、左键仍按着、条目已就绪，就结束 GPUI 拖动并启动系统拖放。
+   - 远端条目要等暂存副本下载完成才会交出去。
+   - 拖回本应用的 Filer 不会触发上传。
+   - 新增直接依赖 `windows`/`windows-core` 0.61，和 gpui 用的是同一版本，Cargo.lock 里没有新 crate，许可证为 MIT/Apache。
+
+### 实机检查清单
+
+1. **编译**：重点看 `os_drag.rs`。
+   - `#[implement]` 展开后需要的名称是否都已导入。
+   - `IDataObject_Impl` 各方法的签名是否正确。
+   - `DoDragDrop` 参数的类型推断能否通过。
+   - 然后检查 `filer_edit.rs`、`filer_panel.rs`、`shell_git.rs`、`window_layout.rs`、`shell.rs`。
+2. **拖出**：
+   - 本地单个文件拖到桌面或资源管理器，显示复制光标，原文件还在。
+   - 多选拖出，包括目录。
+   - 拖到记事本等其他应用。
+   - 拖动中按 Esc，系统拖放取消，之后还能正常拖动。
+3. **拖出远端文件**：
+   - 副本已就绪时，指针出窗口立即启动系统拖放。
+   - 副本未就绪时，指针在窗口外等待，下载完成后再启动。
+   - 未就绪就松手，下载被取消，没有多余提示。
+   - 松手后副本才完成，提示“请重新拖动”。
+   - 下载失败，只提示一次。
+4. **拖回本应用**：
+   - 拖回终端，插入路径。
+   - 拖回 Filer，不上传；之后从资源管理器拖入文件仍能正常上传。
+5. **DoDragDrop 模态循环期间**：
+   - GPUI 照常重绘，下载进度照常更新。
+   - 没有 RefCell 重入导致的 panic，尤其是落回本窗口时。
+   - 结束后补发的 `WM_LBUTTONUP` 不会误触发点击或终端选区。
+6. **冲突框**：
+   - 四个按钮和默认焦点正确，取消后状态行为红色，再次保存会再询问。
+   - 另存副本时，名称为空、含 `/`、与原名相同、含 `:` 或 `*`，都会带提示重新弹出名称框。
+   - 另存成功后，远端出现新文件，原文件不变。
+   - 另存为远端已有的名字会失败，不覆盖文件，也不无限重试。
+7. **Git 面板宽度**：
+   - 拖到 600，重启后仍为 600。
+   - 旧 JSON 回落到 420，填 100 或 9999 会被夹到 280 或 760。
+8. **ZMODEM**：终端里 `sz` 一个文件，快结束时取消接收，终端里不应出现 `**`、`B0b…` 之类乱码。
+9. **重新打包**：生成安装程序和免安装压缩包，把新的校验值写进本文档。
