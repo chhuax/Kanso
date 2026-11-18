@@ -458,3 +458,27 @@ Mac 上已验证：
 5. **凭据**：kanso-secret 和 main 一致。升级后已保存的 SSH 密码和私钥口令仍能读到。
 6. **Git 面板**：新用户默认宽度是 480。老用户已经存了宽度的，沿用原来的值。
 7. **打包**：重新生成 1.0.2 安装程序和绿色包，写进本文档，并附上校验值。
+### Windows 1.0.2 验收回执
+
+以 `merge/main-into-gpui` 的 `d92e622` 为应用编译和迁移基线。发行修订 `600a5de` 仅在该基线上修改打包脚本与发行说明。Mac 按该提交的锁文件准备 darling、darling_core、darling_macro、ident_case、pastey、rmcp 和 rmcp-macros 七个新增归档及稀疏索引。归档按 `Cargo.lock` 逐个核对 SHA-256，在 VM 端复核后写入既有 Cargo 缓存。Windows 构建与检查全程离线，发行修订也按相同命令通过全工作区复验。
+
+- Windows `cargo build --workspace --locked` 通过。按主分支 Windows 工作流运行 `cargo fmt --all --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace`、`xtask check-tokens`、`xtask check-locales`，均退出 0。1382 项测试通过，9 项按原标记忽略。单独的 GPUI 全目标严格 Clippy 也通过。
+- Windows ConPTY 专项用真实 CMD 子进程确认退出后收到 EOF，取走主端后调用 `resize` 仍成功。工作区端到端测试同时覆盖 CMD 退出码 0/3。
+- Mac 补充执行 `cargo xtask ci --skip-apple`。格式、严格 Clippy、工作区测试、C ABI、设计令牌、625 条本地化消息、Swift 绑定和渠道检查通过，`cargo deny` 仍因 4 项许可证与 10 项未维护依赖报告退出 5。这一步不属于主分支 Windows 工作流。
+
+隔离验收使用一份由 1.0.0 旧版实际打开并正常退出的 v2 数据库。1.0.2 打开同一临时 `%LOCALAPPDATA%\Kanso` 目录后由应用升级至 v3，SQLite 完整性检查通过。新增 3 张 MCP 表与 2 个索引，授权、本机设置和审计表初始为空。分组、4 条会话记录（含删除标记）、保存命令、历史、窗口状态与已知主机逐行一致。外观、显示、时间轴、`keybindings-win`、`windows.panels` 和 `windows.frame` 的值一致。
+
+Windows Credential Manager 中同一组专用测试 UUID 的 SSH 密码和加密私钥口令在升级前后逐字节一致。1.0.2 使用原会话自动登录专用回环服务器，两种真实认证都成功并进入交互 shell。快捷键实际打开 600 宽的旧 Git 面板，新数据目录默认宽 480。旧版尝试打开独立 v3 副本时退出 1，该副本哈希保持原值。专用凭据、端点与临时任务已清理。证据位于主工作区 `target/windows-acceptance/600a5de/实机核对/schema-v3/`。
+
+平台发行入口由 [macOS 构建](apple-build.md) 和 [Windows 发行包](windows-release.md) 分别说明。macOS DMG 来自 Xcode Release-Direct AppKit 应用；实际挂载 Intel 1.0.2 DMG，主程序为链接 AppKit 的 x86_64 Mach-O，包内可执行文件为 `Kanso`、`kanso-mcp`。同一 App Bundle 用 UDZO 默认压缩为 14,669,087 字节，显式 zlib 9 为 13,304,743 字节，减少 1,364,344 字节。Windows 使用明确的三文件暂存清单与标准 Deflate 9 ZIP。NSIS 用同一发布载荷比较 8、16、32 MiB 字典，三档分别为 7,902,129、7,841,227、7,852,300 字节，采用 16 MiB。
+
+### 1.0.2 Windows 成品
+
+用 `600a5de` 在 Windows 执行 `cargo xtask win-package --offline`。下表的节省量对比同版本 `d92e622` 未调整打包的基线。成品与实机证据在主工作区 `target/windows-acceptance/600a5de/`，两端复核 SHA-256 一致。
+
+| Windows x64 文件 | 字节 | 节省字节 | SHA-256 |
+|---|---:|---:|---|
+| Kanso-1.0.2-x64-setup.exe | 7,845,724 | 65,222 | `2c0675d036dbd4323815eef158647204c5dcb52e5a03d54687dba53f9fa21fb4` |
+| Kanso-1.0.2-x64-portable.zip | 10,604,115 | 95,346 | `24de7ed900e741032181cb2b75e8d08bb15e23fcfed7903cd48aab226d98faa8` |
+
+免安装 ZIP 三项文件为 GPUI `Kanso.exe`、`LICENSE.txt` 和 `THIRD_PARTY_NOTICES.windows.md`。包内和安装后的 1.0.2 可执行文件 SHA-256 均为 `090f629ef6a17fbd271e3befbcf21feab12d69ab5b349f07ee6ca92bc46e1eaf`。实际从 1.0.0 覆盖升级，注册版本、目录、开始菜单正确，旧包附带的 macOS 声明已清理。安装版 `--selftest`、中文加空格路径的免安装版 `--settings-test` 均退出 0。未签名的最终免安装版已在 VM 前台打开。

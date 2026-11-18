@@ -61,17 +61,24 @@ cargo xtask notices                     # 重新生成 THIRD_PARTY_NOTICES.md �
 - 卸载：删除程序文件与快捷方式，只对空的安装目录做 `RMDir`。**默认保留用户数据**；交互卸载时会询问是否同时删除 `%LOCALAPPDATA%\Kanso`（会话、设置、日志；默认“否”），静默卸载（`/S`）一律保留。保存在 Windows 凭据管理器里的密码（目标名前缀 `com.chhuax.kanso/`）不会被卸载程序删除，需要的话在“控制面板 → 凭据管理器”里手动清理。
 - 静默安装 / 卸载：`Kanso-<版本>-x64-setup.exe /S [/D=<目录>]`、`"%LOCALAPPDATA%\Programs\Kanso\Uninstall.exe" /S`。
 
-## 未签名的 SmartScreen 提示
+## 首次安装与代码签名
 
-本版没有 Authenticode 签名，也没有信誉积累：从浏览器下载的 `setup.exe` 或 `Kanso.exe` 第一次运行时，Windows SmartScreen 会显示“Windows 已保护你的电脑”。点“更多信息 → 仍要运行”即可。zip 在解压后同样可能带有“来自互联网”的标记（`Kanso.exe` 属性里“解除锁定”可清除）。这是已知且预期的状态；请用 `.sha256` 核对下载是否完整。
+Kanso 使用 NSIS 的 `RequestExecutionLevel user` 按当前用户安装，正常安装无需提升到管理员。浏览器下载的安装包可能出现「Windows 已保护你的电脑」。官网分发可用受信任的 Authenticode 签名显示已验证的发布者，并持续使用同一发布者身份。新发布者和新文件仍可能在积累信誉期间触发 SmartScreen。[Microsoft SmartScreen 说明](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation)
 
-## 后续计划：Authenticode 签名
+从公开信任的 CA 获取代码签名证书，或按主体资格申请 [Azure Artifact Signing](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/code-signing-options)。符合条件的公开开源项目可申请 [SignPath Foundation](https://signpath.org/terms)。私钥留在签名服务或硬件密钥设备中。
 
-design.md 规定 Windows 用 Authenticode 签名。钩子已经留好，现在不设置就不签名：
+### 配置已获得的证书
 
-- `cargo xtask win-package` 读取环境变量 `KANSO_SIGN_CMD`（命令模板，`%1` 代表待签名文件），例如 `signtool sign /fd sha256 /tr <时间戳服务地址> /td sha256 /a "%1"`。设置后会先给暂存的 `Kanso.exe` 签名（zip 里的就是已签名的），再把同一模板作为 `SIGN_CMD` 传给 `kanso.nsi`，由 NSIS 的 `!finalize` / `!uninstfinalize` 给安装程序和卸载程序各签一次。
-- 尚未做的：证书的获取与保管（EV / OV 证书或 Azure Trusted Signing）、时间戳服务选择、CI 里的密钥注入、签名后的验证步骤（`signtool verify /pa`）。这一路径没有实际跑过，接入证书时需要验证。
-- 自动更新同样不在本版范围内。
+在装有 Windows SDK 的构建机上，让 SignTool 可以访问签名证书。用实际证书指纹和签发方提供的 RFC 3161 时间戳地址替换示例中的两个占位符。
+
+```powershell
+$env:KANSO_SIGN_CMD = 'signtool sign /sha1 <证书指纹> /fd SHA256 /tr <RFC3161_URL> /td SHA256 "%1"'
+cargo xtask win-package
+```
+
+打包脚本先签暂存的 `Kanso.exe`，因此 ZIP 内也是签名后的应用。NSIS 的 `!finalize` 和 `!uninstfinalize` 分别签安装器与卸载器。生成签名成品后再计算 SHA-256。使用云服务时，把模板换成其官方 SignTool 调用，保留 `%1` 作为待签文件路径。[Authenticode 时间戳](https://learn.microsoft.com/en-us/windows/win32/seccrypto/time-stamping-authenticode-signatures)
+
+发布前用 `signtool verify /pa /v` 分别验签安装器、ZIP 解出的 `Kanso.exe` 和测试安装生成的 `Uninstall.exe`，核对发布者与时间戳。再从浏览器下载到测试机检查 SmartScreen 实际表现。未配置 `KANSO_SIGN_CMD` 时生成未签名构建。[SignTool 文档](https://learn.microsoft.com/en-us/windows/desktop/seccrypto/signtool)
 
 ## 在干净环境里验证安装 / 卸载 / 升级
 
