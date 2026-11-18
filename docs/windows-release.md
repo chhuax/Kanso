@@ -91,3 +91,12 @@ cargo xtask win-package
 5. 卸载：从“设置 → 应用”卸载。选“否”保留数据后确认程序文件、开始菜单与桌面快捷方式、注册表项（`HKCU\Software\Kanso`、Uninstall 下的 Kanso）都已清除，`%LOCALAPPDATA%\Kanso` 仍在；重装后再卸载并选“是”，该目录应被删除。
 6. 绿色版：解压到任意目录（含带空格、中文的路径）直接运行。
 7. 高 DPI：把显示缩放设为 200%（多显示器时试着在不同缩放的显示器间拖动窗口），界面应清晰且尺寸正确，不被系统位图拉伸。
+
+## 自动发布
+
+推送 `v*` 标签后，`.github/workflows/release-windows.yml` 会在 GitHub 的 `windows-latest` 机器上安装 NSIS，执行 `cargo xtask win-package`，再把安装程序、免安装 ZIP 和各自的 `.sha256` 上传到同名 Release。
+
+- 同名 Release 不存在时先建草稿，macOS 的 DMG 可以补进同一个 Release 后再发布。
+- 标签必须和 kanso-gpui 的版本号一致，否则直接失败。
+- 也可以在 Actions 页面手动运行，填入已有标签。
+- 改动打包相关文件的 PR 只试打包，不上传。
