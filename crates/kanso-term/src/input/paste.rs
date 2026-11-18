@@ -1,12 +1,14 @@
 //! 粘贴：文本编码与文件路径转义（terminal.md §8.3）。
 
-/// 文件路径转义的目标 shell。两者需要转义的字符集不同（terminal.md §8.3）。
+/// 文件路径转义的目标 shell（terminal.md §8.3）。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShellFlavor {
     /// POSIX 系 shell（sh / bash / zsh / fish）：反斜杠转义。
     Posix,
     /// Windows PowerShell / pwsh：反引号转义。
     PowerShell,
+    /// Windows 命令提示符：必要时用双引号包住路径。
+    Cmd,
 }
 
 /// 编码一次文本粘贴。
@@ -73,12 +75,14 @@ const POWERSHELL_SPECIAL: &str =
 ///   （ANSI-C 引号，bash / zsh / ksh 支持，dash 不支持）。
 /// - PowerShell：`\t`、`\n`、`\r` 写成 `` `t ``、`` `n ``、`` `r ``，其它控制字符直接丢弃
 ///   （没有不依赖 PowerShell 版本的表示法）。
+/// - CMD：Windows 文件名不能含双引号或 ASCII 控制字符，丢弃它们以保持在同一条输入行。
 pub fn quote_paths(paths: &[String], flavor: ShellFlavor) -> String {
     let quoted: Vec<String> = paths
         .iter()
         .map(|p| match flavor {
             ShellFlavor::Posix => quote_posix(p),
             ShellFlavor::PowerShell => quote_powershell(p),
+            ShellFlavor::Cmd => quote_cmd(p),
         })
         .collect();
     quoted.join(" ")
@@ -120,4 +124,20 @@ fn quote_powershell(path: &str) -> String {
         }
     }
     out
+}
+
+fn quote_cmd(path: &str) -> String {
+    let path: String = path
+        .chars()
+        .filter(|c| !c.is_ascii_control() && *c != '"')
+        .collect();
+    // 反斜杠是 Windows 路径分隔符。含空白或 CMD 元字符的路径才需要双引号。
+    if path
+        .chars()
+        .any(|c| c.is_whitespace() || "&<>()[]|{}^=;!'\x2b,`~".contains(c))
+    {
+        format!("\"{path}\"")
+    } else {
+        path
+    }
 }

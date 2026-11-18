@@ -541,8 +541,11 @@ pub fn xcodebuild_available() -> bool {
     has_tool("xcodebuild", "-version")
 }
 
-/// `cargo xtask dmg [--arch arm64|x86_64]`：默认 arm64，与原流程一致；Intel 包需显式 `--arch x86_64`。
+/// `cargo xtask dmg [--arch arm64|x86_64]`：用 Xcode 的 Release-Direct AppKit 应用生成 macOS DMG。
 pub fn dmg(args: &[String]) -> ExitCode {
+    if !cfg!(target_os = "macos") {
+        return fail("dmg 只在 macOS 上运行，需要 Xcode 构建 AppKit 应用。");
+    }
     let mut arch = Arch::Arm64;
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -584,9 +587,12 @@ fn disk_image(arch: Arch) -> Result<(), Box<dyn std::error::Error>> {
         fs::remove_dir_all(&contents)?;
     }
     fs::create_dir_all(&contents)?;
-    let app = Path::new(arch.derived_data()).join("Build/Products/Release-Direct/Kanso.app");
+    // AppKit 主程序和 Direct 渠道的 kanso-mcp 都来自 Xcode 的这一份 App Bundle。
+    let app = repo_root()
+        .join(arch.derived_data())
+        .join("Build/Products/Release-Direct/Kanso.app");
     if !run(
-        "复制 Kanso.app",
+        "复制 AppKit Kanso.app",
         Command::new("ditto")
             .arg(&app)
             .arg(contents.join("Kanso.app")),
@@ -615,6 +621,8 @@ fn disk_image(arch: Arch) -> Result<(), Box<dyn std::error::Error>> {
                 "Kanso",
                 "-format",
                 "UDZO",
+                "-imagekey",
+                "zlib-level=9",
                 "-srcfolder",
             ])
             .arg(&contents)
@@ -623,6 +631,7 @@ fn disk_image(arch: Arch) -> Result<(), Box<dyn std::error::Error>> {
     ) {
         return Err("hdiutil 失败".into());
     }
+    eprintln!("DMG 大小：{} 字节", fs::metadata(&image)?.len());
     if !run(
         "DMG SHA-256",
         Command::new("shasum").args(["-a", "256"]).arg(&image),

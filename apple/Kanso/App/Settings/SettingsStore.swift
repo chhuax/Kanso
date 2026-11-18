@@ -40,6 +40,22 @@ final class SettingsStore {
     }
 
     private var backend: SettingsBackend?
+    private(set) var themesDirectory: URL?
+    private var themeFiles: [FfiTerminalTheme] = []
+    private(set) var themes = TerminalTheme.builtIn
+
+    /// 启动、打开设置或展开配色菜单时扫描。同一文件改色后也要立刻刷新已有终端。
+    func reloadThemes() {
+        let files = themesDirectory.map { loadTerminalThemes(directory: $0.path) } ?? []
+        guard files != themeFiles else { return }
+        updateThemes(files)
+        notify(.appearance)
+    }
+
+    private func updateThemes(_ files: [FfiTerminalTheme]) {
+        themeFiles = files
+        themes = TerminalTheme.builtIn + files.map(TerminalTheme.fromFile)
+    }
 
     private(set) var display = DisplaySettings()
     private(set) var appearance = AppearanceSettings()
@@ -65,10 +81,12 @@ final class SettingsStore {
     /// - Parameter legacyDefaults: 要迁移的旧偏好存储；nil 不迁移（测试可以用临时 suite，生产传 `.standard`）。
     ///   只迁移"后端里还没有该分区"的情形，已有数据以后端为准。
     /// 载入后把终端选项下发给 core（core 的默认值未必与用户保存的一致），并通知所有观察者。
-    func attach(backend: SettingsBackend, legacyDefaults: UserDefaults? = nil) {
+    func attach(backend: SettingsBackend, legacyDefaults: UserDefaults? = nil, themesDirectory: URL? = nil) {
         self.backend = backend
+        self.themesDirectory = themesDirectory
         if let legacyDefaults { migrateLegacyDefaults(from: legacyDefaults, into: backend) }
         load(from: backend)
+        updateThemes(themesDirectory.map { loadTerminalThemes(directory: $0.path) } ?? [])
         backend.setTerminalOptions(options: display.terminalOptions)
         notifyAll()
     }

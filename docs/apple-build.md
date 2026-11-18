@@ -3,6 +3,10 @@
 P0.8 交付的工程骨架：应用能用三种发行版配置构建、启动；I1 之后默认显示真实本地 shell，`--mock-core` 显示 Rust 生成的 mock 终端帧。
 总体结构见 `architecture.md` §1、§3、§9。
 
+## 发行入口
+
+在 macOS 执行 `cargo xtask dmg`，Intel 包用 `cargo xtask dmg --arch x86_64`。脚本让 Xcode 构建 `Release-Direct/Kanso.app`，AppKit 主程序链接 Rust `kanso-ffi`，Direct 渠道包含 `kanso-mcp` 转发程序。DMG 只复制这个 App Bundle、Applications 链接和 macOS 许可文本，使用 UDZO 的 zlib 9 压缩。Windows GPUI 由独立的 [Windows 发行命令](windows-release.md) 构建。
+
 ## 1. 目录结构
 
 ```
@@ -149,3 +153,7 @@ Bundle ID 已定：Direct 与 MAS 为 `com.chhuax.kanso`，Setapp 为 `com.chhua
   （不自动关窗，关闭确认等是 T10）。应用退出时调用 `KansoCore.shutdown`（杀 shell、等读写线程，最多约 3 秒）。
   `MockFrameSource`（TerminalKit）仍保留给渲染器测试。
 - **输入**：键盘、IME、鼠标、滚轮由 `TerminalView` 转成 `TerminalInputSink` 事件（T9b，类型与 `kanso-types/src/input.rs` 一一对应）；App 通过 `CoreInputSink` 映射到 `KansoCore.key / textInput / mouse / scroll / focus`（Debug 构建中间多一层 `LoggingInputSink`：先把事件写入 `os_log` 再转发给 core，供 IME 人工验收观察；Release 不经过它）。选区与菜单由 T4c / T10 实现。人工验收见 `docs/ime-test-checklist.md`。
+
+## 自动发布
+
+推送 `v*` 标签后，`.github/workflows/release.yml` 会在 `macos-15` 上构建 arm64 与 x86_64 两个 DMG，连同 `.sha256` 一起上传到同名 Release 草稿。Windows 安装包也会传到同一个 Release 草稿。详见 [Windows 发行包](windows-release.md#自动发布)。

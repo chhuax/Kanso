@@ -20,4 +20,5 @@ pub mod git;
 pub mod mcp;
 pub mod secret_store;
 
+pub mod terminal_themes;
 uniffi::setup_scaffolding!();

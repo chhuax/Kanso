@@ -702,6 +702,20 @@ fn selection_search_and_timestamp_mode_delegate_to_the_terminal() {
         )
         .unwrap();
     assert_eq!(st.total, 1);
+    assert!(!st.invalid_regex);
+    let invalid = fx
+        .core
+        .search(
+            id,
+            SearchQuery {
+                text: "[".into(),
+                case_sensitive: false,
+                regex: true,
+            },
+        )
+        .unwrap();
+    assert!(invalid.invalid_regex);
+    assert!(fx.core.search_status(id).unwrap().invalid_regex);
     fx.core.search_close(id);
     fx.core.set_timestamp_mode(Some(id), TimestampMode::Off);
     fx.core.set_timestamp_mode(None, TimestampMode::Time);

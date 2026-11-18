@@ -237,6 +237,63 @@ final class DisplaySettingsTests: XCTestCase {
         XCTAssertEqual(view.darkPalette.background, TerminalPalette.kansoLight.background)
     }
 
+    func testFileThemeDiscoverySelectionAndRestore() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let settings = SettingsStore()
+        let backend = MemorySettingsBackend()
+        settings.attach(backend: backend, themesDirectory: directory)
+        let workspace = makeWorkspace(settings: settings)
+        let session = try workspace.openLocalShell()
+        let first = try XCTUnwrap(workspace.host(for: session)).view
+        let appearance = AppearanceController(settings: settings, apply: { _ in })
+        var opened: [URL] = []
+        let page = GeneralSettingsViewController(appearance: appearance, openURL: { opened.append($0) })
+        _ = page.view
+        page.themesFolderButton.performClick(nil)
+        XCTAssertEqual(opened, [directory])
+
+        let file = directory.appendingPathComponent("ocean.json")
+        func writeTheme(background: String) throws {
+            let json: [String: Any] = [
+                "version": 1, "name": "Ocean", "foreground": "#FAFAFA", "background": background,
+                "cursor": "#ABCEDF", "cursorText": "#101010", "selectionBackground": "#394552",
+                "ansi": Array(repeating: "#909090", count: 16), "semantic": Array(repeating: "#C0C0C0", count: 13),
+            ]
+            try JSONSerialization.data(withJSONObject: json).write(to: file)
+        }
+        try writeTheme(background: "#123456")
+        XCTAssertEqual(page.darkThemePopUp.makeMenu().items.map(\.title), ["Kanso Light", "Kanso Dark", "Ocean"])
+        page.darkThemePopUp.userSelect(at: 2)
+        XCTAssertEqual(settings.appearance.darkTheme, "file:ocean")
+        XCTAssertEqual(page.lightThemePopUp.selectedTitle, "Kanso Light")
+
+        if first.renderer != nil { XCTAssertEqual(first.darkPalette.background, RGB8(hex: 0x123456)) }
+        let split = try workspace.split(axis: .horizontal)
+        let second = try XCTUnwrap(workspace.host(for: split)).view
+        XCTAssertEqual(second.darkPalette.background, first.darkPalette.background)
+        let restarted = SettingsStore()
+        restarted.attach(backend: backend, themesDirectory: directory)
+        func darkBackground(_ store: SettingsStore) -> RGB8 {
+            store.appearance.resolvedDarkTheme(in: store.themes).palette.background
+        }
+        XCTAssertEqual(darkBackground(restarted), RGB8(hex: 0x123456))
+        try writeTheme(background: "#ABCDEF")
+        _ = page.darkThemePopUp.makeMenu()
+        XCTAssertEqual(darkBackground(settings), RGB8(hex: 0xABCDEF))
+        if first.renderer != nil { XCTAssertEqual(first.darkPalette.background, RGB8(hex: 0xABCDEF)) }
+        try FileManager.default.removeItem(at: file)
+        _ = page.darkThemePopUp.makeMenu()
+        XCTAssertEqual(page.darkThemePopUp.selectedTitle, "Kanso Dark")
+        XCTAssertEqual(first.darkPalette.background, TerminalPalette.kansoDark.background)
+        XCTAssertEqual(settings.appearance.darkTheme, "file:ocean")
+        try writeTheme(background: "#234567")
+        _ = page.darkThemePopUp.makeMenu()
+        XCTAssertEqual(page.darkThemePopUp.selectedTitle, "Ocean")
+        XCTAssertEqual(darkBackground(settings), RGB8(hex: 0x234567))
+        if second.renderer != nil { XCTAssertEqual(second.darkPalette.background, RGB8(hex: 0x234567)) }
+    }
+
     func testThemeChoicesApplyToViewPalettes() throws {
         let settings = SettingsStore.attached(to: MemorySettingsBackend())
         let controller = makeWorkspace(settings: settings)

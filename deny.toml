@@ -39,6 +39,16 @@ ignore = [
     # kanso-mcp-server 编译进产品（MAS / Setapp 不启用 rmcp）。不自己实现 MCP 协议，换取协议合规由官方 SDK 负责。
     # 经用户确认（2026-11-17）。rmcp 换掉 chrono 后删除本条。
     { id = "RUSTSEC-2026-0543", reason = "chrono 维护状态告警，经 rmcp 进入 Direct 版；等 rmcp 换掉 chrono" },
+    # 以下 7 条都是维护状态告警（不是漏洞），全部经 gpui 0.2.2（Windows / Linux 前端的 UI 库）进入依赖图，
+    # 不进入 macOS 产物。本仓库不 fork gpui；gpui 上游换掉这些 crate 或升级 gpui 后逐条删除。
+    # 经用户确认（2026-11-18）。
+    { id = "RUSTSEC-2025-0052", reason = "async-std 停止维护，经 gpui 引入；等 gpui 上游更换" },
+    { id = "RUSTSEC-2024-0436", reason = "paste 停止维护，经 gpui 引入；等 gpui 上游更换" },
+    { id = "RUSTSEC-2026-0441", reason = "pin-utils 停止维护，经 gpui 引入；等 gpui 上游更换" },
+    { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2 停止维护（仅过程宏，构建期），经 gpui 引入；等 gpui 上游更换" },
+    { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile 停止维护，经 gpui 引入；等 gpui 上游更换" },
+    { id = "RUSTSEC-2026-0206", reason = "rustybuzz 停止维护，经 gpui 的 Linux 字体栈引入；等 gpui 上游更换" },
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser 停止维护，经 gpui 的字体栈引入；等 gpui 上游更换" },
 ]
 
 [licenses]
@@ -69,6 +79,18 @@ exceptions = [
     { allow = ["MPL-2.0"], crate = "uniffi_meta" },
     { allow = ["MPL-2.0"], crate = "uniffi_pipeline" },
     { allow = ["MPL-2.0"], crate = "uniffi_udl" },
+    # CC0-1.0 是公有领域贡献声明，比 MIT 更宽松，FSF 认定与 GPL 兼容；不授予专利权，
+    # 对解析十六进制浮点数的小库影响可忽略。经 gpui → blade-graphics → naga 引入（Windows/Linux 前端）。
+    # 只放行这一个 crate，其他 crate 引入 CC0 仍会被拒。经用户确认（2026-11-16）。
+    { allow = ["CC0-1.0"], crate = "hexf-parse" },
+    # 以下 4 个经 gpui 0.2.2 引入，均不进入 Windows 发行包（deny 把各目标的依赖合并检查才被列出）：
+    # dwrote、option-ext 只在 Linux 字体栈（zed-font-kit）里编译；cbindgen 是 gpui 的构建依赖，
+    # tiny-keccak 是 const-random 过程宏的构建期依赖。MPL-2.0 与 CC0-1.0 均与本项目 GPL-3.0 兼容；
+    # Linux 版发行时需在第三方声明中写明 MPL 源码获取方式。只放行这几个 crate。经用户确认（2026-11-18）。
+    { allow = ["MPL-2.0"], crate = "dwrote" },
+    { allow = ["MPL-2.0"], crate = "option-ext" },
+    { allow = ["MPL-2.0"], crate = "cbindgen" },
+    { allow = ["CC0-1.0"], crate = "tiny-keccak" },
 ]
 
 [licenses.private]

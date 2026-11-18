@@ -17,6 +17,9 @@ final class KPopUpField: StyledBoxView {
         didSet { refreshTitle() }
     }
 
+    /// 展开菜单前刷新来源可变化的选项。
+    var onOpen: (() -> Void)?
+
     /// 用户选了某一项（已更新 `selectedIndex`）。
     var onChange: ((Int) -> Void)?
 
@@ -79,6 +82,7 @@ final class KPopUpField: StyledBoxView {
 
     /// 当前选项对应的菜单；internal 供测试检查菜单内容与勾选态。
     func makeMenu() -> NSMenu {
+        onOpen?()
         let menu = NSMenu()
         for (index, title) in titles.enumerated() {
             menu.addItem(ActionMenuItem(title, checked: index == selectedIndex) { [weak self] in

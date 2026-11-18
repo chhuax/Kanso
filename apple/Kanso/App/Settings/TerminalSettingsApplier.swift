@@ -7,7 +7,8 @@ import TerminalKit
 /// 终端选项（回滚、默认光标样式）不在这里——它们下发给 core，由 `SettingsStore` 负责。
 @MainActor
 enum TerminalSettingsApplier {
-    static func apply(display: DisplaySettings, appearance: AppearanceSettings, to view: TerminalView) {
+    static func apply(_ settings: SettingsStore, to view: TerminalView) {
+        let display = settings.display
         let font = TerminalFontResolver.font(family: display.fontFamily, size: display.fontSize).font
         if view.font != font { view.font = font }
         if view.lineHeight != display.lineHeight { view.lineHeight = display.lineHeight }
@@ -17,7 +18,7 @@ enum TerminalSettingsApplier {
         if view.minimumContrastRatio != display.minimumContrastRatio {
             view.minimumContrastRatio = display.minimumContrastRatio
         }
-        view.lightPalette = appearance.resolvedLightTheme.palette
-        view.darkPalette = appearance.resolvedDarkTheme.palette
+        view.lightPalette = settings.appearance.resolvedLightTheme(in: settings.themes).palette
+        view.darkPalette = settings.appearance.resolvedDarkTheme(in: settings.themes).palette
     }
 }

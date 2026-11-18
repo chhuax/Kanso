@@ -14,9 +14,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use kanso_encoding::{StreamDecoder, TextEncoding, encode_text};
 use kanso_frame::Frame;
 use kanso_pty::{
-    EnvOptions, EnvSnapshot, Platform as PtyPlatform, PtyError, PtySession, SpawnConfig,
-    SystemLocaleInfo, ZshIntegration, build_env, decide_locale, install_zsh_shim, resolve_command,
-    system_locale_exists,
+    CommandSpec, EnvChange, EnvOptions, EnvSnapshot, Platform as PtyPlatform, PtyError, PtySession,
+    SpawnConfig, SystemLocaleInfo, ZshIntegration, build_env, decide_locale, install_zsh_shim,
+    resolve_command, system_locale_exists,
 };
 use kanso_term::{
     InputKind, KeyOptions, MouseOutcome, OptionAsMeta, Platform as KeyPlatform, Registered,
@@ -276,6 +276,7 @@ pub struct LocalSession {
     shared: Arc<Shared>,
     name: String,
     launch: LocalLaunch,
+    shell_flavor: ShellFlavor,
     /// 读线程的启动闸门：`activate` 发出 `Connecting` / `Connected` 之后才放行读线程，
     /// 保证这两个事件一定排在任何输出相关事件之前。发送端被丢弃（启动失败）时读线程直接退出。
     gate: Mutex<Option<Sender<()>>>,
@@ -299,6 +300,80 @@ pub(crate) enum StartError {
     Thread(std::io::Error),
 }
 
+/// 按已解析的启动程序识别 Windows 的内置 shell。其他本地程序沿用 POSIX 约定。
+fn local_shell_flavor(platform: PtyPlatform, program: &str) -> ShellFlavor {
+    if platform != PtyPlatform::Windows {
+        return ShellFlavor::Posix;
+    }
+    let name = program.rsplit(['/', '\\']).next().unwrap_or_default();
+    match name.to_ascii_lowercase().as_str() {
+        "cmd" | "cmd.exe" => ShellFlavor::Cmd,
+        "powershell" | "powershell.exe" | "pwsh" | "pwsh.exe" => ShellFlavor::PowerShell,
+        _ => ShellFlavor::Posix,
+    }
+}
+
+/// 在 Windows 交互提示符中报告当前目录。显式命令、脚本和非交互调用保持原样。
+fn configure_windows_prompt(
+    command: &mut CommandSpec,
+    platform: PtyPlatform,
+    env: &EnvSnapshot,
+) -> Option<EnvChange> {
+    let flavor = local_shell_flavor(platform, &command.program);
+    if flavor == ShellFlavor::PowerShell {
+        if command.args.iter().all(|arg| {
+            matches!(
+                arg.to_ascii_lowercase().as_str(),
+                "-nologo" | "-noprofile" | "-noexit"
+            )
+        }) {
+            // 配置文件加载之后再包裹原提示符，保留用户样式，不写入系统或用户的 profile。
+            if !command
+                .args
+                .iter()
+                .any(|arg| arg.eq_ignore_ascii_case("-NoExit"))
+            {
+                command.args.push("-NoExit".into());
+            }
+            command.args.push("-Command".into());
+            command
+                .args
+                .push(include_str!("windows_prompt.ps1").trim().into());
+        }
+        return None;
+    }
+    if flavor != ShellFlavor::Cmd
+        || !command.args.iter().all(|arg| {
+            matches!(
+                arg.to_ascii_lowercase().as_str(),
+                "/d" | "/q"
+                    | "/a"
+                    | "/u"
+                    | "/s"
+                    | "/e:on"
+                    | "/e:off"
+                    | "/v:on"
+                    | "/v:off"
+                    | "/f:on"
+                    | "/f:off"
+            )
+        })
+    {
+        return None;
+    }
+    let inherited = env
+        .iter()
+        .find(|(key, _)| key.eq_ignore_ascii_case("PROMPT"));
+    let (key, visible) = inherited.unwrap_or(("PROMPT".as_ref(), "$P$G".as_ref()));
+    let marker = r#"$E]9;9;"$P"$E\"#;
+    if visible.to_string_lossy().starts_with(marker) {
+        return None;
+    }
+    let mut prompt = std::ffi::OsString::from(marker);
+    prompt.push(visible);
+    Some((key.to_owned(), Some(prompt)))
+}
+
 impl LocalSession {
     /// 启动 shell 并创建会话，但还不开始读输出、不发任何事件；随后必须调用 [`LocalSession::activate`]。
     ///
@@ -317,8 +392,9 @@ impl LocalSession {
             .clone()
             .unwrap_or_else(EnvSnapshot::from_current);
 
-        let command =
+        let mut command =
             resolve_command(&launch.command_line, &base, platform).map_err(StartError::Command)?;
+        let shell_flavor = local_shell_flavor(platform, &command.program);
 
         // 只有开启了集成才生成 shim；失败不是致命错误：不设 ZDOTDIR，shell 按原样启动，只是没有提示符集成。
         let zsh = if cfg.shell_integration {
@@ -347,7 +423,7 @@ impl LocalSession {
             },
             system_locale_exists,
         );
-        let changes = build_env(
+        let mut changes = build_env(
             &base,
             &EnvOptions {
                 term_program_version: cfg.app_version.clone(),
@@ -355,6 +431,11 @@ impl LocalSession {
                 zsh,
             },
         );
+        if cfg.shell_integration
+            && let Some(prompt) = configure_windows_prompt(&mut command, platform, &base)
+        {
+            changes.push(prompt);
+        }
         let env = base.apply(&changes);
 
         let home = env.get_non_empty("HOME").map(PathBuf::from);
@@ -456,6 +537,9 @@ impl LocalSession {
             }
         };
 
+        #[cfg(windows)]
+        spawn_exit_watcher(&shared);
+
         // 定时线程放在读写线程之后：前面任何一步失败都会提前返回，不会留下没人关闭的定时线程。
         // 会话结束时 `Shared::finish` 会关闭 hub 让它退出。
         shared
@@ -466,6 +550,7 @@ impl LocalSession {
             shared,
             name,
             launch,
+            shell_flavor,
             gate: Mutex::new(Some(gate_tx)),
             threads: Mutex::new(threads),
         }))
@@ -598,12 +683,12 @@ impl LocalSession {
         }
         match content {
             PasteContent::Text(text) => self.paste_text(text),
-            // AI CLI 会话原样粘贴路径，让工具把它识别成附件；普通 shell 按 POSIX 转义（terminal.md §8.3）。
+            // AI CLI 会话原样粘贴路径，让工具识别为附件；普通会话按启动的 shell 转义。
             PasteContent::Files(paths) => {
                 let text = if self.shared.activity.agent().is_some() {
                     paths.join(" ")
                 } else {
-                    quote_paths(paths, ShellFlavor::Posix)
+                    quote_paths(paths, self.shell_flavor)
                 };
                 self.paste_text(&text);
             }
@@ -1139,6 +1224,38 @@ fn handle_term_event(shared: &Shared, state: &mut ReaderState, event: &TermEvent
     }
 }
 
+/// Windows 专用：等 shell 进程退出，然后关闭伪控制台。
+///
+/// ConPTY 的已知行为：子进程退出后只要 `ClosePseudoConsole` 没被调用，输出管道就不会 EOF，
+/// 读线程会一直阻塞、会话永远不结束。关闭伪控制台会先把残留输出送到读端再关管道，
+/// 所以 shell 退出前的最后输出不会丢。用轮询 `try_wait` 而不是阻塞 `wait`，理由同 `on_eof`
+/// （不长时间占着 PTY 锁）；主端在锁外丢弃，因为关闭可能阻塞到输出被读走。
+/// 用户主动关闭时 `user_closing` 已置位，这里直接退出，由 `kill` 流程负责收尾。
+#[cfg(windows)]
+fn spawn_exit_watcher(shared: &Arc<Shared>) {
+    let shared = Arc::clone(shared);
+    let name = format!("kanso-pty-exit-{}", shared.id);
+    let work = move || {
+        loop {
+            if shared.user_closing.load(Ordering::Acquire) || shared.ended.load(Ordering::Acquire) {
+                return;
+            }
+            let waited = lock(&shared.pty).try_wait();
+            let exited = matches!(waited, Ok(Some(_)));
+            if exited {
+                tracing::debug!(session = %shared.id, status = ?waited, "exit watcher: shell exited, closing pseudo console");
+                let master = lock(&shared.pty).detach_master();
+                drop(master);
+                return;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+    };
+    if let Err(e) = thread::Builder::new().name(name).spawn(work) {
+        tracing::error!(error = %e, "failed to spawn exit watcher thread");
+    }
+}
+
 /// 读到 EOF 之后的"shell 自己退出"流程：取退出码 → 发 `Closed(Exited)`。
 ///
 /// 用 `try_wait` 轮询而不是阻塞的 `wait`：`wait` 会一直占着 PTY 锁，而 shell 可能关闭了 tty
@@ -1178,6 +1295,62 @@ fn expand_home(dir: PathBuf, home: Option<&Path>) -> PathBuf {
     match dir.strip_prefix("~") {
         Ok(rest) => home.join(rest),
         Err(_) => dir,
+    }
+}
+
+#[cfg(test)]
+mod cmd_prompt_tests {
+    use super::*;
+
+    #[test]
+    fn windows_interactive_cmd_reports_each_prompt_without_replacing_it() {
+        let mut command = CommandSpec {
+            program: r"C:\Windows\System32\CMD.EXE".into(),
+            args: vec!["/D".into()],
+        };
+        let base = EnvSnapshot::from_pairs([("Prompt", "$T $P$G")]);
+        let (key, value) =
+            configure_windows_prompt(&mut command, PtyPlatform::Windows, &base).unwrap();
+        assert_eq!(key, "Prompt");
+        assert_eq!(value.unwrap(), r#"$E]9;9;"$P"$E\$T $P$G"#);
+        assert!(configure_windows_prompt(&mut command, PtyPlatform::Linux, &base).is_none());
+        for arguments in [
+            vec!["/C", "echo hello > result"],
+            vec!["/cecho"],
+            vec!["/K", "custom.cmd"],
+        ] {
+            command.args = arguments.into_iter().map(str::to_owned).collect();
+            assert!(configure_windows_prompt(&mut command, PtyPlatform::Windows, &base).is_none());
+        }
+        command.program = "powershell.exe".into();
+        command.args.clear();
+        assert!(configure_windows_prompt(&mut command, PtyPlatform::Windows, &base).is_none());
+    }
+    #[test]
+    fn powershell_wraps_interactive_prompts_only() {
+        let base = EnvSnapshot::from_pairs([("HOME", "unused")]);
+        for program in ["powershell.exe", r"C:\Program Files\PowerShell\7\pwsh.exe"] {
+            for args in [
+                vec!["-File", "build.ps1"],
+                vec!["-Command", "Get-Location"],
+                vec!["-NonInteractive"],
+                vec!["-EncodedCommand", "QQA="],
+            ] {
+                let mut command = CommandSpec {
+                    program: program.into(),
+                    args: args.iter().map(|s| s.to_string()).collect(),
+                };
+                configure_windows_prompt(&mut command, PtyPlatform::Windows, &base);
+                assert_eq!(command.args, args);
+            }
+            let mut command = CommandSpec {
+                program: program.into(),
+                args: vec!["-NoProfile".into(), "-NoExit".into()],
+            };
+            configure_windows_prompt(&mut command, PtyPlatform::Windows, &base);
+            assert_eq!(&command.args[..3], &["-NoProfile", "-NoExit", "-Command"]);
+            assert_eq!(command.args.len(), 4);
+        }
     }
 }
 
