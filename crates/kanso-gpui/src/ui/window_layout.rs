@@ -4,6 +4,7 @@ use kanso_core::Core;
 use serde::{Deserialize, Serialize};
 
 use super::shell::ShellView;
+use kanso_gpui::app::git_panel::{DEFAULT_WIDTH as GIT_DEFAULT_WIDTH, GitLayout};
 use kanso_gpui::app::sender::{PANEL_DEFAULT_HEIGHT, clamp_panel_height};
 use kanso_gpui::widgets::style::number;
 
@@ -15,6 +16,8 @@ pub(super) struct PanelLayout {
     pub sender_visible: bool,
     pub sender_height: f32,
     pub right_click_menu: bool,
+    /// Git 面板宽度（照 mac 版跨重启记住；旧数据没有这个字段时用默认 420）。
+    pub git_width: f32,
 }
 
 impl Default for PanelLayout {
@@ -25,6 +28,7 @@ impl Default for PanelLayout {
             sender_visible: false,
             sender_height: PANEL_DEFAULT_HEIGHT,
             right_click_menu: true,
+            git_width: GIT_DEFAULT_WIDTH,
         }
     }
 }
@@ -39,6 +43,7 @@ impl PanelLayout {
             .sidebar_width
             .max(number("spacing", "sidebar.minWidth"));
         value.sender_height = clamp_panel_height(value.sender_height);
+        value.git_width = GitLayout::with_saved_width(value.git_width).width;
         value
     }
 }
@@ -79,6 +84,7 @@ impl ShellView {
             sender_visible: self.sender.visible,
             sender_height: self.sender.height,
             right_click_menu: self.right_click_menu,
+            git_width: self.git.width(),
         };
         if let Err(e) = self.core.set_setting(
             "windows.panels",

@@ -1,6 +1,6 @@
 //! `ShellView` 与 Git 改动面板的接线（filer.md §10）：
 //!
-//! - 面板在终端右侧，可与左侧 Filer 同时打开；初始宽度 420，拖动范围 280–760，重启后不记忆；
+//! - 面板在终端右侧，可与左侧 Filer 同时打开；初始宽度 420，拖动范围 280–760，重启后记住宽度（照 mac 版，存在 `windows.panels`），显隐不记；
 //! - 入口是标题栏右侧的“改动”按钮（与 mac 版标题栏上的 Git 按钮同位）（Windows 没有原生标题栏，状态栏与 Filer 开关同一排）；
 //! - 跟随活动标签：只对已连接的本地 shell 读取 Git 数据，依据 shell 当前目录；
 //! - 命令结束、位置变化时（节流后）自动刷新；
@@ -29,7 +29,7 @@ use super::widgets::menu::{ContextMenu, MenuEvent};
 pub(super) struct GitState {
     panel: Entity<GitPanelView>,
     _panel_sub: Subscription,
-    /// 显隐与宽度（不持久化）。
+    /// 显隐与宽度（宽度由拖动结束时保存，启动时恢复）。
     layout: GitLayout,
     /// 拖动宽度：(按下时的鼠标 x, 按下时的宽度)。
     drag: Option<(f32, f32)>,
@@ -46,6 +46,11 @@ impl GitState {
         self.layout.visible
     }
 
+    /// 当前保存用的面板宽度。
+    pub(super) fn width(&self) -> f32 {
+        self.layout.width
+    }
+
     /// 自检用：设置显隐。
     pub(super) fn layout_set_visible(&mut self, visible: bool) {
         self.layout.visible = visible;
@@ -58,7 +63,11 @@ impl GitState {
 }
 
 /// 在 `ShellView::new` 里建面板及其事件订阅。
-pub(super) fn new_state(window: &mut Window, cx: &mut Context<ShellView>) -> GitState {
+pub(super) fn new_state(
+    saved_width: f32,
+    window: &mut Window,
+    cx: &mut Context<ShellView>,
+) -> GitState {
     let panel = cx.new(|cx| GitPanelView::new(window, cx));
     let sub = cx.subscribe_in(&panel, window, |this, _panel, ev: &GitEvent, window, cx| {
         this.on_git_event(ev, window, cx)
@@ -66,7 +75,7 @@ pub(super) fn new_state(window: &mut Window, cx: &mut Context<ShellView>) -> Git
     GitState {
         panel,
         _panel_sub: sub,
-        layout: GitLayout::default(),
+        layout: GitLayout::with_saved_width(saved_width),
         drag: None,
         selftest_target: None,
         dialog: None,
@@ -293,9 +302,11 @@ impl ShellView {
         true
     }
 
-    /// 结束宽度拖动（宽度不保存）。
+    /// 结束宽度拖动：拖过就保存宽度。
     pub(super) fn git_drag_end(&mut self) {
-        self.git.drag = None;
+        if self.git.drag.take().is_some() {
+            self.save_panels();
+        }
     }
 
     /// 标题栏右侧的“改动”按钮（与 mac 版标题栏上的 Git 按钮同位）：分支图标；有仓库摘要且有改动时带总新增 / 总删除。

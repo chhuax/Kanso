@@ -205,8 +205,8 @@ impl ShellView {
         );
         let completion = super::shell_completion::CompletionCtl::load(&core);
         let filer = super::shell_filer::new_state(&core, window, cx);
-        let git = super::shell_git::new_state(window, cx);
         let panels = super::window_layout::PanelLayout::load(&core);
+        let git = super::shell_git::new_state(panels.git_width, window, cx);
         let mut this = ShellView {
             ctl: AppController::new(core.clone(), home),
             core,

@@ -18,9 +18,9 @@ use kanso_gpui::app::drag_out::DragPrep;
 use kanso_gpui::app::filer_text::msg;
 use kanso_gpui::app::launcher::{core_error_text, render_message};
 use kanso_gpui::app::remote_edit::{
-    self, CloseAction, ConflictCheck, ConflictChoice, EditFiles, EditState, FileVersion,
-    LARGE_FILE_BYTES, POLL_MS, Phase, ReopenPlan, close_action, conflict_choice, local_name_ok,
-    reopen_plan,
+    self, CloseAction, ConflictCheck, ConflictChoice, CopyOutcome, EditFiles, EditState,
+    FileVersion, LARGE_FILE_BYTES, POLL_MS, Phase, ReopenPlan, close_action, conflict_choice,
+    local_name_ok, reopen_plan,
 };
 use kanso_gpui::widgets::dialog::DialogResult;
 use kanso_types::event::{SessionState, TransferOutcome};
@@ -81,10 +81,12 @@ pub(crate) struct Edit {
     pub pending_remote: Option<FileVersion>,
     pub launch_after: Option<Launch>,
     pub retry_at: Option<u64>,
-    /// 用户选了"暂不处理"：不再自动弹冲突框，直到有新的保存或重新打开。
+    /// 用户在冲突框里取消：不再自动弹冲突框，直到有新的保存或重新打开。
     pub conflict_paused: bool,
     /// 冲突对话框正在显示。
     pub conflict_open: bool,
+    /// 另存副本进行中：本轮回传上传为这个新文件名（不覆盖，且不改变原文件的远端基线）。
+    pub copy_to: Option<String>,
     /// 回传后读不到远端版本：下一次回传跳过冲突检查（否则会误报）。
     pub skip_check: bool,
     pub done: u64,
@@ -411,6 +413,7 @@ impl FilerPanel {
                 retry_at: None,
                 conflict_paused: false,
                 conflict_open: false,
+                copy_to: None,
                 skip_check: false,
                 done: 0,
                 total: None,
@@ -811,7 +814,51 @@ impl FilerPanel {
                 })
                 .detach();
             }
-            ConflictChoice::Pause => e.conflict_paused = true,
+            ConflictChoice::Cancel => e.conflict_paused = true,
+            ConflictChoice::SaveCopy => {
+                // 先暂停轮询再弹名称框；名称框取消 / 失败都保持暂停。
+                e.conflict_paused = true;
+                let initial = remote_edit::default_copy_name(&e.name);
+                self.pending = Some(Pending::EditCopyName(key));
+                cx.emit(FilerEvent::Dialog(remote_edit::copy_spec(&initial, None)));
+            }
+        }
+        cx.notify();
+    }
+
+    /// 另存副本名称框的结果：合规就把本地副本上传为同目录下的新文件（不覆盖已有文件）。
+    pub(crate) fn edit_on_copy_name(
+        &mut self,
+        key: EditKey,
+        result: &DialogResult,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(e) = self.edits.edits.get_mut(&key) else {
+            return;
+        };
+        match remote_edit::parse_copy_name(result, &e.name) {
+            CopyOutcome::Cancel => e.conflict_paused = true,
+            CopyOutcome::Invalid => {
+                let initial = result.value(remote_edit::COPY_FIELD).unwrap_or_default();
+                let spec =
+                    remote_edit::copy_spec(initial, Some(&msg(Message::RemoteEditCopyPrompt {})));
+                self.pending = Some(Pending::EditCopyName(key));
+                cx.emit(FilerEvent::Dialog(spec));
+            }
+            CopyOutcome::Name(name) => {
+                let connected = self
+                    .edits
+                    .connected
+                    .get(&key.session)
+                    .copied()
+                    .unwrap_or(false);
+                if !connected || e.uploading {
+                    e.conflict_paused = true; // 断线或正好有回传在跑：保持冲突，状态行已有说明
+                } else {
+                    e.copy_to = Some(name);
+                    self.edit_start_upload(key, cx);
+                }
+            }
         }
         cx.notify();
     }
@@ -833,7 +880,7 @@ impl FilerPanel {
         e.done = 0;
         e.total = None;
         let dir = e.record.join("upload");
-        let snap = dir.join(&e.name);
+        let snap = dir.join(e.copy_to.as_ref().unwrap_or(&e.name));
         let file = e.file.clone();
         cx.spawn(async move |this, cx| {
             let job = cx.background_executor().spawn(async move {
@@ -877,10 +924,13 @@ impl FilerPanel {
             return;
         }
         let dir = remote_parent(&key.path);
-        match self
-            .core
-            .upload(key.session, &snap, &dir, ConflictPolicy::Overwrite)
-        {
+        // 另存副本不能覆盖远端已有文件；普通回传（含用户选了覆盖）按名覆盖。
+        let policy = if e.copy_to.is_some() {
+            ConflictPolicy::Fail
+        } else {
+            ConflictPolicy::Overwrite
+        };
+        match self.core.upload(key.session, &snap, &dir, policy) {
             Ok(id) => {
                 e.transfer = Some(id);
                 self.edits.roles.insert(id, Role::EditUpload(key));
@@ -918,6 +968,21 @@ impl FilerPanel {
         let _ = std::fs::remove_dir_all(e.record.join("upload"));
         let snap = e.upload_version.take().unwrap_or_default();
         let local_now = FileVersion::local(&e.file);
+        if e.copy_to.take().is_some() {
+            // 另存副本（照 mac 版）：原远端文件的基线不动，下次保存仍会提示冲突。
+            e.state.copied(snap, local_now);
+            e.synced_at = Some(now);
+            e.conflict_paused = true;
+            let _ = EditFiles::mark_synced(&e.record, &e.name, snap);
+            let parent = remote_parent(&key.path);
+            if let Some(&pane) = self.by_session.get(&key.session)
+                && self.panes[pane].browse.path == parent
+            {
+                self.refresh(pane, cx);
+            }
+            cx.notify();
+            return;
+        }
         if remote.is_none() {
             e.skip_check = true;
         }
@@ -949,6 +1014,19 @@ impl FilerPanel {
         e.attempting = false;
         e.upload_version = None;
         let _ = std::fs::remove_dir_all(e.record.join("upload"));
+        if e.copy_to.take().is_some() {
+            // 另存副本失败（如同名文件已存在）：回到冲突并保持暂停，不自动重试，下一次保存再询问。
+            e.state.phase = Phase::Conflict;
+            e.conflict_paused = true;
+            let line = remote_edit::status_line(
+                &e.source,
+                &e.key.path,
+                &msg(Message::RemoteEditFailed { why }),
+            );
+            self.say(line, cx);
+            cx.notify();
+            return;
+        }
         let delay = e.state.failed(why.clone());
         e.retry_at = Some(now + delay);
         if e.state.should_announce(&why) {
