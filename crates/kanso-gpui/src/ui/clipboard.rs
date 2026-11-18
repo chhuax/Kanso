@@ -1,10 +1,14 @@
 //! 终端粘贴保留文件列表；GPUI 的 Windows 文本接口会把多个文件名连成一个字符串。
+//!
+//! Linux 没有等价的文件列表格式可直接读取，只用 GPUI 的文本 / 图片通道。
 #![allow(unsafe_code)]
 
+#[cfg(windows)]
 use std::ptr::null_mut;
 
 use gpui::{App, ClipboardEntry};
 use kanso_types::input::PasteContent;
+#[cfg(windows)]
 use windows_sys::Win32::{
     System::{
         DataExchange::{CloseClipboard, GetClipboardData, OpenClipboard},
@@ -15,8 +19,10 @@ use windows_sys::Win32::{
 };
 
 /// 只读打开，在离开作用域后立即交还给系统。
+#[cfg(windows)]
 struct Opened;
 
+#[cfg(windows)]
 impl Drop for Opened {
     fn drop(&mut self) {
         // SAFETY: 只在本线程成功打开剪贴板后构造。
@@ -24,6 +30,7 @@ impl Drop for Opened {
     }
 }
 
+#[cfg(windows)]
 fn paths_or_text() -> Option<PasteContent> {
     // SAFETY: 只读访问可使用空窗口句柄；所有句柄仅在此保护作用域内使用。
     if unsafe { OpenClipboard(null_mut()) } == 0 {
@@ -71,15 +78,25 @@ fn paths_or_text() -> Option<PasteContent> {
     Some(PasteContent::Text(text))
 }
 
-/// 文件优先，其次是文本；纯图片交给核心按当前 AI 会话的规则处理。
-pub(super) fn read_terminal_paste(cx: &App) -> Option<PasteContent> {
-    paths_or_text().or_else(|| {
-        let item = cx.read_from_clipboard()?;
-        item.text().map(PasteContent::Text).or_else(|| {
-            item.entries()
-                .iter()
-                .any(|e| matches!(e, ClipboardEntry::Image(_)))
-                .then_some(PasteContent::ImageOnly)
-        })
+/// 文本优先；纯图片交给核心按当前 AI 会话的规则处理。
+fn text_or_image(cx: &App) -> Option<PasteContent> {
+    let item = cx.read_from_clipboard()?;
+    item.text().map(PasteContent::Text).or_else(|| {
+        item.entries()
+            .iter()
+            .any(|e| matches!(e, ClipboardEntry::Image(_)))
+            .then_some(PasteContent::ImageOnly)
     })
+}
+
+/// Windows 上文件优先，其次是文本；纯图片交给核心按当前 AI 会话的规则处理。
+#[cfg(windows)]
+pub(super) fn read_terminal_paste(cx: &App) -> Option<PasteContent> {
+    paths_or_text().or_else(|| text_or_image(cx))
+}
+
+/// Linux 只用 GPUI 的文本 / 图片通道。
+#[cfg(target_os = "linux")]
+pub(super) fn read_terminal_paste(cx: &App) -> Option<PasteContent> {
+    text_or_image(cx)
 }

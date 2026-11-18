@@ -118,14 +118,11 @@ impl ShellView {
         cx.quit();
     }
 
-    fn st_rows(&self, id: SessionId, needle: &str, cx: &Context<Self>) -> usize {
-        self.terminals.get(&id).map_or(0, |t| {
-            t.read(cx)
-                .screen
-                .iter()
-                .filter(|r| r.contains(needle))
-                .count()
-        })
+    // Linux 提示符较长，窄分屏会把命令标记折到下一行；按连续文本统计回显与输出。
+    fn st_occurrences(&self, id: SessionId, needle: &str, cx: &Context<Self>) -> usize {
+        self.terminals
+            .get(&id)
+            .map_or(0, |t| t.read(cx).screen.concat().matches(needle).count())
     }
 
     fn st_type(&self, id: SessionId, text: &str, cx: &mut Context<Self>) {
@@ -236,8 +233,8 @@ impl ShellView {
             }
             1 => {
                 let (t1, t2) = (ids[0], ids[1]);
-                if self.st_rows(t2, "KT_TAB2", cx) >= 2 {
-                    if self.st_rows(t1, "KT_TAB2", cx) != 0 {
+                if self.st_occurrences(t2, "KT_TAB2", cx) >= 2 {
+                    if self.st_occurrences(t1, "KT_TAB2", cx) != 0 {
                         return self.st_fail("标签 2 的输入串到了标签 1".into(), cx);
                     }
                     self.st_pass("新标签里的 shell 独立往返，输入没有串到别的标签");
@@ -256,8 +253,8 @@ impl ShellView {
             }
             2 => {
                 let (t2, t3) = (ids[1], ids[2]);
-                if self.st_rows(t3, "KT_SPLIT_R", cx) >= 2 {
-                    if self.st_rows(t2, "KT_SPLIT_R", cx) != 0 {
+                if self.st_occurrences(t3, "KT_SPLIT_R", cx) >= 2 {
+                    if self.st_occurrences(t2, "KT_SPLIT_R", cx) != 0 {
                         return self.st_fail("右侧窗格的输入串到了左侧窗格".into(), cx);
                     }
                     self.st_pass("向右拆分：新窗格里的 shell 独立往返");
@@ -276,8 +273,8 @@ impl ShellView {
             }
             3 => {
                 let (t3, t4) = (ids[2], ids[3]);
-                if self.st_rows(t4, "KT_SPLIT_D", cx) >= 2 {
-                    if self.st_rows(t3, "KT_SPLIT_D", cx) != 0 {
+                if self.st_occurrences(t4, "KT_SPLIT_D", cx) >= 2 {
+                    if self.st_occurrences(t3, "KT_SPLIT_D", cx) != 0 {
                         return self.st_fail("下方窗格的输入串到了上方窗格".into(), cx);
                     }
                     self.st_note("PASS 向下拆分：三个窗格同时显示，各自的 shell 独立往返".into());
@@ -317,9 +314,9 @@ impl ShellView {
             }
             4 => {
                 let (t1, t2, t3, t4) = (ids[0], ids[1], ids[2], ids[3]);
-                if self.st_rows(t3, "KT_FOCUS_BACK", cx) >= 2 {
+                if self.st_occurrences(t3, "KT_FOCUS_BACK", cx) >= 2 {
                     for other in [t1, t2, t4] {
-                        if self.st_rows(other, "KT_FOCUS_BACK", cx) != 0 {
+                        if self.st_occurrences(other, "KT_FOCUS_BACK", cx) != 0 {
                             return self
                                 .st_fail(format!("焦点在 {t3:?} 时输入出现在了 {other:?}"), cx);
                         }
@@ -381,7 +378,7 @@ impl ShellView {
             }
             6 => {
                 let t1 = ids[0];
-                if self.st_rows(t1, "KT_BACK_TO_TAB1", cx) >= 2 {
+                if self.st_occurrences(t1, "KT_BACK_TO_TAB1", cx) >= 2 {
                     self.st_note("PASS Alt+1 切回被盖住的标签，终端仍可输入".into());
                     self.run_command(AppCommand::CloseSession, window, cx);
                     let ws = self.ctl.workspace();

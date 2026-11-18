@@ -117,7 +117,11 @@ impl TerminalView {
                         return false;
                     }
                     pass(self, "输入法上屏恰好一次、组字串未泄漏、宽字符进入网格");
-                    self.send_text("for /L %i in (1,1,150) do @echo LINE%i");
+                    #[cfg(windows)]
+                    let command = "for /L %i in (1,1,150) do @echo LINE%i";
+                    #[cfg(target_os = "linux")]
+                    let command = "i=1; while [ $i -le 150 ]; do echo LINE$i; i=$((i+1)); done";
+                    self.send_text(command);
                     self.send_enter();
                 }
             }
