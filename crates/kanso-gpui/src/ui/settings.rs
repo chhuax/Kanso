@@ -35,8 +35,6 @@ use super::widgets::text_input::{TextInput, TextInputEvent};
 use kanso_gpui::app::launcher::render_message;
 use kanso_types::message::Message;
 
-/// 回滚行数下拉里的预设。
-
 #[path = "settings_keys.rs"]
 mod keys;
 
@@ -941,7 +939,7 @@ impl Render for SettingsView {
                         .flex()
                         .gap(px(8.0))
                         .child(div().flex_1().min_w_0().child(self.term_font_input.clone()))
-                        .child(boxed(self.term_font.clone(), 80.0)),
+                        .child(boxed(self.term_font.clone(), 100.0)),
                 ))
                 .child(div().flex_none().child(row(
                     &th,
