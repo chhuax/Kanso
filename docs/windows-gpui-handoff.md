@@ -266,3 +266,7 @@ Codex 正在独立工作树 `/tmp/kanso-ui-integration` 的 `codex/windows-ui-in
   - running the portable build from a path with spaces or Chinese characters;
   - the SmartScreen warning for an unsigned build (expected behaviour);
   - `makensis` produces no warnings.
+
+### 打包首轮回执
+
+已接到 `cf64e21`。Codex 在真实 Windows 运行 Release 构建时发现 `ui/mod.rs::error_box` 的 Win32 调用被工作区 `deny(unsafe_code)` 拒绝，Cargo 退出 101，此次没有生成安装包。Codex 正在联调分支修这个具体的 Win32 边界，并将从与 UI 回归相同的集成修订重建制品。便携 NSIS v3.13 已备在 VM 专用目录。用户确认此 VM 是开发机，直接以现有账户验证安装、升级、卸载，无需另建账户。
