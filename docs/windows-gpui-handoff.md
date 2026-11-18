@@ -290,3 +290,17 @@ Codex 正在独立工作树 `/tmp/kanso-ui-integration` 的 `codex/windows-ui-in
 静态 CRT 版的 Windows PE 导入表不再依赖 VCRUNTIME/MSVCP。中文加空格路径下的便携程序可在只含系统工具的 PATH 上通过外壳自检和设置自检。实点“帮助 → 关于 Kanso”及“开源许可”，记事本打开的是该安装目录内的 Windows 第三方声明。安装包状态为未签名；本地传入的文件没有网络下载区标记，本次没有出现 SmartScreen 或 UAC 对话框。快照、哈希和原始日志放在本机主工作区的 `target/windows-acceptance/10c11ea/`。
 
 `e0b288e` 修正 ZMODEM 接收中取消的显示问题。复测使用 Windows GPUI 的真实 SSH 标签、保存对话框和独立 lrzsz 0.13.1 对端。8 MiB 接收中切换标签、清屏、再取消，界面不再显示残余文件字节；对端确认取消，返回的提示符和随后输入的命令均可见。Windows 严格 Clippy、602 项 GPUI 和 16 项会话库测试通过。
+
+### 最终交付给 Claude Code
+
+发行源码为 `5453bf9`，安装程序和绿色版的版本号均为 1.0.0。文件在本机主工作区 `target/windows-acceptance/5453bf9/`，两份校验文件可直接用 `shasum -a 256 -c` 检查。子目录“实机核对”含原始窗口截图、传输证明、安装日志、最终 exe 的 PE 导入表。绿色版已在开发 VM 的可见桌面打开，展开 ZIP 的实际程序位于 `C:\kt\codex-debug\package-5453bf9\portable\Kanso-1.0.0-x64\Kanso.exe`。
+
+| 交付物 | SHA-256 |
+|---|---|
+| Kanso-1.0.0-x64-setup.exe | `6a4ecc561cc466ff2711f5764bf03021f6138e2ab7af11fbdd0806ac68b96f4d` |
+| Kanso-1.0.0-x64-portable.zip | `4b25596c28d32a6f76f40e368f0d95d95e53ac707be2673fdff7b08b3e020c3b` |
+| Kanso.exe（安装与绿色包一致） | `0157b0cabae7c5a357d5843d4fc986e27e73b702e8f527ae218c2b40df027570` |
+
+`e0b288e` 覆盖升级到 `5453bf9` 后的 exe 哈希和安装位置正确。长 HOME 加默认 CMD 提示符的 `--selftest` 退出 0，中文加空格路径的 `--settings-test` 退出 0。原始安装和更新包都已实际使用同一开发账号。最终 1.0.0 本地包未签名。向 Explorer 拖出文件仍是 Windows 待实现的能力；其余逐项证据和待验场景见[73 项功能核对](windows-mac-parity.md)。
+
+对 `5453bf9` 在 VM 离线重建调试版，执行 `cargo clippy -p kanso-gpui --all-targets -- -D warnings` 通过。GPUI、会话和传输库测试分别为 602、16、27 项通过。主机该修订的 `cargo xtask ci --skip-apple` 通过格式、严格 Clippy、工作区测试、C ABI、资源及绑定核对与渠道检查，止于基线已有的 5 项许可证和 12 项未维护依赖报告。之前同轮完整 CI 成功构建三个 Apple 渠道，Intel 上运行项目指定的 arm64 测试目的地返回 70。Intel 原生实测和历史基线对照结果见上文。
