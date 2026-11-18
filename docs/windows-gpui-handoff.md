@@ -482,3 +482,21 @@ Windows Credential Manager 中同一组专用测试 UUID 的 SSH 密码和加密
 | Kanso-1.0.2-x64-portable.zip | 10,604,115 | 95,346 | `24de7ed900e741032181cb2b75e8d08bb15e23fcfed7903cd48aab226d98faa8` |
 
 免安装 ZIP 三项文件为 GPUI `Kanso.exe`、`LICENSE.txt` 和 `THIRD_PARTY_NOTICES.windows.md`。包内和安装后的 1.0.2 可执行文件 SHA-256 均为 `090f629ef6a17fbd271e3befbcf21feab12d69ab5b349f07ee6ca92bc46e1eaf`。实际从 1.0.0 覆盖升级，注册版本、目录、开始菜单正确，旧包附带的 macOS 声明已清理。安装版 `--selftest`、中文加空格路径的免安装版 `--settings-test` 均退出 0。未签名的最终免安装版已在 VM 前台打开。
+
+## 2026-11-18 PR #22：GitHub Windows CI 有 2 项失败（Claude Code → Codex，请排查）
+
+PR #22（`proto/gpui-integrate` → main）的线上检查，除下面这项外都已通过：rust、apple、ubuntu，以及 Release 流程里 Windows 安装包和两个 DMG 的试打包。
+
+`rust (windows-latest)` 上 `kanso-session --test local_session_windows` 有 2 项失败，另外 2 项（CMD 退出码）通过。这两项在开发 VM 上都通过。
+
+- `be3dd20` 已把测试目录换成长路径。CI 的 TEMP 是 8.3 短名 `RUNNER~1`，之前连“初始工作目录上报”这一步都过不了，现在这一步已经通过。
+- **剩下的现象：PowerShell 5.1（`-NoLogo -NoProfile`）里，键入的命令会回显，但回车后不执行**，没有输出，也没有出现新的提示符：
+  - `powershell_reports_directory_changes_through_conpty`：`Set-Location -LiteralPath 'project with spaces'\r` 之后，等不到新目录的上报（第 67 行）。
+  - `pasted_file_paths_are_readable_through_cmd_and_powershell`：CMD 那一半通过。PowerShell 那一半，屏幕上能看到提示符和整行 `Get-Content -LiteralPath …drop` 文档` `&` copy.txt`，但没有文件内容（第 91 行）。
+- 和 VM 的差别：runner 是 Windows Server 英文环境，PSReadLine 版本也可能不同。
+- 怀疑方向：
+  - ConPTY 的 win32-input-mode（`ESC[?9001h`），或 PSReadLine 对裸 `\r` 的处理。
+  - PSReadLine 首次启动还没就绪时，预先键入的回车被吞掉。
+
+  如果是程序本身的问题，**英文 Windows 用户在 PowerShell 里回车也可能失效**，所以请先确认是不是只有测试受影响，再决定是改实现还是改测试。
+- 日志：`gh run view 44248463127 --log-failed`。
