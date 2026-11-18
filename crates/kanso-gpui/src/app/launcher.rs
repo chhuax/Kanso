@@ -34,7 +34,12 @@ pub fn core_error_text(error: &CoreError) -> String {
 #[derive(Clone, Debug, PartialEq)]
 pub enum LauncherRow {
     /// 分组标题（未分组的会话没有标题）。
-    Header(Group),
+    Header {
+        /// 分组。
+        group: Group,
+        /// 当前是否折叠。
+        collapsed: bool,
+    },
     /// 一个会话。
     Profile(Profile),
     /// 分组里没有会话（只在没有搜索词时出现，否则空分组被隐藏）。
@@ -46,8 +51,11 @@ pub fn rows(sections: &[LauncherSection]) -> Vec<LauncherRow> {
     let mut out = Vec::new();
     for s in sections {
         if let Some(g) = &s.group {
-            out.push(LauncherRow::Header(g.clone()));
-            if s.profiles.is_empty() {
+            out.push(LauncherRow::Header {
+                group: g.clone(),
+                collapsed: s.collapsed,
+            });
+            if !s.collapsed && s.profiles.is_empty() {
                 out.push(LauncherRow::EmptyGroup);
             }
         }
@@ -75,8 +83,6 @@ pub fn subtitle_text(profile: &Profile) -> String {
 /// 会话行"…"菜单的动作。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProfileAction {
-    /// 连接。
-    Connect,
     /// 编辑。
     Edit,
     /// 移到分组（`None` = 不分组）。
@@ -85,7 +91,7 @@ pub enum ProfileAction {
     Delete,
 }
 
-/// 会话行菜单：连接、编辑、移到分组、删除（ui-shell.md §4）。
+/// 会话行菜单：编辑、移到分组、删除（ui-shell.md §4）。单击行或回车才连接。
 pub fn profile_menu(profile: &Profile, groups: &[Group]) -> Vec<MenuItem> {
     let mut moves = vec![
         MenuItem::action("move:none", label(Message::UiNoGroup {}))
@@ -96,7 +102,6 @@ pub fn profile_menu(profile: &Profile, groups: &[Group]) -> Vec<MenuItem> {
             .checked(profile.group == Some(g.id))
     }));
     vec![
-        MenuItem::action("connect", label(Message::UiConnect {})),
         MenuItem::action("edit", label(Message::UiEdit {})),
         MenuItem::submenu(label(Message::UiMoveToGroup {}), moves),
         MenuItem::separator(),
@@ -107,7 +112,6 @@ pub fn profile_menu(profile: &Profile, groups: &[Group]) -> Vec<MenuItem> {
 /// 解析会话行菜单回传的 id。
 pub fn parse_profile_action(id: &str) -> Option<ProfileAction> {
     match id {
-        "connect" => Some(ProfileAction::Connect),
         "edit" => Some(ProfileAction::Edit),
         "delete" => Some(ProfileAction::Delete),
         "move:none" => Some(ProfileAction::Move(None)),
@@ -286,13 +290,44 @@ mod tests {
         let (m, _) = model();
         let r = rows(m.sections());
         assert!(matches!(&r[0], LauncherRow::Profile(p) if p.name == "本机"));
-        assert!(matches!(&r[1], LauncherRow::Header(g) if g.name == "生产"));
+        assert!(
+            matches!(&r[1], LauncherRow::Header { group, collapsed: false } if group.name == "生产")
+        );
         assert!(matches!(&r[2], LauncherRow::Profile(p) if p.name == "db"));
-        assert!(matches!(&r[3], LauncherRow::Header(g) if g.name == "空组"));
+        assert!(
+            matches!(&r[3], LauncherRow::Header { group, collapsed: false } if group.name == "空组")
+        );
         assert_eq!(r[4], LauncherRow::EmptyGroup);
         assert_eq!(r.len(), 5);
         let db = m.visible_profiles()[1].id;
         assert_eq!(row_index_of(&r, db), Some(2));
+    }
+
+    #[test]
+    fn collapsed_group_hides_rows_but_search_reveals_matches() {
+        let (mut m, group) = model();
+        let profile = m.visible_profiles()[1].id;
+        m.select(Some(profile));
+        m.toggle_group(group.id);
+        assert_ne!(m.selected(), Some(profile));
+        let collapsed = rows(m.sections());
+        assert!(matches!(
+            collapsed[1],
+            LauncherRow::Header {
+                collapsed: true,
+                ..
+            }
+        ));
+        assert!(matches!(collapsed[2], LauncherRow::Header { .. }));
+        assert_eq!(row_index_of(&collapsed, profile), None);
+
+        m.set_query("example.com");
+        assert_eq!(m.selected(), Some(profile));
+        assert_eq!(row_index_of(&rows(m.sections()), profile), Some(1));
+        m.set_query("  ");
+        assert_eq!(rows(m.sections()), collapsed);
+        m.toggle_group(group.id);
+        assert_eq!(row_index_of(&rows(m.sections()), profile), Some(2));
     }
 
     #[test]
@@ -308,9 +343,9 @@ mod tests {
         let (m, g) = model();
         let p = m.visible_profiles()[1].clone();
         let items = profile_menu(&p, m.groups());
-        assert_eq!(items.len(), 5);
-        let MenuItem::Submenu { items: moves, .. } = &items[2] else {
-            panic!("第三项应是子菜单");
+        assert_eq!(items.len(), 4);
+        let MenuItem::Submenu { items: moves, .. } = &items[1] else {
+            panic!("第二项应是子菜单");
         };
         // 不分组 + 两个分组；当前所在分组带勾。
         assert_eq!(moves.len(), 3);
@@ -334,10 +369,7 @@ mod tests {
             parse_profile_action("move:none"),
             Some(ProfileAction::Move(None))
         );
-        assert_eq!(
-            parse_profile_action("connect"),
-            Some(ProfileAction::Connect)
-        );
+        assert_eq!(parse_profile_action("connect"), None);
         assert_eq!(parse_profile_action("edit"), Some(ProfileAction::Edit));
         assert_eq!(parse_profile_action("delete"), Some(ProfileAction::Delete));
         assert_eq!(parse_profile_action("move:garbage"), None);

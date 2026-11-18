@@ -22,6 +22,11 @@ final class SessionLauncherModel {
     private(set) var groups: [FfiGroup] = []
     nonisolated(unsafe) private var libraryObserver: NSObjectProtocol?
 
+    private(set) var collapsedGroupIDs: Set<String>
+    var onCollapsedGroupsChange: ((Set<String>) -> Void)?
+    private var searchTerm: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
+    var isSearching: Bool { !searchTerm.isEmpty }
+
     var query = "" {
         didSet {
             guard query != oldValue else { return }
@@ -31,8 +36,9 @@ final class SessionLauncherModel {
         }
     }
 
-    init(store: SessionStore) {
+    init(store: SessionStore, collapsedGroupIDs: Set<String> = []) {
         self.store = store
+        self.collapsedGroupIDs = collapsedGroupIDs
         reload()
         selectedID = visibleProfiles.first?.id
         libraryObserver = NotificationCenter.default.addObserver(forName: .sessionLibraryDidChange, object: store, queue: .main) { [weak self] _ in
@@ -54,8 +60,14 @@ final class SessionLauncherModel {
         filterSnapshot()
     }
 
+    func toggleGroup(_ id: String) {
+        if collapsedGroupIDs.remove(id) == nil { collapsedGroupIDs.insert(id) }
+        filterSnapshot()
+        onCollapsedGroupsChange?(collapsedGroupIDs)
+    }
+
     private func filterSnapshot() {
-        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let needle = searchTerm
         let groupIDs = Set(groups.map(\.id))
         var buckets: [String: [FfiProfile]] = [:]
         var ungrouped: [FfiProfile] = []
@@ -72,7 +84,8 @@ final class SessionLauncherModel {
             let members = buckets[group.id] ?? []
             // 搜索时隐藏没有结果的分组；平时空分组也要显示，否则新建后无法重命名 / 删除。
             if members.isEmpty && !needle.isEmpty { continue }
-            result.append(Section(group: group, profiles: members))
+            let collapsed = needle.isEmpty && collapsedGroupIDs.contains(group.id)
+            result.append(Section(group: group, profiles: collapsed ? [] : members))
         }
         sections = result
         if !visibleProfiles.contains(where: { $0.id == selectedID }) { selectedID = visibleProfiles.first?.id }

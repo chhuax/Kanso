@@ -1,14 +1,15 @@
 //! 会话启动器浮层（ui-shell.md §4）：新建本地 shell / 新建会话、搜索、按分组列出已保存的会话。
 //!
 //! 行为对照 mac 版 `Sessions/SessionLauncherViewController.swift`：
-//! - 点击会话行连接；每行有"编辑"按钮与"…"菜单（连接、编辑、移到分组、删除），右键同样弹出该菜单；
+//! - 单击会话行或回车连接；行尾「…」与右键是同一菜单（编辑、移到分组、删除）。「…」只在悬停或键盘高亮时挂上，避免隐形按钮挡住单击。
 //! - "已保存的会话"标题旁的"…"菜单：新建分组、导入 OpenSSH 配置；每个分组标题旁的"…"：重命名、删除；
-//! - 搜索框始终有焦点：输入即过滤，↑↓ 移动选中，回车连接选中项，Esc 关闭。
+//! - 搜索框始终有焦点：输入即过滤且不滚动，↑↓ 移动选中并滚入可见，回车连接选中项，Esc 关闭。
 //!
 //! 数据与规则在库里的 `app::sessions::LauncherModel`（三平台可测）；菜单项、确认文案在 `app::launcher`。
 //! 本视图只发事件（[`LauncherEvent`]），由 `ShellView` 决定怎么开标签 / 弹编辑对话框。
 
 use kanso_gpui::app::i18n::{label, t};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use gpui::{
@@ -85,6 +86,8 @@ pub(crate) struct LauncherView {
     model: LauncherModel<Arc<Core>>,
     search: Entity<TextInput>,
     scroll: ScrollHandle,
+    /// 鼠标悬停的会话行。行尾「…」只在这时或键盘高亮时才接收点击。
+    hovered_profile: Option<ProfileId>,
     root: FocusHandle,
     menu: Option<(Entity<ContextMenu>, MenuTarget)>,
     dialog: Option<(Entity<Dialog>, Pending)>,
@@ -107,7 +110,12 @@ fn appearance(window: &Window) -> Appearance {
 
 impl LauncherView {
     /// 创建并聚焦搜索框。必须在窗口上下文里创建。
-    pub(crate) fn new(core: Arc<Core>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(
+        core: Arc<Core>,
+        collapsed_groups: HashSet<GroupId>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let search = cx.new(|cx| {
             TextInput::new(window, cx)
                 .search()
@@ -119,7 +127,6 @@ impl LauncherView {
             |this, _s, ev: &TextInputEvent, window, cx| match ev {
                 TextInputEvent::Change(t) => {
                     this.model.set_query(t);
-                    this.reveal_selected();
                     cx.notify();
                 }
                 TextInputEvent::Submit(_) => {
@@ -133,10 +140,11 @@ impl LauncherView {
         );
         search.read(cx).focus(window);
         LauncherView {
-            model: LauncherModel::new(core.clone()),
+            model: LauncherModel::with_collapsed_groups(core.clone(), collapsed_groups),
             core,
             search,
             scroll: ScrollHandle::new(),
+            hovered_profile: None,
             root: cx.focus_handle(),
             menu: None,
             dialog: None,
@@ -144,6 +152,10 @@ impl LauncherView {
             _menu_sub: None,
             _dialog_sub: None,
         }
+    }
+
+    pub(super) fn collapsed_groups(&self) -> &HashSet<GroupId> {
+        self.model.collapsed_groups()
     }
 
     fn close(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -249,7 +261,6 @@ impl LauncherView {
     ) {
         match target {
             MenuTarget::Profile(pid) => match logic::parse_profile_action(id) {
-                Some(ProfileAction::Connect) => cx.emit(LauncherEvent::Connect(*pid)),
                 Some(ProfileAction::Edit) => cx.emit(LauncherEvent::Edit(*pid)),
                 Some(ProfileAction::Move(group)) => self.move_profile(*pid, group, window, cx),
                 Some(ProfileAction::Delete) => self.confirm_delete_profile(*pid, window, cx),
@@ -475,12 +486,7 @@ impl LauncherView {
             .child(title)
     }
 
-    fn small_button(
-        &self,
-        id: impl Into<gpui::ElementId>,
-        label: &'static str,
-        th: Theme,
-    ) -> gpui::Stateful<gpui::Div> {
+    fn small_button(&self, id: impl Into<gpui::ElementId>, th: Theme) -> gpui::Stateful<gpui::Div> {
         div()
             .id(id)
             .h(px(24.0))
@@ -494,15 +500,7 @@ impl LauncherView {
             .text_color(th.c("text.secondary"))
             .cursor_pointer()
             .hover(|s| s.bg(th.c("bg.tabHover")).text_color(th.c("text.primary")))
-            .child(icon(
-                if label == self::label(Message::UiEdit2 {}) {
-                    "pencil"
-                } else {
-                    "ellipsis"
-                },
-                14.0,
-                th.c("text.secondary"),
-            ))
+            .child(icon("ellipsis", 14.0, th.c("text.secondary")))
     }
 
     fn render_profile_row(
@@ -514,15 +512,20 @@ impl LauncherView {
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         let pid = p.id;
-        let group_name: gpui::SharedString = format!("row-{index}").into();
+        let show_more = selected || self.hovered_profile == Some(pid);
         let swatch: Hsla = match p.color {
             Some(c) => rgb((u32::from(c.r) << 16) | (u32::from(c.g) << 8) | u32::from(c.b)).into(),
             None => gpui::transparent_black(),
         };
-        let actions_visible = |s: gpui::StyleRefinement| s.opacity(1.0);
+        let more = self.small_button(("more", index), th).on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
+                cx.stop_propagation();
+                this.show_menu(MenuTarget::Profile(pid), ev.position, window, cx);
+            }),
+        );
         div()
             .id(("profile", index))
-            .group(group_name.clone())
             .h(px(PROFILE_ROW_H))
             .flex_none()
             .px(px(16.0))
@@ -547,6 +550,17 @@ impl LauncherView {
                     cx.stop_propagation();
                 }),
             )
+            .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                if *hovered {
+                    if this.hovered_profile != Some(pid) {
+                        this.hovered_profile = Some(pid);
+                        cx.notify();
+                    }
+                } else if this.hovered_profile == Some(pid) {
+                    this.hovered_profile = None;
+                    cx.notify();
+                }
+            }))
             .child(
                 div()
                     .relative()
@@ -577,25 +591,9 @@ impl LauncherView {
                     .flex_none()
                     .flex()
                     .items_center()
-                    .opacity(if selected { 1.0 } else { 0.0 })
-                    .group_hover(group_name, actions_visible)
-                    .child(
-                        self.small_button(("edit", index), label(Message::UiEdit2 {}), th)
-                            .on_mouse_down(
-                                MouseButton::Left,
-                                cx.listener(move |_this, _: &MouseDownEvent, _w, cx| {
-                                    cx.stop_propagation();
-                                    cx.emit(LauncherEvent::Edit(pid));
-                                }),
-                            ),
-                    )
-                    .child(self.small_button(("more", index), "…", th).on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
-                            cx.stop_propagation();
-                            this.show_menu(MenuTarget::Profile(pid), ev.position, window, cx);
-                        }),
-                    )),
+                    .h(px(24.0))
+                    .min_w(px(24.0))
+                    .when(show_more, |slot| slot.child(more)),
             )
             .into_any_element()
     }
@@ -604,10 +602,47 @@ impl LauncherView {
         &self,
         index: usize,
         group: &Group,
+        collapsed: bool,
         th: Theme,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         let g = group.clone();
+        let group_id = group.id;
+        let title = div()
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .items_center()
+            .when(self.model.query().trim().is_empty(), |d| {
+                d.child(
+                    div()
+                        .id(("group-toggle", index))
+                        .flex_none()
+                        .size(px(24.0))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .cursor_pointer()
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.model.toggle_group(group_id);
+                                cx.notify();
+                            }),
+                        )
+                        .child(icon(
+                            if collapsed {
+                                "chevron-right"
+                            } else {
+                                "chevron-down"
+                            },
+                            12.0,
+                            th.c("text.secondary"),
+                        )),
+                )
+            })
+            .child(div().min_w_0().truncate().child(group.name.clone()));
         div()
             .id(("group", index))
             .h(px(HEADER_ROW_H))
@@ -618,17 +653,14 @@ impl LauncherView {
             .justify_between()
             .text_size(px(number("font", "ui.caption")))
             .text_color(th.c("text.secondary"))
-            .child(div().truncate().child(group.name.clone()))
-            .child(
-                self.small_button(("group-more", index), "…", th)
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
-                            cx.stop_propagation();
-                            this.show_menu(MenuTarget::Group(g.clone()), ev.position, window, cx);
-                        }),
-                    ),
-            )
+            .child(title)
+            .child(self.small_button(("group-more", index), th).on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
+                    cx.stop_propagation();
+                    this.show_menu(MenuTarget::Group(g.clone()), ev.position, window, cx);
+                }),
+            ))
             .into_any_element()
     }
 }
@@ -667,7 +699,9 @@ impl Render for LauncherView {
         }
         for (i, row) in rows.iter().enumerate() {
             list = list.child(match row {
-                LauncherRow::Header(g) => self.render_header_row(i, g, th, cx),
+                LauncherRow::Header { group, collapsed } => {
+                    self.render_header_row(i, group, *collapsed, th, cx)
+                }
                 LauncherRow::Profile(p) => {
                     self.render_profile_row(i, p, selected == Some(p.id), th, cx)
                 }
@@ -694,7 +728,7 @@ impl Render for LauncherView {
             .text_size(px(number("font", "ui.caption")))
             .text_color(th.c("text.secondary"))
             .child(logic::render_message(&Message::UiSavedSessions {}))
-            .child(self.small_button("saved-more", "…", th).on_mouse_down(
+            .child(self.small_button("saved-more", th).on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, ev: &MouseDownEvent, window, cx| {
                     cx.stop_propagation();

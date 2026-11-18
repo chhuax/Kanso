@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*", "xtask"]
 
 [workspace.package]
-version = "1.0.4"
+version = "1.0.5"
 edition = "2024"
 # 与 rust-toolchain.toml 固定的版本一致：cargo 会按这个下限挑依赖版本，
 # 写得过低会让 cargo 退回到带已知漏洞的旧版本（曾因此选中 rusqlite 0.32）。

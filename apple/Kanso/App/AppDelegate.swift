@@ -162,6 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 会话
         let sessionMenu = submenu(String(localized: "Session"))
+        addCommand(sessionMenu, .openLauncher)
         addCommand(sessionMenu, .newSession)
         addCommand(sessionMenu, .newLocalShell)
         sessionMenu.addItem(.separator())

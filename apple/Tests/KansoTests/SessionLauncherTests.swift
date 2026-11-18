@@ -1,3 +1,4 @@
+import AppKit
 import KansoBridge
 import KansoUI
 @testable import Kanso
@@ -52,6 +53,138 @@ final class SessionLauncherTests: XCTestCase {
         // 未分组按名称自然排序：Shell 2 在 Shell 10 之前；大小写不影响。
         XCTAssertEqual(model.sections[0].profiles.map(\.name), ["files", "Shell 2", "Shell 10", "Zeta"])
         XCTAssertEqual(model.sections[1].profiles.map(\.id), ["6"])
+    }
+
+    func testCollapsedGroupsAreSkippedByKeyboardAndRevealedDuringSearch() {
+        let model = SessionLauncherModel(store: makeStore(), collapsedGroupIDs: ["g2"])
+        model.select("6")
+        model.toggleGroup("g1")
+        XCTAssertEqual(model.selectedID, model.visibleProfiles.first?.id)
+        XCTAssertFalse(model.visibleProfiles.contains { ["2", "6"].contains($0.id) })
+        XCTAssertTrue(model.sections.contains { $0.group?.id == "g1" })
+
+        model.query = "deploy"
+        XCTAssertEqual(model.selectedID, "2")
+        model.query = ""
+        XCTAssertFalse(model.visibleProfiles.contains { $0.id == "2" })
+        model.toggleGroup("g2")
+        XCTAssertEqual(model.visibleProfiles.last?.id, "2")
+    }
+
+    func testTogglingGroupKeepsScrollPositionWhenSelectionIsOffscreen() throws {
+        let group = FfiGroup(id: "dev", name: "Dev")
+        let trailingGroup = FfiGroup(id: "prod", name: "Prod")
+        let ungrouped = (0..<12).map { SessionFixtures.local("local-\($0)", "Local \($0)") }
+        let trailing = (0..<12).map { SessionFixtures.ssh("prod-\($0)", "Prod \($0)", group: trailingGroup.id) }
+        let member = SessionFixtures.ssh("dev-1", "Dev 1", group: group.id)
+        let store = MemoryStore(profiles: ungrouped + [member] + trailing, groups: [group, trailingGroup])
+        let model = SessionLauncherModel(store: store)
+        let actions = SessionLauncherActions(
+            newLocalShell: {}, newSession: {}, connect: { _ in }, edit: { _ in }, dismiss: {},
+            openSettings: {}, withDialog: { _ in }
+        )
+        let launcher = SessionLauncherViewController(model: model, dialogs: AlertSessionDialogs(), actions: actions)
+        launcher.view.layoutSubtreeIfNeeded()
+        let scroll = try XCTUnwrap(launcher.view.subviews.compactMap { $0 as? NSScrollView }.first)
+        let table = try XCTUnwrap(scroll.documentView as? NSTableView)
+        let groupRow = ungrouped.count
+        let y = table.rect(ofRow: groupRow).minY
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: y))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        XCTAssertGreaterThan(scroll.documentVisibleRect.minY, table.rect(ofRow: 0).maxY)
+
+        let header = try XCTUnwrap(table.view(atColumn: 0, row: groupRow, makeIfNecessary: true) as? LauncherHeaderView)
+        let button = try XCTUnwrap(header.subviews.compactMap { $0 as? KButton }.first { $0.symbol == "chevron.down" })
+        button.performClick(nil)
+        launcher.view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(table.numberOfRows, ungrouped.count + trailing.count + 2)
+        XCTAssertEqual(scroll.documentVisibleRect.minY, y, accuracy: 1)
+        XCTAssertTrue(launcher.control(
+            launcher.searchField.textField, textView: NSTextView(), doCommandBy: #selector(NSResponder.moveDown(_:))
+        ))
+        XCTAssertEqual(model.selectedID, ungrouped[1].id)
+        XCTAssertTrue(scroll.documentVisibleRect.intersects(table.rect(ofRow: 1)))
+    }
+
+    func testSingleClickConnects() throws {
+        let model = SessionLauncherModel(store: makeStore())
+        let target = model.visibleProfiles[1]
+        var connected: [String] = []
+        let actions = SessionLauncherActions(
+            newLocalShell: {}, newSession: {}, connect: { connected.append($0) }, edit: { _ in }, dismiss: {},
+            openSettings: {}, withDialog: { _ in }
+        )
+        let launcher = SessionLauncherViewController(model: model, dialogs: AlertSessionDialogs(), actions: actions)
+        launcher.view.layoutSubtreeIfNeeded()
+        let scroll = try XCTUnwrap(launcher.view.subviews.compactMap { $0 as? NSScrollView }.first)
+        let table = try XCTUnwrap(scroll.documentView as? NSTableView)
+        let row = try XCTUnwrap((0..<table.numberOfRows).compactMap { index -> LauncherProfileRowView? in
+            guard let view = table.view(atColumn: 0, row: index, makeIfNecessary: true) as? LauncherProfileRowView,
+                  view.accessibilityLabel() == target.name else { return nil }
+            return view
+        }.first)
+        XCTAssertEqual(row.subviews.compactMap { ($0 as? KButton)?.symbol }, ["ellipsis"])
+
+        row.mouseDown(with: InputFixtures.mouse(.leftMouseDown, at: .zero))
+        XCTAssertEqual(connected, [target.id])
+    }
+
+    func testColorSwatchDoesNotEatTheClick() throws {
+        var profile = SessionFixtures.ssh("1", "Zeta")
+        profile.color = FfiRgb(r: 12, g: 34, b: 56)
+        var connected: [String] = []
+        let actions = SessionLauncherActions(
+            newLocalShell: {}, newSession: {}, connect: { connected.append($0) }, edit: { _ in }, dismiss: {},
+            openSettings: {}, withDialog: { _ in }
+        )
+        let launcher = SessionLauncherViewController(
+            model: SessionLauncherModel(store: MemoryStore(profiles: [profile], groups: [])),
+            dialogs: AlertSessionDialogs(),
+            actions: actions
+        )
+        launcher.view.layoutSubtreeIfNeeded()
+        let scroll = try XCTUnwrap(launcher.view.subviews.compactMap { $0 as? NSScrollView }.first)
+        let table = try XCTUnwrap(scroll.documentView as? NSTableView)
+        let row = try XCTUnwrap(table.view(atColumn: 0, row: 0, makeIfNecessary: true) as? LauncherProfileRowView)
+        row.layoutSubtreeIfNeeded()
+        let swatch = try XCTUnwrap(row.subviews.compactMap { $0 as? ColorSquareView }.first)
+        XCTAssertFalse(swatch.isHidden)
+        let point = swatch.convert(NSPoint(x: swatch.bounds.midX, y: swatch.bounds.midY), to: row)
+        XCTAssertNil(swatch.hitTest(point))
+        XCTAssertIdentical(row.hitTest(point), row)
+
+        row.mouseDown(with: InputFixtures.mouse(.leftMouseDown, at: point))
+        XCTAssertEqual(connected, ["1"])
+    }
+
+    func testSearchKeepsScrollPosition() throws {
+        let profiles = (0..<30).map { SessionFixtures.local("local-\($0)", "Local \($0)") }
+        let actions = SessionLauncherActions(
+            newLocalShell: {}, newSession: {}, connect: { _ in }, edit: { _ in }, dismiss: {},
+            openSettings: {}, withDialog: { _ in }
+        )
+        let launcher = SessionLauncherViewController(
+            model: SessionLauncherModel(store: MemoryStore(profiles: profiles, groups: [])),
+            dialogs: AlertSessionDialogs(),
+            actions: actions
+        )
+        launcher.view.layoutSubtreeIfNeeded()
+        let scroll = try XCTUnwrap(launcher.view.subviews.compactMap { $0 as? NSScrollView }.first)
+        let table = try XCTUnwrap(scroll.documentView as? NSTableView)
+        let y = table.rect(ofRow: 20).minY
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: y))
+        scroll.reflectScrolledClipView(scroll.contentView)
+
+        launcher.searchField.stringValue = "local"
+        launcher.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification))
+        launcher.view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(scroll.documentVisibleRect.minY, y, accuracy: 1)
+        XCTAssertTrue(launcher.control(
+            launcher.searchField.textField, textView: NSTextView(), doCommandBy: #selector(NSResponder.moveDown(_:))
+        ))
+        XCTAssertTrue(scroll.documentVisibleRect.intersects(table.rect(ofRow: 1)))
     }
 
     func testEmptyGroupsHiddenWhileSearching() {

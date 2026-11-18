@@ -14,7 +14,7 @@
 | 本地路径筛选，Esc 清空 | 左上搜索只匹配能确认的本地路径，空结果提示。源 `ui/sidebar.rs`、`app/tab.rs`。**单测** 路径匹配 | 混合本地/SSH/SFTP 标签的完整录屏。规格额外的类型/活动筛选器需与 Mac 现有入口分开核对 |
 | 单击标签、标题/副标题、颜色、图标、未读和运行指示 | 行按下切换，路径和分支、活动/退出状态从 `app/tab.rs`、`app/workspace.rs` 映射。**VM 自检** 切换、**单测** `unread_set_when_background_tab_finishes_and_cleared_on_activate` | 长路径末尾截断、AI 品牌图标、窄栏和长列表。自动滚动使非可视活动项露出需实测 |
 | 左栏同组拖动重排 | `ui/sidebar.rs` → `TabReorder` → `Workspace::move_tab`。**VM 操作** 从 Documents / Downloads 拖为 Downloads / Documents，选中项仍是原会话。**单测** `click_preview_move_back_and_group_boundaries` | 触控板滚动中断、移出窗口松开、行中关闭按钮。过滤时禁用重排 |
-| 左栏空白双击、右键、加号 | **VM 操作** 空白双击后出现第三个本地标签，复制保留 Documents 目录。右键空白与加号在 `ui/sidebar.rs` 打开启动器 | 双击空白复制 SSH/SFTP，检查既有认证复用 |
+| 左栏空白双击、右键、加号 | **VM 操作** 空白双击后出现第三个本地标签，复制保留 Documents 目录。右键空白打开启动器，加号直接打开新建会话 | 双击空白复制 SSH/SFTP，检查既有认证复用 |
 | 标签右键编辑来源会话、关闭当前/其他/左/右/全部 | `app/menus.rs::tab_menu`、`ui/shell.rs`，按当前分屏禁用空操作。**VM 自检** 右键菜单/关闭确认，**单测** 分组作用域 | 传输进行中确认文案及多连接列表 |
 | 水平/垂直分屏、循环上/下个分屏、拖隔条 | `app/layout.rs`、`app/workspace.rs`、`ui/shell.rs`。**VM 自检** 拆分/缩放/关闭归并，**单测** 比例规范化及最小尺寸 | 多级嵌套在不同缩放下拖边界 |
 | 把一个标签移到其他分屏中间或边缘、跨窗移动 | Mac 侧栏 `TabSidebarViewController` 只接 `moveTab(toIndex:)`，跨分屏接口见 KansoUI 的 Workspace 与 WorkspaceTests。Windows 模型有 `move_tab_across_panes_keeps_session_and_collapses_empty_source` 和 `move_tab_to_edge_creates_pane_on_that_side` 单测。两端实际侧栏均接同组重排 | 跨分屏、跨窗口拖放属于需与规格核对的双端入口，未找到 Mac 已发布的对应手势 |
@@ -31,8 +31,8 @@
 | 视图 → 标签栏/Filer/Sender、定位目录、命令面板、拆分、字号、外观、显示设置、键盘快捷键。帮助 → 恢复默认 | 面板与拆分调度见 `ui/shell.rs`。显示/键盘菜单直接选中设置页。**VM 操作** 打开面板、设置、搜索。**单测** 菜单编解码 | 完整菜单逐项与恢复默认确认/取消，按最终版本验收 |
 | 命令面板搜索标签、保存会话、菜单 | 标题栏中部和 Ctrl+Shift+P，方向键/Tab/Shift+Tab/Enter/Esc。**VM 操作** 切回 CMD、连接保存的 PowerShell、从搜索打开设置，窄窗可用 | 中文输入法组合、多命令同名、筛选时禁用项 |
 | 命令面板搜当前目录文件，在 Filer 显示并选中 | Mac `CommandPalettePresenter` 调 `filer.reveal`，Windows `ui/toolbar.rs`、`ui/shell_filer.rs::reveal_palette_file`。**VM 操作** 从本地 CMD 搜 `qa-local-proof`，出现 Files 分组，Enter 自动打开 Filer，选中 `qa-local-proof.txt` | 切换会话时丢弃旧结果。目录项和 SSH/无 CWD 分支 |
-| 加号/空白右键启动器，搜索、选中、按分组显示、齿轮设置 | `ui/launcher.rs`、`app/launcher.rs`。**VM 操作/自检** 打开启动器、保存并重开本地会话 | 大量已保存会话、空组、长文本、中文模糊查找 |
-| 启动器会话右键连接、编辑、移组/移出、删除。组右键改名、删除。保存区新建组 | `profile_menu`、`group_menu`、`saved_menu` 和 `ui/launcher.rs` 确认结果写入 core。**单测** 菜单动作、分组删除影响与数据一致性 | 临时库逐项执行、取消删除、移组后重新打开。删除恢复不在 Mac 的操作承诺内 |
+| 空白右键或命令面板打开启动器，搜索、按分组显示、齿轮设置。加号直接新建会话 | `ui/launcher.rs`、`app/launcher.rs`。**VM 操作/自检** 打开启动器、保存并重开本地会话 | 大量已保存会话、空组、长文本、中文模糊查找 |
+| 启动器单击或回车连接；右键与「…」为编辑、移组/移出、删除。组右键改名、删除。保存区新建组 | `profile_menu`、`group_menu`、`saved_menu` 和 `ui/launcher.rs` 确认结果写入 core。**单测** 菜单动作、分组删除影响与数据一致性 | 临时库逐项执行、取消删除、移组后重新打开。删除恢复不在 Mac 的操作承诺内 |
 | 会话编辑器本地/SSH/SFTP 类型、名称与颜色、保存或连接 | `ui/session_editor.rs`、`app/sessions.rs`。**VM 操作** 类型、颜色、Tab 顺序、窄窗滚动及保存后重新打开 | 修改使用中的保存会话不意外重连 |
 | Windows 本地 Shell 选择 | 默认、CMD、Windows PowerShell、检测到的 PowerShell 7、自定义命令。**VM 操作** 已独立启动 CMD/PowerShell。其他选项依安装状态 | 自定义带空格可执行路径和参数、指定起始目录/locale/编码 |
 | SSH/SFTP 配置，认证方式、端口、用户名、私钥文件、跳板等 | `ui/session_editor.rs`、`app/sessions.rs`、core 连接实现。**VM 操作** 专用本机回环私钥 SFTP，非真实用户凭据 | 密码、密钥口令、跳板链及代理命令分别连接，取消认证后确保无残留对话框 |

@@ -4,7 +4,7 @@ import KansoUI
 
 /// 会话启动器（实色浮动面板）与编辑对话框（sheet）的呈现与接线。
 ///
-/// 由 `WorkspaceController` 持有；入口（侧栏 ＋ 按钮 / 空白处右键 / 菜单 ⌘N / 标签右键）都调它，
+/// 由 `WorkspaceController` 持有；入口（命令面板或空白处右键打开启动器，＋ 与 ⌘N 打开新建会话，标签右键编辑）都调它，
 /// 保证同一时刻最多一个浮层、一个编辑 sheet。
 @MainActor
 final class SessionPresenter {
@@ -19,6 +19,7 @@ final class SessionPresenter {
     private var launcherContent: SessionLauncherViewController?
     /// 最近一次浮层的锚点，供"弹出对话框后重新打开启动器"使用。
     private var anchor: (view: NSView, rect: NSRect, edge: NSRectEdge)?
+    private var collapsedGroupIDs: Set<String> = []
     private var editorSheet: NSWindow?
     /// 编辑对话框的控制器：sheet 的 contentView 是它的 view，控制器本身要保持存活。
     private var editorController: SessionEditorViewController?
@@ -46,7 +47,8 @@ final class SessionPresenter {
         closeLauncher()
         guard let hostWindow = view.window ?? window else { return }
         anchor = (view, rect, preferredEdge)
-        let model = SessionLauncherModel(store: store)
+        let model = SessionLauncherModel(store: store, collapsedGroupIDs: collapsedGroupIDs)
+        model.onCollapsedGroupsChange = { [weak self] in self?.collapsedGroupIDs = $0 }
         let actions = SessionLauncherActions(
             newLocalShell: { [weak self] in
                 self?.closeLauncher()

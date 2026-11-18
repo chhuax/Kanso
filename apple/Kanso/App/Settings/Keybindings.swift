@@ -29,6 +29,7 @@ enum KeyCommandSection: CaseIterable {
 /// 只列已经实现的菜单命令。
 /// ⌘1–⌘9 固定不可改，不在此枚举里。`rawValue` 会写进用户设置，发布后不得改名。
 enum KeyCommand: String, CaseIterable {
+    case openLauncher
     case newSession
     case newLocalShell
     case previousSession
@@ -60,7 +61,7 @@ enum KeyCommand: String, CaseIterable {
 
     var section: KeyCommandSection {
         switch self {
-        case .newSession, .newLocalShell, .previousSession, .nextSession, .previousSplit, .nextSplit, .closeSession:
+        case .openLauncher, .newSession, .newLocalShell, .previousSession, .nextSession, .previousSplit, .nextSplit, .closeSession:
             .session
         case .copy, .paste, .selectAll, .clearBuffer, .previousCommandBlock, .nextCommandBlock, .find, .findNext, .findPrevious, .commandSuggestions, .clearCommandHistory:
             .edit
@@ -73,6 +74,7 @@ enum KeyCommand: String, CaseIterable {
     var title: String {
         switch self {
         case .toggleSender: String(localized: "Toggle Sender")
+        case .openLauncher: String(localized: "Session Launcher")
         case .newSession: String(localized: "New Session…")
         case .newLocalShell: String(localized: "New Local Shell")
         case .previousSession: String(localized: "Previous Session")
@@ -107,6 +109,7 @@ enum KeyCommand: String, CaseIterable {
     var action: Selector {
         switch self {
         case .toggleSender: #selector(MainWindowController.kansoToggleSender(_:))
+        case .openLauncher: #selector(MainWindowController.kansoOpenLauncher(_:))
         case .newSession: #selector(MainWindowController.kansoNewSession(_:))
         case .newLocalShell: #selector(MainWindowController.kansoNewLocalShell(_:))
         case .previousSession: #selector(MainWindowController.kansoPreviousSession(_:))
@@ -141,6 +144,7 @@ enum KeyCommand: String, CaseIterable {
     var defaultChord: KeyChord? {
         let cmd: ChordModifiers = .command
         switch self {
+        case .openLauncher: return nil
         case .newSession: return KeyChord(key: "n", modifiers: cmd)
         case .toggleSender: return KeyChord(key: "down", modifiers: [.command, .option])
         case .newLocalShell: return KeyChord(key: "t", modifiers: cmd)

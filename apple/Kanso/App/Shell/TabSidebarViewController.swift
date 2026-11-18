@@ -40,12 +40,12 @@ final class TabSidebarViewController: NSViewController, NSTextFieldDelegate, NSM
         searchField.onClear = { [weak self] in self?.refresh() }
 
         plusButton.isBordered = false
-        plusButton.image = .symbol("plus", description: String(localized: "Session Launcher"))
+        plusButton.image = .symbol("plus", description: String(localized: "New Session…"))
         plusButton.imagePosition = .imageOnly
         plusButton.contentTintColor = .token(DesignTokens.Color.textSecondary)
-        plusButton.toolTip = String(localized: "Session Launcher")
+        plusButton.toolTip = String(localized: "New Session…")
         plusButton.target = self
-        plusButton.action = #selector(showLauncher)
+        plusButton.action = #selector(newSession)
 
         emptyLabel.stringValue = String(localized: "No matching paths")
         emptyLabel.font = .systemFont(ofSize: DesignTokens.Font.uiCaption)
@@ -160,8 +160,12 @@ final class TabSidebarViewController: NSViewController, NSTextFieldDelegate, NSM
 
     // MARK: - 动作
 
-    @objc private func showLauncher() {
-        // 按钮是非 flipped 视图，下方是 minY。
+    @objc private func newSession() {
+        controller.sessions.presentEditor(editing: nil)
+    }
+
+    /// 快捷键打开启动器，锚在 ＋ 按钮上。按钮是非 flipped 视图，下方是 minY。
+    func showSessionLauncher() {
         controller.sessions.showLauncher(relativeTo: plusButton.bounds, of: plusButton, preferredEdge: .minY)
     }
 

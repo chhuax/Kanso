@@ -5,6 +5,7 @@
 //! 不替核心做校验，也不为互斥悄悄丢掉一边的值。
 
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::iter::Peekable;
 use std::str::Chars;
 
@@ -130,7 +131,9 @@ pub fn row_subtitle(profile: &Profile) -> RowSubtitle {
 pub struct LauncherSection {
     /// 分组。
     pub group: Option<Group>,
-    /// 组内会话（按名称自然排序）。
+    /// 当前是否折叠；搜索时匹配项临时展开。
+    pub collapsed: bool,
+    /// 可见的组内会话（按名称自然排序）。
     pub profiles: Vec<Profile>,
 }
 
@@ -142,6 +145,7 @@ pub struct LauncherModel<S: ProfileStore> {
     profiles: Vec<Profile>,
     groups: Vec<Group>,
     sections: Vec<LauncherSection>,
+    collapsed_groups: HashSet<GroupId>,
     selected: Option<ProfileId>,
     query: String,
     has_any_profile: bool,
@@ -150,11 +154,17 @@ pub struct LauncherModel<S: ProfileStore> {
 impl<S: ProfileStore> LauncherModel<S> {
     /// 读取快照并选中第一项。
     pub fn new(store: S) -> Self {
+        Self::with_collapsed_groups(store, HashSet::new())
+    }
+
+    /// 打开启动器时沿用当前窗口记录的折叠状态。
+    pub fn with_collapsed_groups(store: S, collapsed_groups: HashSet<GroupId>) -> Self {
         let mut m = LauncherModel {
             store,
             profiles: Vec::new(),
             groups: Vec::new(),
             sections: Vec::new(),
+            collapsed_groups,
             selected: None,
             query: String::new(),
             has_any_profile: false,
@@ -193,6 +203,7 @@ impl<S: ProfileStore> LauncherModel<S> {
         if !ungrouped.is_empty() {
             sections.push(LauncherSection {
                 group: None,
+                collapsed: false,
                 profiles: ungrouped,
             });
         }
@@ -201,9 +212,11 @@ impl<S: ProfileStore> LauncherModel<S> {
             if members.is_empty() && !needle.is_empty() {
                 continue;
             }
+            let collapsed = needle.is_empty() && self.collapsed_groups.contains(&group.id);
             sections.push(LauncherSection {
                 group: Some(group.clone()),
-                profiles: members,
+                collapsed,
+                profiles: if collapsed { Vec::new() } else { members },
             });
         }
         self.sections = sections;
@@ -254,6 +267,19 @@ impl<S: ProfileStore> LauncherModel<S> {
     /// 键盘选中的会话。
     pub fn selected(&self) -> Option<ProfileId> {
         self.selected
+    }
+
+    /// 关闭启动器时由窗口记住。搜索过程中保持用户的折叠设置。
+    pub fn collapsed_groups(&self) -> &HashSet<GroupId> {
+        &self.collapsed_groups
+    }
+
+    /// 切换分组，并同步更新键盘可选的会话。
+    pub fn toggle_group(&mut self, id: GroupId) {
+        if !self.collapsed_groups.remove(&id) {
+            self.collapsed_groups.insert(id);
+        }
+        self.filter_snapshot();
     }
 
     // ---- 搜索与选中 ----

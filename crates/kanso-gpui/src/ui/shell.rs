@@ -17,8 +17,9 @@
 //! 主机密钥 / 密码提问的对话框由提示框模块负责，这里只留 TODO。
 
 use kanso_gpui::app::i18n::{label, t};
+use kanso_types::GroupId;
 use kanso_types::message::Message;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
@@ -141,6 +142,7 @@ pub(crate) struct ShellView {
     /// 会话启动器浮层（`ui/shell_launcher.rs`）。
     pub(super) launcher: Option<Entity<LauncherView>>,
     pub(super) launcher_sub: Option<Subscription>,
+    pub(super) collapsed_launcher_groups: HashSet<GroupId>,
     /// 会话编辑对话框。
     pub(super) editor: Option<Entity<SessionEditorView>>,
     pub(super) editor_sub: Option<Subscription>,
@@ -245,6 +247,7 @@ impl ShellView {
             shell_selftest: None,
             launcher: None,
             launcher_sub: None,
+            collapsed_launcher_groups: HashSet::new(),
             editor: None,
             editor_sub: None,
             prompt: None,
@@ -1285,8 +1288,8 @@ impl ShellView {
     }
 
     pub(super) fn new_tab_clicked(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        // ui-shell.md §2.1：＋ 按钮打开会话启动器（里面有「本地 Shell」）。
-        self.run_command(AppCommand::OpenLauncher, window, cx);
+        // ui-shell.md §2.1：＋ 直接打开新建会话，不再先经过启动器。
+        self.run_command(AppCommand::NewSession, window, cx);
     }
 
     /// 键盘焦点与核心的“有焦点”状态都跟随活动会话。
