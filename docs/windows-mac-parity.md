@@ -48,7 +48,7 @@ Mac 对照 `apple/Packages/TerminalKit/Sources/TerminalKit/`、`docs/spec/termin
 |---|---|---|
 | Shell 运行、窗口缩放、回滚/实时输出、清屏 | **VM 操作** CMD、PowerShell 输入命令及实际输出，**代码** ConPTY 尺寸来自活动分屏，清屏由 core 处理 | 跨 DPI 缩放过程中输入不丢字。长输出滚回、清屏后搜索、TUI 主/备用屏切换 |
 | ANSI 16/256/真彩、粗斜体、下划线、反色、dim、隐藏文字、宽字符和光标 | 终端实际预设进入 `render.rs`。**单测** ANSI/语义色保留、选区覆盖、隐藏字、dim 顺序、宽字符占位。**VM 操作** 明暗主题示例输出。浅色真实窗口与 Mac 实图按色块中心逐一取样，16 个 ANSI 色、真彩 #256BC1 及终端背景 #FBFBF8 全部精确一致 | 逐一目测渲染字体、组合字符/emoji、反白块光标及高 DPI 边框 |
-| 未显式设置 ANSI 前景的输出按类别上色。提示符路径标签 | 共享 `kanso-term/src/semantic.rs` 分词。`theme.rs` 按选择的预设取色，`ui/element.rs` 绘制 OSC 777 标签。**单测** 实际明暗预设、标签背景/边框、最低对比度。Mac/Windows 主题示例图见证据索引 | 多语言软换行、日志洪流、退出全屏后第一帧的着色和滚动帧率 |
+| 未显式设置 ANSI 前景的输出按类别上色。提示符路径标签 | 共享 `kanso-term/src/semantic.rs` 分词。`theme.rs` 按选择的预设取色，`ui/element.rs` 绘制 OSC 777 标签。Mac 自带的双行路径提示符由 zsh 集成产生。Windows 的 CMD 和 PowerShell 保留自身提示符，另上报工作目录。**单测** 实际明暗预设、标签背景/边框、最低对比度。Mac/Windows 主题示例图见证据索引 | 多语言软换行、日志洪流、退出全屏后第一帧的着色和滚动帧率 |
 | 编辑 → 在终端查找，大小写、正则、前/后匹配、关闭 | Ctrl+Shift+F、F3/Shift+F3。`app/find.rs` 与 `ui/find_bar.rs`。**VM 自检** `find-count`、`find-invalid-regex`、`find-close`。**单测** core 非法正则错误与明暗预设高亮色。当前、普通匹配与鼠标选区有独立优先级 | 中文输入查找、搜索跨回滚、用鼠标反复切换选项。当前匹配移出视口后回到命中行 |
 | 时间戳/行号栏的四种模式，底部按钮，AI 会话默认隐藏 | **VM 操作** 点击状态栏 Timeline 后同时出现毫秒时间和行号，同一临时数据重启仍显示。截图 `timeline.png`。**VM 自检** `gutter-on`、`gutter-off`。四种模式入口在会话菜单 | 每个单独模式在宽字符和软换行的对齐、以真实 AI 工具启动/退出 |
 | 命令分隔线、成功/失败标记、单击选块、跳上/下块，右键复制命令或输出 | `app/blocks.rs`、`ui/view.rs`、`app/menus.rs`。**单测** 块命中、滚动裁剪、失败条、选择状态与右键条件。终端自检里的 block-jump 仅记探测信息 | 具备 OSC 133 提示符的实际 shell 完成成功/失败命令，确认点击、跳转和两种复制内容 |
@@ -60,7 +60,7 @@ Mac 对照 `apple/Packages/TerminalKit/Sources/TerminalKit/`、`docs/spec/termin
 | 跟踪 CWD、命令活动、退出/重连、AI CLI 轮次 | 终端 OSC/输入跟踪由 `kanso-term/src/track/` 与 core 提供。标签状态、Sender 和目录定位消费同一状态。**单测/代码** | 本地 CMD/PowerShell、SSH 的 OSC 7 与主机名，AI 多轮、后台完成提示、SSH 断线重连分别验证 |
 | 底部 Filer/时间轴按钮、CWD、会话状态、旧 SSH 算法提示、时钟和 Sender 运行提示 | `ui/status_bar.rs`、`app/status_bar.rs`。**VM 操作** Filer/时间轴与时钟可见，**单测** 本地时钟分钟边界、路径尾部截断、Legacy SSH 多跳、无活动会话 | 实际连接中/关闭/重连，运行中收起 Sender、悬停 legacy 算法清单。窄窗通知不遮必要按钮 |
 | 选择会话编码/locale、收发时转码 | 编辑器 `ui/session_editor.rs` 的编码列表，进入共用核心。终端协议传输单独接管原始字节。**代码** | 支持列表的代表性多字节编码在 SSH 双向输入/输出，分片字符及不可编码键入 |
-| ZMODEM 自动收发、XMODEM 128 字节/1K 发送和接收，进度、取消 | 会话 → 文件传输，`app/term_transfer.rs`、`ui/shell_filer.rs`。**各平台互操作测试** Mac 上真实 lrzsz 0.12.20 与 Windows VM 上独立 MSYS2 lrzsz 0.13.1 各 8/8，通过双向协议端，见证据索引 | Windows 程序实际连到协议端：系统选择器、接管输入、取消后终端恢复、传输时清屏/切标签 |
+| ZMODEM 自动收发、XMODEM 128 字节/1K 发送和接收，进度、取消 | 会话 → 文件传输，`app/term_transfer.rs`、`ui/shell_filer.rs`。**各平台互操作测试** Mac 上真实 lrzsz 0.12.20 与 Windows VM 上独立 MSYS2 lrzsz 0.13.1 各 8/8，通过双向协议端，见证据索引。**VM 操作** 原生“另存为”接收 ZMODEM 100003 字节，哈希一致；手动 XMODEM 接收原文一致，末块含 93 字节协议填充。8 MiB 在途接收时切标签和清屏均不终止传输。取消后屏幕无残留数据，对端确认取消，第一条无换行提示符与下一条输入均可用 | 复查其他协议实现的不同收尾行为 |
 
 ## 文件浏览器、Git 与远程编辑
 
@@ -119,7 +119,7 @@ Mac 基准为 `apple/Kanso/App/Settings/`。Windows 设置为独立窗口。`ui/
 
 ## 验证入口与复查材料
 
-- 仓库可重复运行 `cargo test -p kanso-gpui --lib`，其中 `render::tests::terminal_preset_search_colors_match_mac` 检查两套内置配色，`render::tests::dim_uses_final_colors_and_chip_runs_follow_cells` 检查输出和提示符色块，`app::tab::tests::click_preview_move_back_and_group_boundaries` 检查同组拖动边界。非法正则的独立 PTY 校验是 `crates/kanso-core/tests/real_core.rs::selection_search_and_timestamp_mode_delegate_to_the_terminal`。本轮 Mac 上的 GPUI 库测试共 602 项通过。
+- 仓库可重复运行 `cargo test -p kanso-gpui --lib`，其中 `render::tests::terminal_preset_search_colors_match_mac` 检查两套内置配色，`render::tests::dim_uses_final_colors_and_chip_runs_follow_cells` 检查输出和提示符色块，`app::tab::tests::click_preview_move_back_and_group_boundaries` 检查同组拖动边界。非法正则的独立 PTY 校验是 `crates/kanso-core/tests/real_core.rs::selection_search_and_timestamp_mode_delegate_to_the_terminal`。最终提交的 Mac GPUI 库测试共 603 项通过，Windows 的 602 项 GPUI 和 16 项会话库测试通过。长路径窄分屏自检按终端逻辑行统计命令回显。
 - Windows 自检入口位于 `crates/kanso-gpui/src/ui/`。主外壳、终端、Filer、Sender、设置五套报告均有通过记录，增加的远程编辑自检另计。复查时给应用传单独的 `--data-dir`，使用临时 HOME 和专用 SSH fixture，不接触用户凭据、剪贴板或会话。
 - 本轮联调机器的临时材料在 `/tmp/kanso-polish/`。Mac 的 `theme-proofs/mac-terminal-{light,dark,ocean}.png`、`mac-semantic-{light,dark}.png` 和 Windows 的 `r3-screens/windows-ocean.jpg`、`lt-find.png` 用于外观对照。`vmqa/proof/` 保存 SFTP、OpenSSH、导出/导入实拍，`vmqa/proof4/lt-virtual-filer.jpg` 为 SSH 辅助 Filer。Mac 与 Windows 协议互操作的逐项结果见 `vmqa/lrzsz.log` 与 `vmqa/windows-protocol-lrzsz-0.13.1.log`。
 - 逐项操作 Windows 的原图保存在 `/tmp/kanso-polish/windows-parity/`。文件搜索与选中见 `file-results.png`、`file-revealed.png`，改键与恢复见 `key-conflict.png`、`session-menu.png`、`binding-reopen.png`、`key-reset.png`，侧栏拖动见 `tabs-before.png`、`tabs-after.png`、`panel-size.png`，新进程的显示设置见 `display-reopen.png`。Windows 浅色真实终端见 `windows-light-ansi.png`、与 Mac 逐色核对的原始 RGB 见 `light-color-check.txt`。
