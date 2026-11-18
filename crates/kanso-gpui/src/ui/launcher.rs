@@ -757,7 +757,7 @@ impl Render for LauncherView {
                                     cx.emit(LauncherEvent::CustomizeShell);
                                 }),
                             )
-                            .child(icon("settings", 16.0, th.c("text.secondary"))),
+                            .child(icon("sliders-horizontal", 16.0, th.c("text.secondary"))),
                     ),
             )
             .child(self.render_action_row(

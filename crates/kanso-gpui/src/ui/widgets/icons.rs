@@ -36,6 +36,9 @@ impl AssetSource for Icons {
             "icons/underline.svg" => include_bytes!("../../../assets/icons/underline.svg"),
             "icons/x.svg" => include_bytes!("../../../assets/icons/x.svg"),
             "icons/settings.svg" => include_bytes!("../../../assets/icons/settings.svg"),
+            "icons/sliders-horizontal.svg" => {
+                include_bytes!("../../../assets/icons/sliders-horizontal.svg")
+            }
             "icons/file.svg" => include_bytes!("../../../assets/icons/file.svg"),
             "icons/folder-plus.svg" => include_bytes!("../../../assets/icons/folder-plus.svg"),
             "icons/file-plus.svg" => include_bytes!("../../../assets/icons/file-plus.svg"),
