@@ -153,3 +153,7 @@ Bundle ID 已定：Direct 与 MAS 为 `com.chhuax.kanso`，Setapp 为 `com.chhua
   （不自动关窗，关闭确认等是 T10）。应用退出时调用 `KansoCore.shutdown`（杀 shell、等读写线程，最多约 3 秒）。
   `MockFrameSource`（TerminalKit）仍保留给渲染器测试。
 - **输入**：键盘、IME、鼠标、滚轮由 `TerminalView` 转成 `TerminalInputSink` 事件（T9b，类型与 `kanso-types/src/input.rs` 一一对应）；App 通过 `CoreInputSink` 映射到 `KansoCore.key / textInput / mouse / scroll / focus`（Debug 构建中间多一层 `LoggingInputSink`：先把事件写入 `os_log` 再转发给 core，供 IME 人工验收观察；Release 不经过它）。选区与菜单由 T4c / T10 实现。人工验收见 `docs/ime-test-checklist.md`。
+
+## 自动发布
+
+推送 `v*` 标签后，`.github/workflows/release.yml` 会在 `macos-15` 上构建 arm64 与 x86_64 两个 DMG，连同 `.sha256` 一起上传到同名 Release 草稿。Windows 安装包也会传到同一个 Release 草稿。详见 [Windows 发行包](windows-release.md#自动发布)。

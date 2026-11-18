@@ -1,0 +1,118 @@
+name: Release
+
+# 推送 v* 标签时自动打包并上传到同名 GitHub Release（草稿）：
+# - Windows：GitHub 的 Windows 机器上 `cargo xtask win-package`，生成安装程序和免安装 ZIP。
+# - macOS：arm64 机器上 `cargo xtask dmg`，生成 arm64 与 x86_64 两个 DMG（临时签名、未公证）。
+# 全部上传完成后在 Release 页面检查草稿，再点发布。
+on:
+  push:
+    tags: ["v*"]
+  # 改动打包相关文件的 PR 只试打包，不建 Release、不上传。
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - "xtask/src/windows.rs"
+      - "xtask/src/apple.rs"
+      - "packaging/windows/**"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要构建并上传的已有标签（如 v1.0.2）"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ github.event.inputs.tag || (github.event_name == 'pull_request' && 'pr-dry-run') || github.ref_name }}
+  PUBLISH: ${{ github.event_name != 'pull_request' }}
+  GH_TOKEN: ${{ github.token }}
+  # 与 App 的最低系统版本一致（同 ci.yml）。
+  MACOSX_DEPLOYMENT_TARGET: "14.0"
+
+jobs:
+  # 先核对版本、建好草稿 Release，避免几个打包任务同时去建。
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.sha || env.TAG }}
+      - name: Check tag matches workspace version
+        if: env.PUBLISH == 'true'
+        run: |
+          version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          if [ "v$version" != "$TAG" ]; then
+            echo "标签 $TAG 与工作区版本 $version 不一致" >&2
+            exit 1
+          fi
+      - name: Create draft release
+        if: env.PUBLISH == 'true'
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --draft --verify-tag --title "Kanso ${TAG#v}" \
+              --notes "macOS DMG 为临时签名、未公证；Windows 安装包未签名。安装包由 CI 构建。"
+          fi
+
+  windows:
+    needs: prepare
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.sha || env.TAG }}
+      - name: Install Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: Install NSIS
+        run: choco install nsis -y --no-progress
+      - name: Build installer and portable ZIP
+        env:
+          # 找不到 rc.exe 时直接失败，不发没有图标与版本信息的 exe。
+          KANSO_REQUIRE_RESOURCES: "1"
+        run: cargo xtask win-package
+      - name: Upload to GitHub Release
+        if: env.PUBLISH == 'true'
+        shell: bash
+        run: |
+          cd target/win-package
+          files=(Kanso-*-x64-setup.exe Kanso-*-x64-setup.exe.sha256 Kanso-*-x64-portable.zip Kanso-*-x64-portable.zip.sha256)
+          for f in "${files[@]}"; do [ -f "$f" ] || { echo "缺少 $f" >&2; exit 1; }; done
+          gh release upload "$TAG" "${files[@]}" --clobber
+
+  macos:
+    needs: prepare
+    runs-on: macos-15
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        # arm64 机器上用 Xcode 交叉编译 x86_64（与本地 `cargo xtask dmg --arch x86_64` 相同）。
+        arch: [arm64, x86_64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.sha || env.TAG }}
+      - name: Install Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: dmg-${{ matrix.arch }}
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Build DMG
+        run: cargo xtask dmg --arch ${{ matrix.arch }}
+      - name: Write SHA-256
+        run: |
+          cd target/dist
+          for f in Kanso-*-macOS-${{ matrix.arch }}.dmg; do shasum -a 256 "$f" > "$f.sha256"; cat "$f.sha256"; done
+      - name: Upload to GitHub Release
+        if: env.PUBLISH == 'true'
+        run: |
+          cd target/dist
+          gh release upload "$TAG" Kanso-*-macOS-${{ matrix.arch }}.dmg Kanso-*-macOS-${{ matrix.arch }}.dmg.sha256 --clobber
