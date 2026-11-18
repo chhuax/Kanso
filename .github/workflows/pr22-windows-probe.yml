@@ -22,11 +22,12 @@ jobs:
         run: |
           cargo test --locked -p kanso-session --test local_session_windows --no-run
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          foreach ($mode in 'plain', 'no-history', 'report', 'pwsh') {
-            Write-Host "::group::$mode"
-            $env:KANSO_PTY_PROBE = $mode
-            cargo test --locked -p kanso-session --test local_session_windows -- --nocapture --test-threads=1
-            Write-Host "$mode exit=$LASTEXITCODE"
+          $env:KANSO_PTY_PROBE = 'timeout'
+          foreach ($attempt in 1..3) {
+            Write-Host "::group::Concurrent original scenarios, attempt $attempt"
+            cargo test --locked -p kanso-session --test local_session_windows -- --nocapture --test-threads=4
+            $result = $LASTEXITCODE
+            Write-Host "attempt $attempt exit=$result"
             Write-Host '::endgroup::'
+            if ($result -ne 0) { exit $result }
           }
-          exit 0
