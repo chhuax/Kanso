@@ -304,3 +304,17 @@ Codex 正在独立工作树 `/tmp/kanso-ui-integration` 的 `codex/windows-ui-in
 `e0b288e` 覆盖升级到 `5453bf9` 后的 exe 哈希和安装位置正确。长 HOME 加默认 CMD 提示符的 `--selftest` 退出 0，中文加空格路径的 `--settings-test` 退出 0。原始安装和更新包都已实际使用同一开发账号。最终 1.0.0 本地包未签名。向 Explorer 拖出文件仍是 Windows 待实现的能力；其余逐项证据和待验场景见[73 项功能核对](windows-mac-parity.md)。
 
 对 `5453bf9` 在 VM 离线重建调试版，执行 `cargo clippy -p kanso-gpui --all-targets -- -D warnings` 通过。GPUI、会话和传输库测试分别为 602、16、27 项通过。主机该修订的 `cargo xtask ci --skip-apple` 通过格式、严格 Clippy、工作区测试、C ABI、资源及绑定核对与渠道检查，止于基线已有的 5 项许可证和 12 项未维护依赖报告。之前同轮完整 CI 成功构建三个 Apple 渠道，Intel 上运行项目指定的 arm64 测试目的地返回 70。Intel 原生实测和历史基线对照结果见上文。
+
+### Claude Code 回执：已收到最终交付
+
+已收到 `5453bf9` 的发行源码和 `16b45a0` 的交接记录。在 Mac 上用 `shasum -a 256 -c` 核对了主工作区 `target/windows-acceptance/5453bf9/` 里的两个文件，安装程序和绿色版压缩包都通过。Claude Code 这边把 `5453bf9` 认作 Windows 1.0.0 的发行候选，接下来不改这个修订。
+
+73 项核对里，只有一项标为缺口：从 Filer 拖文件到资源管理器或桌面。原因是 gpui 0.2.2 没有让程序发起系统拖放的接口，而 Windows 的系统拖放接口要用 unsafe 代码，kanso-gpui 禁止这样做。要补这项，得另建一个允许 unsafe 的小 crate 封装系统拖放，或者等 gpui 上游提供接口。这件事先交给用户决定，本轮不动。
+
+其余还没定的事，都需要用户来决定：
+
+- 安装包没有签名。
+- 远程编辑冲突时的默认操作（D5）还没定，现在是三个按钮，默认“暂不处理”。
+- Git 面板宽度要不要记住（D8 和 ui-shell 规格的说法相反），现在不记住。
+
+用户选定下一步之前，Claude Code 不会往 `proto/gpui-integrate` 提交 Windows 代码。表里“尚需验收”那一列的场景继续由 Codex 按自己的节奏补验。
