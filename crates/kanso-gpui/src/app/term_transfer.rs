@@ -227,7 +227,11 @@ impl TermTransfers {
             TransferDirection::Upload => msg(Message::UiXferSend {}),
             TransferDirection::Download => msg(Message::UiXferReceive {}),
         };
-        let title = format!("{} {} {}", protocol_name(i.protocol), verb, i.name);
+        let mut title = format!("{} {verb}", protocol_name(i.protocol));
+        if !i.name.is_empty() {
+            title.push(' ');
+            title.push_str(&i.name);
+        }
         if let Some((kind, at, text)) = &i.finished {
             let linger = if *kind == BarFinish::Failed {
                 FAIL_LINGER_MS
@@ -379,6 +383,15 @@ mod tests {
             "x",
             None
         ));
+        m.on_started(
+            tid(2),
+            sid(1),
+            XferProtocol::Zmodem,
+            TransferDirection::Download,
+            "",
+            None,
+        );
+        assert_eq!(m.bar(sid(1), 0).unwrap().title, "ZMODEM 接收");
         assert!(m.on_started(
             tid(2),
             sid(1),

@@ -199,7 +199,7 @@ impl TerminalTransfer {
             } else {
                 TransferDirection::Download
             },
-            name: "XMODEM".into(),
+            name: String::new(),
             total_bytes: None,
         });
         drop(state);
@@ -302,7 +302,7 @@ impl TerminalTransfer {
                 } else {
                     TransferDirection::Upload
                 },
-                name: "ZMODEM".into(),
+                name: String::new(),
                 total_bytes: None,
             });
             if direction == Handshake::Receive {
