@@ -15,10 +15,10 @@ use kanso_gpui::app::data_transfer::{
     export_default_name, export_done_spec, failure_spec, import_confirm_spec, import_confirmed,
     import_result, import_result_spec, with_extension,
 };
-use kanso_gpui::app::i18n::label;
+use kanso_gpui::app::i18n::{label, t};
 use kanso_gpui::app::launcher::core_error_text;
 use kanso_gpui::app::shortcuts::{AppCommand, shortcut_text};
-use kanso_gpui::widgets::dialog::{DialogResult, DialogSpec};
+use kanso_gpui::widgets::dialog::{ButtonSpec, DialogResult, DialogSpec};
 use kanso_gpui::widgets::style::number;
 
 use super::shell::{ShellView, Theme, unix_ms};
@@ -30,6 +30,8 @@ use super::{log, tz};
 pub(crate) enum PendingData {
     /// 只有"好"的提示。
     Info,
+    /// 关于窗口允许打开项目源码。
+    About,
     /// 导入前的确认，携带要导入的文件。
     ImportConfirm(PathBuf),
 }
@@ -74,6 +76,9 @@ impl ShellView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if matches!(pending, PendingData::About) && r.button.as_deref() == Some("source") {
+            cx.open_url("https://github.com/chhuax/Kanso");
+        }
         match pending {
             PendingData::ImportConfirm(path) if import_confirmed(r) => {
                 self.run_import(path, window, cx)
@@ -82,6 +87,46 @@ impl ShellView {
                 self.sync_focus(window, cx);
                 cx.notify();
             }
+        }
+    }
+
+    /// 显示和发行包一致的版本、项目许可和源码入口。
+    pub(super) fn show_about(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let spec = DialogSpec::new(label(Message::UiAboutKanso {}))
+            .text(&t(&Message::UiAboutVersion {
+                version: env!("CARGO_PKG_VERSION").into(),
+            }))
+            .text(label(Message::UiAboutLicense {}))
+            .button(ButtonSpec::secondary(
+                "source",
+                label(Message::UiOpenSourceCode {}),
+            ))
+            .button(ButtonSpec::primary("ok", label(Message::UiOk {})).cancel());
+        self.show_data_dialog(spec, PendingData::About, window, cx);
+    }
+
+    /// 用 Windows 记事本打开本发行版的第三方声明，避免依赖 Markdown 文件关联。
+    pub(super) fn open_licenses(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        const NAME: &str = "THIRD_PARTY_NOTICES.windows.md";
+        let result = std::env::current_exe().and_then(|exe| {
+            let path = exe.with_file_name(NAME);
+            #[cfg(debug_assertions)]
+            let path = if path.is_file() {
+                path
+            } else {
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../..")
+                    .join(NAME)
+            };
+            std::fs::metadata(&path)?;
+            std::process::Command::new("notepad.exe").arg(path).spawn()
+        });
+        if let Err(error) = result {
+            let reason = t(&Message::UiFilerOpenFailed {
+                dest: NAME.into(),
+                why: error.to_string(),
+            });
+            self.show_data_dialog(failure_spec(&reason), PendingData::Info, window, cx);
         }
     }
 

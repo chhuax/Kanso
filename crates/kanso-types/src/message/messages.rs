@@ -1295,6 +1295,18 @@ messages! {
     UiKeysRestoreAll = "ui-keys-restore-all" {},
     /// GPUI 界面文字：ui-keys-customized
     UiKeysCustomized = "ui-keys-customized" {},
+    /// 应用菜单的帮助分组。
+    UiHelpMenu = "ui-help-menu" {},
+    /// 关于窗口和菜单的标题。
+    UiAboutKanso = "ui-about-kanso" {},
+    /// 当前软件版本。
+    UiAboutVersion = "ui-about-version" { version: String },
+    /// 关于窗口显示项目许可。
+    UiAboutLicense = "ui-about-license" {},
+    /// 关于窗口打开项目源码。
+    UiOpenSourceCode = "ui-open-source-code" {},
+    /// 打开第三方许可正文。
+    UiOpenLicenses = "ui-open-licenses" {},
     /// GPUI 界面文字：ui-reset-menu
     UiResetMenu = "ui-reset-menu" {},
     /// GPUI 界面文字：ui-reset-title

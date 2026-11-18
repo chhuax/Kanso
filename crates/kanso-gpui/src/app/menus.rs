@@ -72,6 +72,8 @@ pub fn encode(command: AppCommand) -> String {
         AppCommand::XmodemSend1K => "xmodem-send-1k".into(),
         AppCommand::XmodemReceive => "xmodem-receive".into(),
         AppCommand::CancelTerminalTransfer => "cancel-terminal-transfer".into(),
+        AppCommand::About => "about".into(),
+        AppCommand::OpenLicenses => "open-licenses".into(),
         AppCommand::ResetSettings => "reset-settings".into(),
     }
 }
@@ -163,6 +165,8 @@ pub fn decode(id: &str) -> Option<AppCommand> {
         "xmodem-send-1k" => AppCommand::XmodemSend1K,
         "xmodem-receive" => AppCommand::XmodemReceive,
         "cancel-terminal-transfer" => AppCommand::CancelTerminalTransfer,
+        "about" => AppCommand::About,
+        "open-licenses" => AppCommand::OpenLicenses,
         "reset-settings" => AppCommand::ResetSettings,
         _ => return None,
     })
@@ -445,7 +449,15 @@ pub fn app_menu(state: AppMenuState) -> Vec<MenuItem> {
         ),
         MenuItem::separator(),
         item(label(Message::UiSettings2 {}), AppCommand::OpenSettings),
-        item(label(Message::UiResetMenu {}), AppCommand::ResetSettings),
+        MenuItem::submenu(
+            label(Message::UiHelpMenu {}),
+            vec![
+                item(label(Message::UiAboutKanso {}), AppCommand::About),
+                item(label(Message::UiOpenLicenses {}), AppCommand::OpenLicenses),
+                MenuItem::separator(),
+                item(label(Message::UiResetMenu {}), AppCommand::ResetSettings),
+            ],
+        ),
         item(label(Message::UiQuit {}), AppCommand::Quit),
     ]
 }
@@ -689,6 +701,8 @@ mod tests {
             "toggle-sender",
             "toggle-command-suggestions",
             "clear-command-history",
+            "about",
+            "open-licenses",
             "reset-settings",
             "quit",
         ] {

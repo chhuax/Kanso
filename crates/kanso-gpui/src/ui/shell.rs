@@ -652,6 +652,8 @@ impl ShellView {
                     let _ = handle.update(cx, |settings, _, cx| settings.select_page(page, cx));
                 }
             }
+            AppCommand::About => self.show_about(window, cx),
+            AppCommand::OpenLicenses => self.open_licenses(window, cx),
             AppCommand::ResetSettings => self.request_reset_settings(window, cx),
             AppCommand::ToggleSender => self.toggle_sender(window, cx),
             AppCommand::ToggleCommandSuggestions => self.toggle_completion(window, cx),

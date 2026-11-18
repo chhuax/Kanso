@@ -117,6 +117,10 @@ pub enum AppCommand {
     XmodemReceive,
     /// 取消活动会话正在进行的终端内传输（ZMODEM / XMODEM）。
     CancelTerminalTransfer,
+    /// 关于 Kanso。
+    About,
+    /// 阅读随 Windows 发行包提供的第三方声明。
+    OpenLicenses,
     /// 恢复默认设置（先确认；帮助菜单项，不绑定快捷键）。
     ResetSettings,
 }
