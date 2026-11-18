@@ -154,9 +154,8 @@ fn icon_button(
 
 impl GitPanelView {
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let input = cx.new(|cx| {
-            TextInput::new(window, cx).placeholder(msg(Message::UiGitCommitPlaceholder {}))
-        });
+        let input =
+            cx.new(|cx| TextInput::new(window, cx).placeholder(Message::UiGitCommitPlaceholder {}));
         let sub = cx.subscribe_in(
             &input,
             window,

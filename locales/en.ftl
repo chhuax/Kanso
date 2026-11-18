@@ -675,7 +675,7 @@ ui-search-fonts = Search fonts
 
 ui-search-monospaced-fonts = Search monospaced fonts
 
-ui-system-default-or-type-font = System default; or type a font name
+ui-system-default-or-type-font = System default or font name
 
 ui-lines = { $lines } lines
 ## Filer 与文件传输（GPUI，自动生成区块，改动请编辑生成脚本的清单）
