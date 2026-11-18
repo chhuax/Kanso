@@ -178,9 +178,9 @@ pub const DEFAULT_BINDINGS: &[Binding] = &[
     b(true, false, true, "a", AppCommand::SelectAll),
     // 标签
     b(true, false, true, "t", AppCommand::NewLocalTab),
-    // 规格没有给启动器单独的键；Ctrl+Shift+O 与 Ctrl+Shift+T / W 同属「会话」组。
+    // 会话启动器没有默认快捷键，从命令面板或标签栏空白处右键打开。
+    // Alt+Enter 留给终端（kanso-term 会把它编码后发给 shell）。
     b(true, false, true, "p", AppCommand::OpenPalette),
-    b(true, false, true, "o", AppCommand::OpenLauncher),
     b(false, true, false, "n", AppCommand::NewSession),
     b(true, false, true, "w", AppCommand::CloseSession),
     b(false, true, false, "]", AppCommand::NextTab),
@@ -280,10 +280,7 @@ mod tests {
             Some(AppCommand::SelectTab(8))
         );
         assert_eq!(press("n", false, true, false), Some(AppCommand::NewSession));
-        assert_eq!(
-            press("o", true, false, true),
-            Some(AppCommand::OpenLauncher)
-        );
+        assert_eq!(press("enter", false, true, false), None);
         assert_eq!(press("tab", true, false, false), Some(AppCommand::NextTab));
         assert_eq!(press("tab", true, false, true), Some(AppCommand::PrevTab));
     }

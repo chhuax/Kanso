@@ -37,13 +37,14 @@ impl ShellView {
 
     // ---- 启动器 ----
 
-    /// 打开会话启动器（＋ 按钮、Ctrl+Shift+O）。
+    /// 打开会话启动器（空白处右键、命令面板）。
     pub(super) fn open_launcher(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.modal_open() {
             return;
         }
         let core = self.core.clone();
-        let launcher = cx.new(|cx| LauncherView::new(core, window, cx));
+        let collapsed = self.collapsed_launcher_groups.clone();
+        let launcher = cx.new(|cx| LauncherView::new(core, collapsed, window, cx));
         self.launcher_sub = Some(cx.subscribe_in(
             &launcher,
             window,
@@ -57,7 +58,9 @@ impl ShellView {
     }
 
     fn close_launcher(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.launcher = None;
+        if let Some(launcher) = self.launcher.take() {
+            self.collapsed_launcher_groups = launcher.read(cx).collapsed_groups().clone();
+        }
         self.launcher_sub = None;
         self.sync_focus(window, cx);
         cx.notify();

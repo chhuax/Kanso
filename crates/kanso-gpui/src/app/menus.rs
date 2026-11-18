@@ -303,6 +303,10 @@ pub fn app_menu(state: AppMenuState) -> Vec<MenuItem> {
         MenuItem::submenu(
             label(Message::UiSession {}),
             vec![
+                item(
+                    label(Message::UiKeysCmdOpenLauncher {}),
+                    AppCommand::OpenLauncher,
+                ),
                 item(label(Message::UiNewSession2 {}), AppCommand::NewSession),
                 item(label(Message::UiNewLocalShell {}), AppCommand::NewLocalTab),
                 MenuItem::separator(),
@@ -677,6 +681,7 @@ mod tests {
         });
         let flat = all(&items);
         for want in [
+            "open-launcher",
             "new-session",
             "gutter:timestamps",
             "appearance:system",

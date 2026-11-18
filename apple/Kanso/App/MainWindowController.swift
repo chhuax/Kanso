@@ -610,6 +610,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         controller.perform { try controller.openLocalShell() }
     }
 
+    @objc func kansoOpenLauncher(_ sender: Any?) {
+        (sidebarItem.viewController as? TabSidebarViewController)?.showSessionLauncher()
+    }
+
     @objc func kansoNewSession(_ sender: Any?) {
         controller.sessions.presentEditor(editing: nil)
     }

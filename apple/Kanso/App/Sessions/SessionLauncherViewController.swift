@@ -50,7 +50,7 @@ final class SessionLauncherViewController: NSViewController, NSTextFieldDelegate
 
     private let newShellRow = LauncherActionRow(title: String(localized: "Local Shell"), symbol: "terminal")
     private let newSessionRow = LauncherActionRow(title: String(localized: "New Session…"), symbol: "plus")
-    private let settingsButton = KButton(symbol: "gearshape", style: .icon)
+    private let settingsButton = KButton(symbol: "slider.horizontal.3", style: .icon)
     let searchField = SidebarFilterField()
     private let savedHeader = LauncherHeaderView(title: String(localized: "Saved Sessions"))
     private let tableView = NSTableView()
@@ -83,7 +83,7 @@ final class SessionLauncherViewController: NSViewController, NSTextFieldDelegate
         searchField.textField.delegate = self
         searchField.onClear = { [weak self] in
             self?.model.query = ""
-            self?.rebuild()
+            self?.rebuild(revealSelection: false)
         }
 
         savedHeader.onMenu = { [weak self] anchor in self?.showSavedMenu(from: anchor) }
@@ -150,7 +150,7 @@ final class SessionLauncherViewController: NSViewController, NSTextFieldDelegate
     // MARK: - 数据
 
     /// 按模型重建列表项并刷新表格，同时按内容重新计算面板高度。
-    private func rebuild() {
+    private func rebuild(revealSelection: Bool = true) {
         items = model.sections.flatMap { section -> [Item] in
             (section.group.map { [Item.header($0)] } ?? []) + section.profiles.map { Item.profile($0) }
         }
@@ -160,7 +160,7 @@ final class SessionLauncherViewController: NSViewController, NSTextFieldDelegate
             ? String(localized: "No matching sessions")
             : String(localized: "No saved sessions yet. Choose “New Session…” to add one.")
         updatePreferredSize()
-        scrollToSelection()
+        if revealSelection { scrollToSelection() }
     }
 
     /// 面板高度 = 固定头部 + 列表内容（有上限，超出滚动）+ 底部留白。
@@ -193,15 +193,21 @@ final class SessionLauncherViewController: NSViewController, NSTextFieldDelegate
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         switch items[row] {
         case .header(let group):
-            let view = LauncherHeaderView(title: group.name)
+            let collapsed = model.isSearching ? nil : model.collapsedGroupIDs.contains(group.id)
+            let view = LauncherHeaderView(title: group.name, collapsed: collapsed)
+            view.onToggle = { [weak self] in
+                guard let self else { return }
+                model.toggleGroup(group.id)
+                rebuild(revealSelection: false)
+            }
             view.onMenu = { [weak self] anchor in self?.showGroupMenu(group, from: anchor) }
             return view
         case .profile(let profile):
             let view = LauncherProfileRowView(profile: profile)
             view.isSelected = profile.id == model.selectedID
             view.onClick = { [weak self] in self?.actions.connect(profile.id) }
-            view.onEdit = { [weak self] in self?.actions.edit(profile) }
             view.onMenu = { [weak self] anchor in self?.showProfileMenu(profile, from: anchor) }
+            view.onContextMenu = { [weak self] anchor in self?.showProfileMenu(profile, from: anchor) }
             return view
         }
     }
@@ -233,7 +239,6 @@ final class SessionLauncherViewController: NSViewController, NSTextFieldDelegate
 
     private func showProfileMenu(_ profile: FfiProfile, from anchor: NSView) {
         let menu = NSMenu()
-        menu.addItem(ActionMenuItem(String(localized: "Connect")) { [weak self] in self?.actions.connect(profile.id) })
         menu.addItem(ActionMenuItem(String(localized: "Edit")) { [weak self] in self?.actions.edit(profile) })
         let moveItem = NSMenuItem(title: String(localized: "Move to Group"), action: nil, keyEquivalent: "")
         let moveMenu = NSMenu()
@@ -326,7 +331,8 @@ final class SessionLauncherViewController: NSViewController, NSTextFieldDelegate
 
     func controlTextDidChange(_ obj: Notification) {
         model.query = searchField.stringValue
-        rebuild()
+        // 改搜索词会换一批结果。保持当前滚动位置，只有 ↑↓ 改选中时才滚到那一行。
+        rebuild(revealSelection: false)
     }
 
     /// 上下键移动选中、回车连接、Esc 关闭。
@@ -361,11 +367,17 @@ private final class LauncherRootView: NSView {
     }
 }
 
+/// 高亮块只负责绘制，不参与命中测试，点击落到行上。
+@MainActor
+private final class HoverHighlightView: StyledBoxView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 /// 悬停时整行浅色高亮的行（无分隔线，visual-style §3.4）。高亮是行内缩进 6pt 的圆角块，
 /// 不贴着面板边缘，和面板圆角协调；键盘选中与鼠标悬停用同一种高亮。
 @MainActor
 class LauncherHoverRow: NSView {
-    private let highlight = StyledBoxView()
+    private let highlight = HoverHighlightView()
     private(set) var isHovered = false
 
     var isSelected = false {
@@ -457,12 +469,15 @@ final class LauncherActionRow: LauncherHoverRow {
 @MainActor
 final class LauncherHeaderView: NSView {
     var onMenu: ((NSView) -> Void)?
+    var onToggle: (() -> Void)?
+    private let disclosureButton: KButton?
     private let label: NSTextField
     private let menuButton = KButton(symbol: "ellipsis", style: .icon)
 
     override var isFlipped: Bool { true }
 
-    init(title: String) {
+    init(title: String, collapsed: Bool? = nil) {
+        disclosureButton = collapsed.map { KButton(symbol: $0 ? "chevron.right" : "chevron.down", style: .icon) }
         label = NSTextField(labelWithString: title)
         super.init(frame: .zero)
         label.font = .systemFont(ofSize: 12)
@@ -472,6 +487,13 @@ final class LauncherHeaderView: NSView {
         menuButton.onPress = { [weak self] in
             guard let self else { return }
             onMenu?(menuButton)
+        }
+        if let disclosureButton, let collapsed {
+            let action = collapsed ? String(localized: "Expand Group") : String(localized: "Collapse Group")
+            disclosureButton.toolTip = action
+            disclosureButton.setAccessibilityLabel("\(action) · \(title)")
+            disclosureButton.onPress = { [weak self] in self?.onToggle?() }
+            addSubview(disclosureButton)
         }
         addSubview(label)
         addSubview(menuButton)
@@ -484,24 +506,25 @@ final class LauncherHeaderView: NSView {
         super.layout()
         let inset = LauncherHoverRow.contentInset - 2
         menuButton.frame = NSRect(x: bounds.width - inset - 24, y: (bounds.height - 24) / 2, width: 24, height: 24)
+        disclosureButton?.frame = NSRect(x: inset, y: (bounds.height - 24) / 2, width: 24, height: 24)
+        let labelX = disclosureButton?.frame.maxX ?? inset
         let h = ceil(label.intrinsicContentSize.height)
-        label.frame = NSRect(x: inset, y: (bounds.height - h) / 2,
-                             width: max(0, menuButton.frame.minX - inset - DesignTokens.Spacing.xs), height: h)
+        label.frame = NSRect(x: labelX, y: (bounds.height - h) / 2,
+                             width: max(0, menuButton.frame.minX - labelX - DesignTokens.Spacing.xs), height: h)
     }
 }
 
-/// 会话行：小方块色点、名称、`user@host:port`；启动器里右侧铅笔与"…"一直显示，命令面板可关掉按钮。
-/// 单击整行 = 连接 / 打开。
+/// 会话行：小方块色点、名称、`user@host:port`。启动器右侧只留「…」；命令面板可关掉按钮。
+/// 单击整行连接。右键与「…」打开同一份菜单。
 @MainActor
 final class LauncherProfileRowView: LauncherHoverRow {
     var onClick: (() -> Void)?
-    var onEdit: (() -> Void)?
     var onMenu: ((NSView) -> Void)?
+    var onContextMenu: ((NSView) -> Void)?
 
     private let swatch = ColorSquareView()
     private let titleLabel = PassthroughLabel(labelWithString: "")
     private let subtitleLabel = PassthroughLabel(labelWithString: "")
-    private let editButton = KButton(symbol: "pencil", style: .icon)
     private let menuButton = KButton(symbol: "ellipsis", style: .icon)
     private let showsAccessoryButtons: Bool
 
@@ -519,14 +542,12 @@ final class LauncherProfileRowView: LauncherHoverRow {
         subtitleLabel.lineBreakMode = .byTruncatingMiddle
         var views: [NSView] = [swatch, titleLabel, subtitleLabel]
         if showsAccessoryButtons {
-            editButton.toolTip = String(localized: "Edit")
-            editButton.onPress = { [weak self] in self?.onEdit?() }
             menuButton.toolTip = String(localized: "More")
             menuButton.onPress = { [weak self] in
                 guard let self else { return }
                 onMenu?(menuButton)
             }
-            views.append(contentsOf: [editButton, menuButton])
+            views.append(menuButton)
         }
         for v in views { addSubview(v) }
         setAccessibilityRole(.button)
@@ -552,8 +573,7 @@ final class LauncherProfileRowView: LauncherHoverRow {
         let textTrailing: CGFloat
         if showsAccessoryButtons {
             menuButton.frame = NSRect(x: bounds.width - inset - 24, y: (h - 24) / 2, width: 24, height: 24)
-            editButton.frame = NSRect(x: menuButton.frame.minX - 26, y: (h - 24) / 2, width: 24, height: 24)
-            textTrailing = editButton.frame.minX - DesignTokens.Spacing.xs
+            textTrailing = menuButton.frame.minX - DesignTokens.Spacing.xs
         } else {
             textTrailing = bounds.width - inset
         }
@@ -569,6 +589,14 @@ final class LauncherProfileRowView: LauncherHoverRow {
 
     override func mouseDown(with event: NSEvent) { onClick?() }
 
+    override func rightMouseDown(with event: NSEvent) {
+        if let onContextMenu {
+            onContextMenu(self)
+        } else {
+            super.rightMouseDown(with: event)
+        }
+    }
+
     override func accessibilityPerformPress() -> Bool {
         onClick?()
         return true
@@ -583,6 +611,9 @@ final class ColorSquareView: NSView {
     }
 
     override var isFlipped: Bool { true }
+
+    /// 只显示颜色。点击交给所在的行，否则色块会吃掉「单击连接」。
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
