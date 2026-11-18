@@ -150,7 +150,8 @@ jobs:
             # v1.0.4 及更早的标签里没有打包脚本；从触发本次工作流的提交取出。
             git fetch --depth 1 origin "$GITHUB_SHA"
             git show FETCH_HEAD:scripts/linux-package.sh > /tmp/linux-package.sh
-            bash /tmp/linux-package.sh
+            # 旧标签的 Cargo.lock 与当前工作区版本不完全一致，Linux 解析需要补一行。
+            KANSO_ALLOW_LOCK_UPDATE=1 bash /tmp/linux-package.sh
           fi
       - name: Upload to GitHub Release
         if: env.PUBLISH == 'true'

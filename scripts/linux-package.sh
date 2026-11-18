@@ -20,7 +20,13 @@ if [ -z "$version" ]; then
 fi
 
 echo "==> 构建 kanso-gpui 与 kanso-mcp（release）"
-cargo build --release --locked -p kanso-gpui -p kanso-mcp
+# 已发布的旧标签锁文件可能还没记下 Linux 会解析到的包。只在补发那些标签时允许改本地锁文件。
+if [ "${KANSO_ALLOW_LOCK_UPDATE:-}" = 1 ]; then
+  echo "旧标签：允许 cargo 补齐本地锁文件"
+  cargo build --release -p kanso-gpui -p kanso-mcp
+else
+  cargo build --release --locked -p kanso-gpui -p kanso-mcp
+fi
 
 release_dir=target/release
 gpui=$release_dir/kanso-gpui
