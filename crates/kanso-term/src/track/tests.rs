@@ -730,6 +730,21 @@ fn agent_exit_returns_to_idle_and_drops_the_agent() {
 }
 
 #[test]
+fn osc133_blank_prompt_line_still_detects_agent() {
+    // 本地两行提示符：标签在上一行，输入行只剩一个空格（默认 `%#` 被收掉）。
+    // 提示符特征是空的，但 OSC 133 仍要能读出命令。Claude 启动和 C 常在同一批输出里切到全屏。
+    let mut h = H::new();
+    h.out("\x1b]133;A;kanso=first\x07repo\r\n \x1b]133;B\x07");
+    h.type_text("claude");
+    h.enter();
+    h.out("\x1b]133;C\x07\x1b[?1049h");
+    assert_eq!(
+        h.take(),
+        vec![submitted("claude", true), agent_idle(AgentKind::Claude)]
+    );
+}
+
+#[test]
 fn agent_with_osc133() {
     let k = AgentKind::Claude;
     let mut h = H::new();
