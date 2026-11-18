@@ -424,16 +424,31 @@ final class McpUITests: XCTestCase {
         page.copyText = { copied.append($0) }
         _ = page.view
 
-        page.copyClaudeButton.performClick(nil)
+        page.copyCommandButton.performClick(nil)
         let token = try XCTUnwrap(coordinator.cachedToken)
         let claude = mcpClientConfig(kind: .claudeCode, helperPath: mcpHelperPath(), token: token)
         XCTAssertEqual(copied, [claude])
         XCTAssertTrue(claude.hasPrefix(" "))
+        XCTAssertEqual(page.commandLabel.stringValue, claude)
+        XCTAssertTrue(page.commandLabel.isSelectable)
 
-        page.copyCodexButton.performClick(nil)
+        page.clientPopup.userSelect(at: 1)
         let codex = mcpClientConfig(kind: .codex, helperPath: mcpHelperPath(), token: token)
+        XCTAssertEqual(page.commandLabel.stringValue, codex)
+        page.copyCommandButton.performClick(nil)
         XCTAssertEqual(copied.last, codex)
         XCTAssertTrue(codex.hasPrefix(" "))
+
+        page.regenerateButton.performClick(nil)
+        let rotated = try XCTUnwrap(coordinator.cachedToken)
+        XCTAssertNotEqual(rotated, token)
+        XCTAssertEqual(page.commandLabel.stringValue, mcpClientConfig(kind: .codex, helperPath: mcpHelperPath(), token: rotated))
+        for (index, kind) in [FfiMcpClientKind.claudeCode, .codex].enumerated() {
+            page.clientPopup.userSelect(at: index)
+            page.copyCommandButton.performClick(nil)
+            XCTAssertEqual(page.commandLabel.stringValue, copied.last)
+            XCTAssertEqual(copied.last, mcpClientConfig(kind: kind, helperPath: mcpHelperPath(), token: rotated))
+        }
     }
 
     func testDeletedSessionUsesTheSpecifiedTitle() {
@@ -485,7 +500,7 @@ final class McpUITests: XCTestCase {
         XCTAssertTrue(page.statusLabel.stringValue.contains(
             String(localized: "MCP is turned on, but the service did not start.")
         ))
-        XCTAssertFalse(page.copyTokenButton.isEnabled)
+        XCTAssertFalse(page.copyCommandButton.isEnabled)
     }
 
     func testPageBuildDoesNotTouchTheKeychainSynchronously() throws {
@@ -495,7 +510,8 @@ final class McpUITests: XCTestCase {
         let page = try XCTUnwrap(makeSettings(mcp: coordinator).mcpViewController)
         _ = page.view
         XCTAssertNil(coordinator.cachedToken)
-        XCTAssertFalse(page.copyTokenButton.isEnabled)
+        XCTAssertFalse(page.copyCommandButton.isEnabled)
+        XCTAssertTrue(page.commandLabel.stringValue.isEmpty)
     }
 
     func testEditorOnlyWritesAccessWhenTheUserChangedIt() async throws {
@@ -589,6 +605,7 @@ final class McpUITests: XCTestCase {
         keychain.writeFailure = errSecAuthFailed
         page.regenerateButton.performClick(nil)
         XCTAssertEqual(coordinator.cachedToken, old)
+        XCTAssertEqual(page.commandLabel.stringValue, mcpClientConfig(kind: .claudeCode, helperPath: mcpHelperPath(), token: old))
         XCTAssertFalse(page.errorLabel.isHidden)
         XCTAssertFalse(page.errorLabel.stringValue.isEmpty)
     }
