@@ -340,7 +340,8 @@ public final class TerminalRenderer {
 
         if let drawable { commandBuffer.present(drawable) }
         let semaphore = inFlight
-        commandBuffer.addCompletedHandler { _ in semaphore.signal() }
+        // Metal 在自己的队列上执行完成回调。
+        commandBuffer.addCompletedHandler { @Sendable _ in semaphore.signal() }
         commandBuffer.commit()
         committed = true
         signposter.endInterval("SubmitCommandBuffer", submitState)

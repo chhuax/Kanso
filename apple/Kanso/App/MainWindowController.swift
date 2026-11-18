@@ -93,7 +93,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         PerformanceProbe.mark("core")
         let bundleId = Bundle.main.bundleIdentifier ?? "com.chhuax.kanso"
         let mcp = McpCoordinator(
-            core: core, useMockServer: useMockCore,
+            core: core,
+            makeServer: { core, delegate in
+                useMockCore
+                    ? KansoMcpServer.newMock(core: core, delegate: delegate)
+                    : KansoMcpServer(core: core, delegate: delegate)
+            },
             tokens: KeychainSecretStore(service: bundleId, client: keychain),
             supported: mcpSupported, bundleId: bundleId
         )

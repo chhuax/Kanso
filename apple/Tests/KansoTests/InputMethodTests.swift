@@ -12,7 +12,7 @@ final class InputMethodTests: XCTestCase {
     private var sink: RecordingSink!
     private var ime: FakeInputMethod!
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
         (view, window) = try InputFixtures.makeView()
         sink = RecordingSink()
         ime = FakeInputMethod()

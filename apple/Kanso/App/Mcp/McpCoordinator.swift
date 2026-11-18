@@ -95,7 +95,8 @@ func mcpHelperPath(bundle: Bundle = .main) -> String {
 @MainActor
 final class McpCoordinator {
     let core: KansoCore
-    let server: KansoMcpServer
+    /// 用生成绑定的协议类型而不是具体类：测试可注入假服务，避免构造真实服务时在真实 HOME 建目录、抢单实例锁。
+    let server: any KansoMcpServerProtocol
     let supported: Bool
     let bundleId: String
     private let tokens: KeychainSecretStore
@@ -127,9 +128,10 @@ final class McpCoordinator {
     /// 测试可替换。默认 2 秒后在主线程执行；返回取消闭包。
     var scheduleAfter: (TimeInterval, @escaping @MainActor () -> Void) -> () -> Void
 
+    /// `makeServer` 由调用方决定用 mock、真实还是测试替身服务；协调器只负责把 delegate bridge 交给它。
     init(
         core: KansoCore,
-        useMockServer: Bool,
+        makeServer: (KansoCore, FfiMcpServerDelegate) -> any KansoMcpServerProtocol,
         tokens: KeychainSecretStore,
         supported: Bool,
         bundleId: String,
@@ -142,9 +144,8 @@ final class McpCoordinator {
         self.scheduleAfter = scheduleAfter
         let bridge = McpDelegateBridge()
         self.bridge = bridge
-        server = useMockServer
-            ? KansoMcpServer.newMock(core: core, delegate: bridge)
-            : KansoMcpServer(core: core, delegate: bridge)
+        // 先建 bridge 再建服务：服务构造时就需要 delegate；`owner` 要等 self 初始化完才能设。
+        server = makeServer(core, bridge)
         bridge.owner = self
     }
 
