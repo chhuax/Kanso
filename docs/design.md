@@ -114,7 +114,8 @@ platform    SecretStore / FileAccess / Purchase / Updater / DragOut / Locale 的
 - `PrivacyInfo.xcprivacy`：申报 required-reason API（Rust `Instant` 用到 `mach_absolute_time`、文件时间戳、UserDefaults、磁盘空间等逐项核对）。
 - 出口合规：`ITSAppUsesNonExemptEncryption = YES`，按问卷申报，可能需向 BIS 提交年度自分类报告。
 - 恢复购买入口、隐私政策 URL、支持 URL、隐私营养标签。
-- 最低 macOS 14（需要 `NSView.displayLink` 与 Observation 框架）；只支持 Apple Silicon（arm64），不提供 Intel 版本，App Store 只会向 Apple Silicon 机型提供下载。
+- 最低 macOS 14（需要 `NSView.displayLink` 与 Observation 框架）；商店版与 Setapp 版只提供 Apple Silicon（arm64）包，App Store 只会向 Apple Silicon 机型提供下载（商店每个版本只能上传一个包，单独出 Intel 包做不到）。
+- 官网版（Direct）按架构分别出包：`Kanso-<版本>-macOS-arm64.dmg` 与 `Kanso-<版本>-macOS-x86_64.dmg`，不做 Universal 合并包，避免安装包体积翻倍。
 
 ## 8. 里程碑
 

@@ -81,6 +81,10 @@ impl InputKind {
     ///
     /// 一段文字后面带一个换行等价于"打字再按回车"；文字里有别的换行则像多行粘贴。
     pub fn of_text(text: &str) -> Vec<InputKind> {
+        // 目录选择器的私有 ZLE 序列保留输入行，末尾换行只是载荷结束符。
+        if text.starts_with("\x1b[9001~") {
+            return Vec::new();
+        }
         let body = text
             .strip_suffix("\r\n")
             .or_else(|| text.strip_suffix(['\r', '\n']));

@@ -132,6 +132,7 @@ mod tests {
     fn block(id: u64, start: u64, end: u64) -> CommandBlock {
         CommandBlock {
             id,
+            latest: false,
             start_line: start,
             end_line: end,
             command_line: Some(start),

@@ -241,10 +241,13 @@ public final class TerminalRenderer {
             pixelFormat: MetalResources.colorPixelFormat, width: width, height: height, mipmapped: false
         )
         desc.usage = .renderTarget
-        // 独显在 GPU 与 CPU 间分别保存纹理，读回前需要显式同步。
-        desc.storageMode = device.hasUnifiedMemory ? .shared : .managed
+        // 统一内存用 shared；独显用 managed，渲染后需 blit synchronize 才能让 CPU 读到。
+        desc.storageMode = device.cpuAccessTextureStorageMode
         guard let texture = device.makeTexture(descriptor: desc) else { return nil }
-        guard draw(frame: frame, target: texture, scale: scale, appearance: appearance, present: nil, wait: true) else {
+        guard draw(
+            frame: frame, target: texture, scale: scale, appearance: appearance, present: nil, wait: true,
+            readback: desc.storageMode == .managed
+        ) else {
             return nil
         }
 
@@ -268,7 +271,7 @@ public final class TerminalRenderer {
     @discardableResult
     private func draw(
         frame: FrameSnapshot?, target: MTLTexture, scale: CGFloat, appearance: TerminalAppearance,
-        present drawable: CAMetalDrawable?, wait: Bool
+        present drawable: CAMetalDrawable?, wait: Bool, readback: Bool = false
     ) -> Bool {
         let (_, atlas) = prepare(scale: scale)
         let palette = appearance == .light ? lightPalette : darkPalette
@@ -328,8 +331,9 @@ public final class TerminalRenderer {
         drawGlyphs(layoutBuffers.color, color: true)
         drawRects(layoutBuffers.decoration)
         encoder.endEncoding()
-        if wait, target.storageMode == .managed {
-            guard let blit = commandBuffer.makeBlitCommandEncoder() else { return false }
+
+        if readback, let blit = commandBuffer.makeBlitCommandEncoder() {
+            // managed 纹理：把 GPU 渲染结果同步回 CPU 副本，之后 getBytes 才读得到。
             blit.synchronize(resource: target)
             blit.endEncoding()
         }
@@ -537,7 +541,11 @@ public final class TerminalRenderer {
                     // 光标与其上字符的配色由主题成对给出，保证可读，不再做对比度调整。
                     bg = palette.cursor
                     fg = palette.cursorText
-                } else if isMinimumContrastEnabled {
+                } else if cell.flags.contains(.chip), GlyphAtlas.isContextIcon(cell.ch) {
+                    // 标签内的内置图标统一用 token 的次要灰，保持 token 原值，不参与最低对比度调整。
+                    fg = RGB8(palette.chipIcon.r, palette.chipIcon.g, palette.chipIcon.b)
+                } else if isMinimumContrastEnabled, !GlyphAtlas.isPowerlineGeometric(cell.ch) {
+                    // Powerline 分隔符的前景色必须与相邻色块的背景色一致才能无缝拼接，不做对比度调整。
                     // 提示符标签里的字实际画在标签底色上（默认背景时），按标签底色算对比度。
                     let chipBg = RGB8(palette.chipBackground.r, palette.chipBackground.g, palette.chipBackground.b)
                     let shown = cell.flags.contains(.chip) && bg == palette.background ? chipBg : bg

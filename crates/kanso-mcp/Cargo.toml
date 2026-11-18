@@ -1,0 +1,34 @@
+[package]
+name = "kanso-mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "AI 工具以 stdio 启动的转发程序：把 MCP 字节流原样转给正在运行的 Kanso（architecture §16.1）"
+
+# 库部分是路径规则与握手格式的唯一来源，kanso-mcp-server 依赖它，两端不会各写一套。
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "kanso-mcp"
+path = "src/main.rs"
+
+# 只依赖 std 与 libc：体积和启动时间都要小，也不碰 tokio、serde（architecture §16.2）。
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+# 端到端测试用真实服务（mock core）。kanso-mcp-server 反过来依赖本 crate 的库，
+# dev-dependency 形成的环 Cargo 允许；服务只在 Unix 上存在，所以限定平台。
+[target.'cfg(unix)'.dev-dependencies]
+kanso-mcp-server = { workspace = true, features = ["direct"] }
+kanso-core.workspace = true
+kanso-types.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

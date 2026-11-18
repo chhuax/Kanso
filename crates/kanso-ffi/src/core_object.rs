@@ -49,7 +49,8 @@ fn session(id: u64) -> SessionId {
 /// Swift 持有的 core 对象。线程安全，所有方法可从任意线程调用。
 #[derive(uniffi::Object)]
 pub struct KansoCore {
-    inner: Core,
+    /// 放在 `Arc` 里：MCP 服务（`KansoMcpServer`）要与宿主共用同一个 core。
+    pub(crate) inner: Arc<Core>,
 }
 
 #[uniffi::export]
@@ -61,7 +62,7 @@ impl KansoCore {
     pub fn new_mock(listener: Arc<dyn FfiEventListener>) -> Arc<Self> {
         let platform = Platform::for_tests(Arc::new(ListenerSink { listener }));
         Arc::new(KansoCore {
-            inner: Core::new_mock(platform),
+            inner: Arc::new(Core::new_mock(platform)),
         })
     }
 
@@ -85,7 +86,7 @@ impl KansoCore {
         platform.host_keys = None;
         let config: CoreConfig = config.into();
         Ok(Arc::new(KansoCore {
-            inner: Core::new(config, platform)?,
+            inner: Arc::new(Core::new(config, platform)?),
         }))
     }
 

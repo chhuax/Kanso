@@ -32,6 +32,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private var senderHeight: CGFloat
     private var restoringSenderHeight = true
     private let sidebarItem: NSSplitViewItem
+    /// 普通（非系统样式）侧栏 item：`toggleSidebar` 对它无效，折叠要直接切 `isCollapsed`。
+    private let usesPlainSidebar: Bool
     /// 辅助 Filer（位于标签栏与分屏区之间，可收起；filer.md §1.1）。
     private let filerItem: NSSplitViewItem
     let filer: FilerCoordinator
@@ -45,10 +47,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private let gitButton = GitTitlebarButton()
     private let sidebarButton = KButton(symbol: "sidebar.left", style: .icon)
     private let gitReadsEnabled: Bool
-    static let gitDefaultWidth: CGFloat = 420
+    static let gitDefaultWidth: CGFloat = 480
     static let gitMinWidth: CGFloat = 280
     static let gitMaxWidth: CGFloat = 760
-    private static let gitWidthInitializedKey = "kanso.git.widthInitialized"
+    /// 用户上次使用的 Git 面板宽度；收起时记录，展开时恢复。
+    private static let gitWidthKey = "kanso.git.width"
     private(set) var commandPalette: CommandPalettePresenter!
     private var filerCollapsedObservation: NSKeyValueObservation?
     private var filerCollapsedBeforeSftp: Bool?
@@ -59,6 +62,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     static let filerMaxWidth: CGFloat = 560
     private let defaults: UserDefaults
     private let statusBar = StatusBarView()
+    let mcp: McpCoordinator
+    var onOpenMcpSettings: (() -> Void)?
     private var terminalTransfers: [UInt64: (FfiTransferDirection, FfiXferProtocol)] = [:]
     private let baseTitle = "Kanso · \(KansoChannel.current)"
     /// 用户已确认退出（关窗确认过）。之后的 `applicationShouldTerminate` 不再询问，避免确认两次。
@@ -75,7 +80,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         defaults: UserDefaults = .standard,
         gutter: GutterModeController? = nil,
         settings: SettingsStore = SettingsStore(),
-        keybindings: KeybindingController? = nil
+        keybindings: KeybindingController? = nil,
+        keychain: any KeychainClient = SystemKeychainClient(),
+        mcpSupported: Bool = mcpSupported()
     ) throws {
         stateStore = WindowStateStore(defaults: defaults)
         self.defaults = defaults
@@ -84,6 +91,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         let dispatcher = CoreEventDispatcher()
         let (core, dataDirectory) = try Self.makeCore(useMock: useMockCore, listener: dispatcher)
         PerformanceProbe.mark("core")
+        let bundleId = Bundle.main.bundleIdentifier ?? "com.chhuax.kanso"
+        let mcp = McpCoordinator(
+            core: core, useMockServer: useMockCore,
+            tokens: KeychainSecretStore(service: bundleId, client: keychain),
+            supported: mcpSupported, bundleId: bundleId
+        )
+        self.mcp = mcp
         // 必须在创建任何视图之前：载入会应用外观、时间轴模式，并把终端选项（回滚、默认光标）下发给 core，
         // 之后打开的第一个会话就已经是用户的设置。
         settings.attach(
@@ -129,17 +143,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         filerController.view = NSView()
 
         let sidebarController = TabSidebarViewController(controller: controller)
-        // macOS 26 自动给系统侧栏套上内缩圆角外框，和贴边的标签栏布局不符。
-        // 仅在 26 使用普通分栏；27 及其它版本、单个标签的圆角均保持原样。
-        if ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 26 {
-            sidebarItem = NSSplitViewItem(viewController: sidebarController)
-            sidebarItem.preferredThicknessFraction = 0.15
-            sidebarItem.holdingPriority = NSLayoutConstraint.Priority(261)
-        } else {
-            sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarController)
-        }
+        // macOS 26 的系统侧栏是悬浮的 Liquid Glass 面板，在非 Apple Silicon 显卡上显示成带缝的实心圆角块；
+        // 27 起系统侧栏贴边，与设计一致。因此只有 26.x 用普通 item（贴边、直角、无缝），其余版本保持系统侧栏。
+        usesPlainSidebar = ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 26
+        sidebarItem = usesPlainSidebar
+            ? NSSplitViewItem(viewController: sidebarController)
+            : NSSplitViewItem(sidebarWithViewController: sidebarController)
         sidebarItem.minimumThickness = DesignTokens.Spacing.sidebarMinWidth
         sidebarItem.canCollapse = true
+        // 系统侧栏 item 默认 holdingPriority 为 260（窗口变宽时保持宽度）；普通 item 只有 251，会被拉伸，需显式对齐并高于内容区。
+        if usesPlainSidebar { sidebarItem.holdingPriority = NSLayoutConstraint.Priority(261) }
         splitController.addSplitViewItem(sidebarItem)
         filerItem = NSSplitViewItem(viewController: filerController)
         filerItem.minimumThickness = Self.filerMinWidth
@@ -187,6 +200,18 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         // 必须在 center() 之后：autosave 恢复的位置要覆盖居中。
         if !useMockCore && PerformanceProbe.root == nil { window.setFrameAutosaveName("MainWindow") }
         super.init(window: window)
+        sidebarController.mcpMark = { [weak self] id in self?.mcp.mark(for: id) }
+        statusBar.onOpenMcp = { [weak self] in self?.onOpenMcpSettings?() }
+        mcp.onPlaceSession = { [weak self] id in self?.placeMcpSession(id) }
+        controller.sessions.mcpSupported = { [weak self] in self?.mcp.supported ?? false }
+        controller.onSessionClosed = { [weak self] id in self?.mcp.forget(session: id) }
+        // 只刷新侧栏标签行与状态栏指示器；`controller.refresh()` 会刷新整个工作区，MCP 事件用不着。
+        // 只有标签标记或服务状态变化才刷新侧栏；clients 变化只影响状态栏指示器。
+        mcp.addChangeHandler { [weak self, weak sidebarController] change in
+            self?.updateMcpIndicator()
+            if !change.isDisjoint(with: [.marks, .status]) { sidebarController?.refresh() }
+        }
+        mcp.startIfEnabled()
         senderModel.isVisible = !senderItem.isCollapsed
         senderModel.onNotice = { [weak self] in self?.statusBar.showNotice($0, isError: $1) }
         controller.sessions.onDataImported = { [weak self] in self?.senderModel.cancelEditing() }
@@ -379,12 +404,24 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     var isGitCollapsed: Bool { gitItem.isCollapsed }
 
+    /// 展开时每次都显式恢复宽度：Git 面板的 holdingPriority 最低，交给分栏自己分配时
+    /// 它总是先被压缩，常常只剩最小宽度（2026-11-16 用户反馈"每次打开都太窄"）。
     func setGitCollapsed(_ collapsed: Bool) {
+        let split = splitController.splitView
+        if collapsed, !gitItem.isCollapsed, gitItem.viewController.view.frame.width >= Self.gitMinWidth {
+            defaults.set(Double(gitItem.viewController.view.frame.width), forKey: Self.gitWidthKey)
+        }
         gitItem.isCollapsed = collapsed
         loadVisiblePanels()
-        if !collapsed, !defaults.bool(forKey: Self.gitWidthInitializedKey) {
-            defaults.set(true, forKey: Self.gitWidthInitializedKey)
-            splitController.splitView.setPosition(splitController.splitView.bounds.width - Self.gitDefaultWidth, ofDividerAt: 2)
+        if !collapsed {
+            split.layoutSubtreeIfNeeded()
+            let stored = defaults.double(forKey: Self.gitWidthKey)
+            // 给分屏区留出最小宽度，侧栏与 Filer 按当前实际宽度计算。
+            let others = 244 + (sidebarItem.isCollapsed ? 0 : sidebarItem.viewController.view.frame.width)
+                + (filerItem.isCollapsed ? 0 : filerItem.viewController.view.frame.width)
+            let available = split.bounds.width - others
+            let target = min(stored > 0 ? stored : Self.gitDefaultWidth, Self.gitMaxWidth, max(Self.gitMinWidth, available))
+            split.setPosition(split.bounds.width - target - split.dividerThickness, ofDividerAt: 2)
         }
         fitAuxiliaryPanels()
     }
@@ -467,6 +504,20 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         statusBar.setSenderRunning(senderModel.repeatRunning && !senderModel.isVisible)
     }
 
+    /// MCP 打开的标签放进当前分屏，不切换活动标签，也不把窗口变成 key。
+    private func placeMcpSession(_ id: SessionID) {
+        controller.placeMcpSession(id)
+        guard let window, !window.isVisible else { return }
+        window.orderFront(nil)
+    }
+
+    private func updateMcpIndicator() {
+        statusBar.setMcpClientCount(mcp.supported ? mcp.clients.count : 0)
+    }
+
+    var isMcpIndicatorVisible: Bool { statusBar.isMcpIndicatorVisible }
+    func clickMcpIndicator() { statusBar.clickMcpIndicator() }
+
     private func saveSenderHeight() {
         guard !senderItem.isCollapsed, !restoringSenderHeight else { return }
         senderHeight = min(400, max(80, senderPanel.frame.height))
@@ -538,6 +589,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     /// 应用退出前调用：保存窗口状态，通知 core 关闭会话并收尾（最多等几秒，不会卡住退出）。
     func shutdown() {
+        mcp.stop()
         // 窗口已关闭时状态已在 windowWillClose 里保存；关闭后的 isZoomed 不可靠，不再覆盖。
         if window?.isVisible == true { saveWindowState() }
         filer.shutdown()
@@ -656,7 +708,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     @objc func kansoToggleTabBar(_ sender: Any?) {
         // 收起动画结束前 isCollapsed 还是旧值，提示文字按切换后的状态预先算好。
         let willCollapse = !sidebarItem.isCollapsed
-        splitController.toggleSidebar(sender)
+        if usesPlainSidebar {
+            sidebarItem.animator().isCollapsed = willCollapse
+        } else {
+            splitController.toggleSidebar(sender)
+        }
         sidebarButton.toolTip = willCollapse ? String(localized: "Show Tab Bar") : String(localized: "Hide Tab Bar")
     }
 

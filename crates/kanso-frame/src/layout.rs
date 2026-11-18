@@ -1,7 +1,7 @@
 //! 帧缓冲区的布局结构与常量。
 //!
 //! 所有结构 `#[repr(C)]` 且无隐式填充（用显式 `_reserved` 字段占位），整数为本机字节序
-//! （只支持 aarch64，即小端）。改动任何字段的位置、尺寸或含义都必须升 [`FRAME_VERSION`]，
+//! （支持 aarch64 与 x86_64，均为小端）。改动任何字段的位置、尺寸或含义都必须升 [`FRAME_VERSION`]，
 //! 并同步 `kanso_frame.h` 与 `docs/frame-abi.md`。
 
 use bytemuck::{Pod, Zeroable};

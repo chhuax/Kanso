@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*", "xtask"]
 
 [workspace.package]
-version = "1.0.0"
+version = "1.0.2"
 edition = "2024"
 # 与 rust-toolchain.toml 固定的版本一致：cargo 会按这个下限挑依赖版本，
 # 写得过低会让 cargo 退回到带已知漏洞的旧版本（曾因此选中 rusqlite 0.32）。
@@ -29,6 +29,8 @@ kanso-license = { path = "crates/kanso-license", default-features = false }
 kanso-session = { path = "crates/kanso-session" }
 kanso-core = { path = "crates/kanso-core", default-features = false }
 kanso-ffi = { path = "crates/kanso-ffi" }
+kanso-mcp-server = { path = "crates/kanso-mcp-server", default-features = false }
+kanso-mcp = { path = "crates/kanso-mcp" }
 kanso-frame = { path = "crates/kanso-frame" }
 kanso-bench = { path = "crates/kanso-bench" }
 kanso-l10n = { path = "crates/kanso-l10n" }
@@ -36,6 +38,11 @@ kanso-l10n = { path = "crates/kanso-l10n" }
 # 外部依赖统一在此声明版本，仅限宽松许可证（MIT / Apache-2.0 等）。
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# MCP 服务端（kanso-mcp-server，仅 Direct）。只开服务端与基于 AsyncRead/AsyncWrite 的传输，不要 HTTP 传输与客户端。
+rmcp = { version = "3.10", default-features = false, features = ["server", "macros", "schemars", "transport-async-rw"] }
+schemars = "1"
+# CancellationToken（kanso-mcp-server 关停与断开客户端用；MIT，rmcp 已带入）。
+tokio-util = "0.7"
 uuid = { version = "1", features = ["v4", "serde"] }
 rusqlite = { version = "0.41", features = ["bundled"] }
 tempfile = "3"

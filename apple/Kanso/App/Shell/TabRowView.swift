@@ -12,6 +12,8 @@ final class TabRowView: NSView {
         /// 在完整侧栏（未筛选）中的序号，决定快捷键提示。
         var sidebarIndex: Int
         var selection: TabRowSelection
+        /// MCP 打开标记与正在进行的操作。nil 表示都没有。
+        var mcp: McpTabMark? = nil
     }
 
     weak var list: SidebarListView?
@@ -23,6 +25,7 @@ final class TabRowView: NSView {
     private let subtitleLabel = NSTextField(labelWithString: "")
     private let shortcutLabel = NSTextField(labelWithString: "")
     private let closeButton = NSButton()
+    private let mcpOpenedMark = NSImageView()
     private var trackingArea: NSTrackingArea?
 
     override var isFlipped: Bool { true }
@@ -44,7 +47,11 @@ final class TabRowView: NSView {
         closeButton.contentTintColor = .token(DesignTokens.Color.textSecondary)
         closeButton.target = self
         closeButton.action = #selector(closeClicked)
-        for v in [iconView, titleLabel, subtitleLabel, shortcutLabel, closeButton] { addSubview(v) }
+        mcpOpenedMark.image = .symbol("point.3.connected.trianglepath.dotted", description: String(localized: "Opened by MCP"))
+        mcpOpenedMark.imageScaling = .scaleProportionallyDown
+        mcpOpenedMark.contentTintColor = .token(DesignTokens.Color.accent)
+        mcpOpenedMark.isHidden = true
+        for v in [iconView, titleLabel, subtitleLabel, shortcutLabel, closeButton, mcpOpenedMark] { addSubview(v) }
         applyModel()
         updateHoverState()
     }
@@ -71,7 +78,12 @@ final class TabRowView: NSView {
         subtitleLabel.stringValue = subtitle ?? ""
         subtitleLabel.isHidden = subtitle == nil
         shortcutLabel.stringValue = TabPresentation.shortcutLabel(sidebarIndex: model.sidebarIndex)
-        toolTip = TabDescriptions.tooltip(for: item)
+        var tip = TabDescriptions.tooltip(for: item)
+        if let extra = model.mcp?.tooltipLines, !extra.isEmpty {
+            tip += "\n" + extra.joined(separator: "\n")
+        }
+        toolTip = tip
+        mcpOpenedMark.isHidden = model.mcp?.openedByClient == nil
         updateIcon()
         setAccessibilityLabel(titleLabel.stringValue)
         needsLayout = true
@@ -105,8 +117,12 @@ final class TabRowView: NSView {
         needsDisplay = true
     }
 
+    /// MCP 打开标记当前是否显示。
+    var showsMcpOpenedMark: Bool { !mcpOpenedMark.isHidden }
+
     /// 右侧状态标记：命令 / AI 运行中、未读完成、已断开。悬停时让位给快捷键与关闭按钮。
     private var statusMarker: (color: NSColor, hollow: Bool)? {
+        if model.mcp?.activityTool != nil { return (.token(DesignTokens.Color.accent), false) }
         if isDisconnected { return (.token(DesignTokens.Color.statusDisconnected), true) }
         if item.unreadDone { return (.token(DesignTokens.Color.statusUnreadDone), false) }
         switch item.activity {
@@ -127,6 +143,7 @@ final class TabRowView: NSView {
         let pad = DesignTokens.Spacing.tabRowPaddingX
         let h = bounds.height
         iconView.frame = NSRect(x: pad + 4, y: (h - Self.iconSize) / 2, width: Self.iconSize, height: Self.iconSize)
+        mcpOpenedMark.frame = NSRect(x: iconView.frame.maxX - 8, y: iconView.frame.maxY - 8, width: 10, height: 10)
         let textX = iconView.frame.maxX + DesignTokens.Spacing.sm
         var trailing = bounds.width - pad
         if isHovered {

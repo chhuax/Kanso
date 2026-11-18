@@ -43,6 +43,44 @@ final class RendererTests: XCTestCase {
         }
     }
 
+    func testChipIconsUseSecondaryColorInsteadOfForeground() throws {
+        let renderer = try XCTUnwrap(TerminalRenderer())
+        renderer.gutterMode = .off
+        let size = CGSize(width: 900, height: 720)
+        for scale: CGFloat in [1, 2] {
+            let layout = renderer.layout(scale: scale)
+            let grid = renderer.gridSize(for: size, scale: scale)
+            let frame = try XCTUnwrap(FrameSnapshot(coreFrame: FrameHandle.mockSemanticColors(cols: UInt16(grid.cols), rows: UInt16(grid.rows))))
+            let cells = (0..<grid.cols).filter { GlyphAtlas.isContextIcon(frame.cell(row: 0, col: $0).ch) }
+            XCTAssertEqual(cells.count, 3)
+            for appearance: TerminalAppearance in [.light, .dark] {
+                let palette = appearance.palette
+                let icon = palette.chipIcon, fg = palette.foreground
+                let bg = palette.chipBackground
+                let image = try XCTUnwrap(renderer.renderImage(frame: frame, size: size, scale: scale, appearance: appearance))
+                let pixels = try SnapshotTests.pixels(image)
+                func distance(_ o: Int, _ r: UInt8, _ g: UInt8, _ b: UInt8) -> Int {
+                    abs(Int(pixels[o]) - Int(r)) + abs(Int(pixels[o + 1]) - Int(g)) + abs(Int(pixels[o + 2]) - Int(b))
+                }
+                for col in cells {
+                    // 图标覆盖最浓的像素（离标签底色最远）应接近次要文字色，而不是前景色。
+                    var best = (dist: -1, offset: 0)
+                    for y in layout.originY..<(layout.originY + layout.metrics.cellHeight) {
+                        for x in (layout.originX + col * layout.metrics.cellWidth)..<(layout.originX + (col + 1) * layout.metrics.cellWidth) {
+                            let o = (y * image.width + x) * 4
+                            let d = distance(o, bg.r, bg.g, bg.b)
+                            if d > best.dist { best = (d, o) }
+                        }
+                    }
+                    let toIcon = distance(best.offset, icon.r, icon.g, icon.b)
+                    let toForeground = distance(best.offset, fg.r, fg.g, fg.b)
+                    XCTAssertLessThan(toIcon, 24, "col \(col) \(appearance) scale \(scale)")
+                    XCTAssertLessThan(toIcon, toForeground)
+                }
+            }
+        }
+    }
+
     func testContextIconsFitIconPlusSpaceAndUseMonochromeAtlas() throws {
         let device = try XCTUnwrap(MTLCreateSystemDefaultDevice())
         for scale: CGFloat in [1, 2] {

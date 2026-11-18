@@ -517,12 +517,16 @@ Metadata comes from `cargo metadata`; `cargo tree` selects the normal dependency
 | windows-strings | 0.3.1 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
 | windows-strings | 0.4.2 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
 | windows-strings | 0.5.1 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
+| windows-sys | 0.48.0 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
+| windows-sys | 0.52.0 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
 | windows-sys | 0.59.0 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
 | windows-sys | 0.61.2 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
+| windows-targets | 0.48.5 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
 | windows-targets | 0.52.6 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
 | windows-targets | 0.53.5 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
 | windows-threading | 0.1.0 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
 | windows-threading | 0.2.1 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
+| windows_x86_64_msvc | 0.48.5 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
 | windows_x86_64_msvc | 0.52.6 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
 | windows_x86_64_msvc | 0.53.1 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
 | winreg | 0.10.1 | MIT | https://github.com/gentoo90/winreg-rs |
@@ -2129,14 +2133,18 @@ Used by:
 - windows-strings@0.3.1 — `license-apache-2.0`
 - windows-strings@0.4.2 — `license-apache-2.0`
 - windows-strings@0.5.1 — `license-apache-2.0`
+- windows-sys@0.48.0 — `license-apache-2.0`
+- windows-sys@0.52.0 — `license-apache-2.0`
 - windows-sys@0.59.0 — `license-apache-2.0`
 - windows-sys@0.61.2 — `license-apache-2.0`
+- windows-targets@0.48.5 — `license-apache-2.0`
 - windows-targets@0.52.6 — `license-apache-2.0`
 - windows-targets@0.53.5 — `license-apache-2.0`
 - windows-threading@0.1.0 — `license-apache-2.0`
 - windows-threading@0.2.1 — `license-apache-2.0`
 - windows@0.61.3 — `license-apache-2.0`
 - windows@0.62.2 — `license-apache-2.0`
+- windows_x86_64_msvc@0.48.5 — `license-apache-2.0`
 - windows_x86_64_msvc@0.52.6 — `license-apache-2.0`
 - windows_x86_64_msvc@0.53.1 — `license-apache-2.0`
 
@@ -11658,14 +11666,18 @@ Used by:
 - windows-strings@0.3.1 — `license-mit`
 - windows-strings@0.4.2 — `license-mit`
 - windows-strings@0.5.1 — `license-mit`
+- windows-sys@0.48.0 — `license-mit`
+- windows-sys@0.52.0 — `license-mit`
 - windows-sys@0.59.0 — `license-mit`
 - windows-sys@0.61.2 — `license-mit`
+- windows-targets@0.48.5 — `license-mit`
 - windows-targets@0.52.6 — `license-mit`
 - windows-targets@0.53.5 — `license-mit`
 - windows-threading@0.1.0 — `license-mit`
 - windows-threading@0.2.1 — `license-mit`
 - windows@0.61.3 — `license-mit`
 - windows@0.62.2 — `license-mit`
+- windows_x86_64_msvc@0.48.5 — `license-mit`
 - windows_x86_64_msvc@0.52.6 — `license-mit`
 - windows_x86_64_msvc@0.53.1 — `license-mit`
 

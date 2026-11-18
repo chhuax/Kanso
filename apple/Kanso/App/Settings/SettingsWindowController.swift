@@ -6,12 +6,14 @@ enum SettingsTab: Int, CaseIterable {
     case general
     case display
     case keyboard
+    case mcp
 
     var title: String {
         switch self {
         case .general: String(localized: "General")
         case .display: String(localized: "Display")
         case .keyboard: String(localized: "Keyboard Shortcuts")
+        case .mcp: String(localized: "MCP")
         }
     }
 
@@ -20,6 +22,7 @@ enum SettingsTab: Int, CaseIterable {
         case .general: "gearshape"
         case .display: "textformat.size"
         case .keyboard: "keyboard"
+        case .mcp: "point.3.connected.trianglepath.dotted"
         }
     }
 }
@@ -39,16 +42,19 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     let generalViewController: GeneralSettingsViewController
     let displayViewController: DisplaySettingsViewController
     let keyboardViewController: KeyboardSettingsViewController
+    let mcpViewController: McpSettingsViewController?
     private let tabs = SettingsTabViewController()
+    private let pageOrder: [SettingsTab]
 
     /// 菜单的入口（⌘,、视图 → 显示设置… / 键盘快捷键…）。
+    /// 有协调器且 `mcp.supported` 为真时才加入 MCP 页；不看服务能不能 start。
     static func show(
         settings: SettingsStore, appearance: AppearanceController, keybindings: KeybindingController,
-        tab: SettingsTab = .general
+        tab: SettingsTab = .general, mcp: McpCoordinator? = nil
     ) {
         settings.reloadThemes()
         let controller = shared ?? SettingsWindowController(
-            settings: settings, appearance: appearance, keybindings: keybindings
+            settings: settings, appearance: appearance, keybindings: keybindings, mcp: mcp
         )
         shared = controller
         controller.select(tab)
@@ -66,20 +72,30 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         keybindings: KeybindingController,
         openURL: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) },
         conflictPrompter: KeybindingConflictPrompter = AlertKeybindingConflictPrompter(),
-        autosaveName: String? = "KansoSettingsWindow"
+        autosaveName: String? = "KansoSettingsWindow",
+        mcp: McpCoordinator? = nil
     ) {
         self.settings = settings
         generalViewController = GeneralSettingsViewController(appearance: appearance, openURL: openURL)
         displayViewController = DisplaySettingsViewController(settings: settings)
         keyboardViewController = KeyboardSettingsViewController(keybindings: keybindings, prompter: conflictPrompter)
+        if let mcp, mcp.supported {
+            mcpViewController = McpSettingsViewController(mcp: mcp)
+        } else {
+            mcpViewController = nil
+        }
 
         tabs.tabStyle = .toolbar
         // 子页未设 title 时系统会把窗口标题推成「未命名」；关掉传播，由我们显式设标题。
         tabs.canPropagateSelectedChildViewControllerTitle = false
-        let pages: [(SettingsTab, NSViewController)] = [
+        var pages: [(SettingsTab, NSViewController)] = [
             (.general, generalViewController), (.display, displayViewController),
             (.keyboard, keyboardViewController),
         ]
+        if let mcpViewController {
+            pages.append((.mcp, mcpViewController))
+        }
+        pageOrder = pages.map(\.0)
         for (tab, controller) in pages {
             controller.title = tab.title
             let item = NSTabViewItem(viewController: controller)
@@ -118,7 +134,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     /// 切到指定页、更新标题，并按该页内容调整窗口高度。
     func select(_ tab: SettingsTab) {
-        tabs.selectedTabViewItemIndex = tab.rawValue
+        guard let index = pageOrder.firstIndex(of: tab) else { return }
+        tabs.selectedTabViewItemIndex = index
         window?.title = tab.title
         resizeToFitCurrentPage()
     }
@@ -128,7 +145,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     }
 
     /// 当前选中的页。
-    var selectedTab: SettingsTab { SettingsTab(rawValue: tabs.selectedTabViewItemIndex) ?? .general }
+    var selectedTab: SettingsTab {
+        let index = tabs.selectedTabViewItemIndex
+        guard pageOrder.indices.contains(index) else { return .general }
+        return pageOrder[index]
+    }
+
+    /// 窗口里实际有的页。MCP 页只有协调器存在且 `supported` 为真时才在里面。
+    var tabsInWindow: [SettingsTab] { pageOrder }
 
     /// 宽度保持不变，高度贴合当前页 `fittingSize`。
     func resizeToFitCurrentPage() {

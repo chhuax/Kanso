@@ -35,28 +35,32 @@ fn output(args: &[&str]) -> Result<String, Box<dyn Error>> {
 fn write_notices() -> Result<(), Box<dyn Error>> {
     std::env::set_current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap())?;
     // macOS：kanso-ffi 的三个渠道（aarch64-apple-darwin）。
+    // x86_64 目标的依赖图可能多出少量包，所以两个架构取并集。
+    let mac_targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"];
     let mac_trees: Vec<Vec<String>> = ["direct", "mas", "setapp"]
         .iter()
-        .map(|channel| {
-            [
-                "tree",
-                "-p",
-                "kanso-ffi",
-                "--locked",
-                "--target",
-                "aarch64-apple-darwin",
-                "--no-default-features",
-                "--features",
-                *channel,
-            ]
-            .map(String::from)
-            .to_vec()
+        .flat_map(|channel| {
+            mac_targets.map(|target| {
+                [
+                    "tree",
+                    "-p",
+                    "kanso-ffi",
+                    "--locked",
+                    "--target",
+                    target,
+                    "--no-default-features",
+                    "--features",
+                    *channel,
+                ]
+                .map(String::from)
+                .to_vec()
+            })
         })
         .collect();
     let mut text = rust_section(
-        "aarch64-apple-darwin",
+        &mac_targets,
         &mac_trees,
-        "of `kanso-ffi` (Direct, MAS and Setapp, aarch64-apple-darwin)",
+        "of `kanso-ffi` (Direct, MAS and Setapp, union of aarch64-apple-darwin and x86_64-apple-darwin)",
     )?;
     text.insert_str(
         0,
@@ -125,19 +129,40 @@ fn write_notices() -> Result<(), Box<dyn Error>> {
 
 /// 生成“Rust 依赖表 + 许可证文本”两节：依赖集合取 `trees` 里各条 `cargo tree` 命令输出的并集。
 fn rust_section(
-    target: &str,
+    targets: &[&str],
     trees: &[Vec<String>],
     graph: &str,
 ) -> Result<String, Box<dyn Error>> {
-    let metadata: Value = serde_json::from_str(&output(&[
-        "metadata",
-        "--format-version",
-        "1",
-        "--locked",
-        "--all-features",
-        "--filter-platform",
-        target,
-    ])?)?;
+    let mut metadata = Value::Null;
+    for target in targets {
+        let one: Value = serde_json::from_str(&output(&[
+            "metadata",
+            "--format-version",
+            "1",
+            "--locked",
+            "--all-features",
+            "--filter-platform",
+            target,
+        ])?)?;
+        if metadata.is_null() {
+            metadata = one;
+            continue;
+        }
+        let known: BTreeSet<String> = metadata["packages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["id"].as_str().unwrap().to_owned())
+            .collect();
+        let extra: Vec<Value> = one["packages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|p| !known.contains(p["id"].as_str().unwrap()))
+            .cloned()
+            .collect();
+        metadata["packages"].as_array_mut().unwrap().extend(extra);
+    }
     let mut product = BTreeSet::new();
     for tree_args in trees {
         let mut args: Vec<&str> = tree_args.iter().map(String::as_str).collect();
@@ -283,7 +308,7 @@ fn write_windows_notices() -> Result<(), Box<dyn Error>> {
         .to_vec(),
     ];
     let mut text = rust_section(
-        "x86_64-pc-windows-msvc",
+        &["x86_64-pc-windows-msvc"],
         &trees,
         "of `kanso-gpui` (x86_64-pc-windows-msvc, including its Windows-only dependencies)",
     )?;

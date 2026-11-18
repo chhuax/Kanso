@@ -60,9 +60,9 @@ Optional semantic coloring highlights paths, file names, hashes, IPs, URLs and t
 
 ## Install
 
-Requires **macOS 14 or later** on an **Apple Silicon** Mac.
+Requires **macOS 14 or later** on an Apple Silicon or Intel Mac.
 
-Download `Kanso-<version>-macOS-arm64.dmg` from [Releases](https://github.com/chhuax/Kanso/releases), open it and drag Kanso into Applications.
+Download the DMG for your chip, `Kanso-<version>-macOS-arm64.dmg` (Apple Silicon) or `Kanso-<version>-macOS-x86_64.dmg` (Intel), from [Releases](https://github.com/chhuax/Kanso/releases), open it and drag Kanso into Applications.
 
 The app is ad-hoc signed and **not notarized** yet. On first launch, right-click Kanso and choose **Open**. If macOS still refuses:
 
@@ -74,16 +74,16 @@ xattr -dr com.apple.quarantine /Applications/Kanso.app
 
 ## Build from source
 
-Install Xcode 16 or later, [rustup](https://rustup.rs/) and XcodeGen. Rust **1.94.1** and the `aarch64-apple-darwin` target are pinned in `rust-toolchain.toml` and installed automatically.
+Install Xcode 16 or later, [rustup](https://rustup.rs/) and XcodeGen. Rust **1.94.1** and the `aarch64-apple-darwin` and `x86_64-apple-darwin` targets are pinned in `rust-toolchain.toml` and installed automatically.
 
 ```sh
 brew install xcodegen
 cargo xtask apple-build --channel direct              # Debug build
-cargo xtask dmg                                       # Release build + dmg in target/dist/
+cargo xtask dmg                                       # Release build + arm64 dmg in target/dist/ (add --arch x86_64 for the Intel dmg)
 cargo install cargo-deny --locked && cargo xtask ci   # all checks, builds and tests
 ```
 
-The Debug app is at `target/apple/DerivedData.noindex/Build/Products/Debug-Direct/Kanso.app`. Run `cargo xtask notices` after dependency changes to regenerate [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). More details: [docs/apple-build.md](docs/apple-build.md).
+The Debug app is at `target/apple/DerivedData.noindex/Build/Products/Debug-Direct/Kanso.app` (`DerivedData-x86_64.noindex` on Intel Macs; builds target the native architecture by default). Run `cargo xtask notices` after dependency changes to regenerate [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). More details: [docs/apple-build.md](docs/apple-build.md).
 
 ## Roadmap
 

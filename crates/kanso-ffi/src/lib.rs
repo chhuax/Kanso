@@ -8,6 +8,7 @@
 //! - [`secret_store`]：凭据存储的宿主回调接口（macOS 钥匙串）与到 core `SecretStore` 的适配器。
 //! - [`frame_handle`]：`FrameHandle`，帧内容零拷贝的取帧句柄。
 //! - [`frame`]：mock 帧的手写 C ABI（C 冒烟测试与 `--snapshot` 截图模式使用）。
+//! - [`mcp`]：MCP 授权与审计、`KansoMcpServer` 服务对象、配置命令生成。
 //!
 //! Swift 绑定由 `cargo xtask bindgen` 以 library mode 生成，见 docs/apple-build.md。
 
@@ -16,6 +17,7 @@ pub mod ffi_types;
 pub mod frame;
 pub mod frame_handle;
 pub mod git;
+pub mod mcp;
 pub mod secret_store;
 
 pub mod terminal_themes;

@@ -1,13 +1,14 @@
 //! SQLite 表结构与迁移、数据读写、`.kanso` 导入导出。
 //!
 //! - [`schema`]：打开数据库与迁移；
-//! - [`Store`]：仓库层（Profile、分组、Sender 命令、历史、设置）；
+//! - [`Store`]：仓库层（Profile、分组、Sender 命令、历史、设置、MCP 授权与审计）；
 //! - `.kanso` 导入导出：见 [`Store::export`] 与 [`Store::import_file`]。
 //!
 //! ssh_config 导入（F6）依赖 `kanso-sshconfig`，不在本阶段实现。
 
 mod exchange;
 mod history;
+mod mcp;
 pub mod schema;
 mod store;
 

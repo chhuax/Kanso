@@ -28,6 +28,10 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 2,
         sql: include_str!("../migrations/0002_history_hosts.sql"),
     },
+    Migration {
+        version: 3,
+        sql: include_str!("../migrations/0003_mcp.sql"),
+    },
 ];
 
 /// 当前程序支持的最高 schema 版本。

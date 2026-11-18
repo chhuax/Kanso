@@ -219,6 +219,29 @@ final class SftpDualTests: XCTestCase {
         XCTAssertEqual(Set(panels(in: root).map(ObjectIdentifier.init)), loaded)
     }
 
+    /// Git 面板每次展开都恢复到上次宽度（首次为默认宽度），不会被分栏压到最小宽度。
+    func testGitPanelReopensAtRememberedWidth() throws {
+        // 模拟已经用过的用户：旧实现只在这个标记为 false 时设一次宽度，之后交给分栏分配，面板被压到最小宽度。
+        let defaults = SftpTestDefaults()
+        defaults.set(true, forKey: "kanso.git.widthInitialized")
+        let window = try MainWindowController(useMockCore: true, defaults: defaults,
+                                              settings: SettingsStore.attached(to: MemorySettingsBackend()))
+        defer { window.controller.shutdown(); window.window?.orderOut(nil) }
+        window.window?.setContentSize(NSSize(width: 1600, height: 800))
+        func gitWidth() throws -> CGFloat {
+            let root = try XCTUnwrap(window.window?.contentView)
+            func find(_ view: NSView) -> GitPanelView? {
+                (view as? GitPanelView) ?? view.subviews.lazy.compactMap(find).first
+            }
+            return try XCTUnwrap(find(root)?.superview).frame.width
+        }
+        window.setGitCollapsed(false)
+        XCTAssertEqual(try gitWidth(), MainWindowController.gitDefaultWidth, accuracy: 2)
+        window.setGitCollapsed(true)
+        window.setGitCollapsed(false)
+        XCTAssertEqual(try gitWidth(), MainWindowController.gitDefaultWidth, accuracy: 2)
+    }
+
     func testVisibleSenderIsRestoredDuringWindowCreation() throws {
         let defaults = SftpTestDefaults()
         defaults.set(true, forKey: "kanso.sender.visible")

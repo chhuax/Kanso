@@ -1032,3 +1032,201 @@ fn import_settings_overrides_same_key_and_keeps_others() {
     assert_eq!(s.get_setting("b").unwrap().as_deref(), Some("2"));
     assert_eq!(s.get_setting("c").unwrap().as_deref(), Some(r#""z""#));
 }
+
+// ---- MCP 授权与审计（schema v3，spec/mcp.md §2.2、§6）----
+
+mod mcp {
+    use kanso_types::mcp::{MCP_AUDIT_RETENTION_MS, McpAccess, McpAuditEntry, McpAuditFilter};
+    use kanso_types::{ProfileId, SessionId};
+
+    use super::{group, local, ssh, store};
+
+    fn entry(
+        at_ms: i64,
+        client: &str,
+        profile: Option<ProfileId>,
+        error: Option<&str>,
+    ) -> McpAuditEntry {
+        McpAuditEntry {
+            at_ms,
+            client: client.into(),
+            mcp_session: "s1".into(),
+            tool: "kanso_exec".into(),
+            profile,
+            session: Some(SessionId::from_raw(7)),
+            args: "uname -a".into(),
+            error_code: error.map(str::to_owned),
+            duration_ms: 12,
+            bytes: 34,
+        }
+    }
+
+    #[test]
+    fn enabled_defaults_off_and_roundtrips() {
+        let mut s = store();
+        assert!(!s.mcp_enabled().unwrap());
+        s.set_mcp_enabled(true).unwrap();
+        assert!(s.mcp_enabled().unwrap());
+        s.set_mcp_enabled(false).unwrap();
+        assert!(!s.mcp_enabled().unwrap());
+    }
+
+    #[test]
+    fn access_defaults_off_set_and_clear() {
+        let mut s = store();
+        let p = ssh("web", None, None);
+        s.upsert_profile(&p).unwrap();
+        assert_eq!(s.mcp_access(p.id).unwrap(), McpAccess::Off);
+
+        assert!(s.set_mcp_access(p.id, McpAccess::Full).unwrap());
+        assert_eq!(s.mcp_access(p.id).unwrap(), McpAccess::Full);
+        assert_eq!(s.mcp_accesses().unwrap(), vec![(p.id, McpAccess::Full)]);
+
+        assert!(s.set_mcp_access(p.id, McpAccess::ReadOnly).unwrap());
+        assert_eq!(s.mcp_access(p.id).unwrap(), McpAccess::ReadOnly);
+
+        // Off 即删除记录，列表里不再出现。
+        assert!(s.set_mcp_access(p.id, McpAccess::Off).unwrap());
+        assert_eq!(s.mcp_access(p.id).unwrap(), McpAccess::Off);
+        assert!(s.mcp_accesses().unwrap().is_empty());
+    }
+
+    #[test]
+    fn access_for_unknown_profile_is_not_written() {
+        let mut s = store();
+        let ghost = ProfileId::new();
+        assert!(!s.set_mcp_access(ghost, McpAccess::Full).unwrap());
+        assert_eq!(s.mcp_access(ghost).unwrap(), McpAccess::Off);
+    }
+
+    #[test]
+    fn deleting_profile_or_group_drops_grant_and_resurrection_starts_off() {
+        let mut s = store();
+        let p = ssh("web", None, None);
+        s.upsert_profile(&p).unwrap();
+        s.set_mcp_access(p.id, McpAccess::Full).unwrap();
+        assert!(s.delete_profile(p.id).unwrap());
+        assert_eq!(s.mcp_access(p.id).unwrap(), McpAccess::Off);
+        // 墓碑复活（同 id 重新写入）后必须仍是关闭：授权记录已经物理删除。
+        s.upsert_profile(&p).unwrap();
+        assert_eq!(s.mcp_access(p.id).unwrap(), McpAccess::Off);
+
+        let g = group("prod");
+        s.upsert_group(&g).unwrap();
+        let q = local("shell", Some(g.id));
+        s.upsert_profile(&q).unwrap();
+        s.set_mcp_access(q.id, McpAccess::ReadOnly).unwrap();
+        s.delete_group(g.id).unwrap();
+        assert_eq!(s.mcp_access(q.id).unwrap(), McpAccess::Off);
+        assert!(s.mcp_accesses().unwrap().is_empty());
+    }
+
+    #[test]
+    fn export_never_contains_mcp_data() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = store();
+        let p = ssh("web", None, None);
+        s.upsert_profile(&p).unwrap();
+        s.set_mcp_access(p.id, McpAccess::Full).unwrap();
+        s.set_mcp_enabled(true).unwrap();
+        s.append_mcp_audit(&[entry(1, "claude-code", Some(p.id), None)])
+            .unwrap();
+        let out = s.export(&dir.path().join("x"), "1").unwrap();
+        let text = std::fs::read_to_string(out).unwrap().to_lowercase();
+        assert!(!text.contains("mcp"), "export leaked MCP data: {text}");
+        assert!(!text.contains("claude-code"));
+    }
+
+    #[test]
+    fn audit_roundtrip_filter_and_paging() {
+        let mut s = store();
+        let p = ProfileId::new();
+        s.append_mcp_audit(&[
+            entry(1, "claude-code", Some(p), None),
+            entry(2, "codex", None, Some("ACCESS_DENIED")),
+            entry(3, "claude-code", Some(p), Some("TAB_BUSY")),
+        ])
+        .unwrap();
+
+        let all = s.mcp_audit(&McpAuditFilter::default()).unwrap();
+        assert_eq!(all.len(), 3);
+        // 新的在前；字段原样往返。
+        assert_eq!(
+            all[0].entry,
+            entry(3, "claude-code", Some(p), Some("TAB_BUSY"))
+        );
+        assert!(all[0].id > all[1].id && all[1].id > all[2].id);
+
+        let claude = s
+            .mcp_audit(&McpAuditFilter {
+                client: Some("claude-code".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(claude.len(), 2);
+
+        let errors = s
+            .mcp_audit(&McpAuditFilter {
+                errors_only: true,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(errors.len(), 2);
+
+        let by_profile = s
+            .mcp_audit(&McpAuditFilter {
+                profile: Some(p),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(by_profile.len(), 2);
+
+        let page = s
+            .mcp_audit(&McpAuditFilter {
+                before_id: Some(all[0].id),
+                limit: 1,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(page.len(), 1);
+        assert_eq!(page[0].id, all[1].id);
+
+        s.clear_mcp_audit().unwrap();
+        assert!(s.mcp_audit(&McpAuditFilter::default()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn audit_prune_by_age_then_by_count() {
+        let mut s = store();
+        let now = 100 * MCP_AUDIT_RETENTION_MS;
+        s.append_mcp_audit(&[
+            entry(now - MCP_AUDIT_RETENTION_MS - 1, "old", None, None),
+            entry(now - MCP_AUDIT_RETENTION_MS, "edge", None, None),
+            entry(now, "new", None, None),
+        ])
+        .unwrap();
+        assert_eq!(s.prune_mcp_audit(now).unwrap(), 1);
+        let left: Vec<String> = s
+            .mcp_audit(&McpAuditFilter::default())
+            .unwrap()
+            .into_iter()
+            .map(|r| r.entry.client)
+            .collect();
+        assert_eq!(left, vec!["new".to_owned(), "edge".to_owned()]);
+
+        // 条数上限：按 id 保留最新的 10000 条，与 at 无关。
+        let batch: Vec<McpAuditEntry> = (0..10_001)
+            .map(|i| entry(now, &format!("c{i}"), None, None))
+            .collect();
+        s.append_mcp_audit(&batch).unwrap();
+        let removed = s.prune_mcp_audit(now).unwrap();
+        assert_eq!(removed, 2 + 1);
+        let newest = s
+            .mcp_audit(&McpAuditFilter {
+                limit: 1,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(newest[0].entry.client, "c10000");
+    }
+}

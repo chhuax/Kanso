@@ -155,6 +155,8 @@ impl Store {
              WHERE scope_kind = 'profile' AND scope_ref = ?1 AND deleted = 0",
             params![key, now],
         )?;
+        // MCP 授权是本机专用表，没有墓碑，直接物理删除（spec/mcp.md §2.2）。
+        tx.execute("DELETE FROM mcp_grants WHERE profile_id = ?1", [&key])?;
         tx.commit()?;
         Ok(true)
     }
@@ -206,6 +208,8 @@ impl Store {
                 "UPDATE profiles SET deleted = 1, updated_at = ?2 WHERE id = ?1",
                 params![p, now],
             )?;
+            // 同 delete_profile：MCP 授权直接物理删除。
+            tx.execute("DELETE FROM mcp_grants WHERE profile_id = ?1", [p])?;
         }
         for s in &snippets {
             tx.execute(

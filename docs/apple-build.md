@@ -37,7 +37,7 @@ apple/
 
 - Debug 配置另有 `DEBUG` 条件；`KANSO_RUST_PROFILE` 随配置为 `debug` / `release`。
 - 每个 scheme 的 Run / Test / Profile / Analyze / Archive 分别用对应渠道的 Debug、Release、Release、Debug、Release 配置。
-- 通用设置：macOS 14.0、仅 arm64、Hardened Runtime、Swift 6 语言模式（严格并发）、本地签名 `-`（Sign to Run Locally）。
+- 通用设置：macOS 14.0、架构按配置设置（Debug 用本机架构，Release 默认 arm64；官网版 Intel 包用命令行 `ARCHS=x86_64` 覆盖 Release-Direct，MAS / Setapp 只出 arm64，不做 Universal）、Hardened Runtime、Swift 6 语言模式（严格并发）、本地签名 `-`（Sign to Run Locally）。
 - Swift 编译条件只作用于 App target；本地包目前不区分渠道，需要时再单独设计。
 
 ## 3. Rust 静态库如何进入 Xcode 构建
@@ -45,10 +45,10 @@ apple/
 App target 的第一个构建阶段是 Run Script `Build Rust core`，每次构建都执行（不做依赖分析，增量交给 cargo）：
 
 ```
-cargo xtask apple-lib --channel "$KANSO_CHANNEL" --profile "$KANSO_RUST_PROFILE" --out "$TARGET_TEMP_DIR/rust"
+cargo xtask apple-lib --channel "$KANSO_CHANNEL" --profile "$KANSO_RUST_PROFILE" --arch "$ARCHS" --out "$TARGET_TEMP_DIR/rust"
 ```
 
-`apple-lib` 以 `--no-default-features --features <渠道>` 为 `aarch64-apple-darwin` 构建 `kanso-ffi`，
+`apple-lib` 以 `--no-default-features --features <渠道>` 为 `--arch` 指定的架构（`arm64` → `aarch64-apple-darwin`，`x86_64` → `x86_64-apple-darwin`；`ARCHS` 含多个架构时报错）构建 `kanso-ffi`，
 每个渠道用独立的 target 目录 `target/apple/<渠道>`，切换 scheme 不会互相冲掉 cargo 缓存；
 再把 `libkanso_ffi.a` 复制到 `$TARGET_TEMP_DIR/rust`（内容不变时不覆盖，避免无谓的重新链接）。
 App target 通过 `LIBRARY_SEARCH_PATHS = $(TARGET_TEMP_DIR)/rust` 与 `OTHER_LDFLAGS = -lkanso_ffi` 链接。
@@ -96,13 +96,15 @@ cargo xtask apple-build                            # 构建 Direct / Debug
 cargo xtask apple-build --channel mas --configuration release
 cargo xtask apple-build --all                      # 依次构建三个渠道的 Debug
 cargo xtask dmg                                   # Release Direct 构建、生成 arm64 DMG 并打印 SHA-256（临时签名、未公证）
+cargo xtask dmg --arch x86_64                     # 可选：另出 Intel 包 Kanso-<版本>-macOS-x86_64.dmg
+cargo xtask apple-build --arch x86_64             # 指定架构（默认本机架构；x86_64 的 Release 只支持 direct）
 cargo xtask notices                               # 更新第三方依赖与素材声明
 cargo xtask apple-test                             # Direct scheme 下跑 xcodebuild test（KansoTests）
 KANSO_RECORD_SNAPSHOTS=1 cargo xtask apple-test   # 重新录制参考截图
 cargo xtask ci --skip-apple                        # 没装 Xcode 时跳过 Apple 端构建
 ```
 
-产物在 `target/apple/DerivedData.noindex/Build/Products/<配置>/Kanso.app`。目录名带 `.noindex` 是为了让聚焦（Spotlight）不收录这些构建产物，否则搜索 Kanso 会出现多个同名 App，容易打开到旧的 Debug 版。
+产物在 `target/apple/DerivedData.noindex/Build/Products/<配置>/Kanso.app`（x86_64 在 `target/apple/DerivedData-x86_64.noindex/` 下，与 arm64 互不覆盖）。目录名带 `.noindex` 是为了让聚焦（Spotlight）不收录这些构建产物，否则搜索 Kanso 会出现多个同名 App，容易打开到旧的 Debug 版。
 需要 Xcode 与 XcodeGen（`brew install xcodegen`）。
 
 ## 6. 截图模式

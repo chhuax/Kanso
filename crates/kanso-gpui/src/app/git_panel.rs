@@ -16,7 +16,7 @@ use crate::app::filer_state::cwd_host_is_local;
 use crate::app::tab::{TabConnection, TabItem, TabKind};
 
 /// 初始宽度（D8）。
-pub const DEFAULT_WIDTH: f32 = 420.0;
+pub const DEFAULT_WIDTH: f32 = 480.0;
 /// 允许的最小宽度。
 pub const MIN_WIDTH: f32 = 280.0;
 /// 允许的最大宽度。
@@ -30,7 +30,7 @@ pub const MIN_REFRESH_INTERVAL_MS: u64 = 800;
 
 // ---- 布局 ----
 
-/// 面板显隐与宽度。D8（2026-11-18 用户决定照 mac 版）：宽度重启后记住，显隐不记；首次默认 420。
+/// 面板显隐与宽度。D8（2026-11-18 用户决定照 mac 版）：宽度重启后记住，显隐不记；首次默认 480。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GitLayout {
     /// 是否显示。
@@ -49,7 +49,7 @@ impl Default for GitLayout {
 }
 
 impl GitLayout {
-    /// 以保存的宽度起步（启动时恢复）：夹进 280–760，不是有限数值就用默认 420。
+    /// 以保存的宽度起步（启动时恢复）：夹进 280–760，不是有限数值就用默认 480。
     pub fn with_saved_width(saved: f32) -> GitLayout {
         let base = GitLayout::default();
         GitLayout {
@@ -675,13 +675,13 @@ mod tests {
         assert_eq!(GitLayout::with_saved_width(9999.0).width, MAX_WIDTH);
         assert_eq!(GitLayout::with_saved_width(f32::NAN).width, DEFAULT_WIDTH);
         assert!(!GitLayout::with_saved_width(500.0).visible);
-        assert_eq!(l.effective_width(1200.0), 420.0);
+        assert_eq!(l.effective_width(1200.0), 480.0);
         assert_eq!(l.effective_width(600.0), 300.0);
         // 让位后太窄：不显示。
         assert_eq!(l.effective_width(450.0), 0.0);
         assert_eq!(GitLayout::default().effective_width(2000.0), 0.0);
         // 向左拖变宽。
-        assert_eq!(l.drag_width(420.0, 800.0, 750.0), 470.0);
+        assert_eq!(l.drag_width(480.0, 800.0, 750.0), 530.0);
     }
 
     #[test]

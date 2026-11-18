@@ -19,6 +19,19 @@ final class StatusBarView: NSView {
     private let directoryItem = StatusBarItemView(symbol: "folder", title: "", isClickable: false)
     private let senderItem = StatusBarItemView(symbol: "repeat", title: String(localized: "Sender is Running"), isClickable: true)
     var onShowSender: (() -> Void)?
+    private let mcpItem = StatusBarItemView(
+        symbol: "point.3.connected.trianglepath.dotted", title: "", isClickable: true
+    )
+    var onOpenMcp: (() -> Void)?
+
+    func setMcpClientCount(_ count: Int) {
+        mcpItem.isHidden = count == 0
+        mcpItem.title = String(localized: "MCP \(count)")
+        needsLayout = true
+    }
+
+    var isMcpIndicatorVisible: Bool { !mcpItem.isHidden }
+    func clickMcpIndicator() { mcpItem.onClick?() }
 
     func setSenderRunning(_ running: Bool) {
         senderItem.isHidden = !running
@@ -79,6 +92,9 @@ final class StatusBarView: NSView {
         addSubview(filerItem)
         directoryItem.isHidden = true
         senderItem.isHidden = true
+        mcpItem.isHidden = true
+        mcpItem.onClick = { [weak self] in self?.onOpenMcp?() }
+        addSubview(mcpItem)
         senderItem.onClick = { [weak self] in self?.onShowSender?() }
         addSubview(senderItem)
         directoryItem.lineBreakMode = .byTruncatingHead
@@ -177,6 +193,14 @@ final class StatusBarView: NSView {
         let y = (bounds.height - h) / 2
         clockLabel.frame = NSRect(x: bounds.width - pad - clockW, y: y, width: clockW, height: h)
         var rightEdge = clockLabel.frame.minX
+        if !mcpItem.isHidden {
+            let itemH = mcpItem.fittingHeight
+            let width = mcpItem.fittingWidth
+            mcpItem.frame = NSRect(
+                x: rightEdge - pad - width, y: (bounds.height - itemH) / 2, width: width, height: itemH
+            )
+            rightEdge = mcpItem.frame.minX
+        }
         if !legacyBadge.isHidden {
             let size = legacyBadge.badgeSize
             legacyBadge.frame = NSRect(

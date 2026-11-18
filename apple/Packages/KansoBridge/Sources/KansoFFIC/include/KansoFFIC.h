@@ -250,6 +250,41 @@ typedef void (*UniffiCallbackInterfaceFfiEventListenerMethod0)(uint64_t, RustBuf
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_MCP_SERVER_DELEGATE_METHOD0
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_MCP_SERVER_DELEGATE_METHOD0
+typedef void (*UniffiCallbackInterfaceFfiMcpServerDelegateMethod0)(uint64_t, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_MCP_SERVER_DELEGATE_METHOD1
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_MCP_SERVER_DELEGATE_METHOD1
+typedef void (*UniffiCallbackInterfaceFfiMcpServerDelegateMethod1)(uint64_t, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_MCP_SERVER_DELEGATE_METHOD2
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_MCP_SERVER_DELEGATE_METHOD2
+typedef void (*UniffiCallbackInterfaceFfiMcpServerDelegateMethod2)(uint64_t, uint64_t, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_MCP_SERVER_DELEGATE_METHOD3
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_MCP_SERVER_DELEGATE_METHOD3
+typedef void (*UniffiCallbackInterfaceFfiMcpServerDelegateMethod3)(uint64_t, uint64_t, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_MCP_SERVER_DELEGATE_METHOD4
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_MCP_SERVER_DELEGATE_METHOD4
+typedef void (*UniffiCallbackInterfaceFfiMcpServerDelegateMethod4)(uint64_t, uint64_t, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_SECRET_STORE_METHOD0
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_SECRET_STORE_METHOD0
 typedef void (*UniffiCallbackInterfaceFfiSecretStoreMethod0)(uint64_t, RustBuffer, RustBuffer* _Nonnull, 
@@ -278,6 +313,19 @@ typedef struct UniffiVTableCallbackInterfaceFfiEventListener {
     UniffiCallbackInterfaceClone _Nonnull uniffiClone;
     UniffiCallbackInterfaceFfiEventListenerMethod0 _Nonnull onEvent;
 } UniffiVTableCallbackInterfaceFfiEventListener;
+
+#endif
+#ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_FFI_MCP_SERVER_DELEGATE
+#define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_FFI_MCP_SERVER_DELEGATE
+typedef struct UniffiVTableCallbackInterfaceFfiMcpServerDelegate {
+    UniffiCallbackInterfaceFree _Nonnull uniffiFree;
+    UniffiCallbackInterfaceClone _Nonnull uniffiClone;
+    UniffiCallbackInterfaceFfiMcpServerDelegateMethod0 _Nonnull onStatusChanged;
+    UniffiCallbackInterfaceFfiMcpServerDelegateMethod1 _Nonnull onClientsChanged;
+    UniffiCallbackInterfaceFfiMcpServerDelegateMethod2 _Nonnull onSessionOpened;
+    UniffiCallbackInterfaceFfiMcpServerDelegateMethod3 _Nonnull onActivity;
+    UniffiCallbackInterfaceFfiMcpServerDelegateMethod4 _Nonnull onSessionReleased;
+} UniffiVTableCallbackInterfaceFfiMcpServerDelegate;
 
 #endif
 #ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_FFI_SECRET_STORE
@@ -726,6 +774,41 @@ uint64_t uniffi_kanso_ffi_fn_method_kansocore_xmodem_send(uint64_t ptr, uint64_t
 uint64_t uniffi_kanso_ffi_fn_method_kansocore_xmodem_start(uint64_t ptr, uint64_t session_id, RustBuffer block, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_MCP_ACCESS
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_MCP_ACCESS
+RustBuffer uniffi_kanso_ffi_fn_method_kansocore_mcp_access(uint64_t ptr, RustBuffer profile_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_MCP_ACCESSES
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_MCP_ACCESSES
+RustBuffer uniffi_kanso_ffi_fn_method_kansocore_mcp_accesses(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_MCP_AUDIT
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_MCP_AUDIT
+RustBuffer uniffi_kanso_ffi_fn_method_kansocore_mcp_audit(uint64_t ptr, RustBuffer filter, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_MCP_AUDIT_CLEAR
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_MCP_AUDIT_CLEAR
+void uniffi_kanso_ffi_fn_method_kansocore_mcp_audit_clear(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_MCP_ENABLED
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_MCP_ENABLED
+int8_t uniffi_kanso_ffi_fn_method_kansocore_mcp_enabled(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_SET_MCP_ACCESS
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_SET_MCP_ACCESS
+void uniffi_kanso_ffi_fn_method_kansocore_set_mcp_access(uint64_t ptr, RustBuffer profile_id, RustBuffer level, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_SET_MCP_ENABLED
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_SET_MCP_ENABLED
+void uniffi_kanso_ffi_fn_method_kansocore_set_mcp_enabled(uint64_t ptr, int8_t enabled, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_CLONE_FRAMEHANDLE
 #define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_CLONE_FRAMEHANDLE
 uint64_t uniffi_kanso_ffi_fn_clone_framehandle(uint64_t handle, RustCallStatus *_Nonnull out_status
@@ -807,6 +890,106 @@ int8_t uniffi_kanso_ffi_fn_method_kansogitpanel_is_current(uint64_t ptr, uint64_
 RustBuffer uniffi_kanso_ffi_fn_method_kansogitpanel_read(uint64_t ptr, uint64_t request, RustBuffer cwd, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_CLONE_FFIMCPSERVERDELEGATE
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_CLONE_FFIMCPSERVERDELEGATE
+uint64_t uniffi_kanso_ffi_fn_clone_ffimcpserverdelegate(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_FREE_FFIMCPSERVERDELEGATE
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_FREE_FFIMCPSERVERDELEGATE
+void uniffi_kanso_ffi_fn_free_ffimcpserverdelegate(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_INIT_CALLBACK_VTABLE_FFIMCPSERVERDELEGATE
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_INIT_CALLBACK_VTABLE_FFIMCPSERVERDELEGATE
+void uniffi_kanso_ffi_fn_init_callback_vtable_ffimcpserverdelegate(const UniffiVTableCallbackInterfaceFfiMcpServerDelegate* _Nonnull vtable
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_FFIMCPSERVERDELEGATE_ON_STATUS_CHANGED
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_FFIMCPSERVERDELEGATE_ON_STATUS_CHANGED
+void uniffi_kanso_ffi_fn_method_ffimcpserverdelegate_on_status_changed(uint64_t ptr, RustBuffer status, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_FFIMCPSERVERDELEGATE_ON_CLIENTS_CHANGED
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_FFIMCPSERVERDELEGATE_ON_CLIENTS_CHANGED
+void uniffi_kanso_ffi_fn_method_ffimcpserverdelegate_on_clients_changed(uint64_t ptr, RustBuffer clients, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_FFIMCPSERVERDELEGATE_ON_SESSION_OPENED
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_FFIMCPSERVERDELEGATE_ON_SESSION_OPENED
+void uniffi_kanso_ffi_fn_method_ffimcpserverdelegate_on_session_opened(uint64_t ptr, uint64_t session_id, RustBuffer client, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_FFIMCPSERVERDELEGATE_ON_ACTIVITY
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_FFIMCPSERVERDELEGATE_ON_ACTIVITY
+void uniffi_kanso_ffi_fn_method_ffimcpserverdelegate_on_activity(uint64_t ptr, uint64_t session_id, RustBuffer activity, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_FFIMCPSERVERDELEGATE_ON_SESSION_RELEASED
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_FFIMCPSERVERDELEGATE_ON_SESSION_RELEASED
+void uniffi_kanso_ffi_fn_method_ffimcpserverdelegate_on_session_released(uint64_t ptr, uint64_t session_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_CLONE_KANSOMCPSERVER
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_CLONE_KANSOMCPSERVER
+uint64_t uniffi_kanso_ffi_fn_clone_kansomcpserver(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_FREE_KANSOMCPSERVER
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_FREE_KANSOMCPSERVER
+void uniffi_kanso_ffi_fn_free_kansomcpserver(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_CONSTRUCTOR_KANSOMCPSERVER_NEW
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_CONSTRUCTOR_KANSOMCPSERVER_NEW
+uint64_t uniffi_kanso_ffi_fn_constructor_kansomcpserver_new(uint64_t core, uint64_t delegate, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_CONSTRUCTOR_KANSOMCPSERVER_NEW_MOCK
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_CONSTRUCTOR_KANSOMCPSERVER_NEW_MOCK
+uint64_t uniffi_kanso_ffi_fn_constructor_kansomcpserver_new_mock(uint64_t core, uint64_t delegate, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOMCPSERVER_CLIENTS
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOMCPSERVER_CLIENTS
+RustBuffer uniffi_kanso_ffi_fn_method_kansomcpserver_clients(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOMCPSERVER_DEBUG_ACTIVITY
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOMCPSERVER_DEBUG_ACTIVITY
+void uniffi_kanso_ffi_fn_method_kansomcpserver_debug_activity(uint64_t ptr, uint64_t session_id, RustBuffer tool, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOMCPSERVER_DEBUG_OPEN_TAB
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOMCPSERVER_DEBUG_OPEN_TAB
+uint64_t uniffi_kanso_ffi_fn_method_kansomcpserver_debug_open_tab(uint64_t ptr, RustBuffer profile_id
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOMCPSERVER_DISCONNECT
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOMCPSERVER_DISCONNECT
+void uniffi_kanso_ffi_fn_method_kansomcpserver_disconnect(uint64_t ptr, uint64_t client_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOMCPSERVER_SET_TOKEN
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOMCPSERVER_SET_TOKEN
+void uniffi_kanso_ffi_fn_method_kansomcpserver_set_token(uint64_t ptr, RustBuffer token, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOMCPSERVER_START
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOMCPSERVER_START
+void uniffi_kanso_ffi_fn_method_kansomcpserver_start(uint64_t ptr, RustBuffer bundle_id, RustBuffer token, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOMCPSERVER_STATUS
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOMCPSERVER_STATUS
+RustBuffer uniffi_kanso_ffi_fn_method_kansomcpserver_status(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOMCPSERVER_STOP
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOMCPSERVER_STOP
+void uniffi_kanso_ffi_fn_method_kansomcpserver_stop(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_CLONE_FFISECRETSTORE
 #define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_CLONE_FFISECRETSTORE
 uint64_t uniffi_kanso_ffi_fn_clone_ffisecretstore(uint64_t handle, RustCallStatus *_Nonnull out_status
@@ -840,6 +1023,17 @@ void uniffi_kanso_ffi_fn_method_ffisecretstore_delete(uint64_t ptr, RustBuffer a
 #ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_FUNC_RENDER_MESSAGE
 #define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_FUNC_RENDER_MESSAGE
 RustBuffer uniffi_kanso_ffi_fn_func_render_message(RustBuffer message, RustBuffer languages, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_FUNC_MCP_CLIENT_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_FUNC_MCP_CLIENT_CONFIG
+RustBuffer uniffi_kanso_ffi_fn_func_mcp_client_config(RustBuffer kind, RustBuffer helper_path, RustBuffer token, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_FUNC_MCP_SUPPORTED
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_FUNC_MCP_SUPPORTED
+int8_t uniffi_kanso_ffi_fn_func_mcp_supported(RustCallStatus *_Nonnull out_status
+    
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_FUNC_LOAD_TERMINAL_THEMES
@@ -1110,6 +1304,18 @@ void ffi_kanso_ffi_rust_future_complete_void(uint64_t handle, RustCallStatus *_N
 #ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_FUNC_RENDER_MESSAGE
 #define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_FUNC_RENDER_MESSAGE
 uint16_t uniffi_kanso_ffi_checksum_func_render_message(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_FUNC_MCP_CLIENT_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_FUNC_MCP_CLIENT_CONFIG
+uint16_t uniffi_kanso_ffi_checksum_func_mcp_client_config(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_FUNC_MCP_SUPPORTED
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_FUNC_MCP_SUPPORTED
+uint16_t uniffi_kanso_ffi_checksum_func_mcp_supported(void
     
 );
 #endif
@@ -1587,6 +1793,48 @@ uint16_t uniffi_kanso_ffi_checksum_method_kansocore_xmodem_start(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_MCP_ACCESS
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_MCP_ACCESS
+uint16_t uniffi_kanso_ffi_checksum_method_kansocore_mcp_access(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_MCP_ACCESSES
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_MCP_ACCESSES
+uint16_t uniffi_kanso_ffi_checksum_method_kansocore_mcp_accesses(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_MCP_AUDIT
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_MCP_AUDIT
+uint16_t uniffi_kanso_ffi_checksum_method_kansocore_mcp_audit(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_MCP_AUDIT_CLEAR
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_MCP_AUDIT_CLEAR
+uint16_t uniffi_kanso_ffi_checksum_method_kansocore_mcp_audit_clear(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_MCP_ENABLED
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_MCP_ENABLED
+uint16_t uniffi_kanso_ffi_checksum_method_kansocore_mcp_enabled(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_SET_MCP_ACCESS
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_SET_MCP_ACCESS
+uint16_t uniffi_kanso_ffi_checksum_method_kansocore_set_mcp_access(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_SET_MCP_ENABLED
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_SET_MCP_ENABLED
+uint16_t uniffi_kanso_ffi_checksum_method_kansocore_set_mcp_enabled(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_FRAMEHANDLE_BYTE_LEN
 #define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_FRAMEHANDLE_BYTE_LEN
 uint16_t uniffi_kanso_ffi_checksum_method_framehandle_byte_len(void
@@ -1641,6 +1889,84 @@ uint16_t uniffi_kanso_ffi_checksum_method_kansogitpanel_read(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_FFIMCPSERVERDELEGATE_ON_STATUS_CHANGED
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_FFIMCPSERVERDELEGATE_ON_STATUS_CHANGED
+uint16_t uniffi_kanso_ffi_checksum_method_ffimcpserverdelegate_on_status_changed(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_FFIMCPSERVERDELEGATE_ON_CLIENTS_CHANGED
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_FFIMCPSERVERDELEGATE_ON_CLIENTS_CHANGED
+uint16_t uniffi_kanso_ffi_checksum_method_ffimcpserverdelegate_on_clients_changed(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_FFIMCPSERVERDELEGATE_ON_SESSION_OPENED
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_FFIMCPSERVERDELEGATE_ON_SESSION_OPENED
+uint16_t uniffi_kanso_ffi_checksum_method_ffimcpserverdelegate_on_session_opened(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_FFIMCPSERVERDELEGATE_ON_ACTIVITY
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_FFIMCPSERVERDELEGATE_ON_ACTIVITY
+uint16_t uniffi_kanso_ffi_checksum_method_ffimcpserverdelegate_on_activity(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_FFIMCPSERVERDELEGATE_ON_SESSION_RELEASED
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_FFIMCPSERVERDELEGATE_ON_SESSION_RELEASED
+uint16_t uniffi_kanso_ffi_checksum_method_ffimcpserverdelegate_on_session_released(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOMCPSERVER_CLIENTS
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOMCPSERVER_CLIENTS
+uint16_t uniffi_kanso_ffi_checksum_method_kansomcpserver_clients(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOMCPSERVER_DEBUG_ACTIVITY
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOMCPSERVER_DEBUG_ACTIVITY
+uint16_t uniffi_kanso_ffi_checksum_method_kansomcpserver_debug_activity(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOMCPSERVER_DEBUG_OPEN_TAB
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOMCPSERVER_DEBUG_OPEN_TAB
+uint16_t uniffi_kanso_ffi_checksum_method_kansomcpserver_debug_open_tab(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOMCPSERVER_DISCONNECT
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOMCPSERVER_DISCONNECT
+uint16_t uniffi_kanso_ffi_checksum_method_kansomcpserver_disconnect(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOMCPSERVER_SET_TOKEN
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOMCPSERVER_SET_TOKEN
+uint16_t uniffi_kanso_ffi_checksum_method_kansomcpserver_set_token(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOMCPSERVER_START
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOMCPSERVER_START
+uint16_t uniffi_kanso_ffi_checksum_method_kansomcpserver_start(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOMCPSERVER_STATUS
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOMCPSERVER_STATUS
+uint16_t uniffi_kanso_ffi_checksum_method_kansomcpserver_status(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOMCPSERVER_STOP
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOMCPSERVER_STOP
+uint16_t uniffi_kanso_ffi_checksum_method_kansomcpserver_stop(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_FFISECRETSTORE_GET
 #define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_FFISECRETSTORE_GET
 uint16_t uniffi_kanso_ffi_checksum_method_ffisecretstore_get(void
@@ -1686,6 +2012,18 @@ uint16_t uniffi_kanso_ffi_checksum_constructor_framehandle_mock_semantic_colors(
 #ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_CONSTRUCTOR_KANSOGITPANEL_NEW
 #define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_CONSTRUCTOR_KANSOGITPANEL_NEW
 uint16_t uniffi_kanso_ffi_checksum_constructor_kansogitpanel_new(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_CONSTRUCTOR_KANSOMCPSERVER_NEW
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_CONSTRUCTOR_KANSOMCPSERVER_NEW
+uint16_t uniffi_kanso_ffi_checksum_constructor_kansomcpserver_new(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_CONSTRUCTOR_KANSOMCPSERVER_NEW_MOCK
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_CONSTRUCTOR_KANSOMCPSERVER_NEW_MOCK
+uint16_t uniffi_kanso_ffi_checksum_constructor_kansomcpserver_new_mock(void
     
 );
 #endif

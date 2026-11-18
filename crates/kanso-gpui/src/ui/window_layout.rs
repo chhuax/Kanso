@@ -16,7 +16,7 @@ pub(super) struct PanelLayout {
     pub sender_visible: bool,
     pub sender_height: f32,
     pub right_click_menu: bool,
-    /// Git 面板宽度（照 mac 版跨重启记住；旧数据没有这个字段时用默认 420）。
+    /// Git 面板宽度（照 mac 版跨重启记住；旧数据没有这个字段时用默认 480）。
     pub git_width: f32,
 }
 

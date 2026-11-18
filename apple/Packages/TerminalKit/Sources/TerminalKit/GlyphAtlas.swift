@@ -134,10 +134,14 @@ final class GlyphAtlas {
     }
 
     private func entrySlow(scalar: UInt32, bold: Bool, italic: Bool, wide: Bool, face: GlyphFace) -> GlyphEntry {
-        let key = ScalarGlyphKey(scalar: scalar, bold: bold, italic: italic, wide: wide, face: face)
+        // 几何字形不随粗斜体变化，统一成一份缓存。
+        let geometric = Self.isPowerlineGeometric(scalar)
+        let key = ScalarGlyphKey(scalar: scalar, bold: geometric ? false : bold, italic: geometric ? false : italic, wide: wide, face: face)
         if let hit = scalarCache[key] { return hit }
         let made: GlyphEntry
-        if [Self.branchIconScalar, Self.folderIconScalar, Self.nodeIconScalar].contains(scalar) {
+        if geometric {
+            made = rasterizePowerline(scalar: scalar, wide: wide, face: face)
+        } else if [Self.branchIconScalar, Self.folderIconScalar, Self.nodeIconScalar].contains(scalar) {
             made = rasterizeContextIcon(scalar: scalar, face: face)
         } else {
             let text = Unicode.Scalar(scalar).map { String(Character($0)) } ?? ""
@@ -337,6 +341,110 @@ final class GlyphAtlas {
         )
     }
 
+    // MARK: Powerline 分隔符
+
+    /// Powerline / Powerline Extra 分隔符（U+E0B0–E0BF）。由渲染器按单元格几何自己画，
+    /// 不依赖任何字体：回退到 Nerd Font 时它按字体自己的度量栅格化，高度与行距无关、宽度也不一定是一格，
+    /// 色块之间会出现台阶和缝隙。
+    static func isContextIcon(_ scalar: UInt32) -> Bool {
+        scalar == branchIconScalar || scalar == folderIconScalar || scalar == nodeIconScalar
+    }
+
+    static func isPowerlineGeometric(_ scalar: UInt32) -> Bool { (0xE0B0...0xE0BF).contains(scalar) }
+
+    /// 位图恰好是整个单元格（宽 1 格；wide 为 true 时 2 格，高 = 单元格高，含行距），原点对齐单元格左上角，
+    /// 所以实心形状的直边贴着单元格边界，与相邻色块无缝。
+    /// 几何（y 向下，w×h 为位图尺寸）：
+    /// - E0B0 / E0B2：实心三角，竖边在左 / 右，尖在对侧边中点；E0B1 / E0B3：只描两条斜边。
+    /// - E0B4 / E0B6：半椭圆，圆心在竖边中点，半轴为 (w, h/2)；E0B5 / E0B7：同一弧线的描边（向内缩半个线宽）。
+    /// - E0B8 左下、E0BA 右下、E0BC 左上、E0BE 右上：实心直角三角；E0B9 / E0BB / E0BD / E0BF：对应的对角线。
+    /// 线宽取 max(1, 像素字号 / 12)，与常规字重的笔画粗细相当。
+    /// 斜边 / 弧边抗锯齿；直边另补一条 1 像素的实心条带，保证边界像素完全不透明（对角线端点的像素否则只有约一半覆盖率）。
+    private func rasterizePowerline(scalar: UInt32, wide: Bool, face: GlyphFace) -> GlyphEntry {
+        let set = face == .terminal ? fonts.terminal : fonts.gutter
+        let metrics = set.metrics
+        let w = metrics.cellWidth * (wide ? 2 : 1), h = metrics.cellHeight
+        guard w > 0, h > 0 else { return .empty }
+        if scratch.count < w * h { scratch = [UInt8](repeating: 0, count: w * h) }
+        for i in 0..<(w * h) { scratch[i] = 0 }
+        let thickness = max(1, set.pixelSize / 12)
+        let drew: Bool = scratch.withUnsafeMutableBytes { raw in
+            guard let ctx = CGContext(
+                data: raw.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w,
+                space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue
+            ) else { return false }
+            let fw = CGFloat(w), fh = CGFloat(h)
+            // 转成 y 向下的坐标。
+            ctx.translateBy(x: 0, y: fh)
+            ctx.scaleBy(x: 1, y: -1)
+            ctx.setShouldAntialias(true)
+            ctx.setFillColor(gray: 1, alpha: 1)
+            ctx.setStrokeColor(gray: 1, alpha: 1)
+            ctx.setLineWidth(thickness)
+            ctx.setLineCap(.butt)
+            ctx.setLineJoin(.miter)
+            ctx.setMiterLimit(10)
+            ctx.clip(to: CGRect(x: 0, y: 0, width: fw, height: fh))
+            func polygon(_ points: [CGPoint]) {
+                ctx.addLines(between: points)
+                ctx.closePath()
+                ctx.fillPath()
+            }
+            func line(_ points: [CGPoint]) {
+                ctx.addLines(between: points)
+                ctx.strokePath()
+            }
+            enum Edge { case left, right, top, bottom }
+            func strips(_ edges: [Edge]) {
+                for edge in edges {
+                    switch edge {
+                    case .left: ctx.fill(CGRect(x: 0, y: 0, width: 1, height: fh))
+                    case .right: ctx.fill(CGRect(x: fw - 1, y: 0, width: 1, height: fh))
+                    case .top: ctx.fill(CGRect(x: 0, y: 0, width: fw, height: 1))
+                    case .bottom: ctx.fill(CGRect(x: 0, y: fh - 1, width: fw, height: 1))
+                    }
+                }
+            }
+            let tl = CGPoint(x: 0, y: 0), tr = CGPoint(x: fw, y: 0)
+            let bl = CGPoint(x: 0, y: fh), br = CGPoint(x: fw, y: fh)
+            let midLeft = CGPoint(x: 0, y: fh / 2), midRight = CGPoint(x: fw, y: fh / 2)
+            switch scalar {
+            case 0xE0B0: polygon([tl, bl, midRight]); strips([.left])
+            case 0xE0B1: line([tl, midRight, bl])
+            case 0xE0B2: polygon([tr, br, midLeft]); strips([.right])
+            case 0xE0B3: line([tr, midLeft, br])
+            case 0xE0B4:
+                ctx.fillEllipse(in: CGRect(x: -fw, y: 0, width: fw * 2, height: fh)); strips([.left])
+            case 0xE0B5:
+                ctx.strokeEllipse(in: CGRect(x: -(fw - thickness / 2), y: thickness / 2,
+                                             width: 2 * (fw - thickness / 2), height: fh - thickness))
+            case 0xE0B6:
+                ctx.fillEllipse(in: CGRect(x: 0, y: 0, width: fw * 2, height: fh)); strips([.right])
+            case 0xE0B7:
+                ctx.strokeEllipse(in: CGRect(x: fw - (fw - thickness / 2), y: thickness / 2,
+                                             width: 2 * (fw - thickness / 2), height: fh - thickness))
+            case 0xE0B8: polygon([tl, bl, br]); strips([.left, .bottom])
+            case 0xE0BA: polygon([tr, br, bl]); strips([.right, .bottom])
+            case 0xE0BC: polygon([tl, tr, bl]); strips([.left, .top])
+            case 0xE0BE: polygon([tl, tr, br]); strips([.right, .top])
+            case 0xE0B9, 0xE0BF: line([tl, br])
+            default: line([tr, bl])  // E0BB、E0BD
+            }
+            return true
+        }
+        guard drew, let (page, x, y) = allocate(width: w, height: h, isColor: false) else { return .empty }
+        let texture = grayPages[page].texture
+        scratch.withUnsafeBytes { raw in
+            texture.replace(region: MTLRegionMake2D(x, y, w, h), mipmapLevel: 0, withBytes: raw.baseAddress!, bytesPerRow: w)
+        }
+        let size = Float(texture.width)
+        return GlyphEntry(
+            page: page, isColor: false, isEmpty: false,
+            uv: SIMD4(Float(x) / size, Float(y) / size, Float(x + w) / size, Float(y + h) / size),
+            offsetX: 0, offsetY: 0, width: Int32(w), height: Int32(h)
+        )
+    }
+
     /// 字形墨迹的包围盒（基线坐标系，y 向上）。
     private static func imageBounds(of line: CTLine, fallbackAdvance: CGFloat, font: CTFont, isColor: Bool) -> CGRect {
         // CTLineGetImageBounds 需要一个 CGContext 来确定变换；包围盒与上下文内容无关，用 1x1 的即可。
@@ -383,8 +491,9 @@ final class GlyphAtlas {
     private func makePage(size: Int, format: MTLPixelFormat, bytesPerPixel: Int, name: String) -> ShelfPage {
         let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: format, width: size, height: size, mipmapped: false)
         desc.usage = .shaderRead
-        // Apple Silicon 统一内存：shared 存储下 CPU 的 replace 对 GPU 直接可见，无需 managed 同步。
-        desc.storageMode = .shared
+        // 统一内存用 shared；独显用 managed。managed 纹理经 CPU 的 `replace(region:)` 写入后，
+        // Metal 会自动把改动同步给 GPU，无需手动 didModify（Apple 文档 "Synchronizing a managed resource"）。
+        desc.storageMode = device.cpuAccessTextureStorageMode
         guard let texture = device.makeTexture(descriptor: desc) else {
             fatalError("无法创建 \(size)x\(size) 的图集纹理")
         }

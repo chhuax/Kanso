@@ -235,6 +235,99 @@ fn visible_raw(s: &str) -> String {
     out
 }
 
+fn directory_request(path: &Path) -> Vec<u8> {
+    use std::fmt::Write;
+    use std::os::unix::ffi::OsStrExt;
+    let mut request = String::from("\x1b[9001~");
+    for byte in path.as_os_str().as_bytes() {
+        write!(request, "{byte:02x}").unwrap();
+    }
+    request.push('\n');
+    request.into_bytes()
+}
+
+#[test]
+fn directory_widget_preserves_input_cursor_history_and_updates_prompt() {
+    if zsh_path().is_none() {
+        return;
+    }
+    let fx = Fixture::new();
+    fx.write(
+        ".zshrc",
+        "PS1='> '\nHISTFILE=$HOME/history\nHISTSIZE=100\nSAVEHIST=100\n\
+         chpwd() { print -rn -- \"$PWD\" > \"$HOME/hook\"; }\n",
+    );
+    let target = fx.home.join("space '\" 中文\ntrailing\n");
+    fs::create_dir(&target).unwrap();
+    let mut run = Run::start(&fx, true, &[]);
+    run.wait_prompt(1);
+    run.session
+        .writer()
+        .write_all(b"print -r -- __KEPT__TAIL\x02\x02\x02\x02")
+        .unwrap();
+    run.wait_until("半行输入", |text| text.contains("__KEPT__TAIL"));
+    let before = run.text();
+    run.session
+        .writer()
+        .write_all(&directory_request(&target))
+        .unwrap();
+    run.wait_prompt(2);
+    let changed = run.text();
+    let refresh = &changed[before.len()..];
+    assert!(refresh.contains("\x1b]7;file://"));
+    assert!(refresh.contains("%20%27%22%20%E4%B8%AD%E6%96%87%0Atrailing%0A"));
+    assert!(visible_raw(refresh).contains("\u{f07b}"));
+    assert!(visible_raw(refresh).contains("中文?trailing?"));
+    assert!(!refresh.contains("\x1b]133;A"));
+    assert!(!refresh.contains("\x1b]133;C"));
+    assert_eq!(
+        fs::read(fx.home.join("hook")).unwrap(),
+        target.as_os_str().as_encoded_bytes()
+    );
+    run.session.writer().write_all(b"MIDDLE\x05\n").unwrap();
+    run.wait_prompt(3);
+    assert!(visible(&run.text()).contains("__KEPT__MIDDLETAIL"));
+    run.session.writer().write_all(b"exit\n").unwrap();
+    assert!(run.session.wait().unwrap().success());
+    let history = fs::read_to_string(fx.home.join("history")).unwrap();
+    assert!(history.contains("print -r -- __KEPT__MIDDLETAIL"));
+    assert!(!history.contains("9001"));
+    assert!(!history.contains("cd --"));
+    assert!(!history.contains("space"));
+}
+
+#[test]
+fn directory_widget_missing_path_is_silent_and_preserves_state() {
+    if zsh_path().is_none() {
+        return;
+    }
+    let fx = Fixture::new();
+    fx.write(
+        ".zshrc",
+        "PS1='> '\n\
+         __test_probe() { print -rn -- \"__STATE__${PWD}|${BUFFER}|${CURSOR}|${HISTCMD}__END__\"; }\n\
+         zle -N __test_probe\nbindkey '^X' __test_probe\n\
+         chpwd() { print -rn -- changed > \"$HOME/hook\"; }\n",
+    );
+    let mut run = Run::start(&fx, true, &[]);
+    run.wait_prompt(1);
+    run.session.writer().write_all(b"half input\x18").unwrap();
+    run.wait_until("初始状态", |text| text.contains("__END__"));
+    let before = run.text();
+    let state = &before[before.find("__STATE__").unwrap()..];
+    let mut request = directory_request(&fx.home.join("missing"));
+    request.push(0x18);
+    run.session.writer().write_all(&request).unwrap();
+    run.wait_until("失败后的状态", |text| {
+        text.matches("__END__").count() == 2
+    });
+    let after = run.text();
+    assert_eq!(&after[before.len()..], state);
+    assert!(!fx.home.join("hook").exists());
+    run.session.writer().write_all(b"\x01\x0bexit\n").unwrap();
+    assert!(run.session.wait().unwrap().success());
+}
+
 macro_rules! require_zsh {
     () => {
         if zsh_path().is_none() {

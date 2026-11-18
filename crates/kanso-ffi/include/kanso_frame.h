@@ -5,7 +5,7 @@
  *  - 帧是 Rust 持有的一块连续只读缓冲区，调用方只读，绝不能写。
  *  - 帧在 kanso_frame_destroy 之前一直有效，期间 Rust 不会修改它；因此可以在任意线程读取，
  *    但销毁必须发生在所有读取结束之后，由调用方保证。
- *  - 所有整数是本机字节序（只支持 aarch64，小端）。
+ *  - 所有整数是本机字节序（支持 aarch64 与 x86_64，均为小端）。
  *  - 改动任何布局都必须同步升 KANSO_FRAME_VERSION、kanso-frame 与 docs/frame-abi.md。
  *  - 本 WP 只导出 mock 帧。按会话取帧的 acquire / release 接口等 core API 定下后再加。
  */
