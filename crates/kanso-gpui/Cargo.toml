@@ -36,14 +36,14 @@ gpui = { version = "=0.2.2", default-features = false, features = ["font-kit", "
 log = "0.4"
 # 核心事件从工作线程投递到 UI 线程的无界通道（MIT / Apache-2.0）。
 futures = { workspace = true, features = ["executor"] }
+# 系统随机源生成 MCP 客户端令牌（MIT / Apache-2.0，Cargo.lock 里已有）。
+getrandom = "0.4"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # 本地时区查询，复用工作区已有依赖（MIT / Apache-2.0）。
 libc.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-# 系统随机源生成 MCP 客户端令牌（MIT / Apache-2.0，Cargo.lock 和 Windows 声明已有）。
-getrandom = "0.4"
 # 获取当前窗口句柄，让原生标题栏跟随应用外观（MIT / Apache-2.0 / Zlib）。
 raw-window-handle = "0.6"
 # 读取进程工作集内存、系统界面语言、标题栏外观，只用相应特性（MIT / Apache-2.0；与 kanso-secret 同一个 crate）。
