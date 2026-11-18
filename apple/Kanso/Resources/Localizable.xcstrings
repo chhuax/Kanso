@@ -2953,16 +2953,16 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "配置" } }
       }
     },
-    "Copy Claude Code Configuration" : {
+    "Claude Code" : {
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Copy Claude Code Configuration" } },
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "复制 Claude Code 配置" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Claude Code" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "Claude Code" } }
       }
     },
-    "Copy Codex Configuration" : {
+    "Codex" : {
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Copy Codex Configuration" } },
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "复制 Codex 配置" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Codex" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "Codex" } }
       }
     },
     "The command contains a token and may be saved in shell history. If that is a concern, clear the history after running it, or regenerate the token." : {
@@ -2983,10 +2983,10 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "复制令牌" } }
       }
     },
-    "Regenerate" : {
+    "Regenerate Token" : {
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Regenerate" } },
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "重新生成" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Regenerate Token" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "重新生成令牌" } }
       }
     },
     "Connected clients" : {
