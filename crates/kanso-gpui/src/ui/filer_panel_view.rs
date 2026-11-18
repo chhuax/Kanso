@@ -2,9 +2,9 @@
 //! 错误条、传输进度条、底部统计与拖放提示。样式取自设计 token，与 mac 版 `FilerPanelView` 对应。
 
 use gpui::{
-    AnyElement, AppContext as _, Context, ExternalPaths, Hsla, KeyDownEvent, MouseButton,
-    MouseDownEvent, Render, SharedString, Stateful, Window, div, prelude::*, px, relative,
-    uniform_list,
+    AnyElement, AppContext as _, ClickEvent, Context, ExternalPaths, Hsla, KeyDownEvent,
+    MouseButton, MouseDownEvent, Render, SharedString, Stateful, Window, div, prelude::*, px,
+    relative, uniform_list,
 };
 use kanso_gpui::app::filer_state::{
     Phase, date_text, datetime_text, row_tooltip, size_text, stats_text,
@@ -573,7 +573,16 @@ impl FilerPanel {
                                 window.focus(&this.focus);
                                 let m = ev.modifiers;
                                 let pane = &mut this.panes[idx];
-                                pane.sel.click(pos, &pane.model, m.control, m.shift);
+                                // 辅助面板允许整组选中项拖出。先保留多选，确实是单击时再收为一项。
+                                let defer_single_selection = this.mode == PanelMode::Aux
+                                    && ev.click_count == 1
+                                    && !m.control
+                                    && !m.shift
+                                    && pane.sel.len() > 1
+                                    && pane.sel.contains(id);
+                                if !defer_single_selection {
+                                    pane.sel.click(pos, &pane.model, m.control, m.shift);
+                                }
                                 if ev.click_count >= 2 && !m.control && !m.shift {
                                     this.open_row(idx, id, cx);
                                 }
@@ -594,10 +603,26 @@ impl FilerPanel {
                         row
                     } else {
                         let panel = cx.entity();
-                        row.on_drag(this.make_drag(idx, id), move |d, _off, window, app| {
-                            let label = panel.update(app, |p, cx| p.start_drag(d, window, cx));
-                            app.new(|_| DragChip::new(label, th))
-                        })
+                        row.on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
+                            if let ClickEvent::Mouse(click) = event
+                                && click.down.click_count == 1
+                                && !click.down.modifiers.control
+                                && !click.down.modifiers.shift
+                            {
+                                let sel = &mut this.panes[idx].sel;
+                                if sel.len() > 1 && sel.contains(id) {
+                                    sel.select_only(id);
+                                    cx.notify();
+                                }
+                            }
+                        }))
+                        .on_drag(
+                            this.make_drag(idx, id),
+                            move |d, _off, window, app| {
+                                let label = panel.update(app, |p, cx| p.start_drag(d, window, cx));
+                                app.new(|_| DragChip::new(label, th))
+                            },
+                        )
                     };
                     rows.push(row);
                 }
