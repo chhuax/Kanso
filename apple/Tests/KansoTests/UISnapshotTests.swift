@@ -157,7 +157,10 @@ final class UISnapshotTests: XCTestCase {
 
     /// 设置窗口"通用"页：外观模式 + 语言（默认值）。
     private func settingsGeneralCanvas() -> NSView {
-        let settings = SettingsStore.attached(to: MemorySettingsBackend())
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let settings = SettingsStore()
+        settings.attach(backend: MemorySettingsBackend(), themesDirectory: directory)
+        addTeardownBlock { try FileManager.default.removeItem(at: directory) }
         let appearance = AppearanceController(settings: settings, apply: { _ in })
         let page = GeneralSettingsViewController(appearance: appearance, openURL: { _ in })
         return pageCanvas(page, retaining: appearance)

@@ -319,3 +319,102 @@ fn empty_file_accepts_flow_control_before_subpacket_end() {
         })
     ));
 }
+
+#[test]
+fn local_cancel_filters_split_subpackets_echo_and_empty_crc_trailer() {
+    let mut packet = packet(b"file bytes including \r\n and $ ", b'i');
+    for width in [1, 3, 4096] {
+        let mut sentinel = Sentinel::default();
+        let mut receiver = Machine::new(Handshake::Receive);
+        receiver.receive(&header(4, 0));
+        receiver.receive(&crate::wire::packet(b"a\0", b'k'));
+        receiver.accept();
+        receiver.receive(&header(10, 0));
+        receiver.receive(&packet[..4]);
+        receiver.hand_off_cancelled_receive(&mut sentinel);
+        receiver.cancel();
+        assert!(receiver.take_remainder().is_empty());
+        let pending = [
+            &packet[4..],
+            &packet,
+            &[0x18; 10],
+            &[8; 10],
+            &[0x18, b'h', 0xe7, 0x06, b'k', 0x18, 0xd1],
+            b"\x1b[32muser@host $ ",
+        ]
+        .concat();
+        let mut terminal = Vec::new();
+        for chunk in pending.chunks(width) {
+            sentinel.feed(chunk, &mut terminal);
+        }
+        assert_eq!(terminal, b"\x1b[32muser@host $ ");
+    }
+    // 没有取消回声的对端也可以直接回到 shell，首条提示符不必带换行。
+    let mut sentinel = Sentinel::default();
+    sentinel.cancelled_receive(packet.drain(..4).collect(), Some(false));
+    let mut terminal = Vec::new();
+    sentinel.feed(b"first prompt$ ", &mut terminal);
+    assert!(sentinel.poll_cancel_tail().is_empty());
+    terminal.extend(sentinel.poll_cancel_tail());
+    assert_eq!(terminal, b"first prompt$ ");
+}
+
+#[test]
+fn local_cancel_filters_trailing_zeof_and_zfin_headers() {
+    // 最后一个子包以 ZCRCE 结尾，随后才是 ZEOF。
+    let packet = packet(b"last bytes", b'h');
+    let mut eof = header(11, 10);
+    assert_eq!(eof.pop(), Some(0x11));
+    for fin in [false, true] {
+        for width in [1, 3, 4096] {
+            let mut sentinel = Sentinel::default();
+            let mut receiver = Machine::new(Handshake::Receive);
+            receiver.receive(&header(4, 0));
+            receiver.receive(&crate::wire::packet(b"a\0", b'k'));
+            receiver.accept();
+            receiver.receive(&header(10, 0));
+            receiver.receive(&packet[..4]);
+            receiver.hand_off_cancelled_receive(&mut sentinel);
+            receiver.cancel();
+            // ZEOF 的 XON 单独晚到；ZFIN 后的 OO 则要原样交给终端。
+            let mut terminal = Vec::new();
+            for chunk in [&packet[4..], eof.as_slice()].concat().chunks(width) {
+                sentinel.feed(chunk, &mut terminal);
+            }
+            sentinel.feed(&[0x11], &mut terminal);
+            if fin {
+                for chunk in header(8, 0).chunks(width) {
+                    sentinel.feed(chunk, &mut terminal);
+                }
+            }
+            let prompt: &[u8] = if fin {
+                b"OOuser@host $ "
+            } else {
+                b"user@host $ "
+            };
+            for chunk in prompt.chunks(width) {
+                sentinel.feed(chunk, &mut terminal);
+            }
+            terminal.extend(sentinel.poll_cancel_tail());
+            terminal.extend(sentinel.poll_cancel_tail());
+            assert_eq!(terminal, prompt, "fin={fin} width={width}");
+        }
+    }
+}
+
+#[test]
+fn continuous_plain_output_after_cancel_is_released_without_waiting_for_silence() {
+    let mut sentinel = Sentinel::default();
+    sentinel.cancelled_receive(b"old".to_vec(), Some(false));
+    assert!(!sentinel.cancel_tail_pending());
+    let mut terminal = Vec::new();
+    sentinel.feed(b"prompt$ ", &mut terminal);
+    assert!(sentinel.cancel_tail_pending());
+    terminal.extend(sentinel.poll_cancel_tail());
+    assert!(terminal.is_empty());
+    sentinel.feed(b"still printing", &mut terminal);
+    terminal.extend(sentinel.poll_cancel_tail());
+    sentinel.feed(b"!", &mut terminal);
+    assert_eq!(terminal, b"prompt$ still printing!");
+    assert!(!sentinel.cancel_tail_pending());
+}

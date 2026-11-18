@@ -1518,6 +1518,17 @@ fn quote_paths_powershell() {
 }
 
 #[test]
+fn quote_paths_cmd_preserves_windows_separators_and_quotes_metacharacters() {
+    assert_eq!(
+        quote_paths(
+            &paths(&[r"C:\Users\me\a.txt", r"C:\文档 & 副本\b.txt"]),
+            ShellFlavor::Cmd
+        ),
+        r#"C:\Users\me\a.txt "C:\文档 & 副本\b.txt""#
+    );
+}
+
+#[test]
 fn quote_paths_roundtrip_has_no_unescaped_specials() {
     // POSIX：转义后，除了被反斜杠保护的字符，不应出现任何裸的元字符。
     let nasty = "a b'c\"d\\e$f`g!h&i*j(k)l[m]n{o}p;q<r>s|t?u#v~w^x";

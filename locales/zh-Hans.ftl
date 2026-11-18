@@ -1,3 +1,4 @@
+ui-shell-command = 命令行
 command-duration-milliseconds = { $value }ms
 command-duration-seconds = { $value }s
 command-duration-minutes = { $minutes }m { $seconds }s
@@ -194,3 +195,724 @@ sshconfig-import-report = 新增 { $added } 个，更新 { $updated } 个，额�
 ## 凭据存储
 
 secret-store-failed = 无法访问凭据存储：{ $detail }
+ui-local-shell = Shell
+ui-shell-default = 系统默认
+ui-shell-custom = 自定义命令
+ui-filter-path = 按路径筛选
+ui-no-matching-paths = 没有匹配的路径
+
+ui-session = 会话
+
+ui-ssh-connection = SSH 连接
+
+ui-local-session = 本地 Shell
+
+ui-new-session = 新建会话
+
+ui-edit-session = 编辑会话
+
+ui-type = 类型
+
+ui-name = 名称
+
+ui-color = 颜色
+
+ui-group = 分组
+
+ui-start-directory = 起始目录
+
+ui-host = 主机
+
+ui-port = 端口
+
+ui-user = 用户名
+
+ui-authentication = 认证方式
+
+ui-password = 密码
+
+ui-private-key = 私钥
+
+ui-key-passphrase = 私钥口令
+
+ui-jump-host = 跳板机
+
+ui-encoding = 编码
+
+ui-locale = Locale
+
+ui-proxy-command = ProxyCommand
+
+ui-choose = 选择…
+
+ui-cancel = 取消
+
+ui-save = 保存
+
+ui-connect = 连接
+
+ui-automatic = 自动
+
+ui-keep-saved = 留空则保持已保存的值
+
+ui-search-sessions = 搜索已保存的会话
+
+ui-saved-sessions = 已保存的会话
+
+ui-no-sessions = 还没有保存的会话。选择“新建会话…”添加一个。
+
+ui-no-matching-sessions = 没有匹配的会话
+
+ui-empty-group = （空）
+
+ui-general = 通用
+
+ui-display = 显示
+
+ui-appearance = 外观
+
+ui-theme = 模式
+
+ui-light-theme = 浅色终端配色
+
+ui-dark-theme = 深色终端配色
+ui-open-themes-folder = 打开主题文件夹
+
+ui-font = 字体
+
+ui-terminal-font = 终端字体
+
+ui-font-size = 字号
+
+ui-line-height = 行距
+
+ui-font-custom = 自定义字体
+
+ui-font-hint = 留空使用系统等宽字体。字体缺少的图标会自动使用已安装的 Nerd Font。
+
+ui-missing-terminal-font = 未安装“{ $name }”，终端将使用系统等宽字体。
+ui-font-probing = 正在检测本机等宽字体…
+
+ui-cursor = 光标
+
+ui-shape = 形状
+
+ui-cursor-blink = 光标闪烁
+
+ui-semantic-color = 语义着色
+
+ui-scrollback = 回滚
+
+ui-scrollback-lines = 回滚行数
+
+ui-scrollback-hint = 调小以后立即丢弃超出的最早的行。
+
+ui-contrast = 对比度
+
+ui-contrast-enabled = 最低对比度保护
+
+ui-contrast-ratio = 对比度比例
+
+ui-contrast-hint = 文字与背景的对比度低于此比例时，会自动调亮或调暗文字。
+
+ui-timeline = 时间轴
+ui-go-to-tab = 前往标签页
+ui-tab-number = 标签页 { $number }
+ui-gutter-menu = 时间戳与行号
+
+ui-interface-font = 界面字体
+
+ui-settings = 设置
+
+ui-sender-title = Sender
+ui-sender-run = 运行
+ui-sender-stop = 停止
+ui-sender-clear = 清空
+ui-sender-repeat = 重复发送
+ui-sender-save = 保存
+ui-sender-update = 更新
+ui-sender-cancel-edit = 取消编辑
+ui-sender-name-placeholder = 名称（可选）
+ui-sender-input-placeholder = 输入命令，Enter 发送，Shift+Enter 换行
+ui-sender-interval = 间隔（秒）
+ui-sender-count = 次数（0 为不限）
+ui-sender-library-empty = 尚无已保存的命令
+ui-sender-library-none = 没有适用于当前会话的命令
+ui-sender-prev-page = 上一页
+ui-sender-next-page = 下一页
+ui-sender-ending-none = 不追加行尾
+ui-sender-target-current = 当前会话（{ $count }）
+ui-sender-target-all = 全部会话（{ $count }）
+ui-sender-target-all-label = 全部会话
+ui-sender-target-current-label = 当前会话 · { $name }
+ui-sender-scope-global = 全局
+ui-sender-scope-ssh = 所有 SSH 会话
+ui-sender-scope-local = 所有本地 Shell 会话
+ui-sender-scope-group = 分组 · { $name }
+ui-sender-scope-profile = 会话 · { $name }
+ui-sender-menu-edit = 编辑
+ui-sender-menu-repeat = 重复发送
+ui-sender-menu-ending = 行尾
+ui-sender-menu-scope = 作用域
+ui-sender-menu-delete = 删除
+ui-sender-rounds = 已发 { $rounds } 轮
+ui-sender-rounds-of = 已发 { $rounds } / { $count } 轮
+ui-sender-sending = { $progress } · 正在发送
+ui-sender-next-in = { $progress } · { $wait } 秒后发送
+ui-sender-repeat-bar = 重复发送：{ $title } · 每 { $interval } 秒 · { $dest } · { $progress }
+ui-sender-chip = 重复发送 · { $rounds } 轮
+ui-sender-chip-of = 重复发送 · { $rounds }/{ $count }
+ui-sender-join = ；
+ui-sender-save-failed = 保存命令失败：{ $detail }
+ui-sender-update-failed = 更新命令失败：{ $detail }
+ui-sender-delete-failed = 删除命令失败：{ $detail }
+ui-sender-send-failed = 发送失败：{ $detail }
+ui-sender-limit = 命令库已达 { $max } 条上限，不能再新增（仍可更新或删除）
+ui-completion-directory = 目录
+ui-completion-file = 文件
+ui-completion-history = 历史
+ui-completion-kubernetes = Kubernetes
+ui-completion-docker = Docker
+ui-completion-git = Git
+ui-completion-systemd = systemd
+ui-menu-command-suggestions = 命令建议
+ui-menu-clear-history = 清除命令历史…
+ui-menu-sender = Sender
+ui-history-clear-title = 清除命令历史？
+ui-history-clear-body = 将清除所有终端记录的命令历史，此操作无法撤销。
+ui-history-clear-confirm = 清除
+ui-history-clear-cancel = 取消
+ui-history-clear-failed = 清除命令历史失败：{ $detail }
+ui-follow-system = 跟随系统
+
+ui-language = 语言
+
+ui-interface-language = 界面语言
+
+ui-takes-effect-immediately-follow-system = 切换后立即生效；“跟随系统”按系统界面语言选择，不支持的语言显示英文。
+
+ui-export-complete = 导出完成
+
+ui-exported-to-file-contains-no = 已导出到 { $path }。
+    文件里不包含任何密码或口令。
+
+ui-import-data = 导入数据
+
+ui-this-file-will-be-imported = 将导入这个文件：
+
+ui-data-is-merged-by-id = 会按 id 合并：文件里 id 相同的会话、分组、命令会替换本地的，其余作为新数据加入，本地数据不会被删除；被替换的会话保留已保存的凭据。有问题的单条数据会被跳过。
+
+ui-import-complete = 导入完成
+
+ui-operation-failed = 操作没有成功
+
+ui-skipped = 已跳过
+
+ui-warnings = 警告
+
+ui-ok = 好
+
+ui-import = 导入
+
+ui-choose-kanso-file-to-import = 选择要导入的 .kanso 文件
+
+ui-import-openssh-config = 导入 OpenSSH 配置
+
+ui-import-openssh-config-2 = 导入 OpenSSH 配置…
+
+ui-choose-openssh-config-file = 选择 OpenSSH 配置文件
+
+ui-no-group = 不分组
+
+ui-import-into-group = 导入到分组
+
+ui-select-all-of-selected = 全选（已选 { $selected } / { $total }）
+
+ui-saved-will-update = 已保存，将更新
+
+ui-key = 私钥 { $path }
+
+ui-via = 经由 { $jump }
+
+ui-reading = 正在读取…
+
+ui-importing = 正在导入…
+
+ui-no-hosts-to-import-in = 配置文件里没有可导入的主机。
+
+ui-found-hosts-of-them-already = 找到 { $found } 台主机，其中 { $existing } 台已保存（导入时会更新）。
+
+ui-no-open-sessions = 没有打开的会话
+
+ui-new-local-shell = 新建本地 Shell
+
+ui-new-session-2 = 新建会话…
+
+ui-or-press = 或按
+
+ui-previous-tab = 上一个标签
+
+ui-next-tab = 下一个标签
+
+ui-previous-pane = 上一个分屏
+
+ui-next-pane = 下一个分屏
+
+ui-close-session = 关闭会话
+
+ui-export-data = 导出数据…
+
+ui-import-data-2 = 导入数据…
+
+ui-copy = 复制
+
+ui-paste = 粘贴
+
+ui-select-all = 全选
+
+ui-clear-buffer = 清除缓冲区
+
+ui-split-right = 向右拆分
+
+ui-split-down = 向下拆分
+
+ui-right-click-shows-menu = 右键弹出菜单
+
+ui-tab-bar = 标签栏
+
+ui-view = 视图
+
+ui-settings-2 = 设置…
+
+ui-quit = 退出
+
+ui-edit-session-2 = 编辑会话…
+
+ui-close = 关闭
+
+ui-close-others = 关闭其他
+
+ui-close-tabs-to-left = 关闭左侧
+
+ui-close-tabs-to-right = 关闭右侧
+
+ui-close-all = 全部关闭
+
+ui-and-more = …另外 { $count } 个
+
+ui-quit-kanso = 退出 Kanso？
+
+ui-close-running-sessions = 关闭仍在运行的会话？
+
+ui-these-sessions-are-still-running = 以下会话仍在运行或保持连接：
+
+ui-closing-will-interrupt-file-transfers = 关闭会中断正在进行的文件传输。
+
+ui-connecting = 连接中…
+
+ui-session-ended-exit-code = 会话已结束（退出码 { $code }）
+
+ui-session-ended = 会话已结束
+
+ui-session-disconnected = 会话已断开
+
+ui-command-running = 命令运行中
+
+ui-ai-running = AI 运行中
+
+ui-ai-finished = AI 已完成
+
+ui-command-finished-click-to-view = 命令已完成，点击查看
+
+ui-operation-failed-2 = 操作失败。
+
+ui-default-shell = 默认 Shell
+
+ui-edit = 编辑…
+
+ui-move-to-group = 移到分组
+
+ui-delete = 删除…
+
+ui-rename = 重命名…
+
+ui-new-group = 新建分组…
+
+ui-deleting-this-group-also-deletes = 删除这个分组会同时删除其中的 { $profiles } 个会话和 { $snippets } 条快捷命令，此操作无法撤销。
+
+ui-only-session-and-its-credentials = 只会删除 Kanso 中保存的会话及其凭据，不会改动 ~/.ssh/config 和密钥文件。此操作无法撤销。
+
+ui-local = 本地
+
+ui-enter-session-name = 请输入会话名称。
+
+ui-port-must-be-number-from = 端口必须是 1 到 65535 之间的数字。
+
+ui-locale-may-only-contain-letters = Locale 只能包含字母、数字和 _ - . @，长度 1 到 64。
+
+ui-save-failed = 保存失败。
+
+ui-session-saved-but-credentials-could = 会话已保存，但凭据没有存进去：{ $detail }
+
+ui-server = 服务器：{ $host_port }
+
+ui-server-via = 服务器：{ $host_port }（经由 { $via }）
+
+ui-tab = 标签：{ $title }
+
+ui-host-key-changed = 主机密钥已变更
+
+ui-key-type = 密钥类型
+
+ui-sha256-fingerprint = SHA256 指纹
+
+ui-previously-recorded-at = 原记录位置
+
+ui-accept-new-key-and-connect = 接受新密钥并连接
+
+ui-verification-required = 需要验证
+
+ui-continue = 继续
+
+ui-private-key-passphrase-required = 需要私钥口令
+
+ui-credential-intro-key = { $server }
+    用户：{ $user }
+    私钥：{ $key }
+
+ui-password-required = 需要密码
+
+ui-credential-intro = { $server }
+    用户：{ $user }
+
+ui-connect-and-save = 连接并保存
+
+ui-connect-only = 仅连接
+
+ui-block = 块状
+
+ui-underline = 下划线
+
+ui-bar = 竖线
+
+ui-light = 浅色
+
+ui-dark = 深色
+
+ui-line-numbers-only = 只显示行号
+
+ui-timestamps-only = 只显示时间
+
+ui-timestamps-and-line-numbers = 时间和行号
+
+ui-off = 不显示
+
+ui-cant-open-local-shell = 无法打开本地 shell：{ $detail }
+
+ui-cant-split = 无法拆分：{ $detail }
+
+ui-session-ended-press-ctrl-shift = 会话已结束。Ctrl+Shift+W 关闭此标签
+
+ui-session-ended-exit-code-press = 会话已结束（退出码 { $code }）。Ctrl+Shift+W 关闭此标签
+
+ui-session-disconnected-press-ctrl-shift = 会话已断开。Ctrl+Shift+W 关闭此标签
+
+ui-this-session-no-longer-exists = 这个会话已经不存在
+
+ui-sftp-sessions-need-file-panel = SFTP 会话需要文件面板，主窗口暂时还不能打开它
+
+ui-cant-connect-to = 无法连接“{ $name }”：{ $detail }
+
+ui-pane = 分屏 { $index }
+
+ui-files = 文件
+
+ui-timestamps = 时间戳
+
+ui-find-placeholder = 查找
+
+ui-find-no-results = 无结果
+
+ui-find-invalid-regex = 无效的正则表达式
+
+ui-copy-command = 复制命令
+
+ui-copy-output = 复制输出
+
+ui-copied = 已复制
+
+ui-link-unsupported = 不支持打开这种链接
+
+ui-new-group-2 = 新建分组
+
+ui-group-name = 分组名称
+
+ui-create = 创建
+
+ui-rename-group = 重命名分组
+
+ui-rename-2 = 重命名
+
+ui-delete-2 = 删除
+
+ui-delete-group = 删除分组“{ $name }”？
+
+ui-delete-session = 删除会话“{ $name }”？
+
+ui-edit-2 = 编辑
+
+ui-none = 无
+
+ui-choose-private-key-file = 选择私钥文件
+
+ui-search-fonts = 搜索字体
+
+ui-search-monospaced-fonts = 搜索等宽字体
+
+ui-system-default-or-type-font = 系统默认；也可直接输入字体名
+
+ui-lines = { $lines } 行
+## Filer 与文件传输（GPUI，自动生成区块，改动请编辑生成脚本的清单）
+ui-xfer-default-name = received.bin
+ui-xfer-hint-pick-files = 对方请求接收文件，请选择要发送的文件（可多选）
+ui-xfer-hint-pick-file = 请选择要用 XMODEM 发送的文件
+ui-xfer-hint-save-sized = 对方要发送 { $name }（{ $amount }），请选择保存位置
+ui-xfer-hint-save = 对方要发送 { $name }，请选择保存位置
+ui-xfer-hint-xmodem-save = 请选择 XMODEM 接收文件的保存位置
+ui-xfer-done = 传输完成
+ui-xfer-cancelled = 已取消
+ui-xfer-failed = 失败：{ $why }
+ui-xfer-send = 发送
+ui-xfer-receive = 接收
+ui-filer-delete-link = 删除链接
+ui-filer-delete-link-note = 只移除链接，不影响目标，无法撤销。
+ui-filer-delete-dir = 删除目录
+ui-filer-delete-dir-note = 只能删除空目录，无法撤销。
+ui-filer-delete-file = 删除文件
+ui-filer-delete-file-note = 文件将被移除，无法撤销。
+ui-filer-delete-where = 位置：{ $location }
+ui-filer-delete-many = 删除 { $count } 个项目
+ui-filer-delete-more = 还有 { $count } 项
+ui-filer-delete-many-note = 这些项目将被永久移除，无法撤销；非空目录会保留。
+ui-filer-cancel = 取消
+ui-filer-delete = 删除
+ui-filer-new-file = 新建文件
+ui-filer-new-folder = 新建目录
+ui-filer-rename = 重命名
+ui-filer-name-where = 位置：{ $location }
+ui-filer-name = 名称
+ui-filer-ok = 确定
+ui-filer-name-empty = 名称不能为空
+ui-filer-name-reserved = 名称不能是 . 或 ..
+ui-filer-name-separator = 名称不能包含目录分隔符，只能是当前目录里的一个项目
+ui-filer-name-invalid-char = 名称不能包含字符 { $ch }
+ui-filer-conflict-title = 同名项目已存在
+ui-filer-conflict-file = 目标位置已有名为“{ $name }”的文件。
+ui-filer-conflict-dir = 目标位置已有名为“{ $name }”的目录。
+ui-filer-conflict-merge-note = 目录会合并，其中的同名文件仍按你的选择处理。
+ui-filer-skip = 跳过
+ui-filer-skip-all = 全部跳过
+ui-filer-overwrite = 覆盖
+ui-filer-overwrite-all = 全部覆盖
+ui-filer-err-not-found = 不存在
+ui-filer-err-denied = 没有权限
+ui-filer-err-not-dir = 不是目录
+ui-filer-err-exists = 已经存在
+ui-filer-err-not-empty = 目录不是空的，只能删除空目录
+ui-filer-err-cancelled = 已取消
+ui-filer-drive = 本地磁盘 ({ $letter }:)
+ui-filer-err-copy-into-self = 不能把目录复制到它自己或它的子目录里
+ui-filer-err-no-name = 无法取得名称
+ui-filer-err-target-link = 目标位置是符号链接，已拒绝写入
+ui-filer-err-target-dir = 目标位置已有同名目录
+ui-filer-this-pc = 此电脑
+ui-filer-connecting = 正在连接…
+ui-filer-loading = 正在读取… 已收到 { $count } 项
+ui-filer-disconnected-stats = 连接已断开（列表已过期，共 { $count } 项）
+ui-filer-empty = { $count } 项
+ui-filer-stats = { $items } 项：{ $dirs } 个目录，{ $files } 个文件
+ui-filer-stats-links = { $items } 项：{ $dirs } 个目录，{ $files } 个文件，{ $links } 个链接
+ui-filer-kind-link = 链接
+ui-filer-kind-dir = 目录
+ui-filer-kind-file = 文件
+ui-filer-tip-kind = 类型：{ $kind }
+ui-filer-tip-size = 大小：{ $amount }
+ui-filer-tip-perm = 权限：{ $perm }
+ui-filer-tip-owner = 属主：{ $owner }
+ui-filer-tip-group = 属组：{ $group }
+ui-filer-op-upload = 上传
+ui-filer-op-download = 下载
+ui-filer-op-copy = 复制
+ui-filer-busy = 正在处理，请等待当前传输完成
+ui-filer-batch-done = 完成：{ $count } 项
+ui-filer-cancelled = 已取消
+ui-filer-op-failed = { $action }失败：{ $why }
+ui-filer-op-error = { $action } { $name }：{ $why }
+ui-filer-awaiting-conflict = 等待处理同名文件…
+ui-filer-skipped = 跳过 { $count } 个同名项
+ui-filer-local = 本地
+ui-filer-identity = { $name } · { $host }
+ui-filer-not-remote = 这一栏不是远端，无法上传下载
+ui-filer-no-write-this-pc = “此电脑”不是真实目录，不能在这里新建、删除或接收文件
+ui-filer-disconnected-write = 连接已断开，已停止写入操作
+ui-filer-no-dir-open = 没有打开的目录，或目录读取失败
+ui-filer-already-here = 文件已经在此目录，已跳过
+ui-filer-link-broken = 无法打开链接“{ $name }”：{ $why }
+ui-filer-remote-edit-unsupported = 暂不支持用本地应用编辑远端文件；可在右键菜单里选择“下载”
+ui-filer-menu-open = 打开
+ui-filer-menu-open-with = 打开方式…
+ui-filer-menu-download = 下载
+ui-filer-menu-copy-path = 复制完整路径
+ui-filer-menu-copy-name = 复制名称
+ui-filer-menu-copy-dir = 复制当前目录路径
+ui-filer-upload-files = 上传文件…
+ui-filer-upload-dirs = 上传目录…
+ui-filer-refresh = 刷新
+ui-filer-op-error-at = { $what }“{ $name }”失败（{ $place }）：{ $why }
+ui-filer-tip-upload = 上传
+ui-filer-tip-upload-remote-only = 只适用于已连接的 SSH 会话
+ui-filer-tip-hidden = 显示 / 隐藏以点开头的项目
+ui-filer-tip-locate = 定位终端目录
+ui-filer-tip-up = 上一级
+ui-filer-tip-home = 家目录
+ui-filer-tip-cancel = 取消传输
+ui-filer-col-name = 名称
+ui-filer-col-date = 修改日期
+ui-filer-col-size = 大小
+ui-filer-col-time = 修改时间
+ui-filer-folder-empty = 这个目录是空的
+ui-filer-open-failed = 无法打开 { $dest }：{ $why }
+ui-filer-still-showing = 下面仍是 { $path } 的内容
+ui-filer-go-home = 回到家目录
+ui-filer-disconnected-badge = 连接已断开
+ui-filer-drop-upload = 放下以上传
+ui-filer-drop-copy = 放下以复制到这里
+ui-filer-dismiss = 关闭
+ui-filer-send-to-remote = 上传到远端
+ui-filer-get-from-remote = 下载到本地
+ui-filer-no-session = 没有可浏览的会话
+ui-filer-menu-locate = 在 Filer 中显示工作目录
+ui-filer-menu-view = 文件浏览器
+ui-filer-status-label = 文件
+ui-filer-status-already-open = 文件浏览已经在当前标签打开
+ui-filer-located = 已定位到 { $path }
+ui-filer-locate-no-session = 没有可定位的会话
+ui-filer-locate-sftp = 文件会话没有 shell 工作目录
+ui-filer-locate-not-connected = 会话未连接
+ui-filer-locate-foreign-host = 终端上报的目录属于另一台主机（{ $host }），不能当作本机路径
+ui-filer-locate-failed = 无法取得“{ $name }”的工作目录：{ $why }
+ui-xfer-menu = 文件传输
+ui-xfer-menu-send = 用 XMODEM 发送…
+ui-xfer-menu-send-1k = 用 XMODEM-1K 发送…
+ui-xfer-menu-receive = 用 XMODEM 接收…
+ui-xfer-menu-cancel = 取消传输
+ui-xfer-start-failed = 无法开始传输：{ $why }
+
+ui-search = 搜索
+
+ui-file-browser = 文件浏览器
+
+ui-palette-tabs = 标签页
+ui-palette-sessions = 会话
+ui-palette-commands = 命令
+ui-palette-hint = 搜索标签页、会话、命令和文件
+ui-search-empty = 没有匹配结果
+
+ui-git-title = 改动
+ui-git-refresh = 刷新改动
+ui-git-close = 关闭改动面板
+ui-git-more = 更多操作
+ui-git-unsupported = 无法检测此目录的改动；仅适用于 Git 仓库
+ui-git-loading = 正在读取改动…
+ui-git-clean = 工作区干净
+ui-git-commit-placeholder = 提交说明（回车提交）
+ui-git-commit = 提交
+ui-git-discard-file = 丢弃该文件改动
+ui-git-discard-all = 丢弃全部改动
+ui-git-copy-path = 复制完整路径
+ui-git-reading-diff = 正在读取差异…
+ui-git-diff-truncated = 差异已截断
+ui-git-commit-may-staged = 提交可能已经留下暂存的内容。
+ui-git-discard-title-file = 丢弃“{ $path }”的改动？
+ui-git-discard-title-all = 丢弃“{ $repo }”中的全部改动？
+ui-git-discard-body-new = 新增的内容将被永久删除。
+ui-git-discard-body-tracked = 暂存和未暂存的修改都会丢失；重命名会恢复原路径。
+ui-git-discard-body-all = 暂存、未暂存和未跟踪的改动都会永久丢失；被 Git 忽略的文件保留。
+ui-git-discard-no-undo = 应用内没有撤销、回收站或自动备份。
+ui-git-cancel = 取消
+ui-git-discard = 丢弃
+ui-git-menu-view = Git 改动
+ui-git-branch-tooltip = { $repo } · { $branch }
+
+## 键盘设置页与恢复默认设置（GPUI）
+ui-keys-page = 键盘
+ui-keys-group-other = 其他
+ui-keys-hint = 点击快捷键，再按下新的组合。Esc 取消，Backspace 清空。
+ui-keys-recording = 按下快捷键…
+ui-keys-unbound = 未绑定
+ui-keys-fixed-tabs = 切换到第 1–9 个标签
+ui-keys-fixed-tabs-key = Alt+1–Alt+9
+ui-keys-reserved = { $chord } 是系统保留或固定的组合，不能指定。
+ui-keys-needs-modifier = 快捷键需要 Ctrl 或 Alt；功能键可以单独使用，方向键等需要至少一个修饰键。
+ui-keys-conflict-title = { $chord } 已被使用
+ui-keys-conflict-body = 它已指定给“{ $holder }”。替换后“{ $new }”使用 { $chord }，“{ $holder }”不再使用这个键。
+ui-keys-replace = 替换
+ui-keys-restore-item = 恢复默认
+ui-keys-restore-all = 全部恢复默认
+ui-keys-customized = 已自定义
+ui-help-menu = 帮助
+ui-about-kanso = 关于 Kanso
+ui-about-version = 版本 { $app_version }
+ui-about-license = 本软件采用 GPL-3.0-or-later 许可证。
+ui-open-source-code = 查看源代码
+ui-open-licenses = 开源许可…
+ui-reset-menu = 恢复默认设置…
+ui-reset-title = 恢复默认设置？
+ui-reset-body = 显示、外观和键盘快捷键设置将恢复为默认值。会话、分组、Sender 命令和历史不受影响。
+ui-reset-confirm = 恢复
+ui-reset-failed = 无法恢复默认设置：{ $detail }
+ui-reset-done = 已恢复默认设置
+ui-keys-cmd-open-launcher = 会话启动器
+ui-keys-cmd-find = 查找…
+ui-keys-cmd-find-next = 查找下一个
+ui-keys-cmd-find-prev = 查找上一个
+ui-keys-cmd-prev-block = 上一个命令块
+ui-keys-cmd-next-block = 下一个命令块
+ui-keys-cmd-toggle-sidebar = 显示 / 隐藏标签栏
+ui-keys-cmd-toggle-sender = 显示 / 隐藏 Sender
+ui-keys-cmd-toggle-filer = 显示 / 隐藏文件浏览器
+ui-keys-cmd-zoom-in = 放大文字
+ui-keys-cmd-zoom-out = 缩小文字
+ui-keys-cmd-zoom-reset = 默认字号
+
+ui-keys-cmd-open-palette = 命令搜索
+
+ui-redit-preparing = 准备远程编辑：{ $name }
+ui-redit-synced = 已同步
+ui-redit-pending = 等待同步
+ui-redit-syncing = 正在同步…
+ui-redit-conflict = 远端文件已变化，同步已暂停
+ui-redit-failed = 同步失败：{ $why }
+ui-redit-status-line = { $source } · { $path } · { $text }
+ui-redit-open-failed = 无法打开“{ $name }”：{ $why }
+ui-redit-not-connected = 会话未连接，无法打开远端文件
+ui-redit-bad-name = 文件名“{ $name }”含有本机不允许的字符，无法在本机编辑；可先下载。
+ui-redit-unsaved-kept = “{ $name }”有尚未回传的本地修改，没有重新下载覆盖；已重新打开本地副本。
+ui-redit-retained = 修改未到达服务器：{ $count } 个本地副本已保留在 { $dir }
+ui-redit-large-title = 打开大文件？
+ui-redit-large-body = “{ $name }”大小为 { $amount }，需要先完整下载到本机才能编辑。
+ui-redit-large-continue = 继续下载并打开
+ui-redit-conflict-title = 远端文件已变化
+ui-redit-conflict-body = “{ $name }”（{ $source }）自打开后在服务器上被修改或删除。自动回传已暂停；重新下载将放弃本地修改。
+ui-redit-conflict-overwrite = 覆盖
+ui-redit-conflict-redownload = 重新下载
+ui-redit-conflict-save-copy = 另存副本…
+ui-redit-copy-prompt = 请输入不同的文件名
+ui-filer-drag-preparing = 准备拖出 { $name }
+ui-filer-drag-failed = 无法准备拖出“{ $name }”：{ $why }
+ui-filer-drag-too-late = 准备完成但拖动已结束，请重新拖动
+ui-filer-drag-not-ready = 远端文件还在准备，已取消；请按住鼠标等准备完成再松手
+ui-filer-drag-cancelled = 已取消拖出准备
+
+ui-display-settings-menu = 显示设置…
+ui-keyboard-settings-menu = 键盘快捷键…

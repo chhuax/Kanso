@@ -1036,6 +1036,11 @@ int8_t uniffi_kanso_ffi_fn_func_mcp_supported(RustCallStatus *_Nonnull out_statu
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_FUNC_LOAD_TERMINAL_THEMES
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_FUNC_LOAD_TERMINAL_THEMES
+RustBuffer uniffi_kanso_ffi_fn_func_load_terminal_themes(RustBuffer directory, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_FFI_KANSO_FFI_RUSTBUFFER_ALLOC
 #define UNIFFI_FFIDEF_FFI_KANSO_FFI_RUSTBUFFER_ALLOC
 RustBuffer ffi_kanso_ffi_rustbuffer_alloc(uint64_t size, RustCallStatus *_Nonnull out_status
@@ -1311,6 +1316,12 @@ uint16_t uniffi_kanso_ffi_checksum_func_mcp_client_config(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_FUNC_MCP_SUPPORTED
 #define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_FUNC_MCP_SUPPORTED
 uint16_t uniffi_kanso_ffi_checksum_func_mcp_supported(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_FUNC_LOAD_TERMINAL_THEMES
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_FUNC_LOAD_TERMINAL_THEMES
+uint16_t uniffi_kanso_ffi_checksum_func_load_terminal_themes(void
     
 );
 #endif

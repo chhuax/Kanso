@@ -124,8 +124,8 @@ final class SettingsStoreTests: XCTestCase {
     func testUnknownThemeIdIsKeptButResolvesToDefault() throws {
         let appearance = try XCTUnwrap(decode(AppearanceSettings.self, #"{"lightTheme":"solarized","darkTheme":"kanso-light"}"#))
         XCTAssertEqual(appearance.lightTheme, "solarized")
-        XCTAssertEqual(appearance.resolvedLightTheme, .kansoLight)
-        XCTAssertEqual(appearance.resolvedDarkTheme, .kansoLight)
+        XCTAssertEqual(appearance.resolvedLightTheme(in: TerminalTheme.builtIn), .kansoLight)
+        XCTAssertEqual(appearance.resolvedDarkTheme(in: TerminalTheme.builtIn), .kansoLight)
     }
 
     // MARK: 持久化与通知

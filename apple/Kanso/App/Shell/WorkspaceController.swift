@@ -91,7 +91,7 @@ final class WorkspaceController {
             family: settings.display.fontFamily, size: settings.display.fontSize
         ).font
         for host in hosts.values {
-            TerminalSettingsApplier.apply(display: settings.display, appearance: settings.appearance, to: host.view)
+            TerminalSettingsApplier.apply(settings, to: host.view)
         }
     }
 
@@ -303,7 +303,7 @@ final class WorkspaceController {
         host.completion.enabled = settings.completion.enabled
         // 必须在 wire 之前设置：wire 会补报一次网格，那时列数应已按当前栏宽与字体计算。
         host.view.gutterMode = gutter.mode
-        TerminalSettingsApplier.apply(display: settings.display, appearance: settings.appearance, to: host.view)
+        TerminalSettingsApplier.apply(settings, to: host.view)
         wire(host)
         hosts[id] = host
         host.view.onCopied = { [weak self] in self?.onCopied?() }

@@ -72,7 +72,8 @@ impl From<portable_pty::ExitStatus> for ExitStatus {
 /// 读循环由会话层在专门的线程里跑 [`PtySession::reader`] 取得的读取端；其余方法在会话 actor 里调用。
 /// 丢弃（drop）会话会关闭 PTY 主端；shell 还活着时请先调用 [`PtySession::kill`]。
 pub struct PtySession {
-    master: Box<dyn MasterPty + Send>,
+    /// Windows 上子进程退出后会被 [`PtySession::detach_master`] 取走（关闭伪控制台）；其余时候总是 `Some`。
+    master: Option<Box<dyn MasterPty + Send>>,
     child: Box<dyn Child + Send + Sync>,
     writer: Box<dyn Write + Send>,
     /// `take_writer` 已经把真正的写入端交走（`writer` 此后是丢弃一切的占位）。
@@ -140,7 +141,7 @@ impl PtySession {
         let writer = pair.master.take_writer().map_err(spawn_err)?;
         let pid = child.process_id();
         Ok(PtySession {
-            master: pair.master,
+            master: Some(pair.master),
             child,
             writer,
             writer_taken: false,
@@ -153,7 +154,7 @@ impl PtySession {
     /// portable-pty 把 Unix 上从端关闭时的 `EIO` 转成了 EOF，调用方不必再自己处理。
     /// 每次调用返回对同一个主端的独立句柄；通常只在会话层的读线程里调用一次。
     pub fn reader(&self) -> Result<Box<dyn Read + Send>, PtyError> {
-        self.master.try_clone_reader().map_err(spawn_err)
+        self.master()?.try_clone_reader().map_err(spawn_err)
     }
 
     /// 写入端（用户输入、终端应答等都从这里发给 shell）。
@@ -192,9 +193,30 @@ impl PtySession {
         pixel_width: u16,
         pixel_height: u16,
     ) -> Result<(), PtyError> {
+        // 主端已被取走（Windows 上 shell 已退出）时没有东西可调整。
+        match &self.master {
+            Some(master) => master
+                .resize(to_pty_size(size, pixel_width, pixel_height))
+                .map_err(spawn_err),
+            None => Ok(()),
+        }
+    }
+
+    fn master(&self) -> Result<&(dyn MasterPty + Send), PtyError> {
         self.master
-            .resize(to_pty_size(size, pixel_width, pixel_height))
-            .map_err(spawn_err)
+            .as_deref()
+            .ok_or_else(|| spawn_err("pty master already closed"))
+    }
+
+    /// 取走 PTY 主端，由调用方在**不持有会话锁**时丢弃它。
+    ///
+    /// 只用于 Windows：ConPTY 里子进程退出后，只要伪控制台没关闭，输出管道就不会 EOF；
+    /// portable-pty 在主端被丢弃时才调用 `ClosePseudoConsole`（它会把残留输出冲给读端再关闭），
+    /// 所以 shell 退出后由会话层调用本方法并丢弃返回值，读线程读完剩余输出后即得到 EOF。
+    /// 丢弃可能阻塞到输出被读走，因此不能在持锁时丢弃。
+    #[cfg(windows)]
+    pub fn detach_master(&mut self) -> Option<Box<dyn Send>> {
+        self.master.take().map(|m| Box::new(m) as Box<dyn Send>)
     }
 
     /// shell 进程的 pid。
@@ -235,7 +257,7 @@ impl PtySession {
     pub fn foreground_cwd(&self) -> Option<PathBuf> {
         // `process_group_leader` 只在 portable-pty 的 Unix 实现里存在。
         #[cfg(unix)]
-        if let Some(leader) = self.master.process_group_leader()
+        if let Some(leader) = self.master.as_ref().and_then(|m| m.process_group_leader())
             && let Ok(pid) = u32::try_from(leader)
             && let Some(p) = process_cwd(pid)
         {

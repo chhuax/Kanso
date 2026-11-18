@@ -44,6 +44,16 @@ cargo xtask gen-tokens [--out <dir>] [--themes-out <file>]   # 生成 Xcode 颜�
 - ANSI 16 色不强制对比度（运行时有最低对比度保护），但不得与 background 完全相同。
 - `terminal.gutterText` 显示在终端背景上，所以它对 Kanso Light / Kanso Dark 的 background（分别对应 light / dark 外观）要求 4.5:1，这一项由 `check-tokens` 在终端配色检查里完成。
 
+## 安装用户终端配色
+
+1. 在 **设置 → 通用 → 打开主题文件夹** 中打开当前应用的主题目录。
+2. 复制 [Kanso Dark](../design/terminal-themes/kanso-dark.json) 或 [Kanso Light](../design/terminal-themes/kanso-light.json) 到该目录的第一层，例如取名为 `ocean.json`。将 `name` 改为列表中要显示的名字，然后编辑颜色并以 UTF-8 保存。
+3. 返回设置窗口，在“浅色终端配色”或“深色终端配色”中选择。当前外观对应的终端立即更新，后续会话和重启后沿用该选择。
+
+Windows 默认目录为 `%LOCALAPPDATA%\Kanso\themes`，使用 `--data-dir` 时位于指定数据目录的 `themes` 下。macOS 默认在当前发行渠道的 Application Support 数据目录下创建 `themes`，沙盒发行版位于应用容器内。设置页的按钮会打开实际使用的位置。
+
+格式见 [v1 JSON Schema](../design/terminal-theme-v1.schema.json)。文件使用整数版本号 `1`、非空显示名、五种基础颜色、16 个 ANSI 色和 13 个语义色，顺序见上文。所有颜色都用 `#RRGGBB` 表示。中英文文件名均可，文件扩展名大小写不限。内置主题列在前，自定义主题按显示名排列。文件名决定保存的选项标识（例如 `file:ocean`），可以修改显示名和颜色；改文件名后需重新选择。删除当前主题或把它改成无效内容时，终端回落到对应外观的内置配色；同名有效文件放回后，原选择重新生效。关闭设置后再打开，或从文件管理器切回设置，即可重新发现文件。
+
 ## 生成物
 
 - `apple/Packages/TerminalKit/Sources/TerminalKit/TerminalThemes.swift`：两套终端配色（`TerminalPalette.kansoLight` / `kansoDark`），

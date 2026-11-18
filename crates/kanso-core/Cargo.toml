@@ -20,6 +20,7 @@ kanso-sshconfig.workspace = true
 tokio = { workspace = true, features = ["sync", "time", "net"] }
 tracing.workspace = true
 # mock 设置表校验 JSON，与真实存储行为一致。
+serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]

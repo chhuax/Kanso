@@ -211,19 +211,179 @@ pub enum Handshake {
     Send,
 }
 
+/// 本端取消时，对端可能已经在链路上放入后续子包。只剥离已确认的协议边界。
+enum CancelPhase {
+    Frame(Option<bool>),
+    Padding(u8),
+}
+
+struct CancelTail {
+    bytes: Vec<u8>,
+    before_cancel: usize,
+    phase: CancelPhase,
+    progressed: bool,
+}
+
+impl CancelTail {
+    fn into_terminal(mut self) -> Vec<u8> {
+        self.bytes.drain(..self.before_cancel);
+        self.bytes
+    }
+
+    /// 返回 true 表示首个普通终端字节已经在缓冲区开头。
+    fn terminal_ready(&mut self) -> bool {
+        while !self.bytes.is_empty() {
+            match self.phase {
+                CancelPhase::Padding(ref mut backspaces) => {
+                    // 对端取消序列末尾可以跟退格；部分 sz 还会收尾一个空 ZCRCE 子包。
+                    let mut n = 0;
+                    while let Some(&byte) = self.bytes.get(n) {
+                        if byte == 8 && *backspaces < 10 {
+                            *backspaces += 1;
+                        } else if byte == ZDLE && *backspaces == 0 {
+                            match self.bytes.get(n + 1).copied() {
+                                Some(8 | ZDLE) => {}
+                                None => {
+                                    self.bytes.drain(..n);
+                                    return false;
+                                }
+                                _ => break,
+                            }
+                        } else {
+                            break;
+                        }
+                        n += 1;
+                    }
+                    self.bytes.drain(..n);
+                    if self.bytes.is_empty() {
+                        return false;
+                    }
+                    if self.bytes[0] != ZDLE {
+                        return true;
+                    }
+                    if self.bytes.len() == 1 {
+                        return false;
+                    }
+                    if self.bytes[1] != b'h' {
+                        return true;
+                    }
+                    for wide in [false, true] {
+                        let mut candidate = self.bytes.clone();
+                        if matches!(parse(&mut candidate, Some(wide)), Ok(Some(Frame::Data(body,b'h'))) if body.is_empty())
+                        {
+                            self.bytes = candidate;
+                            return true;
+                        }
+                    }
+                    // 空包最多是 ZDLE、结束符和四个转义后的 CRC 字节。
+                    return self.bytes.len() >= 10;
+                }
+                CancelPhase::Frame(crc) => {
+                    if let Some(end) = self.bytes.windows(5).position(|p| p == [ZDLE; 5]) {
+                        self.bytes.drain(..end + 5);
+                        self.before_cancel = 0;
+                        self.progressed = true;
+                        self.phase = CancelPhase::Padding(0);
+                        continue;
+                    }
+                    if self.bytes.iter().all(|b| *b == ZDLE) {
+                        return false;
+                    }
+                    if crc.is_none() {
+                        let start = self.bytes.iter().position(|b| *b != 0x11);
+                        let Some(start) = start else { return false };
+                        let prefix = &self.bytes[start..];
+                        if prefix[0] != b'*' {
+                            if prefix.iter().all(|b| *b == ZDLE) {
+                                return false;
+                            }
+                            // 十六进制头后面的 XON 可能晚于头本身到达：它是流控字节，不属于终端输出。
+                            self.bytes.drain(..start);
+                            return true;
+                        }
+                        let header = &prefix[1..];
+                        let header = header.strip_prefix(b"*").unwrap_or(header);
+                        if header.first().is_some_and(|b| *b != ZDLE) {
+                            return true;
+                        }
+                    }
+                    // parse 在 CRC 出错时也会消费输入，验证成功之前须保留原字节。
+                    let mut candidate = self.bytes.clone();
+                    match parse(&mut candidate, crc) {
+                        // ZDATA 之外，对端发完最后一个子包后可能紧接着发 ZEOF（11），
+                        // 甚至 ZFIN（8）；校验通过的协议头照样剥离，不能当二进制漏给终端。
+                        // 不剥离 ZFIN 之后可能出现的 "OO"：那只在我们回 ZFIN 之后才会发，
+                        // 本端取消后不会回，没有把握的字节宁可交还终端。
+                        Ok(Some(Frame::Header(10, _, wide))) => {
+                            self.phase = CancelPhase::Frame(Some(wide))
+                        }
+                        Ok(Some(Frame::Header(8 | 11, _, _))) => {
+                            self.phase = CancelPhase::Frame(None)
+                        }
+                        Ok(Some(Frame::Data(_, end))) => {
+                            if matches!(end, b'h' | b'k') {
+                                self.phase = CancelPhase::Frame(None);
+                            }
+                        }
+                        Ok(None) => return false,
+                        _ => return true,
+                    }
+                    self.bytes = candidate;
+                    self.before_cancel = 0;
+                    self.progressed = true;
+                }
+            }
+        }
+        false
+    }
+}
+
 /// 在解码前检测握手；跨读取的候选头先暂存，不泄漏给终端。
 #[derive(Default)]
 pub struct Sentinel {
     pending: Vec<u8>,
     shown: usize,
+    cancelled: Option<CancelTail>,
     #[cfg(test)]
     pub(crate) compactions: usize,
 }
 
 impl Sentinel {
+    pub(crate) fn cancelled_receive(&mut self, bytes: Vec<u8>, crc: Option<bool>) {
+        self.cancelled = Some(CancelTail {
+            before_cancel: bytes.len(),
+            bytes,
+            phase: CancelPhase::Frame(crc),
+            progressed: true,
+        });
+    }
+
+    /// 待定字节需要一次空闲检查；没有待定字节时无需后台计时。
+    pub fn cancel_tail_pending(&self) -> bool {
+        self.cancelled
+            .as_ref()
+            .is_some_and(|tail| tail.bytes.len() > tail.before_cancel)
+    }
+
+    /// 对端可以直接退回 shell。若连续两次检查无已验证的协议进展，就交还待定字节。
+    pub fn poll_cancel_tail(&mut self) -> Vec<u8> {
+        if let Some(tail) = &mut self.cancelled
+            && tail.bytes.len() > tail.before_cancel
+            && !std::mem::take(&mut tail.progressed)
+        {
+            return self.cancelled.take().unwrap().into_terminal();
+        }
+        Vec::new()
+    }
+
     /// 手动传输开始时释放尚未显示的候选握手字节。
     pub fn flush(&mut self) -> Vec<u8> {
-        let bytes = self.pending.split_off(self.shown);
+        let mut bytes = self
+            .cancelled
+            .take()
+            .map(CancelTail::into_terminal)
+            .unwrap_or_default();
+        bytes.extend_from_slice(&self.pending[self.shown..]);
         self.pending.clear();
         self.shown = 0;
         bytes
@@ -231,7 +391,20 @@ impl Sentinel {
 
     /// 普通字节追加至 terminal；识别后丢弃本批剩余字节。
     pub fn feed(&mut self, bytes: &[u8], terminal: &mut Vec<u8>) -> Option<Handshake> {
-        self.pending.extend_from_slice(bytes);
+        if let Some(tail) = &mut self.cancelled {
+            // 新的未定前缀开始计时。后续普通输出不能靠不断到达延长等待。
+            if tail.bytes.len() == tail.before_cancel && !bytes.is_empty() {
+                tail.progressed = true;
+            }
+            tail.bytes.extend_from_slice(bytes);
+            if !tail.terminal_ready() {
+                return None;
+            }
+            self.pending
+                .extend(self.cancelled.take().unwrap().into_terminal());
+        } else {
+            self.pending.extend_from_slice(bytes);
+        }
         let mut consumed = 0;
         loop {
             let Some(start) = self.pending[consumed..]

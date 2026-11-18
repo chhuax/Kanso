@@ -412,6 +412,13 @@ impl Machine {
         self.cancel()
     }
 
+    /// 本端取消正在接收的文件时，将未完整的在途子包移交给终端握手哨兵。
+    pub fn hand_off_cancelled_receive(&mut self, sentinel: &mut crate::Sentinel) {
+        if self.direction == Handshake::Receive && self.file_accepted {
+            sentinel.cancelled_receive(std::mem::take(&mut self.input), self.data_crc);
+        }
+    }
+
     /// 用户取消；已经结束时不重复发送。
     pub fn cancel(&mut self) -> Vec<Action> {
         if self.state == State::Over {

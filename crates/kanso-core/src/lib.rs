@@ -16,6 +16,7 @@ mod real;
 pub mod sender;
 mod ssh;
 mod sshconfig_import;
+pub mod terminal_themes;
 pub mod validate;
 
 pub use api::{

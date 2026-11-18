@@ -909,6 +909,7 @@ impl MockCore {
         let mut st = self.lock();
         terminal(&mut st, session)?.search_current = 1;
         Ok(SearchStatus {
+            invalid_regex: false,
             total: MOCK_SEARCH_TOTAL,
             current: Some(1),
         })
@@ -927,6 +928,7 @@ impl MockCore {
             s.search_current % MOCK_SEARCH_TOTAL + 1
         };
         Ok(SearchStatus {
+            invalid_regex: false,
             total: MOCK_SEARCH_TOTAL,
             current: Some(s.search_current),
         })
@@ -936,6 +938,7 @@ impl MockCore {
         let mut state = self.lock();
         let session = terminal(&mut state, session)?;
         Ok(SearchStatus {
+            invalid_regex: false,
             total: MOCK_SEARCH_TOTAL,
             current: Some(session.search_current),
         })
@@ -1730,6 +1733,7 @@ mod tests {
             regex: false,
         };
         let st = |current| SearchStatus {
+            invalid_regex: false,
             total: 3,
             current: Some(current),
         };
