@@ -104,7 +104,8 @@ fn package(options: &Options) -> Result<()> {
 
     // 每次从空目录暂存 Windows 可执行文件及其许可，ZIP 与 NSIS 使用同一份内容。
     let out = target_dir.join("win-package");
-    let name = format!("Kanso-{version}-x64");
+    // 与 macOS 的 `Kanso-<版本>-macOS-<架构>` 同一规则：系统名放在版本和架构之间。
+    let name = format!("Kanso-{version}-Windows-x64");
     let stage = out.join(&name);
     if stage.exists() {
         fs::remove_dir_all(&stage)?;
