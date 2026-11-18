@@ -291,6 +291,7 @@ impl Dialog {
         let ring: Hsla = rgba(color("accent", a).with_alpha(0x80).to_u32()).into();
         div()
             .id(("dialog-button", i))
+            .flex_none()
             .track_focus(&handle)
             .cursor(CursorStyle::PointingHand)
             .min_w(px(84.))
@@ -398,7 +399,13 @@ impl Render for Dialog {
             );
         }
 
-        let mut row = div().mt(px(4.)).flex().flex_row().justify_end().gap(px(8.));
+        let mut row = div()
+            .mt(px(4.))
+            .flex()
+            .flex_row()
+            .flex_wrap()
+            .justify_end()
+            .gap(px(8.));
         for i in 0..self.spec.buttons.len() {
             row = row.child(self.render_button(i, window, cx));
         }
