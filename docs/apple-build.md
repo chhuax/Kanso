@@ -156,4 +156,4 @@ Bundle ID 已定：Direct 与 MAS 为 `com.chhuax.kanso`，Setapp 为 `com.chhua
 
 ## 自动发布
 
-推送 `v*` 标签后，`.github/workflows/release.yml` 会在 `macos-15` 上构建 arm64 与 x86_64 两个 DMG，连同 `.sha256` 一起上传到同名 Release 草稿。Windows 安装包也会传到同一个 Release 草稿。详见 [Windows 发行包](windows-release.md#自动发布)。
+推送 `v*` 标签后，`.github/workflows/release.yml` 会并行构建两个 DMG：arm64 在 `macos-15` 上，x86_64 在 `macos-15-intel` 上原生编译，连同 `.sha256` 一起上传到同名 Release 草稿。Windows 安装包也会传到同一个 Release 草稿。详见 [Windows 发行包](windows-release.md#自动发布)。
