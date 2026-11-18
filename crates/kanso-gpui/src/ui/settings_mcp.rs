@@ -1,10 +1,10 @@
 //! 设置 → MCP：服务与接入、客户端、会话授权和审计记录（mcp.md §7）。
 
-use std::collections::HashMap;
+use std::{cell::Cell, collections::HashMap, rc::Rc};
 
 use gpui::{
-    AnyElement, ClipboardItem, Context, Entity, FontWeight, Render, SharedString, Subscription,
-    Window, div, prelude::*, px,
+    AnyElement, ClipboardItem, Context, Div, ElementId, Entity, FontWeight, KeyDownEvent, Render,
+    ScrollHandle, SharedString, Stateful, Subscription, Window, canvas, div, prelude::*, px,
 };
 use kanso_core::CoreError;
 use kanso_gpui::app::i18n::{Lang, label, lang};
@@ -18,7 +18,7 @@ use kanso_types::mcp::{McpAccess, McpAuditFilter, McpAuditRecord};
 use kanso_types::message::Message;
 use kanso_types::profile::{Group, Profile};
 
-use super::{Th, boxed, caption, card, check_row, checkbox, row};
+use super::{Th, boxed, caption, card, check_row, checkbox_box, row};
 use crate::ui::mcp::McpModel;
 use crate::ui::widgets::dropdown::{Dropdown, DropdownEvent};
 use crate::ui::widgets::text_input::{TextInput, TextInputEvent};
@@ -62,6 +62,7 @@ struct GrantGroup {
 
 pub(super) struct McpPage {
     model: Entity<McpModel>,
+    pub(super) scroll: ScrollHandle,
     client: McpClientKind,
     command: Entity<TextInput>,
     client_picker: Entity<Dropdown>,
@@ -145,6 +146,7 @@ impl McpPage {
         ];
         Self {
             model,
+            scroll: ScrollHandle::new(),
             client: CLIENTS[0],
             command,
             client_picker,
@@ -416,7 +418,7 @@ impl McpPage {
         rows
     }
 
-    fn audit_rows(&self, th: &Th, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    fn audit_rows(&self, th: &Th, actions: &mut McpActions<'_, '_>) -> Vec<AnyElement> {
         let mut rows = vec![
             div()
                 .flex()
@@ -435,11 +437,10 @@ impl McpPage {
             check_row(
                 th,
                 render_message(&Message::WinMcpErrorsOnly {}),
-                checkbox(
-                    th,
-                    cx,
+                actions.checkbox(
                     "mcp-audit-errors",
                     self.audit_filter.errors_only,
+                    true,
                     |this, on, cx| {
                         this.audit_filter.errors_only = on;
                         this.load_audit(true, cx);
@@ -476,9 +477,7 @@ impl McpPage {
                 .flex()
                 .gap(px(8.0))
                 .when(self.audit_has_more, |d| {
-                    d.child(button(
-                        th,
-                        cx,
+                    d.child(actions.button(
                         "mcp-audit-more",
                         Message::WinMcpAuditMore {},
                         false,
@@ -486,9 +485,7 @@ impl McpPage {
                         |this, cx| this.load_audit(false, cx),
                     ))
                 })
-                .child(button(
-                    th,
-                    cx,
+                .child(actions.button(
                     "mcp-audit-clear",
                     Message::WinMcpAuditClear {},
                     false,
@@ -572,6 +569,12 @@ impl Render for McpPage {
                 model.clients().to_vec(),
             )
         };
+        let owns_service = !matches!(
+            status,
+            McpServerStatus::Unavailable(
+                McpUnavailable::AnotherInstance | McpUnavailable::NotSupported
+            )
+        );
         let (status, reason) = Self::status_text(&status);
         let mut service = vec![
             div().child(render_message(&status)).into_any_element(),
@@ -588,6 +591,12 @@ impl Render for McpPage {
             service.push(error_label(&th, error));
         }
         let has_command = !self.command.read(cx).text().is_empty();
+        let mut actions = McpActions {
+            th: &th,
+            scroll: &self.scroll,
+            window,
+            cx,
+        };
         let offset = tz::local_offset_minutes();
         let client_rows: Vec<_> = if clients.is_empty() {
             vec![caption(&th, label(Message::WinMcpNoClients {}))]
@@ -614,10 +623,8 @@ impl Render for McpPage {
                                 count: i64::try_from(client.calls).unwrap_or(i64::MAX),
                             }),
                         ))
-                        .child(button(
-                            &th,
-                            cx,
-                            "mcp-disconnect",
+                        .child(actions.button(
+                            ("mcp-disconnect", client.id as usize),
                             Message::WinMcpDisconnect {},
                             false,
                             true,
@@ -639,7 +646,7 @@ impl Render for McpPage {
                     check_row(
                         &th,
                         render_message(&Message::WinMcpEnable {}),
-                        checkbox(&th, cx, "mcp-enable", enabled, Self::toggle_service),
+                        actions.checkbox("mcp-enable", enabled, owns_service, Self::toggle_service),
                     ),
                     caption(&th, label(Message::WinMcpEnableHint {})),
                 ],
@@ -668,9 +675,7 @@ impl Render for McpPage {
                     div()
                         .flex()
                         .gap(px(8.0))
-                        .child(button(
-                            &th,
-                            cx,
+                        .child(actions.button(
                             "mcp-copy-command",
                             Message::UiCopyCommand {},
                             true,
@@ -680,13 +685,11 @@ impl Render for McpPage {
                                 cx.write_to_clipboard(ClipboardItem::new_string(command));
                             },
                         ))
-                        .child(button(
-                            &th,
-                            cx,
+                        .child(actions.button(
                             "mcp-regenerate",
                             Message::WinMcpRegenerate {},
                             false,
-                            has_command,
+                            has_command && owns_service,
                             Self::regenerate,
                         ))
                         .into_any_element(),
@@ -709,7 +712,7 @@ impl Render for McpPage {
                 &th,
                 label(Message::WinMcpAudit {}),
                 "list",
-                self.audit_rows(&th, cx),
+                self.audit_rows(&th, &mut actions),
             ))
     }
 }
@@ -755,41 +758,135 @@ fn grant_row(th: &Th, title: &str, selector: &Entity<Dropdown>, heading: bool) -
         .into_any_element()
 }
 
-fn button(
-    th: &Th,
-    cx: &mut Context<McpPage>,
-    id: &'static str,
-    title: Message,
-    primary: bool,
-    enabled: bool,
-    run: impl Fn(&mut McpPage, &mut Context<McpPage>) + 'static,
-) -> AnyElement {
-    div()
-        .id(id)
-        .flex_none()
-        .h(px(number("spacing", "field.height") - 4.0))
-        .px(px(12.0))
-        .flex()
-        .items_center()
-        .rounded(px(number("radius", "md")))
-        .bg(if primary {
-            th.c("accent")
-        } else {
-            th.c("bg.buttonSecondary")
-        })
-        .text_color(if primary {
-            th.c("text.onAccent")
-        } else {
-            th.c("text.primary")
-        })
-        .when(enabled, |el| {
-            el.cursor_pointer()
-                .hover(|s| s.opacity(0.85))
-                .on_click(cx.listener(move |this, _, _, cx| run(this, cx)))
-        })
-        .when(!enabled, |el| el.opacity(0.45))
-        .child(render_message(&title))
-        .into_any_element()
+struct McpActions<'a, 'cx> {
+    th: &'a Th,
+    scroll: &'a ScrollHandle,
+    window: &'a mut Window,
+    cx: &'a mut Context<'cx, McpPage>,
+}
+
+impl McpActions<'_, '_> {
+    fn button(
+        &mut self,
+        id: impl Into<ElementId>,
+        title: Message,
+        primary: bool,
+        enabled: bool,
+        run: impl Fn(&mut McpPage, &mut Context<McpPage>) + 'static,
+    ) -> AnyElement {
+        let id = id.into();
+        let th = self.th;
+        let button = div()
+            .id(id.clone())
+            .flex_none()
+            .h(px(number("spacing", "field.height") - 4.0))
+            .px(px(12.0))
+            .flex()
+            .items_center()
+            .rounded(px(number("radius", "md")))
+            .border_1()
+            .border_color(gpui::transparent_black())
+            .bg(if primary {
+                th.c("accent")
+            } else {
+                th.c("bg.buttonSecondary")
+            })
+            .text_color(if primary {
+                th.c("text.onAccent")
+            } else {
+                th.c("text.primary")
+            })
+            .child(render_message(&title));
+        self.control(button, id, enabled, run)
+    }
+
+    fn checkbox(
+        &mut self,
+        id: &'static str,
+        checked: bool,
+        enabled: bool,
+        toggle: impl Fn(&mut McpPage, bool, &mut Context<McpPage>) + 'static,
+    ) -> AnyElement {
+        self.control(
+            checkbox_box(self.th, id, checked),
+            id.into(),
+            enabled,
+            move |this, cx| {
+                toggle(this, !checked, cx);
+            },
+        )
+    }
+
+    fn control(
+        &mut self,
+        element: Stateful<Div>,
+        id: ElementId,
+        enabled: bool,
+        run: impl Fn(&mut McpPage, &mut Context<McpPage>) + 'static,
+    ) -> AnyElement {
+        if !enabled {
+            return element.opacity(0.45).into_any_element();
+        }
+        let state = self.window.use_keyed_state(id, self.cx, |_, cx| {
+            (cx.focus_handle().tab_stop(true), Rc::new(Cell::new(false)))
+        });
+        let (focus, was_focused) = state.read(self.cx).clone();
+        let border = self.th.c("text.primary");
+        let scroll = self.scroll.clone();
+        let run = Rc::new(run);
+        let key_run = run.clone();
+        element
+            .relative()
+            .track_focus(&focus)
+            .focus(move |style| style.border_color(border))
+            .cursor_pointer()
+            .hover(|style| style.opacity(0.85))
+            .on_key_down(self.cx.listener(move |this, ev: &KeyDownEvent, _, cx| {
+                let key = &ev.keystroke;
+                if matches!(key.key.as_str(), "enter" | "space") && !key.modifiers.modified() {
+                    if !ev.is_held {
+                        key_run(this, cx);
+                    }
+                    cx.stop_propagation();
+                }
+            }))
+            .on_click(self.cx.listener(move |this, ev: &gpui::ClickEvent, _, cx| {
+                // 键盘在按下时触发，避免 GPUI 抬键时合成的点击重复执行。
+                if !ev.is_keyboard() {
+                    run(this, cx);
+                }
+            }))
+            .child(
+                canvas(
+                    move |bounds, window, _| {
+                        let focused = focus.is_focused(window);
+                        if !was_focused.replace(focused) && focused {
+                            let viewport = scroll.bounds();
+                            let dy = if bounds.top() < viewport.top() {
+                                viewport.top() - bounds.top()
+                            } else if bounds.bottom() > viewport.bottom() {
+                                viewport.bottom() - bounds.bottom()
+                            } else {
+                                px(0.0)
+                            };
+                            if dy != px(0.0) {
+                                let scroll = scroll.clone();
+                                window.on_next_frame(move |window, _| {
+                                    let mut offset = scroll.offset();
+                                    offset.y += dy;
+                                    scroll.set_offset(offset);
+                                    window.refresh();
+                                });
+                            }
+                        }
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .size_full(),
+            )
+            .into_any_element()
+    }
 }
 
 struct ArgsTooltip {

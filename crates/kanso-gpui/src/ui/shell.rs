@@ -668,7 +668,9 @@ impl ShellView {
                     } else {
                         2
                     };
-                    let _ = handle.update(cx, |settings, _, cx| settings.select_page(page, cx));
+                    let _ = handle.update(cx, |settings, window, cx| {
+                        settings.select_page(page, window, cx);
+                    });
                 }
             }
             AppCommand::About => self.show_about(window, cx),

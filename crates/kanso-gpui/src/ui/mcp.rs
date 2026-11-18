@@ -151,6 +151,7 @@ impl McpModel {
         let result = if on {
             self.start(true)
         } else {
+            self.check_instance()?;
             self.core.set_mcp_enabled(false).map_err(|e| {
                 super::log(&format!("无法关闭 MCP：{e}"));
                 e.user_message().map_or_else(
