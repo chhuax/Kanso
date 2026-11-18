@@ -91,12 +91,27 @@ pub struct Fixture {
     pub mgr: SessionManager,
 }
 
+/// GitHub 的 Windows 机器上 TEMP 是 8.3 短名（`C:\Users\RUNNER~1\…`），而 shell 上报的是长路径。
+/// 统一用长路径，测试里比较目录和拼接文件名时两边才一致。
+#[cfg(windows)]
+fn long_path(path: &std::path::Path) -> PathBuf {
+    let full = std::fs::canonicalize(path).unwrap();
+    let text = full.to_string_lossy();
+    PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(&text))
+}
+
+#[cfg(not(windows))]
+fn long_path(path: &std::path::Path) -> PathBuf {
+    path.to_path_buf()
+}
+
 pub fn fixture(shell: &str, integration: bool) -> Fixture {
     let tmp = tempfile::tempdir().unwrap();
-    let home = tmp.path().join("home");
+    let root = long_path(tmp.path());
+    let home = root.join("home");
     std::fs::create_dir_all(&home).unwrap();
     // zsh 集成从 PWD 向上读 .git；TMPDIR 在外层仓库内时，用无法识别的 .git 挡住外层分支。
-    let ceiling = tmp.path().join(".git");
+    let ceiling = root.join(".git");
     std::fs::create_dir_all(&ceiling).unwrap();
     std::fs::write(ceiling.join("HEAD"), "not-a-git-repository\n").unwrap();
     let rec = Arc::new(Recorder::default());
@@ -122,8 +137,8 @@ pub fn fixture(shell: &str, integration: bool) -> Fixture {
         ("USERPROFILE", home.clone()),
         ("APPDATA", home.join("AppData/Roaming")),
         ("LOCALAPPDATA", home.join("AppData/Local")),
-        ("TEMP", tmp.path().join("temp")),
-        ("TMP", tmp.path().join("temp")),
+        ("TEMP", root.join("temp")),
+        ("TMP", root.join("temp")),
     ] {
         std::fs::create_dir_all(&dir).unwrap();
         pairs.push((key.to_owned(), dir.to_string_lossy().into_owned()));
@@ -131,7 +146,7 @@ pub fn fixture(shell: &str, integration: bool) -> Fixture {
     let env = EnvSnapshot::from_pairs(pairs);
     let mgr = SessionManager::new(
         ManagerConfig {
-            data_dir: tmp.path().join("data"),
+            data_dir: root.join("data"),
             app_version: "0.0.0-test".to_owned(),
             preferred_language: "en".to_owned(),
             region: None,
