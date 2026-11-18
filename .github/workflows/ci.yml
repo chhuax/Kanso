@@ -20,7 +20,7 @@ concurrency:
 env:
   MACOSX_DEPLOYMENT_TARGET: "14.0"
 
-# 任务名 rust / apple 是分支保护要求的检查名，不要改。
+# 任务名 rust / macos 与分支保护要求的检查名保持一致。
 jobs:
   rust:
     runs-on: macos-15
@@ -69,9 +69,9 @@ jobs:
       - name: Check locales
         run: cargo run --quiet -p xtask -- check-locales
 
-  apple:
+  macos:
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust toolchain
@@ -79,10 +79,19 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Install XcodeGen
         run: brew install xcodegen
-      # 只编 Direct：MAS / Setapp 的 Rust 部分已在 rust 任务的渠道矩阵里检查，Swift 里按渠道区分的代码很少；
-      # 三个渠道都编要多花约 3 分钟。本地 `cargo xtask ci` 仍编三个渠道兜底。
-      - name: Build Direct channel
-        run: cargo xtask apple-build --channel direct
+      # 三个渠道都编：Swift 里按渠道裁剪的界面（MCP 页、启动器菜单、窗口菜单项等）只有编过才知道没断。
+      # 比只编 Direct 多几分钟，换来 PR 阶段就能拦住只在 MAS / Setapp 编不过的改动。
+      - name: Build all channels
+        run: cargo xtask apple-build --all
+      # Swift 单元测试。以前只在本地 `cargo xtask ci` 里跑，两个分支各自通过、合并后才失败的情况
+      # 在 GitHub 上看不出来（#20 合并时即如此）。测试本身隔离了钥匙串、HOME 与剪贴板，可以在 runner 上跑。
+      # 跳过像素比对的截图测试：参考图在开发机上录制，runner 的 macOS 版本、字体光栅化和 Metal（虚拟机里
+      # 可能没有）都不同，比对结果反映的是环境差异而不是回归。截图测试仍由本地 `cargo xtask ci` 覆盖。
+      - name: Swift tests
+        run: >-
+          cargo xtask apple-test
+          --skip-testing KansoTests/SnapshotTests
+          --skip-testing KansoTests/UISnapshotTests
       # runner 是 arm64；这里只做 Direct 的 x86_64 交叉编译检查，防止 Intel 包悄悄编不过。
       - name: Cross-check x86_64 (Direct)
         run: cargo build -p kanso-ffi --target x86_64-apple-darwin
