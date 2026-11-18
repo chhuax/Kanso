@@ -563,8 +563,7 @@ impl FilerPanel {
                                 .child(date),
                         );
                     }
-                    let row = this
-                        .with_tip(row, tip, th)
+                    let row = with_tip(this, row, tip, th)
                         .on_mouse_down(
                             MouseButton::Left,
                             cx.listener(move |this, ev: &MouseDownEvent, window, cx| {

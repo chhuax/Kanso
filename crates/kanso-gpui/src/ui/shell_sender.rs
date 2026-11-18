@@ -11,8 +11,7 @@ use gpui::{
 };
 use kanso_gpui::app::layout::Rect;
 use kanso_gpui::app::sender::{
-    HANDLE_THICKNESS, PANEL_DEFAULT_HEIGHT, SenderContext, SenderTab, clamp_panel_height,
-    dragged_height,
+    HANDLE_THICKNESS, SenderContext, SenderTab, clamp_panel_height, dragged_height,
 };
 use kanso_gpui::app::tab::TabConnection;
 
@@ -36,11 +35,14 @@ pub(super) struct SenderState {
 }
 
 impl SenderState {
-    pub(super) fn new(panel: Entity<SenderPanel>) -> Self {
+    pub(super) fn new(
+        panel: Entity<SenderPanel>,
+        layout: &super::window_layout::PanelLayout,
+    ) -> Self {
         SenderState {
             panel,
-            visible: false,
-            height: PANEL_DEFAULT_HEIGHT,
+            visible: layout.sender_visible,
+            height: layout.sender_height,
             ticking: false,
             chip: None,
             drag: None,
@@ -85,6 +87,7 @@ impl ShellView {
     /// 显示 / 隐藏面板（Ctrl+Alt+↓、视图菜单）。
     pub(super) fn toggle_sender(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.sender.visible = !self.sender.visible;
+        self.save_panels();
         if self.sender.visible {
             self.push_sender_context(cx);
             self.sender.panel.update(cx, |p, cx| p.on_shown(window, cx));
@@ -207,6 +210,7 @@ impl ShellView {
         };
         if ev.pressed_button != Some(MouseButton::Left) {
             self.sender.drag = None;
+            self.save_panels();
             return false;
         }
         let dy = f32::from(ev.position.y) - start_y;

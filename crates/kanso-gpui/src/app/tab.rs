@@ -442,14 +442,18 @@ impl TabDescriptions {
 /// 标签拖拽使用按下瞬间的行中点。预览重新排版时仍以同一组中点判定插入位置。
 #[derive(Clone, Debug)]
 pub struct TabReorder {
+    /// 当前拖动的会话。
     pub session: SessionId,
+    /// 按下时该分屏的标签顺序；期间有标签增删则放弃提交。
     pub order: Vec<SessionId>,
     start_y: f32,
     other_midpoints: Vec<f32>,
+    /// 从其余标签中计数的插入位置；尚未超过拖动阈值时为 `None`。
     pub insertion: Option<usize>,
 }
 
 impl TabReorder {
+    /// 用按下位置、当前行中点和相邻行间距记录这一组最初的位置。
     pub fn start(
         session: SessionId,
         order: Vec<SessionId>,
@@ -474,6 +478,7 @@ impl TabReorder {
         }
     }
 
+    /// 根据窗口坐标更新插入位置，有新预览需要绘制时返回 `true`。
     pub fn update(&mut self, y: f32) -> bool {
         if self.insertion.is_none() && (y - self.start_y).abs() <= 5.0 {
             return false;

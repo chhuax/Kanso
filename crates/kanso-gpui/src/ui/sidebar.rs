@@ -223,6 +223,24 @@ impl ShellView {
                     ),
             )
             .child(list)
+            .child(
+                div()
+                    .id("sidebar-resize")
+                    .absolute()
+                    .right_0()
+                    .top_0()
+                    .bottom_0()
+                    .w(px(5.))
+                    .cursor(gpui::CursorStyle::ResizeLeftRight)
+                    .occlude()
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                            this.sidebar_resizing = true;
+                            cx.stop_propagation();
+                        }),
+                    ),
+            )
             .into_any_element()
     }
 

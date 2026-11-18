@@ -101,6 +101,8 @@ pub(crate) struct ShellView {
     subs: HashMap<SessionId, Subscription>,
     _window_subs: Vec<Subscription>,
     pub(super) sidebar_visible: bool,
+    pub(super) sidebar_preferred_width: f32,
+    pub(super) sidebar_resizing: bool,
     pub(super) tab_reorder: Option<kanso_gpui::app::tab::TabReorder>,
     pub(super) palette: Option<super::toolbar::Palette>,
     pub(super) path_filter: Entity<super::widgets::text_input::TextInput>,
@@ -204,13 +206,16 @@ impl ShellView {
         let completion = super::shell_completion::CompletionCtl::load(&core);
         let filer = super::shell_filer::new_state(&core, window, cx);
         let git = super::shell_git::new_state(window, cx);
+        let panels = super::window_layout::PanelLayout::load(&core);
         let mut this = ShellView {
             ctl: AppController::new(core.clone(), home),
             core,
             terminals: HashMap::new(),
             subs: HashMap::new(),
             _window_subs: Vec::new(),
-            sidebar_visible: true,
+            sidebar_visible: panels.sidebar_visible,
+            sidebar_preferred_width: panels.sidebar_width,
+            sidebar_resizing: false,
             tab_reorder: None,
             palette: None,
             path_filter,
@@ -221,7 +226,7 @@ impl ShellView {
             dialog_sub: None,
             pending_close: None,
             pending_reset: false,
-            right_click_menu: true,
+            right_click_menu: panels.right_click_menu,
             clock: clock_text(unix_ms(), tz::local_offset_minutes()),
             notice: None,
             dark,
@@ -241,7 +246,7 @@ impl ShellView {
             prompt: None,
             prompt_sub: None,
             gutter_policy: GutterPolicy::default(),
-            sender: super::shell_sender::SenderState::new(sender_panel),
+            sender: super::shell_sender::SenderState::new(sender_panel, &panels),
             completion,
             ssh_import: None,
             ssh_import_sub: None,
@@ -583,6 +588,7 @@ impl ShellView {
             AppCommand::SplitDown => self.split(SplitAxis::Vertical, window, cx),
             AppCommand::ToggleSidebar => {
                 self.sidebar_visible = !self.sidebar_visible;
+                self.save_panels();
                 self.sync_focus(window, cx);
                 cx.notify();
             }
@@ -620,6 +626,7 @@ impl ShellView {
             AppCommand::CloseGroup(scope, id) => self.close_group(scope, id, window, cx),
             AppCommand::ToggleRightClickMenu => {
                 self.right_click_menu = !self.right_click_menu;
+                self.save_panels();
                 let on = self.right_click_menu;
                 for t in self.terminals.values() {
                     t.update(cx, |t, _| t.right_click_menu = on);
@@ -992,6 +999,7 @@ impl ShellView {
 
     /// 退出应用：有仍在连接的会话先确认。
     fn request_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.save_frame(window);
         if !self.confirm_quit_if_needed(window, cx) {
             cx.quit();
         }
@@ -999,6 +1007,7 @@ impl ShellView {
 
     /// 点窗口关闭按钮：返回 `true` 表示可以直接关闭，`false` 表示已弹出确认框（或确认框已在）。
     fn window_close_requested(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        self.save_frame(window);
         if self.dialog.is_some() {
             return false;
         }
@@ -1300,7 +1309,7 @@ impl ShellView {
     /// 侧栏占用的宽度（隐藏时为 0；窄窗口最多占 40%）。
     pub(super) fn sidebar_width(&self, window: &Window) -> f32 {
         if self.sidebar_visible {
-            number("spacing", "sidebar.defaultWidth")
+            self.sidebar_preferred_width
                 .min(f32::from(window.viewport_size().width) * 0.4)
         } else {
             0.0
@@ -1328,6 +1337,18 @@ impl ShellView {
     }
 
     fn on_mouse_move(&mut self, ev: &MouseMoveEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self.sidebar_resizing {
+            if ev.pressed_button == Some(MouseButton::Left) {
+                self.sidebar_preferred_width = f32::from(ev.position.x)
+                    .max(number("spacing", "sidebar.minWidth"))
+                    .min(f32::from(window.viewport_size().width) * 0.4);
+            } else {
+                self.sidebar_resizing = false;
+                self.save_panels();
+            }
+            cx.notify();
+            return;
+        }
         if let Some(drag) = self.tab_reorder.as_mut() {
             if ev.pressed_button != Some(MouseButton::Left) {
                 self.cancel_tab_reorder(cx);
@@ -1395,7 +1416,10 @@ impl ShellView {
             }
             cx.notify();
         }
-        self.sender.drag = None;
+        if self.sidebar_resizing || self.sender.drag.take().is_some() {
+            self.sidebar_resizing = false;
+            self.save_panels();
+        }
         self.filer_drag_end();
         self.git_drag_end();
         if self.drag.take().is_some() {

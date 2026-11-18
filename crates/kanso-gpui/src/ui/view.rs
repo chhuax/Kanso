@@ -945,6 +945,19 @@ impl TerminalView {
                     self.paste(cx);
                 }
             }
+            MouseButton::Middle => {
+                if self.mouse_reporting() && !ev.modifiers.shift {
+                    self.send_mouse(
+                        MouseEventKind::Down,
+                        KButton::Middle,
+                        ev.position,
+                        &ev.modifiers,
+                        ev.click_count,
+                    );
+                } else {
+                    self.paste(cx);
+                }
+            }
             _ => {}
         }
     }
@@ -963,10 +976,16 @@ impl TerminalView {
                     );
                 }
             }
-            MouseButton::Right if self.mouse_reporting() => {
+            MouseButton::Right | MouseButton::Middle
+                if self.mouse_reporting() && !ev.modifiers.shift =>
+            {
                 self.send_mouse(
                     MouseEventKind::Up,
-                    KButton::Right,
+                    if ev.button == MouseButton::Right {
+                        KButton::Right
+                    } else {
+                        KButton::Middle
+                    },
                     ev.position,
                     &ev.modifiers,
                     ev.click_count,
@@ -992,10 +1011,19 @@ impl TerminalView {
             );
         } else {
             self.update_hover(ev, cx);
-            if self.mouse_reporting() {
+            if self.mouse_reporting() && !ev.modifiers.shift {
+                let button = match ev.pressed_button {
+                    Some(MouseButton::Right) => KButton::Right,
+                    Some(MouseButton::Middle) => KButton::Middle,
+                    _ => KButton::None,
+                };
                 self.send_mouse(
-                    MouseEventKind::Move,
-                    KButton::None,
+                    if button == KButton::None {
+                        MouseEventKind::Move
+                    } else {
+                        MouseEventKind::Drag
+                    },
+                    button,
                     ev.position,
                     &ev.modifiers,
                     0,
@@ -1042,8 +1070,10 @@ impl Render for TerminalView {
             .on_scroll_wheel(cx.listener(Self::on_scroll))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_down(MouseButton::Right, cx.listener(Self::on_mouse_down))
+            .on_mouse_down(MouseButton::Middle, cx.listener(Self::on_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up(MouseButton::Right, cx.listener(Self::on_mouse_up))
+            .on_mouse_up(MouseButton::Middle, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_drop(cx.listener(|this, paths: &ExternalPaths, window, cx| {

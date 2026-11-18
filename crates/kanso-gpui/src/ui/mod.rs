@@ -54,6 +54,7 @@ mod toolbar;
 mod tz;
 mod view;
 mod widgets;
+mod window_layout;
 
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -397,6 +398,7 @@ fn install_panic_hook() {
 }
 
 /// 弹出一个原生错误框（GUI 子系统下没有控制台，崩溃时用户只能靠它知道发生了什么）。
+#[allow(unsafe_code)]
 fn error_box(text: &str) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};
     let wide = |s: &str| -> Vec<u16> { s.encode_utf16().chain(std::iter::once(0)).collect() };
@@ -500,7 +502,7 @@ pub fn run() -> i32 {
             // 启动器 / 编辑对话框 / 提示框里的输入框需要这组按键绑定。
             widgets::text_input::bind_keys(cx);
             widgets::text_area::bind_keys(cx);
-            let bounds = Bounds::centered(None, size(px(1120.0), px(680.0)), cx);
+            let bounds = window_layout::initial_bounds(&core_for_ui, cx);
             // 主窗口关闭就退出（设置窗口是附属窗口，不能让它把进程留住）。
             cx.on_window_closed(|cx| {
                 if !cx
@@ -514,7 +516,7 @@ pub fn run() -> i32 {
             .detach();
             let opened = cx.open_window(
                 WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    window_bounds: Some(bounds),
                     titlebar: Some(TitlebarOptions {
                         title: Some("Kanso".into()),
                         appears_transparent: true,
