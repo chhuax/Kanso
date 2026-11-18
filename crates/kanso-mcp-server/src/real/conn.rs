@@ -10,15 +10,13 @@ use kanso_mcp::{hello, jsonrpc};
 use kanso_types::mcp::McpAuditEntry;
 use rmcp::ServiceExt;
 use serde::Deserialize;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::net::UnixStream;
-use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
-use super::Shared;
 use super::registry::Admission;
 use super::tools::KansoHandler;
+use super::{Shared, ipc};
 use crate::now_ms;
 
 /// 握手行必须在这段时间内读完，防止空连接占着名额。
@@ -46,23 +44,21 @@ struct Hello {
 }
 
 /// 处理一个已接受的连接，直到它结束。
-#[allow(unsafe_code)]
-pub(super) async fn handle(stream: UnixStream, shared: Arc<Shared>) {
-    // 只允许同一系统用户（spec/mcp.md §8）。socket 在 0700 目录里，这是第二道防线。
-    let cred = match stream.peer_cred() {
-        Ok(c) => c,
+pub(super) async fn handle(stream: ipc::Stream, shared: Arc<Shared>) {
+    // 除了本机通道的 ACL，还要检查对端自身的系统用户身份。
+    let pid = match ipc::peer_pid(&stream) {
+        Ok(pid) => pid,
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            tracing::warn!("mcp peer rejected: {e}");
+            return;
+        }
         Err(e) => {
             tracing::debug!("mcp peer credentials unavailable: {e}");
             return;
         }
     };
-    // SAFETY: getuid 没有参数与前置条件，不会失败。
-    if cred.uid() != unsafe { libc::getuid() } {
-        tracing::warn!("mcp connection from another user rejected");
-        return;
-    }
 
-    let (read, mut write) = stream.into_split();
+    let (read, mut write) = ipc::split(stream);
     let mut reader = BufReader::new(read);
     let hello = match timeout(HELLO_TIMEOUT, read_hello(&mut reader)).await {
         Ok(Some(h)) if h.v == hello::VERSION => h,
@@ -79,7 +75,7 @@ pub(super) async fn handle(stream: UnixStream, shared: Arc<Shared>) {
         // 超时、超长或不是合法的握手：直接断开。
         _ => return,
     };
-    tracing::debug!(pid = ?cred.pid(), tty = ?hello.tty, "mcp connection handshake");
+    tracing::debug!(pid = ?pid, tty = ?hello.tty, "mcp connection handshake");
 
     let (id, cancel) = match shared.registry.admit(&hello.token) {
         Admission::Admitted { id, cancel } => (id, cancel),
@@ -118,8 +114,8 @@ pub(super) async fn handle(stream: UnixStream, shared: Arc<Shared>) {
 
 /// 把连接交给 rmcp，直到客户端断开、出错或被取消。
 async fn serve(
-    reader: BufReader<OwnedReadHalf>,
-    write: OwnedWriteHalf,
+    reader: BufReader<impl AsyncRead + Unpin + Send + 'static>,
+    write: impl AsyncWrite + Unpin + Send + 'static,
     shared: Arc<Shared>,
     id: u64,
     cancel: CancellationToken,
@@ -148,13 +144,13 @@ async fn serve(
 
 /// 读握手行（最多 `hello::MAX_LEN` 字节）。超长、提前结束或 JSON 解析失败返回 `None`；
 /// 版本是否匹配由调用方判断，以便给出原因。
-async fn read_hello(reader: &mut BufReader<OwnedReadHalf>) -> Option<Hello> {
+async fn read_hello(reader: &mut BufReader<impl AsyncRead + Unpin>) -> Option<Hello> {
     let line = read_line(reader, hello::MAX_LEN).await?;
     serde_json::from_str(&line).ok()
 }
 
 /// 最多读 `max` 字节、以换行结尾的一行。
-async fn read_line(reader: &mut BufReader<OwnedReadHalf>, max: usize) -> Option<String> {
+async fn read_line(reader: &mut BufReader<impl AsyncRead + Unpin>, max: usize) -> Option<String> {
     let mut buf = Vec::new();
     // `take` 限制的是本次读取的总量；超过上限仍没遇到换行就当作非法输入。
     let n = reader
@@ -171,8 +167,8 @@ async fn read_line(reader: &mut BufReader<OwnedReadHalf>, max: usize) -> Option<
 /// 读客户端的第一条请求，回复一个 JSON-RPC 错误后断开。
 /// 转发程序只是原样转发，客户端发出 initialize 后一直在等回复；不回复它只会看到"连接意外断开"。
 async fn reject(
-    reader: &mut BufReader<OwnedReadHalf>,
-    write: &mut OwnedWriteHalf,
+    reader: &mut BufReader<impl AsyncRead + Unpin>,
+    write: &mut (impl AsyncWrite + Unpin),
     stable_code: &str,
     message: &str,
 ) {

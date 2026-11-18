@@ -29,6 +29,7 @@ use kanso_gpui::widgets::style::{Appearance, color, number};
 
 use super::display;
 use super::log;
+use super::mcp::McpModel;
 use super::widgets::dropdown::{Dropdown, DropdownEvent};
 use super::widgets::icons::icon;
 use super::widgets::text_input::{TextInput, TextInputEvent};
@@ -37,6 +38,12 @@ use kanso_types::message::Message;
 
 #[path = "settings_keys.rs"]
 mod keys;
+#[path = "settings_mcp.rs"]
+mod mcp_page;
+
+pub(super) use mcp_page::{MCP_ACCESS_LEVELS, mcp_access_title};
+
+const MCP_PAGE: usize = 3;
 
 // ---- 模型 ----
 
@@ -190,12 +197,19 @@ fn nerd_fallback(cx: &App) -> Option<String> {
 pub(crate) fn open_window(
     model: Entity<SettingsModel>,
     existing: Option<WindowHandle<SettingsView>>,
+    mcp: Entity<McpModel>,
+    select_mcp: bool,
     cx: &mut App,
 ) -> Option<WindowHandle<SettingsView>> {
     model.update(cx, |m, cx| m.reload_themes(cx));
     if let Some(handle) = existing
         && handle
-            .update(cx, |_, window, _| window.activate_window())
+            .update(cx, |settings, window, cx| {
+                if select_mcp && kanso_mcp_server::supported() {
+                    settings.select_page(MCP_PAGE, cx);
+                }
+                window.activate_window();
+            })
             .is_ok()
     {
         return Some(handle);
@@ -210,7 +224,7 @@ pub(crate) fn open_window(
             }),
             ..Default::default()
         },
-        move |window, cx| cx.new(|cx| SettingsView::new(model, window, cx)),
+        move |window, cx| cx.new(|cx| SettingsView::new(model, mcp, select_mcp, window, cx)),
     );
     match opened {
         Ok(handle) => {
@@ -230,6 +244,7 @@ pub(crate) struct SettingsView {
     labels_language: Lang,
     page: usize,
     model: Entity<SettingsModel>,
+    mcp: Entity<mcp_page::McpPage>,
     focus: FocusHandle,
     term_font: Entity<Dropdown>,
     term_font_input: Entity<TextInput>,
@@ -298,6 +313,10 @@ fn theme_index(themes: &[(String, String)], id: &str, fallback: usize) -> usize 
 
 impl SettingsView {
     pub(super) fn select_page(&mut self, page: usize, cx: &mut Context<Self>) {
+        if self.page == MCP_PAGE || page == MCP_PAGE {
+            self.mcp
+                .update(cx, |mcp, cx| mcp.set_shown(page == MCP_PAGE, cx));
+        }
         self.page = page;
         self.keys.cancel();
         cx.notify();
@@ -305,6 +324,8 @@ impl SettingsView {
 
     pub(crate) fn new(
         model: Entity<SettingsModel>,
+        mcp: Entity<McpModel>,
+        select_mcp: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -453,11 +474,13 @@ impl SettingsView {
             }),
         );
 
-        let this = SettingsView {
+        let mcp = cx.new(|cx| mcp_page::McpPage::new(mcp, window, cx));
+        let mut this = SettingsView {
             titlebar_dark: None,
             labels_language: lang(),
             page: 0,
             model,
+            mcp,
             focus: cx.focus_handle(),
             term_font,
             term_font_input,
@@ -474,6 +497,9 @@ impl SettingsView {
             probing: true,
             _subs: subs,
         };
+        if select_mcp && kanso_mcp_server::supported() {
+            this.select_page(MCP_PAGE, cx);
+        }
         this.probe_monospace(all_names, cx);
         this
     }
@@ -786,12 +812,12 @@ impl SettingsView {
 }
 
 /// 复选行（右侧一个方框）。
-fn checkbox(
+fn checkbox<V: 'static>(
     th: &Th,
-    cx: &mut Context<SettingsView>,
+    cx: &mut Context<V>,
     id: &'static str,
     checked: bool,
-    on_toggle: impl Fn(&mut SettingsView, bool, &mut Context<SettingsView>) + 'static,
+    on_toggle: impl Fn(&mut V, bool, &mut Context<V>) + 'static,
 ) -> AnyElement {
     div()
         .id(id)
@@ -861,6 +887,7 @@ impl Render for SettingsView {
                 picker.update(cx, |picker, cx| picker.set_items(items, cx));
             }
             self.sync_widgets(window, cx);
+            self.mcp.update(cx, |_, cx| cx.notify());
         }
 
         // 外观
@@ -1108,7 +1135,11 @@ impl Render for SettingsView {
             (0, Message::UiGeneral {}, "sun-moon"),
             (1, Message::UiDisplay {}, "type"),
             (2, Message::UiKeysPage {}, "keyboard"),
+            (MCP_PAGE, Message::WinMcpPage {}, "plug"),
         ] {
+            if i == MCP_PAGE && !kanso_mcp_server::supported() {
+                continue;
+            }
             toolbar = toolbar.child(
                 div()
                     .id(("settings-tab", i))
@@ -1141,6 +1172,7 @@ impl Render for SettingsView {
         let cards = match self.page {
             0 => vec![appearance_card, language_card],
             1 => vec![font_card, cursor_card, scroll_card, contrast_card, ui_card],
+            MCP_PAGE => vec![self.mcp.clone().into_any_element()],
             _ => self.keys_cards(&th, cx),
         };
         div()
@@ -1165,7 +1197,11 @@ impl Render for SettingsView {
             .child(toolbar)
             .child(
                 div()
-                    .id("settings-scroll")
+                    .id(if self.page == MCP_PAGE {
+                        "settings-mcp-scroll"
+                    } else {
+                        "settings-scroll"
+                    })
                     .flex_1()
                     .min_h_0()
                     .w_full()

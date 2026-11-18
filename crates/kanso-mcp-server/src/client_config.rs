@@ -29,12 +29,40 @@ const TOKEN_ENV: &str = "KANSO_MCP_TOKEN";
 pub fn client_config(kind: McpClientKind, helper_path: &str, token: &str) -> String {
     let env = shell_quote(&format!("{TOKEN_ENV}={token}"));
     let path = shell_quote(helper_path);
+    command(kind, &env, &path, "--")
+}
+
+/// Windows 设置页供用户在 PowerShell 里运行的接入命令。
+pub fn powershell_client_config(kind: McpClientKind, helper_path: &str, token: &str) -> String {
+    let env = powershell_quote(&format!("{TOKEN_ENV}={token}"));
+    let path = powershell_quote(helper_path);
+    // 引号使 `--` 原样传给入口，即使 PATH 上找到的是 npm 安装的 PowerShell 脚本。
+    command(kind, &env, &path, "'--'")
+}
+
+fn powershell_quote(value: &str) -> String {
+    let mut quoted = String::with_capacity(value.len() + 2);
+    quoted.push('\'');
+    for ch in value.chars() {
+        quoted.push(ch);
+        // PowerShell 把弯单引号也当作引号，路径中的每个单引号都要重复一次。
+        if matches!(ch, '\'' | '\u{2018}' | '\u{2019}' | '\u{201a}' | '\u{201b}') {
+            quoted.push(ch);
+        }
+    }
+    quoted.push('\'');
+    quoted
+}
+
+fn command(kind: McpClientKind, env: &str, path: &str, separator: &str) -> String {
     match kind {
         // 用户级（`-s user`）：在任何目录启动 Claude Code 都能用；默认的 local 只对当前目录生效。
         McpClientKind::ClaudeCode => {
-            format!(" claude mcp add {SERVER_NAME} -s user -e {env} -- {path}")
+            format!(" claude mcp add {SERVER_NAME} -s user -e {env} {separator} {path}")
         }
-        McpClientKind::Codex => format!(" codex mcp add {SERVER_NAME} --env {env} -- {path}"),
+        McpClientKind::Codex => {
+            format!(" codex mcp add {SERVER_NAME} --env {env} {separator} {path}")
+        }
     }
 }
 
@@ -69,6 +97,19 @@ mod tests {
         assert!(
             cmd.ends_with(r"-- '/Apps/Kan'\''so 2.app/kanso-mcp'"),
             "{cmd}"
+        );
+    }
+
+    #[test]
+    fn powershell_quotes_windows_paths_and_literal_separator() {
+        let path = r"C:\程序 文件\Kan'so’s $app\kanso-mcp.exe";
+        assert_eq!(
+            powershell_client_config(McpClientKind::ClaudeCode, path, "abc123"),
+            r" claude mcp add kanso -s user -e 'KANSO_MCP_TOKEN=abc123' '--' 'C:\程序 文件\Kan''so’’s $app\kanso-mcp.exe'"
+        );
+        assert_eq!(
+            powershell_client_config(McpClientKind::Codex, path, "abc123"),
+            r" codex mcp add kanso --env 'KANSO_MCP_TOKEN=abc123' '--' 'C:\程序 文件\Kan''so’’s $app\kanso-mcp.exe'"
         );
     }
 }

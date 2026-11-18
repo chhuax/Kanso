@@ -4,7 +4,7 @@
 
 ## 发行入口
 
-在 Windows 执行 `cargo xtask win-package`。脚本编译 `kanso-gpui` 的 x86_64 MSVC Release，把 `kanso-gpui.exe` 以 `Kanso.exe` 暂存，安装程序与免安装 ZIP 共用下表三项输入。Windows 界面来自 GPUI。macOS AppKit 的 DMG 构建命令见 [macOS 发行流程](apple-build.md)。
+在 Windows 执行 `cargo xtask win-package`。脚本以 x86_64 MSVC Release 构建 GPUI 前端和 `kanso-mcp` 转发程序，把 `kanso-gpui.exe` 以 `Kanso.exe` 暂存。安装程序和免安装 ZIP 共用下表所列文件。macOS AppKit 的 DMG 构建命令见 [macOS 发行流程](apple-build.md)。
 
 ## 产物
 
@@ -12,7 +12,7 @@
 
 | 文件 | 说明 |
 |---|---|
-| `Kanso-<版本>-x64/` | 暂存目录：`Kanso.exe`、`LICENSE.txt`（GPL-3.0）、`THIRD_PARTY_NOTICES.windows.md`（Windows 构建的依赖声明） |
+| `Kanso-<版本>-x64/` | `Kanso.exe`、`kanso-mcp.exe`、`LICENSE.txt`（GPL-3.0）和 `THIRD_PARTY_NOTICES.windows.md` |
 | `Kanso-<版本>-x64-portable.zip` | 绿色版：解压即用，zip 内有同名顶层目录。用户数据仍在 `%LOCALAPPDATA%\Kanso`，不写进解压目录 |
 | `Kanso-<版本>-x64-setup.exe` | 安装程序（仅在找到 makensis 时生成） |
 | 以上每个 zip / exe 的 `.sha256` | 内容 `<哈希>  <文件名>`，用 `certutil -hashfile <文件> SHA256` 或 `shasum -c` 校验 |
@@ -32,7 +32,7 @@
 
 ```sh
 cargo xtask win-package                 # 构建 + zip + 安装程序（有 makensis 时）
-cargo xtask win-package --skip-build    # 直接打包已有的 release exe（target\x86_64-pc-windows-msvc\release\kanso-gpui.exe）
+cargo xtask win-package --skip-build    # 直接打包 target\x86_64-pc-windows-msvc\release\ 下的两个已有 exe
 cargo xtask win-package --no-installer  # 只做 zip
 cargo xtask win-package --offline       # 构建时给 cargo 加 --offline
 cargo xtask notices                     # 重新生成 THIRD_PARTY_NOTICES.md 与 THIRD_PARTY_NOTICES.windows.md
@@ -50,14 +50,14 @@ cargo xtask notices                     # 重新生成 THIRD_PARTY_NOTICES.md �
   - 版本信息：ProductName Kanso、FileVersion / ProductVersion 取工作区版本、CompanyName 与 LegalCopyright 为 chhuax、GPL-3.0-or-later。
   - 应用清单：`crates/kanso-gpui/windows/kanso.manifest`——PerMonitorV2 DPI、Common Controls v6、`activeCodePage` UTF-8、`longPathAware`、Windows 10/11 兼容声明、`asInvoker`。
   - gpui 0.2.2 默认的 `windows-manifest` 特性会再嵌入它自己的清单（同样是 PerMonitorV2 + Common Controls 6），与上面的清单重复，所以 `crates/kanso-gpui/Cargo.toml` 里关掉了它。DPI 感知仍由清单提供，gpui 自己不调用 `SetProcessDpiAwareness`。排查清单冲突时可设 `KANSO_SKIP_MANIFEST=1` 构建来不嵌入我们的清单。
-- 运行时资源：图标 SVG（`include_bytes!`）、终端主题 JSON（`include_str!`）、多语言目录都编进 exe，安装后只需 `Kanso.exe` 一个文件即可运行，不依赖构建目录。
+- SVG 图标、终端主题和多语言目录都编进 `Kanso.exe`。启用 MCP 时，设置页显示同目录 `kanso-mcp.exe` 的绝对路径，并提供可粘贴到 PowerShell 的接入命令。
 
 ## 安装程序行为（`packaging/windows/kanso.nsi`）
 
 - 按用户安装，不要管理员权限；默认目录 `%LOCALAPPDATA%\Programs\Kanso`，已安装过则沿用上次目录（升级即覆盖安装）。
 - 页面：欢迎 → 许可（GPL-3.0）→ 选目录 → 安装 → 完成（“运行 Kanso”默认勾选，“创建桌面快捷方式”默认不勾选）。界面语言：系统界面语言为简体中文时用简体中文，其余用 English。
 - 开始菜单快捷方式 `Kanso`。卸载信息写在 `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Kanso`（DisplayName、DisplayVersion、Publisher、DisplayIcon、UninstallString、InstallLocation、EstimatedSize、NoModify、NoRepair），可在“设置 → 应用”里卸载。
-- 安装 / 卸载前检测 Kanso 是否在运行（以写入方式打开 `Kanso.exe`，被锁定即视为运行中），提示“重试 / 取消”，不会强杀进程。静默模式下视为取消。
+- 安装和卸载前检查 `Kanso.exe` 和 `kanso-mcp.exe` 是否被运行中的进程锁定。遇到占用时提示“重试 / 取消”。静默模式下视为取消。
 - 卸载：删除程序文件与快捷方式，只对空的安装目录做 `RMDir`。**默认保留用户数据**；交互卸载时会询问是否同时删除 `%LOCALAPPDATA%\Kanso`（会话、设置、日志；默认“否”），静默卸载（`/S`）一律保留。保存在 Windows 凭据管理器里的密码（目标名前缀 `com.chhuax.kanso/`）不会被卸载程序删除，需要的话在“控制面板 → 凭据管理器”里手动清理。
 - 静默安装 / 卸载：`Kanso-<版本>-x64-setup.exe /S [/D=<目录>]`、`"%LOCALAPPDATA%\Programs\Kanso\Uninstall.exe" /S`。
 
@@ -76,9 +76,9 @@ $env:KANSO_SIGN_CMD = 'signtool sign /sha1 <证书指纹> /fd SHA256 /tr <RFC316
 cargo xtask win-package
 ```
 
-打包脚本先签暂存的 `Kanso.exe`，因此 ZIP 内也是签名后的应用。NSIS 的 `!finalize` 和 `!uninstfinalize` 分别签安装器与卸载器。生成签名成品后再计算 SHA-256。使用云服务时，把模板换成其官方 SignTool 调用，保留 `%1` 作为待签文件路径。[Authenticode 时间戳](https://learn.microsoft.com/en-us/windows/win32/seccrypto/time-stamping-authenticode-signatures)
+打包脚本先签暂存的 `Kanso.exe` 与 `kanso-mcp.exe`，签名后的文件进入 ZIP 和安装器。NSIS 的 `!finalize` 和 `!uninstfinalize` 分别签安装器与卸载器。生成签名成品后再计算 SHA-256。使用云服务时，把模板换成其官方 SignTool 调用，保留 `%1` 作为待签文件路径。[Authenticode 时间戳](https://learn.microsoft.com/en-us/windows/win32/seccrypto/time-stamping-authenticode-signatures)
 
-发布前用 `signtool verify /pa /v` 分别验签安装器、ZIP 解出的 `Kanso.exe` 和测试安装生成的 `Uninstall.exe`，核对发布者与时间戳。再从浏览器下载到测试机检查 SmartScreen 实际表现。未配置 `KANSO_SIGN_CMD` 时生成未签名构建。[SignTool 文档](https://learn.microsoft.com/en-us/windows/desktop/seccrypto/signtool)
+发布前用 `signtool verify /pa /v` 分别验签安装器、ZIP 解出的两个可执行文件和测试安装生成的 `Uninstall.exe`，核对发布者与时间戳。再从浏览器下载到测试机检查 SmartScreen 实际表现。未配置 `KANSO_SIGN_CMD` 时生成未签名构建。[SignTool 文档](https://learn.microsoft.com/en-us/windows/desktop/seccrypto/signtool)
 
 ## 在干净环境里验证安装 / 卸载 / 升级
 

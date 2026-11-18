@@ -1,10 +1,9 @@
 //! 转发程序 `kanso-mcp` 的集成测试：未运行、开关关闭、与真实服务端到端。
 //!
 //! 通过 `KANSO_MCP_DIR`（仅 Debug 构建生效）指向临时目录，不碰真实的 HOME。
-#![cfg(unix)]
+#![cfg(all(any(unix, windows), debug_assertions))]
 
 use std::io::{BufRead, BufReader, Write};
-use std::os::fd::AsRawFd;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::Arc;
 
@@ -13,7 +12,7 @@ use kanso_mcp_server::{
     McpActivity, McpClientInfo, McpServer, McpServerConfig, McpServerDelegate, McpServerStatus,
 };
 use kanso_types::SessionId;
-use kanso_types::mcp::McpAccess;
+use kanso_types::mcp::{McpAccess, McpAuditFilter};
 use kanso_types::secret::SecretString;
 use serde_json::{Value, json};
 
@@ -79,6 +78,22 @@ impl Relay {
             }),
         )
     }
+
+    fn ready(&mut self) {
+        assert_eq!(self.initialize()["result"]["serverInfo"]["name"], "kanso");
+        self.send(json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+    }
+
+    fn list_sessions(&mut self, id: u64, arguments: Value) -> Vec<Value> {
+        let resp = self.request(
+            id,
+            "tools/call",
+            json!({"name": "kanso_list_sessions", "arguments": arguments}),
+        );
+        let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+        let v: Value = serde_json::from_str(text).unwrap();
+        v["sessions"].as_array().unwrap().clone()
+    }
 }
 
 impl Drop for Relay {
@@ -93,7 +108,7 @@ impl Drop for Relay {
 }
 
 #[test]
-fn reports_not_running_without_lock_file() {
+fn reports_not_running_without_app() {
     let dir = tempfile::tempdir().unwrap();
     let mut relay = Relay::spawn(dir.path(), TOKEN);
     let resp = relay.initialize();
@@ -109,15 +124,10 @@ fn reports_not_running_without_lock_file() {
 }
 
 #[test]
-#[allow(unsafe_code)]
-fn reports_disabled_when_lock_is_held_but_no_socket() {
+fn reports_disabled_when_app_is_running_without_mcp() {
     let dir = tempfile::tempdir().unwrap();
-    // 模拟 App 在运行但开关关闭：持有单实例锁，没有监听 socket。
-    let lock = std::fs::File::create(dir.path().join("kanso.lock")).unwrap();
-    // SAFETY: `lock` 是刚创建、仍存活的有效文件描述符；flock 只作用于它，测试结束时随文件关闭释放。
-    let rc = unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
-    assert_eq!(rc, 0);
-
+    // 实际创建服务对象并保留单实例锁，但不开启监听。
+    let (_core, server) = make_server(dir.path());
     let mut relay = Relay::spawn(dir.path(), TOKEN);
     let resp = relay.initialize();
     assert_eq!(resp["error"]["code"], -32000);
@@ -128,7 +138,7 @@ fn reports_disabled_when_lock_is_held_but_no_socket() {
             .contains("MCP is disabled")
     );
     assert_eq!(resp["error"]["data"]["code"], "MCP_DISABLED");
-    drop(lock);
+    drop(server);
 }
 
 struct NoopDelegate;
@@ -141,11 +151,16 @@ impl McpServerDelegate for NoopDelegate {
     fn on_session_released(&self, _: SessionId) {}
 }
 
-fn started_server(dir: &std::path::Path) -> (Arc<Core>, McpServer) {
+fn make_server(dir: &std::path::Path) -> (Arc<Core>, McpServer) {
     let core = Arc::new(Core::new_mock(Platform::for_tests(Arc::new(
         CollectingEventSink::new(),
     ))));
     let server = McpServer::new_in_dir(core.clone(), Arc::new(NoopDelegate), dir.to_path_buf());
+    (core, server)
+}
+
+fn started_server(dir: &std::path::Path) -> (Arc<Core>, McpServer) {
+    let (core, server) = make_server(dir);
     server
         .start(McpServerConfig {
             bundle_id: "mock.kanso".into(),
@@ -160,30 +175,50 @@ fn end_to_end_with_real_server() {
     let dir = tempfile::tempdir().unwrap();
     let (core, server) = started_server(dir.path());
     core.set_mcp_enabled(true).unwrap();
-    let web = core
-        .profiles()
-        .into_iter()
-        .find(|p| p.name == "web-01")
+    let profiles = core.profiles();
+    let web = profiles.iter().find(|p| p.name == "web-01").unwrap().id;
+    let mfa = profiles
+        .iter()
+        .find(|p| p.name == "mfa-bastion")
         .unwrap()
         .id;
-    core.set_mcp_access(web, McpAccess::Full).unwrap();
+    core.set_mcp_access(web, McpAccess::ReadOnly).unwrap();
+    core.set_mcp_access(mfa, McpAccess::Full).unwrap();
 
     let mut relay = Relay::spawn(dir.path(), TOKEN);
-    let init = relay.initialize();
-    assert_eq!(init["result"]["serverInfo"]["name"], "kanso");
-    relay.send(json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
-    let resp = relay.request(
-        2,
-        "tools/call",
-        json!({"name": "kanso_list_sessions", "arguments": {}}),
+    relay.ready();
+    let sessions = relay.list_sessions(2, json!({}));
+    assert_eq!(sessions.len(), 2);
+    assert!(
+        sessions
+            .iter()
+            .any(|s| s["name"] == "mfa-bastion" && s["access"] == "full")
     );
-    let text = resp["result"]["content"][0]["text"].as_str().unwrap();
-    let v: Value = serde_json::from_str(text).unwrap();
-    assert_eq!(v["sessions"][0]["name"], "web-01");
-    assert_eq!(v["sessions"][0]["access"], "full");
+    let matching = relay.list_sessions(3, json!({"name": "WEB"}));
+    assert_eq!(matching.len(), 1);
+    assert_eq!(matching[0]["name"], "web-01");
+    assert_eq!(matching[0]["access"], "read-only");
+    assert!(
+        relay
+            .list_sessions(4, json!({"group": "不存在"}))
+            .is_empty()
+    );
     assert_eq!(server.clients()[0].name, "relay-test");
-    drop(relay);
-    server.stop();
+    assert_eq!(server.clients()[0].calls, 3);
+
+    server.stop(); // 停止时写完审计队列。
+    let records = core.mcp_audit(McpAuditFilter::default()).unwrap();
+    assert_eq!(records.len(), 3);
+    assert!(records.iter().all(|record| {
+        record.entry.client == "relay-test"
+            && record.entry.tool == "kanso_list_sessions"
+            && record.entry.error_code.is_none()
+    }));
+    assert!(
+        records
+            .iter()
+            .any(|record| record.entry.args.contains("name=WEB"))
+    );
 }
 
 #[test]
@@ -214,5 +249,76 @@ fn missing_token_is_rejected_through_relay() {
             .unwrap()
             .contains("Invalid or missing Kanso MCP token")
     );
+    server.stop();
+}
+
+#[test]
+fn rotation_revokes_old_connections_and_accepts_new_token() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_core, server) = started_server(dir.path());
+    let mut old = Relay::spawn(dir.path(), TOKEN);
+    old.ready();
+
+    server.set_token(SecretString::new("rotated-token"));
+    assert!(server.clients().is_empty());
+    assert_eq!(old.stdout.read_line(&mut String::new()).unwrap(), 0);
+
+    let mut stale = Relay::spawn(dir.path(), TOKEN);
+    let response = stale.initialize();
+    assert_eq!(response["error"]["data"]["code"], "INVALID_TOKEN");
+
+    let mut current = Relay::spawn(dir.path(), "rotated-token");
+    current.ready();
+    assert_eq!(server.clients().len(), 1);
+    server.stop();
+}
+
+#[test]
+fn final_response_survives_stdin_eof() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_core, server) = started_server(dir.path());
+    let mut relay = Relay::spawn(dir.path(), "wrong-token");
+    relay.send(json!({"jsonrpc": "2.0", "id": 1, "method": "initialize"}));
+    relay.stdin.take();
+    let resp = relay.read();
+    assert_eq!(resp["error"]["data"]["code"], "INVALID_TOKEN");
+    server.stop();
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_presence_is_exclusive_and_release_allows_takeover() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_core, first) = make_server(dir.path());
+    let (core, second) = make_server(dir.path());
+    let config = McpServerConfig {
+        bundle_id: core.bundle_id().to_owned(),
+        token: SecretString::new(TOKEN),
+    };
+    assert_eq!(
+        second.start(config.clone()),
+        Err(kanso_mcp_server::McpServerError::AnotherInstance)
+    );
+    drop(first);
+    second.start(config).unwrap();
+    second.stop();
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_server_restarts_while_old_helper_is_still_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let (core, server) = started_server(dir.path());
+    let mut old = Relay::spawn(dir.path(), TOKEN);
+    old.ready();
+
+    server
+        .start(McpServerConfig {
+            bundle_id: core.bundle_id().to_owned(),
+            token: SecretString::new(TOKEN),
+        })
+        .unwrap();
+    let mut new = Relay::spawn(dir.path(), TOKEN);
+    assert_eq!(new.initialize()["result"]["serverInfo"]["name"], "kanso");
     server.stop();
 }

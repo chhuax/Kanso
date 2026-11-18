@@ -6,6 +6,7 @@
 
 use gpui::{Context, Render, Window, div, prelude::*, px};
 use kanso_gpui::app::i18n::label;
+use kanso_gpui::app::launcher::render_message;
 use kanso_gpui::app::status_bar::{StatusBarModel, StatusTone, fit_directory};
 use kanso_types::message::Message;
 
@@ -13,9 +14,9 @@ use super::shell::{ShellView, Theme, status_bar_h};
 use super::widgets::icons::icon;
 
 /// 悬停提示：每行一台服务器及它用的旧算法。
-struct LinesTooltip {
-    lines: Vec<String>,
-    th: Theme,
+pub(super) struct LinesTooltip {
+    pub(super) lines: Vec<String>,
+    pub(super) th: Theme,
 }
 
 impl Render for LinesTooltip {
@@ -91,6 +92,8 @@ impl ShellView {
         let left = self.sidebar_width(window);
         let width = f32::from(window.viewport_size().width) - left;
         let legacy_visible = model.legacy.is_some();
+        let mcp_clients = self.mcp.read(cx).clients().len();
+        let mcp_visible = mcp_clients != 0;
 
         let status = model.status.map(|(text, tone)| {
             let color = match tone {
@@ -116,7 +119,11 @@ impl ShellView {
                 .items_center()
                 .gap(px(6.0))
                 .child(icon("folder", 12.0, th.c("text.secondary")))
-                .child(fit_directory(&d, width - 18.0, legacy_visible))
+                .child(fit_directory(
+                    &d,
+                    width - if mcp_visible { 84.0 } else { 18.0 },
+                    legacy_visible,
+                ))
         });
         let legacy = model.legacy.map(|lines| {
             div()
@@ -132,6 +139,25 @@ impl ShellView {
                     let lines = lines.clone();
                     cx.new(|_| LinesTooltip { lines, th }).into()
                 })
+        });
+        let mcp = mcp_visible.then(|| {
+            let label = render_message(&Message::WinMcpStatusIndicator {
+                count: mcp_clients as i64,
+            });
+            div()
+                .id("status-mcp")
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap(px(4.0))
+                .px(px(6.0))
+                .rounded(px(8.0))
+                .text_color(th.c("accent"))
+                .cursor_pointer()
+                .hover(|d| d.bg(th.c("bg.rowHover")))
+                .on_click(cx.listener(|this, _, _, cx| this.open_mcp_settings(cx)))
+                .child(icon("plug", 12.0, th.c("accent")))
+                .child(label)
         });
 
         // 重复发送在运行而面板收起时，给一个可点击的提示（sender.md D7）。
@@ -192,6 +218,7 @@ impl ShellView {
             // 状态文字没有内容时也要占住中间的弹性空间，把右侧元素推到最右。
             .child(status.unwrap_or_else(|| div().flex_1()))
             .children(sender_chip)
+            .children(mcp)
             .children(legacy)
             .child(
                 div()

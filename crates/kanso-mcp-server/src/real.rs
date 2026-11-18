@@ -1,6 +1,6 @@
-//! 真实服务（F9 阶段 1）：单实例锁、Unix socket 监听、令牌校验、rmcp 服务端、审计（architecture §16）。
+//! 真实服务（F9 阶段 1）：单实例锁、平台本机通道监听、令牌校验、rmcp 服务端、审计（architecture §16）。
 //!
-//! 子模块分工：`instance`（目录与单实例锁）、`registry`（客户端登记与回调）、`audit`（审计写入与清理）、
+//! 子模块分工：`ipc`（单实例锁与本机通道）、`registry`（客户端登记与回调）、`audit`（审计写入与清理）、
 //! `conn`（单个连接的校验与握手）、`tools`（rmcp 处理器与工具）。
 //!
 //! # 回调
@@ -16,19 +16,21 @@
 
 mod audit;
 mod conn;
-mod instance;
+#[cfg(unix)]
+#[path = "real/instance.rs"]
+mod ipc;
+#[cfg(windows)]
+#[path = "real/windows.rs"]
+mod ipc;
 mod registry;
 mod tools;
 
-use std::fs::{self, File};
 use std::io;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use kanso_core::Core;
-use kanso_mcp::paths::McpPaths;
 use kanso_types::secret::SecretString;
 use tokio::runtime::{Builder, Runtime};
 use tokio_util::sync::CancellationToken;
@@ -60,8 +62,11 @@ struct Shared {
 
 /// 单实例锁的结果。
 enum Lock {
-    /// 持有锁；文件要一直保持打开，锁随它释放。
-    Held { _file: File, socket: PathBuf },
+    /// 持有锁；保留句柄直到进程结束。
+    Held {
+        _guard: ipc::InstanceGuard,
+        socket: PathBuf,
+    },
     /// 另一个实例持有锁。
     Another,
     /// 目录或锁文件无法创建，`start` 时先重试一次，仍失败就如实报告。
@@ -142,13 +147,9 @@ impl RealServer {
     }
 
     fn acquire_lock(&self) -> Lock {
-        let paths = match &self.dir {
-            Some(dir) => Ok(McpPaths::in_dir(dir, self.core.bundle_id())),
-            None => McpPaths::for_bundle(self.core.bundle_id()),
-        };
-        match paths.and_then(|p| Ok((instance::acquire(&p)?, p.socket))) {
-            Ok((Some(file), socket)) => Lock::Held {
-                _file: file,
+        match ipc::acquire(self.core.bundle_id(), self.dir.as_deref()) {
+            Ok((Some(guard), socket)) => Lock::Held {
+                _guard: guard,
                 socket,
             },
             Ok((None, _)) => Lock::Another,
@@ -242,21 +243,10 @@ impl RealServer {
             .thread_name("kanso-mcp")
             .enable_all()
             .build()?;
-        // 上次异常退出可能留下 socket 文件，bind 遇到已存在的文件会失败。
-        // 单实例锁已经保证没有别的实例在用它。
-        match fs::remove_file(socket) {
-            Ok(()) => {}
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-            Err(e) => return Err(e),
-        }
-        let std_listener = std::os::unix::net::UnixListener::bind(socket)?;
-        // bind 按 umask 建文件，之后再收紧到 0600；所在目录是 0700，这段时间内其他用户也到不了。
-        fs::set_permissions(socket, fs::Permissions::from_mode(0o600))?;
-        std_listener.set_nonblocking(true)?;
         let listener = {
-            // 转成 tokio 的监听器需要处在运行时上下文里（要向它注册 IO 驱动）。
+            // 监听器必须在运行时上下文中注册其 IO 驱动。
             let _guard = runtime.enter();
-            tokio::net::UnixListener::from_std(std_listener)?
+            ipc::Listener::bind(socket)?
         };
 
         let shutdown = CancellationToken::new();
@@ -333,7 +323,7 @@ impl RealServer {
             let _ = tokio::time::timeout(AUDIT_FLUSH_TIMEOUT, audit).await;
         });
         runtime.shutdown_timeout(RUNTIME_SHUTDOWN_TIMEOUT);
-        let _ = fs::remove_file(&socket);
+        ipc::cleanup(&socket);
     }
 
     /// 停止后状态回到 `Stopped`。启动失败（`Unavailable(Failed)`）后用户关掉开关时也要回到 `Stopped`，
@@ -379,7 +369,7 @@ impl Drop for RealServer {
 }
 
 async fn accept_loop(
-    listener: tokio::net::UnixListener,
+    mut listener: ipc::Listener,
     shared: Arc<Shared>,
     shutdown: CancellationToken,
 ) {
@@ -387,7 +377,7 @@ async fn accept_loop(
         tokio::select! {
             _ = shutdown.cancelled() => return,
             accepted = listener.accept() => match accepted {
-                Ok((stream, _)) => {
+                Ok(stream) => {
                     shared.conns.spawn(conn::handle(stream, shared.clone()));
                 }
                 Err(e) => {

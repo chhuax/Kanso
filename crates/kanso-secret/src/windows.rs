@@ -64,11 +64,19 @@ impl CredentialManagerStore {
     fn target(&self, account: &str) -> String {
         format!("{}/{}", self.service, account)
     }
-}
 
-impl SecretStore for CredentialManagerStore {
-    fn get(&self, r: &SecretRef) -> Result<Option<SecretString>, SecretError> {
-        let target = wide(&self.target(&r.account()));
+    /// 读取独立于会话凭据的 MCP 客户端令牌。
+    pub fn mcp_token(&self) -> Result<Option<SecretString>, SecretError> {
+        self.get_account("mcp/client-token")
+    }
+
+    /// 保存 MCP 客户端令牌，重新生成时覆盖同一个条目。
+    pub fn set_mcp_token(&self, value: &SecretString) -> Result<(), SecretError> {
+        self.set_account("mcp/client-token", value)
+    }
+
+    fn get_account(&self, account: &str) -> Result<Option<SecretString>, SecretError> {
+        let target = wide(&self.target(account));
         let mut cred: *mut CREDENTIALW = ptr::null_mut();
         // SAFETY: target 以 NUL 结尾且在调用期间存活；cred 是有效的输出指针。
         let ok = unsafe { CredReadW(target.as_ptr(), CRED_TYPE_GENERIC, 0, &mut cred) };
@@ -87,15 +95,24 @@ impl SecretStore for CredentialManagerStore {
         decode(blob).map(Some)
     }
 
-    fn set(&self, r: &SecretRef, value: &SecretString) -> Result<(), SecretError> {
-        let account = r.account();
-        let mut target = wide(&self.target(&account));
-        let mut user = wide(&account);
+    fn set_account(&self, account: &str, value: &SecretString) -> Result<(), SecretError> {
+        let mut target = wide(&self.target(account));
+        let mut user = wide(account);
         let mut blob = value.expose().as_bytes().to_vec();
         let _guard = write_guard();
         let result = write(&mut target, &mut user, &mut blob);
         wipe(&mut blob);
         result
+    }
+}
+
+impl SecretStore for CredentialManagerStore {
+    fn get(&self, r: &SecretRef) -> Result<Option<SecretString>, SecretError> {
+        self.get_account(&r.account())
+    }
+
+    fn set(&self, r: &SecretRef, value: &SecretString) -> Result<(), SecretError> {
+        self.set_account(&r.account(), value)
     }
 
     fn delete(&self, r: &SecretRef) -> Result<(), SecretError> {

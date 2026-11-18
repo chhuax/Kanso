@@ -117,16 +117,21 @@ impl ShellView {
             &editor,
             window,
             |this, editor, ev: &EditorEvent, window, cx| {
+                let saved = match ev {
+                    EditorEvent::LibraryChanged => {
+                        this.mcp.update(cx, |_, cx| cx.notify());
+                        return;
+                    }
+                    EditorEvent::Cancel => None,
+                    EditorEvent::Saved { id, connect } => Some((*id, *connect)),
+                };
                 editor.update(cx, |e, cx| e.wipe_secrets(cx));
                 this.editor = None;
                 this.editor_sub = None;
-                match ev {
-                    EditorEvent::Cancel => {}
-                    EditorEvent::Saved { id, connect } => {
-                        log(&format!("会话已保存 {id}"));
-                        if *connect {
-                            this.connect_profile(*id, window, cx);
-                        }
+                if let Some((id, connect)) = saved {
+                    log(&format!("会话已保存 {id}"));
+                    if connect {
+                        this.connect_profile(id, window, cx);
                     }
                 }
                 this.sync_focus(window, cx);

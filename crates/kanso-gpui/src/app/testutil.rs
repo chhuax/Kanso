@@ -1,10 +1,12 @@
 //! 测试替身与构造器（只在测试里编译）。
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use kanso_core::{CoreError, DeleteImpact};
 use kanso_secret::SecretKind;
+use kanso_types::mcp::McpAccess;
 use kanso_types::profile::{
     AuthMethod, EncodingLabel, Group, LocalProfile, Profile, ProfileKind, SshProfile, SshTarget,
 };
@@ -77,8 +79,10 @@ pub(crate) struct StoreInner {
     pub deleted_profiles: Vec<ProfileId>,
     pub deleted_groups: Vec<GroupId>,
     pub credentials: Vec<(ProfileId, SecretKind, String)>,
+    pub mcp_accesses: HashMap<ProfileId, McpAccess>,
     pub fail_save: Option<CoreError>,
     pub fail_credential: bool,
+    pub fail_mcp_access: bool,
     pub impact: Option<DeleteImpact>,
 }
 
@@ -116,6 +120,33 @@ impl ProfileStore for FakeStore {
         match i.profiles.iter_mut().find(|p| p.id == profile.id) {
             Some(slot) => *slot = profile,
             None => i.profiles.push(profile),
+        }
+        Ok(())
+    }
+
+    fn mcp_access(&self, profile: ProfileId) -> McpAccess {
+        self.0
+            .borrow()
+            .mcp_accesses
+            .get(&profile)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    fn set_mcp_access(&self, profile: ProfileId, level: McpAccess) -> CoreResult<()> {
+        let mut i = self.0.borrow_mut();
+        if !i.profiles.iter().any(|p| p.id == profile) {
+            return Err(CoreError::NoSuchProfile(profile));
+        }
+        if i.fail_mcp_access {
+            return Err(CoreError::Internal {
+                detail: "MCP access write".into(),
+            });
+        }
+        if level == McpAccess::Off {
+            i.mcp_accesses.remove(&profile);
+        } else {
+            i.mcp_accesses.insert(profile, level);
         }
         Ok(())
     }

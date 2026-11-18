@@ -1,11 +1,11 @@
 //! Windows 发行包：`cargo xtask win-package`。
 //!
-//! 发行入口是 Windows x64 的 `kanso-gpui.exe`。暂存固定三项：改名为 `Kanso.exe` 的程序、GPL 许可、
+//! 发行入口是 Windows x64 的 `kanso-gpui.exe`。暂存 `Kanso.exe`、`kanso-mcp.exe`、GPL 许可、
 //! Windows 第三方声明，再用同一份暂存内容制作 ZIP 和 NSIS 安装程序，为每个产物写 `.sha256`。
 //! 只支持在 Windows 上运行；详见 `docs/windows-release.md`。
 //!
 //! 签名钩子：环境变量 `KANSO_SIGN_CMD`（形如 `signtool sign /fd sha256 /a "%1"`，`%1` 换成待签名文件）。
-//! 本版发布不签名，保持不设置即可；设置后会对暂存的 `Kanso.exe` 和安装程序各执行一次。
+//! 本版发布不签名，保持不设置即可；设置后会对两个暂存的可执行文件与安装程序各执行一次。
 
 use std::env;
 use std::fs;
@@ -64,13 +64,15 @@ fn package(options: &Options) -> Result<()> {
     let target_dir = env::var_os("CARGO_TARGET_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| root.join("target"));
-    let exe = target_dir
-        .join(TARGET)
-        .join("release")
-        .join("kanso-gpui.exe");
+    let release_dir = target_dir.join(TARGET).join("release");
+    let exe = release_dir.join("kanso-gpui.exe");
+    let helper = release_dir.join("kanso-mcp.exe");
 
     if options.skip_build {
-        eprintln!("--skip-build：使用已有的 {}", exe.display());
+        eprintln!(
+            "--skip-build：使用 {} 中已有的可执行文件",
+            release_dir.display()
+        );
     } else {
         let mut build = cargo();
         build.args([
@@ -79,6 +81,8 @@ fn package(options: &Options) -> Result<()> {
             "--locked",
             "-p",
             "kanso-gpui",
+            "-p",
+            "kanso-mcp",
             "--target",
             TARGET,
         ]);
@@ -88,12 +92,14 @@ fn package(options: &Options) -> Result<()> {
         enable_static_crt(&mut build, options.offline)?;
         // 找不到 rc.exe 时让构建失败，而不是悄悄发一个没有图标和版本信息的 exe。
         build.env("KANSO_REQUIRE_RESOURCES", "1");
-        if !run("构建 kanso-gpui（release）", &mut build) {
+        if !run("构建 Windows 前端与 MCP 转发程序（release）", &mut build) {
             return Err("cargo build 失败".into());
         }
     }
-    if !exe.is_file() {
-        return Err(format!("找不到 {}", exe.display()).into());
+    for path in [&exe, &helper] {
+        if !path.is_file() {
+            return Err(format!("找不到 {}", path.display()).into());
+        }
     }
 
     // 每次从空目录暂存 Windows 可执行文件及其许可，ZIP 与 NSIS 使用同一份内容。
@@ -105,6 +111,7 @@ fn package(options: &Options) -> Result<()> {
     }
     fs::create_dir_all(&stage)?;
     fs::copy(&exe, stage.join("Kanso.exe"))?;
+    fs::copy(&helper, stage.join("kanso-mcp.exe"))?;
     for (source, destination) in [
         ("LICENSE", "LICENSE.txt"),
         (
@@ -121,6 +128,7 @@ fn package(options: &Options) -> Result<()> {
         .filter(|s| !s.trim().is_empty());
     if let Some(template) = &sign {
         sign_file(template, &stage.join("Kanso.exe"))?;
+        sign_file(template, &stage.join("kanso-mcp.exe"))?;
     }
 
     // 绿色版 zip（内含同名顶层目录）。
