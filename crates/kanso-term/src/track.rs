@@ -462,7 +462,9 @@ impl CommandTracker {
         };
         let sig = prompt.trim_end().to_owned();
         // 空特征没有区分度：任何提示符都"相同"，无法判断命令何时返回。
-        if sig.is_empty() {
+        // 有 OSC 133 时完成与否看 C/D，不靠特征；本地两行提示符把默认 `%#` 收成一个空格，
+        // 输入行在按键前只有空白，这里若直接放弃，C 到来时就没有命令文本，AI 工具认不出来。
+        if sig.is_empty() && !self.osc133 {
             return;
         }
         let snapshot = term.text_from(start).unwrap_or_default();
