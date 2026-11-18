@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use kanso_core::{Core, CoreError, DeleteImpact, OpenTarget, SessionInfo};
 use kanso_secret::SecretKind;
+use kanso_types::mcp::McpAccess;
 use kanso_types::profile::{Group, Profile};
 use kanso_types::secret::SecretString;
 use kanso_types::{GridSize, GroupId, ProfileId, PromptId, PromptResponse, SessionId};
@@ -37,7 +38,7 @@ pub trait PromptResponder {
     fn respond_prompt(&self, prompt: PromptId, response: PromptResponse);
 }
 
-/// 会话库（Profile / 分组 / 凭据）的读写。
+/// 会话库（Profile / 分组 / 凭据 / MCP 授权）的读写。
 ///
 /// 删除与凭据写入是 `async`：钥匙串访问可能弹出系统授权框，不能卡住 UI 线程。
 /// 调用方用自己的执行器驱动这些 future（GPUI 里用 `cx.spawn`）。
@@ -49,6 +50,10 @@ pub trait ProfileStore {
     fn groups(&self) -> Vec<Group>;
     /// 新增或更新（按 id）。
     fn save_profile(&self, profile: Profile) -> CoreResult<()>;
+    /// 已保存会话的 MCP 访问级别。
+    fn mcp_access(&self, profile: ProfileId) -> McpAccess;
+    /// 设置已保存会话的 MCP 访问级别。
+    fn set_mcp_access(&self, profile: ProfileId, level: McpAccess) -> CoreResult<()>;
     /// 删除会话配置（连同凭据）。
     async fn delete_profile(&self, id: ProfileId) -> CoreResult<()>;
     /// 新增或更新（按 id）分组。
@@ -109,6 +114,14 @@ impl ProfileStore for Core {
 
     fn save_profile(&self, profile: Profile) -> CoreResult<()> {
         Core::save_profile(self, profile)
+    }
+
+    fn mcp_access(&self, profile: ProfileId) -> McpAccess {
+        Core::mcp_access(self, profile)
+    }
+
+    fn set_mcp_access(&self, profile: ProfileId, level: McpAccess) -> CoreResult<()> {
+        Core::set_mcp_access(self, profile, level)
     }
 
     async fn delete_profile(&self, id: ProfileId) -> CoreResult<()> {
@@ -176,6 +189,14 @@ impl<T: ProfileStore + ?Sized> ProfileStore for Arc<T> {
 
     fn save_profile(&self, profile: Profile) -> CoreResult<()> {
         (**self).save_profile(profile)
+    }
+
+    fn mcp_access(&self, profile: ProfileId) -> McpAccess {
+        (**self).mcp_access(profile)
+    }
+
+    fn set_mcp_access(&self, profile: ProfileId, level: McpAccess) -> CoreResult<()> {
+        (**self).set_mcp_access(profile, level)
     }
 
     async fn delete_profile(&self, id: ProfileId) -> CoreResult<()> {

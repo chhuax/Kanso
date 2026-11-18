@@ -506,3 +506,26 @@ PR #22（`proto/gpui-integrate` → main）的线上检查，除下面这项外�
 托管 Windows Runner 上，PowerShell 的 `Console.ReadKey` 收到了无修饰键的 Enter。用原始启动参数、原始输入和四线程并发复跑三轮，两条 PowerShell 用例都实际返回了新目录或文件内容，最慢约 33 秒。原来的 15 秒和 20 秒上限会提前判失败。[按键诊断](https://github.com/chhuax/Kanso/actions/runs/44262638152/job/134659433938) · [并发复验](https://github.com/chhuax/Kanso/actions/runs/44265559973/job/134669079977)
 
 PowerShell 用例的等待上限调到 60 秒，观察到预期事件或内容时立即通过。目录上报、含中文与空格的路径粘贴和 CMD 退出码都继续走真实 ConPTY。开发虚拟机上的会话模块测试和严格 Clippy 均已通过。
+
+## 2026-11-18 Windows MCP 接入（Codex）
+
+Windows GPUI 复用 macOS 已接入的 `McpServer`。设置页提供开关、Claude Code 与 Codex 的 PowerShell 接入命令、令牌轮换、客户端断开、单会话与分组授权和审计。会话编辑器写同一份授权，状态栏可跳转 MCP 设置，工作区接收标签打开、活动和释放回调。真实服务当前只注册 `kanso_list_sessions`。
+
+Windows 转发程序与 GPUI 通过当前用户专用的本机命名管道连接，令牌存入 Windows 凭据管理器。NSIS 与免安装 ZIP 都在 `Kanso.exe` 旁安装 `kanso-mcp.exe`。接入命令在真实 PowerShell 中经过参数对照，覆盖空格、中文、单引号、弯引号和 `$` 的路径。
+
+Windows 虚拟机通过严格 Clippy、全工作区测试、设计令牌与本地化检查，9 项 MCP 转发测试覆盖授权筛选、审计、旧令牌失效、标准输入关闭与立即重启。用实际 Windows 界面启用服务后，同一测试实例的客户端只能列出获授权的合成会话。状态栏显示 1 个连接，关闭后客户端退出，审计记录已落盘。Windows 界面证据在主工作区 `target/windows-mcp-acceptance/`。Mac 的 `cargo xtask ci --skip-apple` 通过，包含 MCP 的 Unix 路径和渠道矩阵。
+
+实际点击设置页的分组授权后，两条合成会话均写入只读授权。测试令牌已从凭据管理器清理。Windows 全工作区 1,401 项测试通过，9 项按原标记跳过。深色设置预览留在测试虚拟机。
+
+Windows 测试包以 `6272302` 构建并在 Mac 复核 SHA-256。免安装 ZIP 完整性通过，包含两个 x64 Windows 可执行文件和两份许可材料。`kanso-mcp.exe` 为 292,864 字节。两包放在主工作区 `target/windows-mcp-acceptance/`。
+
+| Windows x64 测试包 | 字节数 | SHA-256 |
+|---|---:|---|
+| `Kanso-1.0.2-x64-setup.exe` | 8,550,512 | `b96f3c67deb26c82f354852e8d72b8e3ef7cb1e8318a6a94341cc243f44c6c34` |
+| `Kanso-1.0.2-x64-portable.zip` | 11,716,163 | `cb8114107cba8b7996f20c2376d62b7201b6f5d876b31e8801c42b5cc92f9c8c` |
+
+### MCP 审查修复（Codex）
+
+Windows 中只有提供 MCP 服务的实例能修改总开关和轮换令牌。设置页的操作控件支持 Tab、Shift+Tab、Enter 和空格，焦点移到可视范围外时会滚动至控件。中英文接入提示均说明 AI 工具会在配置文件中保存明文令牌，命令也可能写入 PowerShell 历史。
+
+隔离 Windows 桌面用共享测试数据库验证了第二个实例无法关闭服务，主实例关闭后现有客户端退出，新连接收到 `MCP_DISABLED`。键盘实测覆盖启停、断开、轮换令牌和清空审计。上表记录的是 `6272302` 的测试包。

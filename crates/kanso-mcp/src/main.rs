@@ -1,32 +1,82 @@
 //! `kanso-mcp`：AI 工具以 stdio 启动的转发程序（architecture §16.1）。
 //!
-//! 连上正在运行的 Kanso 的本机 socket，先发一行握手（令牌、控制终端），之后在 stdin/stdout 与
-//! socket 之间原样双向转发字节，**不理解 MCP**。连不上时区分"Kanso 未运行"与"MCP 开关关闭"，
+//! 连上正在运行的 Kanso 的本机通道，先发一行握手（令牌、控制终端），之后在 stdin/stdout 与
+//! 本机通道之间双向转发字节，**不理解 MCP**。连不上时区分"Kanso 未运行"与"MCP 开关关闭"，
 //! 对客户端的第一条请求回一个 JSON-RPC 错误后退出（spec/mcp.md §1）。
 //!
 //! 本程序不读数据库、钥匙串、私钥，也不发起任何网络连接（spec/mcp.md §8）。
 
 use std::process::ExitCode;
 
+#[cfg(any(unix, windows))]
+use kanso_mcp::jsonrpc::{
+    self, CODE_MCP_DISABLED, CODE_NOT_RUNNING, MSG_DISABLED as DISABLED,
+    MSG_NOT_RUNNING as NOT_RUNNING, SERVER_ERROR,
+};
+#[cfg(any(unix, windows))]
+use std::io::{self, BufRead, Read, Write};
+
+#[cfg(windows)]
+mod windows_relay;
+
+/// 把 `from` 的数据原样转给 `to`，读到多少写多少并立即 flush，直到 `from` 结束。
+///
+/// 不能换成 `io::copy`：标准库在 Linux 上会把 fd 到 fd 的拷贝改用 `splice` 等内核拷贝，
+/// 从 Unix socket 到 stdout 管道时不会读到一部分就返回，App 回的 initialize 响应会一直卡在这里，
+/// AI 工具永远等不到回复（Linux CI 上 `end_to_end_with_real_server` 因此挂住）。
+/// MCP 是一问一答的交互协议，每读到一块都必须马上送达。
+#[cfg(any(unix, windows))]
+fn pump(from: &mut impl Read, to: &mut impl Write) -> io::Result<()> {
+    let mut buf = [0u8; 8192];
+    loop {
+        let n = match from.read(&mut buf) {
+            Ok(0) => return to.flush(),
+            Ok(n) => n,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
+        to.write_all(&buf[..n])?;
+        to.flush()?;
+    }
+}
+
+/// 读到客户端第一条带 id 的请求，回一个错误后退出。客户端会把消息显示给用户或 AI。
+#[cfg(any(unix, windows))]
+fn reply_error(stable_code: &str, message: &str) -> ExitCode {
+    // 正常情况下第一行就是 initialize。
+    const MAX_LINES_BEFORE_REQUEST: usize = 16;
+    let stdin = io::stdin();
+    let mut lines = stdin.lock().lines();
+    for _ in 0..MAX_LINES_BEFORE_REQUEST {
+        let Some(Ok(line)) = lines.next() else { break };
+        if let Some(id) = jsonrpc::request_id(&line) {
+            let reply = jsonrpc::error_response(&id, SERVER_ERROR, stable_code, message);
+            let mut stdout = io::stdout().lock();
+            let _ = stdout.write_all(reply.as_bytes());
+            let _ = stdout.flush();
+            break;
+        }
+    }
+    eprintln!("kanso-mcp: {message}");
+    ExitCode::FAILURE
+}
+
 #[cfg(unix)]
 mod unix {
     use std::ffi::CStr;
-    use std::io::{self, BufRead, Read, Write};
+    use std::io::{self, Write};
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::OpenOptionsExt;
     use std::os::unix::net::UnixStream;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
+    #[cfg(debug_assertions)]
+    use std::path::PathBuf;
     use std::process::ExitCode;
 
     use kanso_mcp::paths::McpPaths;
-    use kanso_mcp::{DIRECT_BUNDLE_ID, TOKEN_ENV, hello, jsonrpc};
+    use kanso_mcp::{DIRECT_BUNDLE_ID, TOKEN_ENV, hello};
 
-    use kanso_mcp::jsonrpc::{
-        CODE_MCP_DISABLED, CODE_NOT_RUNNING, MSG_DISABLED as DISABLED,
-        MSG_NOT_RUNNING as NOT_RUNNING, SERVER_ERROR,
-    };
-    /// 找带 id 的请求时最多看几行：正常情况下第一行就是 initialize。
-    const MAX_LINES_BEFORE_REQUEST: usize = 16;
+    use super::{CODE_MCP_DISABLED, CODE_NOT_RUNNING, DISABLED, NOT_RUNNING, pump, reply_error};
 
     pub fn main() -> ExitCode {
         let paths = match paths() {
@@ -76,26 +126,6 @@ mod unix {
         }
     }
 
-    /// 把 `from` 的数据原样转给 `to`，读到多少写多少并立即 flush，直到 `from` 结束。
-    ///
-    /// 不能换成 `io::copy`：标准库在 Linux 上会把 fd 到 fd 的拷贝改用 `splice` 等内核拷贝，
-    /// 从 Unix socket 到 stdout 管道时不会读到一部分就返回，App 回的 initialize 响应会一直卡在这里，
-    /// AI 工具永远等不到回复（Linux CI 上 `end_to_end_with_real_server` 因此挂住）。
-    /// MCP 是一问一答的交互协议，每读到一块都必须马上送达。
-    fn pump(from: &mut impl Read, to: &mut impl Write) -> io::Result<()> {
-        let mut buf = [0u8; 8192];
-        loop {
-            let n = match from.read(&mut buf) {
-                Ok(0) => return to.flush(),
-                Ok(n) => n,
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                Err(e) => return Err(e),
-            };
-            to.write_all(&buf[..n])?;
-            to.flush()?;
-        }
-    }
-
     /// App 是否在运行：它从启动起就一直持有单实例锁（architecture §16.1）。
     /// 能拿到锁说明没有在运行；拿到后立即随文件关闭而释放，不改动任何文件。
     ///
@@ -111,24 +141,6 @@ mod unix {
         // SAFETY: `file` 持有有效的文件描述符，flock 只作用于它；文件在本函数结束时关闭，锁随之释放。
         let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) };
         rc != 0 && io::Error::last_os_error().raw_os_error() == Some(libc::EWOULDBLOCK)
-    }
-
-    /// 读到客户端第一条带 id 的请求，回一个错误后退出。客户端会把消息显示给用户或 AI。
-    fn reply_error(stable_code: &str, message: &str) -> ExitCode {
-        let stdin = io::stdin();
-        let mut lines = stdin.lock().lines();
-        for _ in 0..MAX_LINES_BEFORE_REQUEST {
-            let Some(Ok(line)) = lines.next() else { break };
-            if let Some(id) = jsonrpc::request_id(&line) {
-                let reply = jsonrpc::error_response(&id, SERVER_ERROR, stable_code, message);
-                let mut stdout = io::stdout().lock();
-                let _ = stdout.write_all(reply.as_bytes());
-                let _ = stdout.flush();
-                break;
-            }
-        }
-        eprintln!("kanso-mcp: {message}");
-        ExitCode::FAILURE
     }
 
     /// 本进程的控制终端路径，例如 `/dev/ttys003`；没有控制终端时为 `None`。
@@ -161,9 +173,13 @@ fn main() -> ExitCode {
     {
         unix::main()
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
     {
-        eprintln!("kanso-mcp: only supported on macOS");
+        windows_relay::main()
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        eprintln!("kanso-mcp: unsupported platform");
         ExitCode::FAILURE
     }
 }

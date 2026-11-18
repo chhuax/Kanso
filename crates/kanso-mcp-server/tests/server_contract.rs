@@ -72,10 +72,10 @@ fn mock() -> (Arc<Core>, Arc<Recorder>, McpServer) {
     (core, rec, server)
 }
 
-#[cfg(all(feature = "direct", unix))]
+#[cfg(all(feature = "direct", any(unix, windows)))]
 const MOCK_CLIENT: &str = "Claude Code (mock)";
 
-#[cfg(all(feature = "direct", unix))]
+#[cfg(all(feature = "direct", any(unix, windows)))]
 #[test]
 fn mock_start_stop_and_token_rotation() {
     let (_core, rec, server) = mock();
@@ -116,7 +116,7 @@ fn mock_start_stop_and_token_rotation() {
     assert!(rec.take().is_empty());
 }
 
-#[cfg(all(feature = "direct", unix))]
+#[cfg(all(feature = "direct", any(unix, windows)))]
 #[test]
 fn mock_open_tab_activity_and_release_on_disconnect() {
     let (core, rec, server) = mock();
@@ -166,7 +166,7 @@ fn mock_open_tab_activity_and_release_on_disconnect() {
     assert!(core.sessions().iter().any(|s| s.id == tab));
 }
 
-#[cfg(all(feature = "direct", unix))]
+#[cfg(all(feature = "direct", any(unix, windows)))]
 #[test]
 fn refused_open_still_counts_as_a_call() {
     let (core, rec, server) = mock();
@@ -192,7 +192,7 @@ fn refused_open_still_counts_as_a_call() {
 
 /// 非 Direct 渠道：两种构造都"不支持"，状态一开始就是 Unavailable，宿主不必调用 start 就能决定隐藏页面。
 /// 运行：`cargo test -p kanso-mcp-server --no-default-features --features mas`。
-#[cfg(not(all(feature = "direct", unix)))]
+#[cfg(not(all(feature = "direct", any(unix, windows))))]
 #[test]
 fn non_direct_channels_are_unsupported_from_the_start() {
     assert!(!kanso_mcp_server::supported());

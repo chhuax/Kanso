@@ -926,3 +926,57 @@ ui-filer-drag-cancelled = Drag preparation cancelled
 
 ui-display-settings-menu = Display Settings…
 ui-keyboard-settings-menu = Keyboard Shortcuts…
+
+# ---- Windows MCP ----
+win-mcp-page = MCP
+win-mcp-enable = Enable MCP
+win-mcp-enable-hint = When on, AI tools on this PC can access the sessions authorized below.
+win-mcp-service = MCP Service
+win-mcp-running = Running
+win-mcp-stopped = Stopped
+win-mcp-unavailable = Unavailable
+win-mcp-start-failed = MCP could not start.
+win-mcp-stop-failed = Could not turn off MCP.
+win-mcp-token-store-failed = Could not access the client token in Windows Credential Manager.
+win-mcp-not-supported = MCP is not available in this build.
+win-mcp-another-instance = Another Kanso instance is already providing MCP.
+win-mcp-helper-path = Helper path
+win-mcp-configuration = Configuration
+win-mcp-client = Client
+win-mcp-claude-code = Claude Code
+win-mcp-codex = Codex
+win-mcp-powershell-command = PowerShell command
+win-mcp-regenerate = Regenerate Token
+win-mcp-token-needed = Enable MCP to create a client token.
+win-mcp-token-history = The AI tool stores the token in plain text in its configuration file. The command may also be saved in PowerShell history.
+win-mcp-connected-clients = Connected Clients
+win-mcp-no-clients = No clients connected.
+win-mcp-unknown-client = Unknown client
+win-mcp-disconnect = Disconnect
+win-mcp-access = MCP Access
+win-mcp-access-off = Off
+win-mcp-access-read-only = Read only
+win-mcp-access-full = Full
+win-mcp-session-access = Session Access
+win-mcp-set-group = Set Group
+win-mcp-no-sessions = No saved sessions.
+win-mcp-sensitive-notice = Terminal contents may include sensitive information.
+win-mcp-grant-failed = Could not change the MCP access level.
+win-mcp-access-save-failed = The session was saved, but its MCP access level could not be saved: { $detail }
+win-mcp-audit = Audit Log
+win-mcp-all-sessions = All sessions
+win-mcp-errors-only = Errors only
+win-mcp-no-audit = No audit records.
+win-mcp-audit-more = Load More
+win-mcp-audit-clear = Clear Log
+win-mcp-audit-read-failed = Could not read the audit log.
+win-mcp-audit-clear-failed = Could not clear the audit log.
+win-mcp-audit-deleted = Deleted session
+win-mcp-audit-unauthorized = Unauthorized session
+win-mcp-calls = { $count ->
+    [one] One call
+   *[other] { $count } calls
+    }
+win-mcp-status-indicator = MCP · { $count }
+win-mcp-tab-opened = Opened by MCP · { $client }
+win-mcp-tab-activity = { $client } · { $tool }
