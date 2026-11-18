@@ -928,16 +928,18 @@ messages! {
     RemoteEditLargeBody = "ui-redit-large-body" { name: String, amount: String },
     /// 远程编辑与拖出：继续下载并打开
     RemoteEditLargeContinue = "ui-redit-large-continue" {},
-    /// 远程编辑与拖出：远端文件已被修改
+    /// 远程编辑与拖出：远端文件已变化
     RemoteEditConflictTitle = "ui-redit-conflict-title" {},
-    /// 远程编辑与拖出：“{ $name }”（{ $source }）自打开后在服务器上被修改或删除。直接回传会覆盖服务器上的内容。
+    /// 远程编辑与拖出：“{ $name }”（{ $source }）自动回传已暂停；重新下载将放弃本地修改。
     RemoteEditConflictBody = "ui-redit-conflict-body" { name: String, source: String },
-    /// 远程编辑与拖出：覆盖远端
+    /// 远程编辑与拖出：覆盖
     RemoteEditConflictOverwrite = "ui-redit-conflict-overwrite" {},
-    /// 远程编辑与拖出：丢弃本地修改并重新下载
+    /// 远程编辑与拖出：重新下载
     RemoteEditConflictRedownload = "ui-redit-conflict-redownload" {},
-    /// 远程编辑与拖出：暂不处理
-    RemoteEditConflictPause = "ui-redit-conflict-pause" {},
+    /// 远程编辑与拖出：另存副本…
+    RemoteEditConflictSaveCopy = "ui-redit-conflict-save-copy" {},
+    /// 远程编辑与拖出：请输入不同的文件名
+    RemoteEditCopyPrompt = "ui-redit-copy-prompt" {},
     /// 远程编辑与拖出：准备拖出 { $name }
     FilerDragPreparing = "ui-filer-drag-preparing" { name: String },
     /// 远程编辑与拖出：无法准备拖出“{ $name }”：{ $why }

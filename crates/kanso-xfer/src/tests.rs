@@ -360,6 +360,39 @@ fn local_cancel_filters_split_subpackets_echo_and_empty_crc_trailer() {
 }
 
 #[test]
+fn local_cancel_filters_trailing_zeof_and_zfin_headers() {
+    // 最后一个子包以 ZCRCE 结尾，随后才是 ZEOF。
+    let packet = packet(b"last bytes", b'h');
+    for trailer in [vec![header(11, 10)], vec![header(11, 10), header(8, 0)]] {
+        for width in [1, 3, 4096] {
+            let mut sentinel = Sentinel::default();
+            let mut receiver = Machine::new(Handshake::Receive);
+            receiver.receive(&header(4, 0));
+            receiver.receive(&crate::wire::packet(b"a\0", b'k'));
+            receiver.accept();
+            receiver.receive(&header(10, 0));
+            receiver.receive(&packet[..4]);
+            receiver.hand_off_cancelled_receive(&mut sentinel);
+            receiver.cancel();
+            // 本端取消时对端已发完最后一个子包，并紧接着发了 ZEOF（甚至 ZFIN）头。
+            let pending = [&packet[4..], &trailer.concat(), &b"user@host $ "[..]].concat();
+            let mut terminal = Vec::new();
+            for chunk in pending.chunks(width) {
+                sentinel.feed(chunk, &mut terminal);
+            }
+            terminal.extend(sentinel.poll_cancel_tail());
+            terminal.extend(sentinel.poll_cancel_tail());
+            assert_eq!(
+                terminal,
+                b"user@host $ ",
+                "trailer={} width={width}",
+                trailer.len()
+            );
+        }
+    }
+}
+
+#[test]
 fn continuous_plain_output_after_cancel_is_released_without_waiting_for_silence() {
     let mut sentinel = Sentinel::default();
     sentinel.cancelled_receive(b"old".to_vec(), Some(false));

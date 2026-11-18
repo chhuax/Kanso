@@ -30,7 +30,7 @@ pub const MIN_REFRESH_INTERVAL_MS: u64 = 800;
 
 // ---- 布局 ----
 
-/// 面板显隐与宽度。D8：宽度（和显隐）重启后不记忆。
+/// 面板显隐与宽度。D8（2026-11-18 用户决定照 mac 版）：宽度重启后记住，显隐不记；首次默认 420。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GitLayout {
     /// 是否显示。
@@ -49,6 +49,15 @@ impl Default for GitLayout {
 }
 
 impl GitLayout {
+    /// 以保存的宽度起步（启动时恢复）：夹进 280–760，不是有限数值就用默认 420。
+    pub fn with_saved_width(saved: f32) -> GitLayout {
+        let base = GitLayout::default();
+        GitLayout {
+            width: base.dragged(saved),
+            ..base
+        }
+    }
+
     /// 拖动时的新宽度：夹进 280–760。
     pub fn dragged(&self, width: f32) -> f32 {
         if width.is_finite() {
@@ -661,6 +670,11 @@ mod tests {
         assert_eq!(l.dragged(10.0), MIN_WIDTH);
         assert_eq!(l.dragged(5000.0), MAX_WIDTH);
         assert_eq!(l.dragged(f32::NAN), DEFAULT_WIDTH);
+        assert_eq!(GitLayout::with_saved_width(500.0).width, 500.0);
+        assert_eq!(GitLayout::with_saved_width(10.0).width, MIN_WIDTH);
+        assert_eq!(GitLayout::with_saved_width(9999.0).width, MAX_WIDTH);
+        assert_eq!(GitLayout::with_saved_width(f32::NAN).width, DEFAULT_WIDTH);
+        assert!(!GitLayout::with_saved_width(500.0).visible);
         assert_eq!(l.effective_width(1200.0), 420.0);
         assert_eq!(l.effective_width(600.0), 300.0);
         // 让位后太窄：不显示。

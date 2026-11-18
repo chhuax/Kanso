@@ -107,8 +107,10 @@ pub(crate) enum Pending {
     },
     /// 远程编辑：大文件确认（打开前）。
     EditLarge(Box<EditStart>),
-    /// 远程编辑：远端文件已变化，等用户选覆盖 / 重新下载 / 暂不处理。
+    /// 远程编辑：远端文件已变化，等用户选取消 / 覆盖 / 重新下载 / 另存副本。
     EditConflict(EditKey),
+    /// 远程编辑：另存副本的文件名输入。
+    EditCopyName(EditKey),
 }
 
 /// 一栏。
@@ -1610,6 +1612,7 @@ impl FilerPanel {
             }
             Pending::EditLarge(start) => self.edit_on_large(*start, result, cx),
             Pending::EditConflict(key) => self.edit_on_conflict(key, result, cx),
+            Pending::EditCopyName(key) => self.edit_on_copy_name(key, result, cx),
             Pending::Conflict { pane } => {
                 let now = self.now_ms();
                 let decision = conflict_decision(result);

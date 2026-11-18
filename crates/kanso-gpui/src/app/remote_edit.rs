@@ -13,8 +13,9 @@ use kanso_types::message::Message;
 use serde::{Deserialize, Serialize};
 
 use crate::app::filer_text::msg;
+use crate::app::fspath::{PathStyle, validate_child_name};
 use crate::filer::format_size;
-use crate::widgets::dialog::{ButtonSpec, DialogResult, DialogSpec};
+use crate::widgets::dialog::{ButtonSpec, DialogResult, DialogSpec, InputSpec};
 
 /// 保存动作安静多久后才回传（毫秒）。
 pub const DEBOUNCE_MS: u64 = 300;
@@ -212,8 +213,10 @@ pub enum ConflictChoice {
     Overwrite,
     /// 丢弃本地修改，重新下载。
     Redownload,
-    /// 暂不处理（保持暂停）。
-    Pause,
+    /// 另存副本：由用户再输入一个新文件名，本地内容上传为远端同目录下的新文件。
+    SaveCopy,
+    /// 取消（取消按钮 / Esc / 点遮罩）：保持暂停。
+    Cancel,
 }
 
 /// 重新打开同一远端文件时怎么办。
@@ -323,6 +326,20 @@ impl EditState {
         };
     }
 
+    /// 另存副本成功（照 mac 版）：本地当前内容已存到远端的新文件，原远端文件仍是变化后的样子，
+    /// 所以 `remote` 基线不动。本地没有再变就记为已同步；已变则仍是冲突（由调用方暂停，
+    /// 下一次保存才重新询问）。
+    pub fn copied(&mut self, local: FileVersion, now_local: Option<FileVersion>) {
+        self.synced = Some(local);
+        self.retry_attempt = 0;
+        self.last_error = None;
+        self.phase = if now_local.is_some_and(|n| n != local) {
+            Phase::Conflict
+        } else {
+            Phase::Synced
+        };
+    }
+
     /// 回传失败：记原因并返回下次重试的等待（毫秒）。
     pub fn failed(&mut self, why: String) -> u64 {
         let delay = retry_delay_ms(self.retry_attempt);
@@ -346,7 +363,7 @@ impl EditState {
 
 /// 大文件确认：继续。
 pub const BTN_LARGE_GO: &str = "large-go";
-/// 大文件确认 / 冲突：取消 / 暂不处理。
+/// 大文件确认 / 冲突：取消。
 pub const BTN_CANCEL: &str = "cancel";
 /// 冲突：覆盖远端。
 pub const BTN_OVERWRITE: &str = "overwrite";
@@ -372,7 +389,15 @@ pub fn large_confirmed(result: &DialogResult) -> bool {
     result.button.as_deref() == Some(BTN_LARGE_GO)
 }
 
-/// 远端冲突对话框（D5 未决：不替用户选，默认按钮是"暂不处理"，不会悄悄覆盖）。
+/// 冲突：另存副本…
+pub const BTN_SAVE_COPY: &str = "save-copy";
+/// 另存副本名称框：保存。
+pub const BTN_COPY_OK: &str = "copy-ok";
+/// 另存副本名称框里输入框的标识。
+pub const COPY_FIELD: &str = "name";
+
+/// 远端冲突对话框（D5 已定，2026-11-18 用户决定照 mac 版）：
+/// 取消（默认 / Esc）、覆盖、重新下载、另存副本…。默认是取消，不会悄悄覆盖。
 pub fn conflict_spec(name: &str, source: &str) -> DialogSpec {
     DialogSpec::new(&msg(Message::RemoteEditConflictTitle {}))
         .text(&msg(Message::RemoteEditConflictBody {
@@ -380,26 +405,75 @@ pub fn conflict_spec(name: &str, source: &str) -> DialogSpec {
             source: source.to_owned(),
         }))
         .button(
-            ButtonSpec::secondary(BTN_CANCEL, &msg(Message::RemoteEditConflictPause {}))
+            ButtonSpec::secondary(BTN_CANCEL, &msg(Message::UiFilerCancel {}))
                 .cancel()
                 .default_button(),
         )
-        .button(ButtonSpec::secondary(
-            BTN_REDOWNLOAD,
-            &msg(Message::RemoteEditConflictRedownload {}),
-        ))
         .button(ButtonSpec::danger(
             BTN_OVERWRITE,
             &msg(Message::RemoteEditConflictOverwrite {}),
         ))
+        .button(ButtonSpec::secondary(
+            BTN_REDOWNLOAD,
+            &msg(Message::RemoteEditConflictRedownload {}),
+        ))
+        .button(ButtonSpec::secondary(
+            BTN_SAVE_COPY,
+            &msg(Message::RemoteEditConflictSaveCopy {}),
+        ))
 }
 
-/// 冲突对话框结果；取消 / Esc / 点遮罩都按"暂不处理"。
+/// 冲突对话框结果；取消 / Esc / 点遮罩都按取消。
 pub fn conflict_choice(result: &DialogResult) -> ConflictChoice {
     match result.button.as_deref() {
         Some(BTN_OVERWRITE) => ConflictChoice::Overwrite,
         Some(BTN_REDOWNLOAD) => ConflictChoice::Redownload,
-        _ => ConflictChoice::Pause,
+        Some(BTN_SAVE_COPY) => ConflictChoice::SaveCopy,
+        _ => ConflictChoice::Cancel,
+    }
+}
+
+/// 另存副本的默认文件名：`a.txt` -> `a-copy.txt`，无扩展名 `a` -> `a-copy`，`.bashrc` -> `.bashrc-copy`。
+pub fn default_copy_name(name: &str) -> String {
+    match name.rfind('.') {
+        Some(i) if i > 0 && i + 1 < name.len() => format!("{}-copy{}", &name[..i], &name[i..]),
+        _ => format!("{name}-copy"),
+    }
+}
+
+/// 另存副本的文件名输入框。`error` 非空时显示在输入框上方（上一次提交被拒绝）。
+pub fn copy_spec(initial: &str, error: Option<&str>) -> DialogSpec {
+    let mut spec = DialogSpec::new(&msg(Message::RemoteEditConflictSaveCopy {}))
+        .text(&msg(Message::RemoteEditCopyPrompt {}));
+    if let Some(e) = error {
+        spec = spec.text(e);
+    }
+    spec.input(InputSpec::new(COPY_FIELD, &msg(Message::UiFilerName {})).initial(initial))
+        .button(ButtonSpec::secondary(BTN_CANCEL, &msg(Message::UiFilerCancel {})).cancel())
+        .button(ButtonSpec::primary(BTN_COPY_OK, &msg(Message::UiSave {})).default_button())
+}
+
+/// 另存副本名称框的结果。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CopyOutcome {
+    /// 取消：保持暂停。
+    Cancel,
+    /// 名称不合规，或与原文件同名（需要提示后让用户重输）。
+    Invalid,
+    /// 合规的新名称。
+    Name(String),
+}
+
+/// 解析另存副本名称框的结果。名称必须是远端目录的直接子项、本机也能作文件名（快照按它命名），
+/// 且不能与原文件同名。
+pub fn parse_copy_name(result: &DialogResult, original: &str) -> CopyOutcome {
+    if result.button.as_deref() != Some(BTN_COPY_OK) {
+        return CopyOutcome::Cancel;
+    }
+    let raw = result.value(COPY_FIELD).unwrap_or_default();
+    match validate_child_name(PathStyle::Posix, raw) {
+        Ok(name) if name != original && local_name_ok(&name) => CopyOutcome::Name(name),
+        _ => CopyOutcome::Invalid,
     }
 }
 
@@ -694,6 +768,73 @@ mod tests {
         assert_eq!(close_action(&Phase::Downloading, true), CloseAction::Clean);
     }
 
+    fn pressed(spec: &DialogSpec, id: &str, name: &str) -> DialogResult {
+        let i = spec.buttons.iter().position(|b| b.id == id).unwrap();
+        let texts = vec![name.to_owned(); spec.inputs.len()];
+        crate::widgets::dialog::result_for_button(
+            spec,
+            i,
+            crate::widgets::dialog::Trigger::Click,
+            &texts,
+        )
+    }
+
+    #[test]
+    fn conflict_dialog_matches_mac_order() {
+        let spec = conflict_spec("a.txt", "host");
+        let ids: Vec<&str> = spec.buttons.iter().map(|b| b.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            [BTN_CANCEL, BTN_OVERWRITE, BTN_REDOWNLOAD, BTN_SAVE_COPY]
+        );
+        assert_eq!(
+            conflict_choice(&pressed(&spec, BTN_SAVE_COPY, "")),
+            ConflictChoice::SaveCopy
+        );
+        assert_eq!(
+            conflict_choice(&pressed(&spec, BTN_OVERWRITE, "")),
+            ConflictChoice::Overwrite
+        );
+        assert_eq!(
+            conflict_choice(&pressed(&spec, BTN_REDOWNLOAD, "")),
+            ConflictChoice::Redownload
+        );
+    }
+
+    #[test]
+    fn save_copy_keeps_remote_baseline() {
+        let mut st = EditState::new(v(1, 1));
+        st.downloaded(v(1, 1), v(5, 5));
+        st.phase = Phase::Conflict;
+        st.copied(v(6, 6), Some(v(6, 6)));
+        assert_eq!(st.phase, Phase::Synced);
+        assert_eq!(st.remote, v(1, 1));
+        assert!(!st.has_changes(Some(v(6, 6))));
+        st.copied(v(6, 6), Some(v(7, 7)));
+        assert_eq!(st.phase, Phase::Conflict);
+        assert!(st.has_changes(Some(v(7, 7))));
+    }
+
+    #[test]
+    fn copy_names() {
+        assert_eq!(default_copy_name("a.txt"), "a-copy.txt");
+        assert_eq!(default_copy_name("a.tar.gz"), "a.tar-copy.gz");
+        assert_eq!(default_copy_name("Makefile"), "Makefile-copy");
+        assert_eq!(default_copy_name(".bashrc"), ".bashrc-copy");
+        assert_eq!(default_copy_name("a."), "a.-copy");
+        let spec = copy_spec("a-copy.txt", None);
+        let ok = |n: &str| parse_copy_name(&pressed(&spec, BTN_COPY_OK, n), "a.txt");
+        assert_eq!(ok(" b.txt "), CopyOutcome::Name("b.txt".into()));
+        assert_eq!(ok("a.txt"), CopyOutcome::Invalid);
+        assert_eq!(ok(""), CopyOutcome::Invalid);
+        assert_eq!(ok("x/y"), CopyOutcome::Invalid);
+        assert_eq!(ok("a:b"), CopyOutcome::Invalid);
+        assert_eq!(
+            parse_copy_name(&pressed(&spec, BTN_CANCEL, "b.txt"), "a.txt"),
+            CopyOutcome::Cancel
+        );
+    }
+
     #[test]
     fn dialogs_default_is_safe() {
         let spec = conflict_spec("a.txt", "host");
@@ -703,7 +844,7 @@ mod tests {
             &spec,
             crate::widgets::dialog::Trigger::Escape,
         );
-        assert_eq!(conflict_choice(&r), ConflictChoice::Pause);
+        assert_eq!(conflict_choice(&r), ConflictChoice::Cancel);
         assert!(!large_confirmed(
             &crate::widgets::dialog::result_for_cancel(
                 &large_spec("x", 1),
