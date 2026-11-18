@@ -108,7 +108,10 @@ fn pasted_file_paths_are_readable_through_cmd_and_powershell() {
             path.to_string_lossy().into_owned(),
         ]));
         if shell.starts_with("powershell") {
-            submit(&session, &std::env::var("KANSO_PTY_PROBE").unwrap_or_default());
+            submit(
+                &session,
+                &std::env::var("KANSO_PTY_PROBE").unwrap_or_default(),
+            );
         } else {
             session.text_input("\r");
         }
@@ -119,4 +122,18 @@ fn pasted_file_paths_are_readable_through_cmd_and_powershell() {
         );
         fx.mgr.close(id);
     }
+}
+
+#[test]
+fn powershell_probe_console_read_key() {
+    let shell = r#"powershell.exe -NoLogo -NoProfile -Command "[Console]::WriteLine('KANSO_KEY_READY'); $key = [Console]::ReadKey($true); [Console]::WriteLine(('KANSO_KEY:{0}:{1}:{2}' -f [int]$key.KeyChar, $key.Key, $key.Modifiers))""#;
+    let fx = fixture(shell, false);
+    let (id, session) = fx.open();
+    let mut screen = Screen::new(&session);
+    assert!(screen.wait_contains("KANSO_KEY_READY"), "{}", screen.text);
+    let mode = std::env::var("KANSO_PTY_PROBE").unwrap_or_default();
+    submit(&session, &mode);
+    assert!(screen.wait_contains("KANSO_KEY:"), "{}", screen.text);
+    println!("{}", screen.text.trim());
+    fx.mgr.close(id);
 }
