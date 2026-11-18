@@ -16,14 +16,16 @@ jobs:
           persist-credentials: false
       - run: rustup show
       - uses: Swatinem/rust-cache@v2.7.8
+        with:
+          save-if: false
       - name: Trace PowerShell ConPTY input
         run: |
           cargo test --locked -p kanso-session --test local_session_windows --no-run
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          foreach ($mode in 'original', 'wait', 'win32', 'lf') {
+          foreach ($mode in 'plain', 'no-history', 'report', 'pwsh') {
             Write-Host "::group::$mode"
             $env:KANSO_PTY_PROBE = $mode
-            cargo test --locked -p kanso-session --test local_session_windows powershell -- --nocapture --test-threads=1
+            cargo test --locked -p kanso-session --test local_session_windows -- --nocapture --test-threads=1
             Write-Host "$mode exit=$LASTEXITCODE"
             Write-Host '::endgroup::'
           }

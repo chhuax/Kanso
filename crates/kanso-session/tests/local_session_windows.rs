@@ -4,7 +4,6 @@
 
 mod common;
 
-use std::sync::Arc;
 use std::time::Duration;
 
 use common::*;
@@ -51,21 +50,30 @@ fn cmd_exit_0_closes_session_with_code() {
     exit_code_is_reported(0);
 }
 
-fn submit(session: &Arc<kanso_session::LocalSession>, mode: &str) {
-    if mode == "wait" {
-        std::thread::sleep(Duration::from_millis(700));
-    }
-    let enter = match mode {
-        "win32" => "\x1b[13;28;13;1;0;1_\x1b[13;28;13;0;0;1_",
-        "lf" => "\n",
-        _ => "\r",
+fn shell_for_probe(mode: &str, report_cwd: bool) -> String {
+    let executable = if mode == "pwsh" {
+        "pwsh.exe"
+    } else {
+        "powershell.exe"
     };
-    session.text_input(enter);
+    let preset = match mode {
+        "plain" => "Remove-Module PSReadLine -ErrorAction SilentlyContinue; ",
+        "no-history" => "Set-PSReadLineOption -HistorySaveStyle SaveNothing -ErrorAction Stop; ",
+        _ => "",
+    };
+    let log = "[Console]::WriteLine(('KANSO_PROBE:{0}:{1}:{2}' -f $PSVersionTable.PSVersion, (Get-Module PSReadLine).Version, (Get-Module PSReadLine).Path)); ";
+    let hook = if report_cwd {
+        include_str!("../src/windows_prompt.ps1").trim()
+    } else {
+        ""
+    };
+    format!(r#"{executable} -NoLogo -NoProfile -NoExit -Command "{preset}{log}{hook}""#)
 }
 
 #[test]
 fn powershell_reports_directory_changes_through_conpty() {
-    let fx = fixture("powershell.exe -NoLogo -NoProfile", true);
+    let mode = std::env::var("KANSO_PTY_PROBE").unwrap_or_default();
+    let fx = fixture(&shell_for_probe(&mode, true), false);
     let dir = fx.home.join("project with spaces");
     std::fs::create_dir(&dir).unwrap();
     let (id, session) = fx.open();
@@ -76,26 +84,18 @@ fn powershell_reports_directory_changes_through_conpty() {
         })
     };
     assert!(sees(&fx.home), "PowerShell 应上报初始工作目录");
-    let mode = std::env::var("KANSO_PTY_PROBE").unwrap_or_default();
-    let change = "Set-Location -LiteralPath 'project with spaces'";
-    if mode == "original" {
-        session.text_input(&format!("{change}\r"));
-    } else {
-        session.text_input(change);
-        submit(&session, &mode);
-    }
+    session.text_input("Set-Location -LiteralPath 'project with spaces'\r");
     assert!(sees(&dir), "切换目录后应上报带空格的路径");
     fx.mgr.close(id);
 }
 
 #[test]
 fn pasted_file_paths_are_readable_through_cmd_and_powershell() {
+    let mode = std::env::var("KANSO_PTY_PROBE").unwrap_or_default();
+    let powershell = shell_for_probe(&mode, false);
     for (shell, command) in [
         ("cmd.exe /d", "type "),
-        (
-            "powershell.exe -NoLogo -NoProfile",
-            "Get-Content -LiteralPath ",
-        ),
+        (&powershell, "Get-Content -LiteralPath "),
     ] {
         let fx = fixture(shell, false);
         let path = fx.home.join("drop 文档 & copy.txt");
@@ -107,14 +107,7 @@ fn pasted_file_paths_are_readable_through_cmd_and_powershell() {
         session.paste(&PasteContent::Files(vec![
             path.to_string_lossy().into_owned(),
         ]));
-        if shell.starts_with("powershell") {
-            submit(
-                &session,
-                &std::env::var("KANSO_PTY_PROBE").unwrap_or_default(),
-            );
-        } else {
-            session.text_input("\r");
-        }
+        session.text_input("\r");
         assert!(
             screen.wait_contains("KANSO_DROP_CONTENT_OK"),
             "{shell}: {}",
@@ -122,18 +115,4 @@ fn pasted_file_paths_are_readable_through_cmd_and_powershell() {
         );
         fx.mgr.close(id);
     }
-}
-
-#[test]
-fn powershell_probe_console_read_key() {
-    let shell = r#"powershell.exe -NoLogo -NoProfile -Command "[Console]::WriteLine('KANSO_KEY_READY'); $key = [Console]::ReadKey($true); [Console]::WriteLine(('KANSO_KEY:{0}:{1}:{2}' -f [int]$key.KeyChar, $key.Key, $key.Modifiers))""#;
-    let fx = fixture(shell, false);
-    let (id, session) = fx.open();
-    let mut screen = Screen::new(&session);
-    assert!(screen.wait_contains("KANSO_KEY_READY"), "{}", screen.text);
-    let mode = std::env::var("KANSO_PTY_PROBE").unwrap_or_default();
-    submit(&session, &mode);
-    assert!(screen.wait_contains("KANSO_KEY:"), "{}", screen.text);
-    println!("{}", screen.text.trim());
-    fx.mgr.close(id);
 }
