@@ -11,7 +11,7 @@ use std::process::ExitCode;
 #[cfg(unix)]
 mod unix {
     use std::ffi::CStr;
-    use std::io::{self, BufRead, Write};
+    use std::io::{self, BufRead, Read, Write};
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::OpenOptionsExt;
     use std::os::unix::net::UnixStream;
@@ -66,14 +66,33 @@ mod unix {
         };
         // stdin → socket 放在另一个线程；stdin 结束时半关闭写方向，让 App 知道客户端不会再发了。
         std::thread::spawn(move || {
-            let _ = io::copy(&mut io::stdin().lock(), &mut upstream);
+            let _ = pump(&mut io::stdin().lock(), &mut upstream);
             let _ = upstream.shutdown(std::net::Shutdown::Write);
         });
-        // socket → stdout。stdout 按行缓冲，MCP 消息以换行结尾，每条消息都会及时刷出。
-        let mut stdout = io::stdout().lock();
-        match io::copy(&mut stream, &mut stdout).and_then(|_| stdout.flush()) {
+        // socket → stdout。
+        match pump(&mut stream, &mut io::stdout().lock()) {
             Ok(()) => ExitCode::SUCCESS,
             Err(_) => ExitCode::FAILURE,
+        }
+    }
+
+    /// 把 `from` 的数据原样转给 `to`，读到多少写多少并立即 flush，直到 `from` 结束。
+    ///
+    /// 不能换成 `io::copy`：标准库在 Linux 上会把 fd 到 fd 的拷贝改用 `splice` 等内核拷贝，
+    /// 从 Unix socket 到 stdout 管道时不会读到一部分就返回，App 回的 initialize 响应会一直卡在这里，
+    /// AI 工具永远等不到回复（Linux CI 上 `end_to_end_with_real_server` 因此挂住）。
+    /// MCP 是一问一答的交互协议，每读到一块都必须马上送达。
+    fn pump(from: &mut impl Read, to: &mut impl Write) -> io::Result<()> {
+        let mut buf = [0u8; 8192];
+        loop {
+            let n = match from.read(&mut buf) {
+                Ok(0) => return to.flush(),
+                Ok(n) => n,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(e) => return Err(e),
+            };
+            to.write_all(&buf[..n])?;
+            to.flush()?;
         }
     }
 
