@@ -38,6 +38,11 @@ raw-window-handle = "0.6"
 futures = { workspace = true, features = ["executor"] }
 # 读取进程工作集内存、系统界面语言、标题栏外观，只用相应特性（MIT / Apache-2.0；与 kanso-secret 同一个 crate）。
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Globalization", "Win32_Graphics_Dwm", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_System_Time", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+# 向资源管理器等其他应用发起系统拖放（OLE DoDragDrop + 自实现的 IDataObject / IDropSource，见 ui/os_drag.rs）：
+# 需要 `#[implement]` 宏实现 COM 接口。与 gpui 同版本（0.61，MIT / Apache-2.0），Cargo.lock 里已有，不引入新 crate；
+# `#[implement]` 展开的代码按路径引用 `windows_core`，所以也直接依赖它（同版本，MIT / Apache-2.0）。
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_SystemServices", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows-core = "0.61"
 
 [features]
 default = ["direct"]

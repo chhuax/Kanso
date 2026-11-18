@@ -27,6 +27,7 @@
 //! - [`data_transfer`]：`.kanso` 导出 / 导入、OpenSSH 配置导入的文件名、结果摘要与候选主机勾选模型。
 //! - [`remote_edit`]：用本地应用编辑远端文件（保存检测与防抖、冲突、重试、临时副本布局与清理）。
 //! - [`drag_out`]：文件面板条目拖出（远端条目的准备状态机）。
+//! - [`os_drag`]：条目拖出到其他应用（何时切换为系统拖放、`CF_HDROP` 数据、自拖回流标记）。
 //! - [`i18n`]：界面语言设置、解析与 `Message` 渲染小函数。
 //! - [`status_bar`]：状态栏的内容模型、时钟格式与刷新对齐、目录截断。
 
@@ -53,6 +54,7 @@ pub mod layout;
 pub mod links;
 pub mod local_fs;
 pub mod menus;
+pub mod os_drag;
 pub mod prompt_dialogs;
 pub mod prompts;
 pub mod remote_edit;

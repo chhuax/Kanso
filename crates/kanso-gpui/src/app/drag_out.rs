@@ -1,7 +1,7 @@
 //! 文件面板条目拖出的纯逻辑（docs/spec/filer.md §7.2、§7.4、§7.5）。
 //!
-//! GPUI 0.2.2 没有"向系统发起拖放"的接口（见 `docs/windows-gpui-handoff.md` 的说明），所以拖出只能落在本应用内：
-//! 终端（插入路径）。本地条目路径现成；远端条目要先下载成本机临时副本（Windows / Linux 的旧版做法，§7.4），
+//! 应用内拖动落在终端时插入路径；指针离开窗口时改为系统拖放（见 `os_drag`），交给资源管理器等其他应用。
+//! 本地条目路径现成；远端条目要先下载成本机临时副本（Windows / Linux 的旧版做法，§7.4），
 //! 准备期间提前松手就取消下载，准备完成时手势已结束则提示"请重新拖动"。
 //!
 //! [`DragPrep`] 是拖动手势与后台下载之间共享的小状态机：拖动载荷持有它，
@@ -134,6 +134,23 @@ impl DragPrep {
                     Effect::Failed(why)
                 }
             }
+        }
+    }
+
+    /// 切换为系统拖放（拖出到资源管理器等其他应用）：条目已就绪且手势仍在时，记为"已交给系统"并给出路径。
+    /// 之后落下、结束、下载完成都不再提示；未就绪（还在下载、失败、已取消）返回 `None`，状态不变。
+    pub fn begin_os_drag(&self) -> Option<Vec<String>> {
+        let mut g = self.lock();
+        if g.ended || g.dropped {
+            return None;
+        }
+        match &g.state {
+            State::Ready(paths) if !paths.is_empty() => {
+                let paths = paths.clone();
+                g.dropped = true;
+                Some(paths)
+            }
+            _ => None,
         }
     }
 

@@ -1,15 +1,16 @@
 //! 辅助 Filer 条目的拖出（docs/spec/filer.md §7.2、§7.4、§7.5）。
 //!
-//! GPUI 0.2.2 没有"向系统发起拖放"的接口（Windows 上要 OLE `DoDragDrop`，需要 unsafe，本 crate 禁止），
-//! 所以条目只能拖到**本应用内**的落点：目前是终端（向松手所在的终端插入路径，不自动执行）。
-//! 拖到资源管理器 / 桌面这类系统落点做不到，已在交接文档里写明。
+//! 条目的拖动先是 GPUI 的应用内拖动：落在终端上向松手所在的终端插入路径，不自动执行。
+//! GPUI 0.2.2 没有"向系统发起拖放"的接口，所以拖到资源管理器 / 桌面这类系统落点靠 `ui/os_drag.rs`（OLE `DoDragDrop`）：
+//! 拖动进行中轮询指针，**鼠标离开窗口、左键仍按着、条目已就绪**时，结束 GPUI 的内部拖动并改为系统拖放，
+//! 只允许复制（不移动 / 删除源文件）。落回本窗口时由 GPUI 的外部文件拖入通道接收（终端插入路径；Filer 上传入口忽略自己拖出的文件）。
 //!
-//! - 本地条目：路径现成，落下即插入。
+//! - 本地条目：路径现成，落下即插入；离开窗口即可系统拖放。
 //! - 远端条目（Windows / Linux 旧版做法）：开始拖动就下载成本机暂存副本，状态行显示进度；
-//!   准备期间松手 → 取消下载（不在手势结束后继续下完）；副本在手势结束后才完成 → 提示"请重新拖动"；
-//!   暂存目录按每次拖动隔离，下次启动清理。
+//!   准备期间松手 → 取消下载（不在手势结束后继续下完）；指针已在窗口外而副本还没好 → 等它好了再启动系统拖放；
+//!   副本在手势结束后才完成 → 提示"请重新拖动"；暂存目录按每次拖动隔离，下次启动清理。
 //!
-//! 手势与下载之间的决定都在 `kanso_gpui::app::drag_out::DragPrep`（有单元测试），这里只接线。
+//! 手势与下载之间的决定都在 `kanso_gpui::app::drag_out::DragPrep` 与 `kanso_gpui::app::os_drag`（有单元测试），这里只接线。
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -18,6 +19,7 @@ use std::time::Duration;
 use gpui::{Context, IntoElement, Render, SharedString, Window, div, prelude::*, px};
 use kanso_gpui::app::drag_out::{DragPrep, Effect, chip_text};
 use kanso_gpui::app::filer_text::msg;
+use kanso_gpui::app::os_drag::{OsOutcome, Step, next_step};
 use kanso_gpui::app::remote_edit::EditFiles;
 use kanso_gpui::widgets::style::number;
 use kanso_types::TransferId;
@@ -91,7 +93,12 @@ impl FilerPanel {
     }
 
     /// 手势真正开始（鼠标移动超过 GPUI 的拖动阈值）。返回拖动提示文字。
-    pub(crate) fn start_drag(&mut self, drag: &FilerDrag, cx: &mut Context<Self>) -> String {
+    pub(crate) fn start_drag(
+        &mut self,
+        drag: &FilerDrag,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> String {
         let idx = drag.pane;
         if self.mode != PanelMode::Aux || idx >= self.panes.len() {
             return String::new();
@@ -119,7 +126,7 @@ impl FilerPanel {
             }
             Source::Remote(session) => self.drag_prepare_remote(session, &rows, &label, &prep, cx),
         };
-        self.drag_watch_end(prep, group, label.clone(), cx);
+        self.drag_watch_end(prep, group, label.clone(), window, cx);
         label
     }
 
@@ -211,34 +218,69 @@ impl FilerPanel {
         Some(group)
     }
 
-    /// 轮询手势何时结束（GPUI 在松手后清掉活动拖动）：结束后做收尾（取消 / 提示）。
+    /// 轮询手势：GPUI 在松手后清掉活动拖动 → 做收尾（取消 / 提示）；指针离开窗口且条目就绪 → 改为系统拖放。
     fn drag_watch_end(
         &mut self,
         prep: Arc<DragPrep>,
         group: Option<Arc<DragGroup>>,
         label: String,
+        window: &Window,
         cx: &mut Context<Self>,
     ) {
-        cx.spawn(async move |this, cx| {
+        /// 一次轮询在实体内部得出的结论，借用结束后再据此行动。
+        enum Poll {
+            Continue,
+            Over,
+            /// 系统拖放：要交付的路径与窗口句柄。
+            Os(Vec<String>, Option<isize>),
+        }
+        cx.spawn_in(window, async move |this, cx| {
             loop {
                 cx.background_executor()
-                    .timer(Duration::from_millis(50))
+                    .timer(Duration::from_millis(20))
                     .await;
-                let over = this
-                    .update(cx, |t, cx| {
-                        if cx.has_active_drag() {
-                            return false;
-                        }
+                let poll = this.update_in(cx, |t, window, cx| {
+                    if !cx.has_active_drag() {
                         t.drag_ended(&prep, group.as_deref(), &label, cx);
-                        true
-                    })
-                    .unwrap_or(true);
-                if over {
-                    break;
+                        return Poll::Over;
+                    }
+                    match next_step(super::os_drag::pointer(window), &prep) {
+                        Step::Wait => Poll::Continue,
+                        Step::Start(paths) => {
+                            // 结束 GPUI 的内部拖动（拖动提示随之消失），系统拖放接管。
+                            cx.stop_active_drag(window);
+                            Poll::Os(paths, super::os_drag::window_hwnd(window))
+                        }
+                    }
+                });
+                match poll {
+                    Ok(Poll::Continue) => {}
+                    Ok(Poll::Over) | Err(_) => break,
+                    Ok(Poll::Os(paths, hwnd)) => {
+                        // 此处不持有任何实体 / App 借用：DoDragDrop 的模态循环里 GPUI 的窗口消息会继续被处理。
+                        let outcome = super::os_drag::run(&paths);
+                        if let Some(h) = hwnd {
+                            super::os_drag::release_ui(h);
+                        }
+                        this.update(cx, |t, cx| t.os_drag_finished(outcome, &label, cx))
+                            .ok();
+                        break;
+                    }
                 }
             }
         })
         .detach();
+    }
+
+    /// 系统拖放结束：失败提示一次；成功 / 取消不打扰（接收方已处理，暂存副本留到下次启动清理）。
+    fn os_drag_finished(&mut self, outcome: OsOutcome, label: &str, cx: &mut Context<Self>) {
+        if let OsOutcome::Failed(why) = outcome {
+            cx.emit(FilerEvent::Notice(msg(Message::FilerDragFailed {
+                name: label.to_owned(),
+                why,
+            })));
+        }
+        cx.notify();
     }
 
     fn drag_ended(
