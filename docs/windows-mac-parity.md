@@ -60,7 +60,9 @@ Mac 对照 `apple/Packages/TerminalKit/Sources/TerminalKit/`、`docs/spec/termin
 | 跟踪 CWD、命令活动、退出/重连、AI CLI 轮次 | 终端 OSC/输入跟踪由 `kanso-term/src/track/` 与 core 提供。标签状态、Sender 和目录定位消费同一状态。**单测/代码** | 本地 CMD/PowerShell、SSH 的 OSC 7 与主机名，AI 多轮、后台完成提示、SSH 断线重连分别验证 |
 | 底部 Filer/时间轴按钮、CWD、会话状态、旧 SSH 算法提示、时钟和 Sender 运行提示 | `ui/status_bar.rs`、`app/status_bar.rs`。**VM 操作** Filer/时间轴与时钟可见，**单测** 本地时钟分钟边界、路径尾部截断、Legacy SSH 多跳、无活动会话 | 实际连接中/关闭/重连，运行中收起 Sender、悬停 legacy 算法清单。窄窗通知不遮必要按钮 |
 | 选择会话编码/locale、收发时转码 | 编辑器 `ui/session_editor.rs` 的编码列表，进入共用核心。终端协议传输单独接管原始字节。**代码** | 支持列表的代表性多字节编码在 SSH 双向输入/输出，分片字符及不可编码键入 |
-| ZMODEM 自动收发、XMODEM 128 字节/1K 发送和接收，进度、取消 | 会话 → 文件传输，`app/term_transfer.rs`、`ui/shell_filer.rs`。**各平台互操作测试** Mac 上真实 lrzsz 0.12.20 与 Windows VM 上独立 MSYS2 lrzsz 0.13.1 各 8/8，通过双向协议端，见证据索引。**VM 操作** 原生“另存为”接收 ZMODEM 100003 字节，哈希一致；手动 XMODEM 接收原文一致，末块含 93 字节协议填充。8 MiB 在途接收时切标签和清屏均不终止传输。取消后屏幕无残留数据，对端确认取消，第一条无换行提示符与下一条输入均可用 | 复查其他协议实现的不同收尾行为 |
+| ZMODEM 自动发送与接收 | **Windows VM 实操** 在 SSH 标签中启动独立的 lrzsz 0.13.1 对端。原生“打开”选择上传文件，“另存为”选择下载位置。两次各传输 100003 字节，发送端与接收端 SHA-256 一致，两个对端进程均正常退出 | 其他协议实现的兼容性 |
+| XMODEM 手动发送与接收 | **Windows VM 实操** “用 XMODEM-1K 发送”经原生文件选择器上传，“用 XMODEM 接收”经原生保存框下载。两个方向均逐字节核实 100003 字节原文和 93 个末块填充字节（0x1A），对端均正常退出。**协议互操作** Mac 上 lrzsz 0.12.20 与 Windows 上 lrzsz 0.13.1 各 8/8，覆盖 128 字节、1K、CRC 和累加和 | 其他协议实现的兼容性 |
+| 传输进度、切标签、清屏和取消 | **Windows VM 实操** 接收 8 MiB 测试文件时切到另一终端，切回后清除缓冲区，进度继续增长。已收到 1088512 字节时取消，对端收到 CAN 并退出。终端保留对端的退出消息和无换行提示符，输入下一条命令得到响应。修复 `e0b288e` 后未再显示在途文件数据 | 其他协议实现的取消收尾行为 |
 
 ## 文件浏览器、Git 与远程编辑
 
@@ -122,5 +124,6 @@ Mac 基准为 `apple/Kanso/App/Settings/`。Windows 设置为独立窗口。`ui/
 - 仓库可重复运行 `cargo test -p kanso-gpui --lib`，其中 `render::tests::terminal_preset_search_colors_match_mac` 检查两套内置配色，`render::tests::dim_uses_final_colors_and_chip_runs_follow_cells` 检查输出和提示符色块，`app::tab::tests::click_preview_move_back_and_group_boundaries` 检查同组拖动边界。非法正则的独立 PTY 校验是 `crates/kanso-core/tests/real_core.rs::selection_search_and_timestamp_mode_delegate_to_the_terminal`。最终提交的 Mac GPUI 库测试共 603 项通过，Windows 的 602 项 GPUI 和 16 项会话库测试通过。长路径窄分屏自检按终端逻辑行统计命令回显。
 - Windows 自检入口位于 `crates/kanso-gpui/src/ui/`。主外壳、终端、Filer、Sender、设置五套报告均有通过记录，增加的远程编辑自检另计。复查时给应用传单独的 `--data-dir`，使用临时 HOME 和专用 SSH fixture，不接触用户凭据、剪贴板或会话。
 - 本轮联调机器的临时材料在 `/tmp/kanso-polish/`。Mac 的 `theme-proofs/mac-terminal-{light,dark,ocean}.png`、`mac-semantic-{light,dark}.png` 和 Windows 的 `r3-screens/windows-ocean.jpg`、`lt-find.png` 用于外观对照。`vmqa/proof/` 保存 SFTP、OpenSSH、导出/导入实拍，`vmqa/proof4/lt-virtual-filer.jpg` 为 SSH 辅助 Filer。Mac 与 Windows 协议互操作的逐项结果见 `vmqa/lrzsz.log` 与 `vmqa/windows-protocol-lrzsz-0.13.1.log`。
+- Windows 应用前台四次传输与一次在途取消的核对结果在 `vmqa/protocol-gui/fixed/protocol-verified.txt`。同目录的 `lt-{x,z}-upload-complete.jpg` 和 `lt-{x,z}-restored.jpg` 记录上传、接收后的终端，`lt-z-cancelled.jpg` 记录对端取消及终端响应。
 - 逐项操作 Windows 的原图保存在 `/tmp/kanso-polish/windows-parity/`。文件搜索与选中见 `file-results.png`、`file-revealed.png`，改键与恢复见 `key-conflict.png`、`session-menu.png`、`binding-reopen.png`、`key-reset.png`，侧栏拖动见 `tabs-before.png`、`tabs-after.png`、`panel-size.png`，新进程的显示设置见 `display-reopen.png`。Windows 浅色真实终端见 `windows-light-ansi.png`、与 Mac 逐色核对的原始 RGB 见 `light-color-check.txt`。
 - 调试材料不随安装包分发。版本与后续实机结果见[Windows 交接记录](windows-gpui-handoff.md)。单测、VM 程序自检、真实外部程序和协议对端各证明对应步骤。
