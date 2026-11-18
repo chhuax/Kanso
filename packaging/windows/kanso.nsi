@@ -4,7 +4,7 @@
 ; 由 `cargo xtask win-package` 调用 makensis 编译，不要手工运行；需要的参数都用 /D 传入：
 ;   VERSION          产品版本，如 1.0.2
 ;   VERSION_NUMERIC  四段数字版本，如 1.0.2.0（VIProductVersion 要求）
-;   STAGE_DIR        暂存目录（含 Kanso.exe、LICENSE.txt、THIRD_PARTY_NOTICES*.md）
+;   STAGE_DIR        Windows 暂存目录（GPUI Kanso.exe、LICENSE.txt、THIRD_PARTY_NOTICES.windows.md）
 ;   OUT_FILE         输出的安装程序路径
 ;   INSTALLER_ICON   安装 / 卸载程序图标（.ico）
 ;   SIGN_CMD         可选。签名命令模板，%1 会被替换为待签名文件（安装程序与卸载程序都会过一遍），
@@ -14,6 +14,8 @@
 Unicode true
 ManifestDPIAware true
 SetCompressor /SOLID lzma
+; 用同一份 1.0.2 Windows 载荷对比 8 / 16 / 32 MiB，16 MiB 输出最小。
+SetCompressorDictSize 16
 
 !include "MUI2.nsh"
 !include "FileFunc.nsh"
@@ -151,8 +153,9 @@ Section "Kanso" SecMain
   SetOutPath "$INSTDIR"
   File "${STAGE_DIR}\${APP_EXE}"
   File "${STAGE_DIR}\LICENSE.txt"
-  File "${STAGE_DIR}\THIRD_PARTY_NOTICES.md"
   File "${STAGE_DIR}\THIRD_PARTY_NOTICES.windows.md"
+  ; 旧 Windows 安装曾附带 macOS 声明。升级时只清理这一个已知的旧发行文件。
+  Delete "$INSTDIR\THIRD_PARTY_NOTICES.md"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 
   CreateShortcut "$SMPROGRAMS\${APP_NAME}.lnk" "$INSTDIR\${APP_EXE}" "" "$INSTDIR\${APP_EXE}" 0

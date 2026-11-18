@@ -2,13 +2,17 @@
 
 本版 Windows 发行物：NSIS 安装程序 + 绿色版 zip，x64。**不做代码签名，不做自动更新**（与 macOS 版目前“ad-hoc 签名、未公证”的状态一致）。Authenticode 签名见文末“后续计划”。
 
+## 发行入口
+
+在 Windows 执行 `cargo xtask win-package`。脚本编译 `kanso-gpui` 的 x86_64 MSVC Release，把 `kanso-gpui.exe` 以 `Kanso.exe` 暂存，安装程序与免安装 ZIP 共用下表三项输入。Windows 界面来自 GPUI。macOS AppKit 的 DMG 构建命令见 [macOS 发行流程](apple-build.md)。
+
 ## 产物
 
-`cargo xtask win-package` 输出到 `target/win-package/`（设置了 `CARGO_TARGET_DIR` 时在其下）：
+`cargo xtask win-package` 输出到 `target/win-package/`（设置了 `CARGO_TARGET_DIR` 时在其下），并打印安装程序和免安装 ZIP 的字节数：
 
 | 文件 | 说明 |
 |---|---|
-| `Kanso-<版本>-x64/` | 暂存目录：`Kanso.exe`、`LICENSE.txt`（GPL-3.0）、`THIRD_PARTY_NOTICES.md`（macOS 构建的依赖声明）、`THIRD_PARTY_NOTICES.windows.md`（Windows 构建的依赖声明） |
+| `Kanso-<版本>-x64/` | 暂存目录：`Kanso.exe`、`LICENSE.txt`（GPL-3.0）、`THIRD_PARTY_NOTICES.windows.md`（Windows 构建的依赖声明） |
 | `Kanso-<版本>-x64-portable.zip` | 绿色版：解压即用，zip 内有同名顶层目录。用户数据仍在 `%LOCALAPPDATA%\Kanso`，不写进解压目录 |
 | `Kanso-<版本>-x64-setup.exe` | 安装程序（仅在找到 makensis 时生成） |
 | 以上每个 zip / exe 的 `.sha256` | 内容 `<哈希>  <文件名>`，用 `certutil -hashfile <文件> SHA256` 或 `shasum -c` 校验 |
@@ -21,7 +25,7 @@
 - MSVC 链接环境：Visual Studio Build Tools（“使用 C++ 的桌面开发”，含 Windows 10/11 SDK）。仓库当前在 VM 里用 `rust-lld` 作链接器，同样可行。
 - **Windows SDK 的 `rc.exe`**：`crates/kanso-gpui/build.rs` 用它把图标、版本信息、应用清单编成 `.res` 链进 exe。查找顺序：环境变量 `RC` → `PATH` → `Windows Kits\10\bin\<最高版本>\x64\rc.exe`。`win-package` 会设置 `KANSO_REQUIRE_RESOURCES=1`，找不到 `rc.exe` 时构建失败；普通 `cargo build` 只给警告，exe 照常生成但没有图标 / 版本信息。
 - **NSIS 3.x**（建议 3.09 及以上，需要含 Unicode 与 `SimpChinese` 语言文件的标准安装包）：只用于生成安装程序，是构建工具，不并入 Kanso 的代码。NSIS 采用 zlib/libpng 许可（宽松，GPL 兼容）；安装程序里嵌入的 NSIS 安装存根按其许可分发，已在 `THIRD_PARTY_NOTICES.windows.md` 记录。查找顺序：环境变量 `MAKENSIS` → `PATH` → `%ProgramFiles(x86)%\NSIS` / `%ProgramFiles%\NSIS` / `%LOCALAPPDATA%\Programs\NSIS`。找不到则只生成 zip 并给出提示。
-- `tar.exe`（Windows 10 1803 起自带）生成 zip，失败时退回 PowerShell 的 `Compress-Archive`；`certutil` 计算 SHA-256。没有新增 Rust 依赖。
+- `tar.exe`（Windows 10 1803 起自带）使用 Deflate 9 生成资源管理器可直接解压的 ZIP，失败时用 PowerShell `Compress-Archive -CompressionLevel Optimal`。NSIS 安装程序使用 16 MiB 字典的 solid LZMA。`certutil` 计算 SHA-256。
 - 离线环境（如测试 VM）：先在联网机器上 `cargo fetch`，把依赖放进离线 registry，再运行 `cargo xtask win-package --offline`。
 
 ## 命令

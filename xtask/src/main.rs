@@ -52,8 +52,8 @@ fn usage() {
          gen-tokens [--out <dir>]    生成 Xcode 颜色集与 DesignTokens.swift（默认 apple/Kanso/Generated）\n  \
          check-locales               校验 locales/*.ftl 与 kanso-types 消息清单一致，并检查 Localizable.xcstrings 中英齐全\n  \
          notices                     重新生成产品依赖与素材的 THIRD_PARTY_NOTICES.md\n  \
-         dmg [--arch <arm64|x86_64>]  Release 构建 Direct 渠道并生成 DMG，输出 SHA-256（默认 arm64；Intel 包显式传 --arch x86_64）\n  \
-         win-package [--skip-build] [--no-installer] [--offline]\n                                     （仅 Windows）Release 构建 kanso-gpui，生成绿色版 zip 与 NSIS 安装程序（找到 makensis 时），输出 SHA-256\n  \
+         dmg [--arch <arm64|x86_64>]  （仅 macOS）用 Xcode 构建 Direct AppKit 版并生成 DMG，输出 SHA-256（默认 arm64）\n  \
+         win-package [--skip-build] [--no-installer] [--offline]\n                                     （仅 Windows）Release 构建 x64 GPUI，生成免安装 ZIP 与 NSIS 安装程序（找到 makensis 时），输出 SHA-256\n  \
          bindgen                     用 UniFFI library mode 重新生成 Swift 绑定（入库于 apple/Packages/KansoBridge）\n  \
          check-bindings              重新生成到临时目录并与入库绑定逐字节比较，不一致即失败\n  \
          xcode                       生成 design token 产物并用 XcodeGen 生成 apple/Kanso.xcodeproj\n  \

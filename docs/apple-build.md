@@ -3,6 +3,10 @@
 P0.8 交付的工程骨架：应用能用三种发行版配置构建、启动；I1 之后默认显示真实本地 shell，`--mock-core` 显示 Rust 生成的 mock 终端帧。
 总体结构见 `architecture.md` §1、§3、§9。
 
+## 发行入口
+
+在 macOS 执行 `cargo xtask dmg`，Intel 包用 `cargo xtask dmg --arch x86_64`。脚本让 Xcode 构建 `Release-Direct/Kanso.app`，AppKit 主程序链接 Rust `kanso-ffi`，Direct 渠道包含 `kanso-mcp` 转发程序。DMG 只复制这个 App Bundle、Applications 链接和 macOS 许可文本，使用 UDZO 的 zlib 9 压缩。Windows GPUI 由独立的 [Windows 发行命令](windows-release.md) 构建。
+
 ## 1. 目录结构
 
 ```

@@ -1,7 +1,7 @@
 //! Windows 发行包：`cargo xtask win-package`。
 //!
-//! 流程：Release 构建 kanso-gpui（x86_64-pc-windows-msvc）→ 暂存到 `target/win-package/Kanso-<版本>-x64/`
-//! → 绿色版 zip → 若找到 makensis 则生成 NSIS 安装程序 → 为每个产物写 `.sha256`。
+//! 发行入口是 Windows x64 的 `kanso-gpui.exe`。暂存固定三项：改名为 `Kanso.exe` 的程序、GPL 许可、
+//! Windows 第三方声明，再用同一份暂存内容制作 ZIP 和 NSIS 安装程序，为每个产物写 `.sha256`。
 //! 只支持在 Windows 上运行；详见 `docs/windows-release.md`。
 //!
 //! 签名钩子：环境变量 `KANSO_SIGN_CMD`（形如 `signtool sign /fd sha256 /a "%1"`，`%1` 换成待签名文件）。
@@ -96,7 +96,7 @@ fn package(options: &Options) -> Result<()> {
         return Err(format!("找不到 {}", exe.display()).into());
     }
 
-    // 暂存目录。
+    // 每次从空目录暂存 Windows 可执行文件及其许可，ZIP 与 NSIS 使用同一份内容。
     let out = target_dir.join("win-package");
     let name = format!("Kanso-{version}-x64");
     let stage = out.join(&name);
@@ -107,7 +107,6 @@ fn package(options: &Options) -> Result<()> {
     fs::copy(&exe, stage.join("Kanso.exe"))?;
     for (source, destination) in [
         ("LICENSE", "LICENSE.txt"),
-        ("THIRD_PARTY_NOTICES.md", "THIRD_PARTY_NOTICES.md"),
         (
             "THIRD_PARTY_NOTICES.windows.md",
             "THIRD_PARTY_NOTICES.windows.md",
@@ -152,7 +151,11 @@ fn package(options: &Options) -> Result<()> {
 
     eprintln!("\n产物（{}）：", out.display());
     for artifact in &artifacts {
-        eprintln!("  {}", artifact.display());
+        eprintln!(
+            "  {}（{} 字节）",
+            artifact.display(),
+            fs::metadata(artifact)?.len()
+        );
         eprintln!("  {}.sha256", artifact.display());
     }
     Ok(())
@@ -210,7 +213,7 @@ fn enable_static_crt(build: &mut Command, offline: bool) -> Result<()> {
     Ok(())
 }
 
-/// 生成 zip：优先用系统自带的 `tar.exe`（bsdtar，Windows 10 1803+），失败再退回 PowerShell 的 Compress-Archive。
+/// 用最高 Deflate 压缩生成资源管理器能直接解压的 ZIP；旧工具退回 PowerShell。
 fn make_zip(out: &Path, folder: &str, zip: &Path) -> Result<()> {
     if zip.exists() {
         fs::remove_file(zip)?;
@@ -218,7 +221,13 @@ fn make_zip(out: &Path, folder: &str, zip: &Path) -> Result<()> {
     let tar_ok = run(
         "打包 zip（tar.exe）",
         Command::new("tar.exe")
-            .args(["-a", "-c", "-f"])
+            .args([
+                "-a",
+                "--options",
+                "zip:compression=deflate,zip:compression-level=9",
+                "-c",
+                "-f",
+            ])
             .arg(zip)
             .arg("-C")
             .arg(out)
@@ -229,7 +238,7 @@ fn make_zip(out: &Path, folder: &str, zip: &Path) -> Result<()> {
     }
     let _ = fs::remove_file(zip);
     let script = format!(
-        "Compress-Archive -Path '{}' -DestinationPath '{}' -Force",
+        "Compress-Archive -Path '{}' -DestinationPath '{}' -CompressionLevel Optimal -Force",
         out.join(folder).display(),
         zip.display()
     );
