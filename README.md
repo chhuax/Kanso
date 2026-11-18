@@ -87,7 +87,7 @@ The Debug app is at `target/apple/DerivedData.noindex/Build/Products/Debug-Direc
 
 ## Roadmap
 
-- Linux and Windows versions, using GPUI and the same Rust core. Until then, Windows and Linux users can keep using the 0.x releases of [chhuax/Kanso-legacy](https://github.com/chhuax/Kanso-legacy).
+- Windows and Linux share the GPUI frontend and Rust core. Linux build requirements and current verification limits are in [docs/linux-gpui.md](docs/linux-gpui.md).
 - Notarized builds.
 
 This repository is an independent rewrite and shares no code with Kanso-legacy, the earlier Tauri app based on EdgeTerm.

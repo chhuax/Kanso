@@ -1,11 +1,13 @@
 //! 本地时区偏移（文件列表的修改时间按本地时区显示，filer.md §4.1）。
 
-// 必须调用 Win32 API，与 `memory` 一样是本 crate 里放开 unsafe 的地方。
+// 本地时区使用操作系统 API，不自行解析时区数据库。
 #![allow(unsafe_code)]
 
+#[cfg(windows)]
 use windows_sys::Win32::System::Time::{GetTimeZoneInformation, TIME_ZONE_INFORMATION};
 
 /// 本地时间相对 UTC 的偏移（分钟，东为正，已含夏令时）；取不到时为 0。
+#[cfg(windows)]
 pub(crate) fn local_offset_minutes() -> i32 {
     // SAFETY: 全零是 `TIME_ZONE_INFORMATION`（纯整数数组与结构）的有效值，函数只写入这块缓冲区。
     let mut info: TIME_ZONE_INFORMATION = unsafe { std::mem::zeroed() };
@@ -18,4 +20,18 @@ pub(crate) fn local_offset_minutes() -> i32 {
         _ => return 0,
     };
     -(info.Bias + extra)
+}
+
+/// Linux 当前本地时区偏移，包含夏令时。
+#[cfg(target_os = "linux")]
+pub(crate) fn local_offset_minutes() -> i32 {
+    let mut local = std::mem::MaybeUninit::<libc::tm>::uninit();
+    // 输出缓冲区有效；localtime_r 成功后才读取初始化后的 tm。
+    unsafe {
+        let now = libc::time(std::ptr::null_mut());
+        if libc::localtime_r(&now, local.as_mut_ptr()).is_null() {
+            return 0;
+        }
+        (local.assume_init().tm_gmtoff / 60) as i32
+    }
 }

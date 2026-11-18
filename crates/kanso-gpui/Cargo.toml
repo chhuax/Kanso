@@ -1,6 +1,6 @@
 [package]
 name = "kanso-gpui"
-description = "Kanso 的 Windows / Linux 前端原型（GPUI）。纯逻辑部分三平台可编译，窗口只在 Windows 构建。"
+description = "Kanso 的 Windows / Linux 前端（GPUI）。纯逻辑部分三平台可编译。"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -16,6 +16,8 @@ kanso-core = { workspace = true, default-features = false }
 kanso-frame.workspace = true
 kanso-types.workspace = true
 kanso-secret.workspace = true
+# MCP 服务端宿主（Windows / Linux 共用；只有 Direct 渠道编译真实服务）。
+kanso-mcp-server.workspace = true
 # 核心消息（错误、警告）渲染成界面文字（Apache-2.0 / MIT 的 fluent 系列，已在 Cargo.lock 里）。
 kanso-l10n.workspace = true
 serde.workspace = true
@@ -24,21 +26,26 @@ unicode-width.workspace = true
 # 输入框按字素簇移动光标、按词边界移动（MIT / Apache-2.0；gpui 本身也依赖它，已在 Cargo.lock 里）。
 unicode-segmentation = "1"
 
-# GPUI 与其配套依赖只在 Windows 引入：macOS / Linux 的 `cargo build --workspace` 不需要图形系统库。
+# Windows / Linux 共用 GPUI 界面；macOS 继续使用 AppKit，不引入图形系统依赖。
 # 用 crates.io 的发布版（Apache-2.0），不用 git 依赖；`=` 固定版本，升级要重新评估许可证与体积。
-[target.'cfg(windows)'.dependencies]
-kanso-mcp-server.workspace = true
-# 系统随机源生成 MCP 客户端令牌（MIT / Apache-2.0，Cargo.lock 和 Windows 声明已有）。
-getrandom = "0.4"
+[target.'cfg(any(windows, target_os = "linux"))'.dependencies]
 # 关掉默认的 `windows-manifest`：gpui 会把自带的应用清单链接进最终 exe，与 build.rs 嵌入的 Kanso 清单
 # （含 PerMonitorV2、Common Controls 6、UTF-8、长路径）重复，链接器会报重复资源。其余默认特性原样保留。
 gpui = { version = "=0.2.2", default-features = false, features = ["font-kit", "wayland", "x11"] }
 # 接收 GPUI 的图形后端诊断，写入同一份运行日志（MIT / Apache-2.0）。
 log = "0.4"
-# 获取当前窗口句柄，让原生标题栏跟随应用外观（MIT / Apache-2.0 / Zlib）。
-raw-window-handle = "0.6"
 # 核心事件从工作线程投递到 UI 线程的无界通道（MIT / Apache-2.0）。
 futures = { workspace = true, features = ["executor"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# 本地时区查询，复用工作区已有依赖（MIT / Apache-2.0）。
+libc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+# 系统随机源生成 MCP 客户端令牌（MIT / Apache-2.0，Cargo.lock 和 Windows 声明已有）。
+getrandom = "0.4"
+# 获取当前窗口句柄，让原生标题栏跟随应用外观（MIT / Apache-2.0 / Zlib）。
+raw-window-handle = "0.6"
 # 读取进程工作集内存、系统界面语言、标题栏外观，只用相应特性（MIT / Apache-2.0；与 kanso-secret 同一个 crate）。
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Globalization", "Win32_Graphics_Dwm", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_System_Time", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 # 向资源管理器等其他应用发起系统拖放（OLE DoDragDrop + 自实现的 IDataObject / IDropSource，见 ui/os_drag.rs）：
@@ -50,6 +57,9 @@ windows-core = "0.61"
 [features]
 default = ["direct"]
 direct = ["kanso-core/direct", "kanso-mcp-server/direct"]
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

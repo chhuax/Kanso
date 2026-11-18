@@ -58,7 +58,9 @@ fluent-bundle = "0.16"
 
 # 本地 PTY（kanso-pty）：portable-pty 为 MIT，libc 为 MIT / Apache-2.0，shell-words 为 MIT / Apache-2.0。
 portable-pty = "0.9"
-libc = "0.2"
+# GPUI 0.2.2 的 xattr 0.2.3 仍引用 Linux ENOATTR，libc 0.2.190 已删除该别名。
+# 升级 GPUI 的归档依赖后再解除固定，避免 Linux 构建在 cargo update 后失效。
+libc = "=0.2.189"
 shell-words = "1"
 
 # 终端引擎（kanso-term）。两者都用 `=` 固定确切版本，不允许随 `cargo update` 漂移。

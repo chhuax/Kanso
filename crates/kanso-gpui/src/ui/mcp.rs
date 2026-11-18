@@ -1,4 +1,4 @@
-//! Windows MCP 宿主：令牌保存在凭据管理器中，服务回调经通道投递到 GPUI 线程。
+//! Windows / Linux MCP 宿主：令牌保存在系统凭据库中，服务回调经通道投递到 GPUI 线程。
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -12,9 +12,9 @@ use kanso_core::Core;
 use kanso_gpui::app::launcher::render_message;
 use kanso_mcp_server::{
     McpActivity, McpClientInfo, McpClientKind, McpServer, McpServerConfig, McpServerDelegate,
-    McpServerStatus, McpUnavailable, powershell_client_config,
+    McpServerStatus, McpUnavailable, client_config, powershell_client_config,
 };
-use kanso_secret::CredentialManagerStore;
+use kanso_secret::PlatformSecretStore;
 use kanso_types::SessionId;
 use kanso_types::event::SessionState;
 use kanso_types::message::Message;
@@ -64,7 +64,7 @@ struct TabMark {
 pub(super) struct McpModel {
     core: Arc<Core>,
     server: McpServer,
-    tokens: CredentialManagerStore,
+    tokens: PlatformSecretStore,
     token: Option<SecretString>,
     status: McpServerStatus,
     clients: Vec<McpClientInfo>,
@@ -86,7 +86,13 @@ impl McpModel {
             token: None,
             clients: Vec::new(),
             helper: std::env::current_exe()
-                .map(|exe| exe.with_file_name("kanso-mcp.exe"))
+                .map(|exe| {
+                    exe.with_file_name(if cfg!(windows) {
+                        "kanso-mcp.exe"
+                    } else {
+                        "kanso-mcp"
+                    })
+                })
                 .unwrap_or_default(),
             marks: HashMap::new(),
         };
@@ -185,11 +191,12 @@ impl McpModel {
 
     pub(super) fn command(&self, kind: McpClientKind) -> Option<String> {
         let path = self.helper.to_str().filter(|path| !path.is_empty())?;
-        Some(powershell_client_config(
-            kind,
-            path,
-            self.token.as_ref()?.expose(),
-        ))
+        let token = self.token.as_ref()?.expose();
+        Some(if cfg!(windows) {
+            powershell_client_config(kind, path, token)
+        } else {
+            client_config(kind, path, token)
+        })
     }
 
     pub(super) fn refresh_token(&mut self, cx: &mut Context<Self>) {
@@ -359,18 +366,18 @@ impl McpModel {
 fn open_server(
     core: &Arc<Core>,
     delegate: Arc<dyn McpServerDelegate>,
-) -> (McpServer, CredentialManagerStore) {
+) -> (McpServer, PlatformSecretStore) {
     #[cfg(all(debug_assertions, feature = "direct"))]
     if let Some(path) = std::env::var_os("KANSO_MCP_DIR") {
         // 界面实测与转发程序使用同一测试目录。测试令牌也使用独立的凭据名称。
         let dir = PathBuf::from(path);
         let tokens =
-            CredentialManagerStore::new(format!("{}/mcp-test/{}", core.bundle_id(), dir.display()));
+            PlatformSecretStore::new(format!("{}/mcp-test/{}", core.bundle_id(), dir.display()));
         return (McpServer::new_in_dir(core.clone(), delegate, dir), tokens);
     }
     (
         McpServer::new(core.clone(), delegate),
-        CredentialManagerStore::new(core.bundle_id()),
+        PlatformSecretStore::new(core.bundle_id()),
     )
 }
 

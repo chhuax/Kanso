@@ -19,6 +19,7 @@ use std::time::Duration;
 use gpui::{Context, IntoElement, Render, SharedString, Window, div, prelude::*, px};
 use kanso_gpui::app::drag_out::{DragPrep, Effect, chip_text};
 use kanso_gpui::app::filer_text::msg;
+#[cfg(windows)]
 use kanso_gpui::app::os_drag::{OsOutcome, Step, next_step};
 use kanso_gpui::app::remote_edit::EditFiles;
 use kanso_gpui::widgets::style::number;
@@ -232,6 +233,7 @@ impl FilerPanel {
             Continue,
             Over,
             /// 系统拖放：要交付的路径与窗口句柄。
+            #[cfg(windows)]
             Os(Vec<String>, Option<isize>),
         }
         cx.spawn_in(window, async move |this, cx| {
@@ -244,6 +246,8 @@ impl FilerPanel {
                         t.drag_ended(&prep, group.as_deref(), &label, cx);
                         return Poll::Over;
                     }
+                    // GPUI 0.2.2 没有向系统发起拖放的接口：Linux 上只做应用内拖动。
+                    #[cfg(windows)]
                     match next_step(super::os_drag::pointer(window), &prep) {
                         Step::Wait => Poll::Continue,
                         Step::Start(paths) => {
@@ -252,10 +256,16 @@ impl FilerPanel {
                             Poll::Os(paths, super::os_drag::window_hwnd(window))
                         }
                     }
+                    #[cfg(target_os = "linux")]
+                    {
+                        let _ = window;
+                        Poll::Continue
+                    }
                 });
                 match poll {
                     Ok(Poll::Continue) => {}
                     Ok(Poll::Over) | Err(_) => break,
+                    #[cfg(windows)]
                     Ok(Poll::Os(paths, hwnd)) => {
                         // 此处不持有任何实体 / App 借用：DoDragDrop 的模态循环里 GPUI 的窗口消息会继续被处理。
                         let outcome = super::os_drag::run(&paths);
@@ -273,6 +283,7 @@ impl FilerPanel {
     }
 
     /// 系统拖放结束：失败提示一次；成功 / 取消不打扰（接收方已处理，暂存副本留到下次启动清理）。
+    #[cfg(windows)]
     fn os_drag_finished(&mut self, outcome: OsOutcome, label: &str, cx: &mut Context<Self>) {
         if let OsOutcome::Failed(why) = outcome {
             cx.emit(FilerEvent::Notice(msg(Message::FilerDragFailed {

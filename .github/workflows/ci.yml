@@ -37,7 +37,7 @@ jobs:
       - name: Check Rust, bindings, tokens and locales
         run: cargo xtask ci --skip-apple
 
-  # Rust 核心三平台共享：Windows / Linux 只跑平台无关的检查。
+  # Rust 核心三平台共享；Linux 同时构建 GPUI 并运行隔离窗口自检。
   # 绑定校验、Apple 构建、渠道矩阵、c-abi 与 cargo deny 仅在 macOS job 中执行。
   rust-portable:
     name: rust (${{ matrix.os }})
@@ -57,6 +57,11 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y zsh
           zsh -fc 'autoload -U compaudit; compaudit' | xargs -r sudo chmod go-w
+      - name: Install Linux GPUI dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev libfontconfig1-dev libfreetype-dev libssl-dev clang
+          sudo apt-get install -y mesa-vulkan-drivers xvfb xauth openbox dbus-x11 fonts-dejavu-core fonts-noto-cjk
       - uses: Swatinem/rust-cache@v2.7.8
       - name: Format
         run: cargo fmt --all --check
@@ -68,6 +73,17 @@ jobs:
         run: cargo run --quiet -p xtask -- check-tokens
       - name: Check locales
         run: cargo run --quiet -p xtask -- check-locales
+      - name: Build Linux GPUI
+        if: runner.os == 'Linux'
+        run: cargo build -p kanso-gpui --locked
+      - name: Linux GPUI window smoke tests
+        if: runner.os == 'Linux'
+        run: sh scripts/gpui-linux-smoke.sh
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux' && always()
+        with:
+          name: linux-gpui-smoke
+          path: target/linux-smoke/
 
   macos:
     runs-on: macos-15
