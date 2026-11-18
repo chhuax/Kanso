@@ -18,7 +18,7 @@ fn program(name: &str) -> Option<PathBuf> {
         .collect::<Vec<_>>();
     for directory in paths {
         for candidate in [name.to_string(), format!("l{name}")] {
-            let path = directory.join(candidate);
+            let path = directory.join(format!("{candidate}{}", std::env::consts::EXE_SUFFIX));
             if path.is_file() {
                 return Some(path);
             }
