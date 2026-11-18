@@ -38,6 +38,7 @@ cargo xtask notices                     # 重新生成 THIRD_PARTY_NOTICES.md �
 
 ## exe 本身
 
+- `win-package` 为 x64 Windows 目标及其依赖静态链接 MSVC 运行库，用户可以直接启动。使用 `--skip-build` 时须提供同样以 `-Ctarget-feature=+crt-static` 构建的 Release 程序；可用 `dumpbin /dependents Kanso.exe` 核对导入表。
 - Release 使用 GUI 子系统（`windows_subsystem = "windows"`），双击不弹控制台；Debug 保留控制台。
 - 日志：`%LOCALAPPDATA%\Kanso\kanso-gpui.log`；启动时把上一次的日志改名为 `kanso-gpui.log.1`。panic 会连同线程名、位置与回溯写进日志；主线程上未被捕获的 panic 还会弹出原生错误框（写明日志路径）并以退出码 101 结束。
 - 资源嵌入（`build.rs`，仅目标为 Windows 时运行，对 Mac / Linux 的构建与测试无影响）：

@@ -15,6 +15,7 @@ use std::process::{Command, ExitCode};
 use crate::{cargo, run};
 
 const TARGET: &str = "x86_64-pc-windows-msvc";
+const STATIC_CRT: &str = "-Ctarget-feature=+crt-static";
 
 struct Options {
     skip_build: bool,
@@ -84,6 +85,7 @@ fn package(options: &Options) -> Result<()> {
         if options.offline {
             build.arg("--offline");
         }
+        enable_static_crt(&mut build, options.offline)?;
         // 找不到 rc.exe 时让构建失败，而不是悄悄发一个没有图标和版本信息的 exe。
         build.env("KANSO_REQUIRE_RESOURCES", "1");
         if !run("构建 kanso-gpui（release）", &mut build) {
@@ -153,6 +155,58 @@ fn package(options: &Options) -> Result<()> {
         eprintln!("  {}", artifact.display());
         eprintln!("  {}.sha256", artifact.display());
     }
+    Ok(())
+}
+
+/// 显式指定了 --target，Cargo 只把这些标志传给目标及其依赖，不影响宿主工具。
+fn enable_static_crt(build: &mut Command, offline: bool) -> Result<()> {
+    for (name, separator) in [("CARGO_ENCODED_RUSTFLAGS", "\x1f"), ("RUSTFLAGS", " ")] {
+        if let Some(mut flags) = env::var_os(name) {
+            if !flags.is_empty() {
+                flags.push(separator);
+            }
+            flags.push(STATIC_CRT);
+            build.env(name, flags);
+            return Ok(());
+        }
+    }
+
+    // Cargo 的 target rustflags 优先于 build.rustflags。用无普通依赖的工作区库查询实际生效层，
+    // 再在同一层追加设置，同时保留开发者在 .cargo/config.toml 里配置的链接选项。
+    let global = format!("build.rustflags=['{STATIC_CRT}']");
+    let mut probe = cargo();
+    probe.args([
+        "rustc",
+        "-p",
+        "kanso-bench",
+        "--lib",
+        "--release",
+        "--locked",
+        "--target",
+        TARGET,
+    ]);
+    if offline {
+        probe.arg("--offline");
+    }
+    let result = probe
+        .args(["--config", &global, "--", "--print=cfg"])
+        .output()?;
+    if !result.status.success() {
+        return Err(format!(
+            "检查 Windows 目标编译参数失败：{}",
+            String::from_utf8_lossy(&result.stderr)
+        )
+        .into());
+    }
+    let static_crt = String::from_utf8_lossy(&result.stdout)
+        .lines()
+        .any(|line| line == "target_feature=\"crt-static\"");
+    let config = if static_crt {
+        global
+    } else {
+        format!("target.{TARGET}.rustflags=['{STATIC_CRT}']")
+    };
+    build.args(["--config", &config]);
     Ok(())
 }
 
