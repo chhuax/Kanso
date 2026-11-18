@@ -772,11 +772,44 @@ impl ShellView {
                     this.settings.update(cx, |m, cx| edit(m, cx));
                 });
                 step(cx).await;
-                let _ = this.update_in(cx, |this, _w, cx| {
+                let _ = this.update_in(cx, |this, w, cx| {
+                    use kanso_gpui::app::settings::ThemeMode;
+                    let settings = this.settings.read(cx);
+                    let expected_dark = match settings.appearance().mode {
+                        ThemeMode::Light => false,
+                        ThemeMode::Dark => true,
+                        ThemeMode::System => display::system_is_dark(w),
+                    };
+                    let metrics = super::view::measure(w);
+                    let expected_bg = settings.terminal_palette(expected_dark).background;
+                    let ok = this.settings_window.is_some()
+                        && this.dark == expected_dark
+                        && this.active_terminal().is_some_and(|term| {
+                            let term = term.read(cx);
+                            term.palette.background == expected_bg
+                                && term.metrics.font_size == settings.display().font_size as f32
+                                && term.metrics.cell_h == metrics.cell_h
+                                && term.metrics.cell_w == metrics.cell_w
+                        });
+                    if !ok {
+                        super::EXIT_CODE.store(1, Ordering::SeqCst);
+                    }
                     log(&format!("[test] {name} -> {}", this.describe_terminal(cx)));
+                    log(&format!(
+                        "[test] display {name} {}",
+                        if ok { "PASS" } else { "FAIL" }
+                    ));
                 });
             }
             let _ = this.update_in(cx, |this, _w, cx| {
+                let saved = DisplaySettings::decode(this.core.setting("display").as_deref());
+                if saved.font_size != 20.0
+                    || saved.line_height != 1.5
+                    || saved.font_family != "Consolas"
+                {
+                    super::EXIT_CODE.store(1, Ordering::SeqCst);
+                    log("[test] display 持久化 FAIL");
+                }
                 log(&format!(
                     "[test] 已写入核心 display={:?} appearance={:?}",
                     this.core.setting("display"),

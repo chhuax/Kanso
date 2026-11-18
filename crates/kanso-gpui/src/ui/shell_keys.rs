@@ -127,6 +127,7 @@ impl ShellView {
         if fails.is_empty() {
             log("[test] keys PASS");
         } else {
+            super::EXIT_CODE.store(1, std::sync::atomic::Ordering::SeqCst);
             log(&format!("[test] keys FAIL：{}", fails.join("；")));
         }
     }
