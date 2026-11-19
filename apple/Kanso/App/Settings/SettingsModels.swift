@@ -105,12 +105,13 @@ struct DisplaySettings: Equatable, Codable {
     var scrollbackLines = 10_000
     var minimumContrastEnabled = true
     var semanticColoring = true
+    var copyOnSelect = false
     var minimumContrastRatio: Double = 4.5
 
     init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case v, fontFamily, fontSize, lineHeight, cursorShape, cursorBlink, scrollbackLines, minimumContrastEnabled, minimumContrastRatio, semanticColoring
+        case v, fontFamily, fontSize, lineHeight, cursorShape, cursorBlink, scrollbackLines, minimumContrastEnabled, minimumContrastRatio, semanticColoring, copyOnSelect
     }
 
     init(from decoder: Decoder) throws {
@@ -125,6 +126,7 @@ struct DisplaySettings: Equatable, Codable {
         scrollbackLines = min(max(lines, Self.scrollbackRange.lowerBound), Self.scrollbackRange.upperBound)
         minimumContrastEnabled = c.lenient(.minimumContrastEnabled, default: defaults.minimumContrastEnabled)
         semanticColoring = c.lenient(.semanticColoring, default: defaults.semanticColoring)
+        copyOnSelect = c.lenient(.copyOnSelect, default: defaults.copyOnSelect)
         minimumContrastRatio = Self.clamp(
             c.lenient(.minimumContrastRatio, default: defaults.minimumContrastRatio), Self.contrastRange,
             fallback: defaults.minimumContrastRatio
@@ -142,6 +144,7 @@ struct DisplaySettings: Equatable, Codable {
         try c.encode(scrollbackLines, forKey: .scrollbackLines)
         try c.encode(minimumContrastEnabled, forKey: .minimumContrastEnabled)
         try c.encode(semanticColoring, forKey: .semanticColoring)
+        try c.encode(copyOnSelect, forKey: .copyOnSelect)
         try c.encode(minimumContrastRatio, forKey: .minimumContrastRatio)
     }
 

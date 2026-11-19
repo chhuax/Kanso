@@ -18,6 +18,9 @@ enum TerminalSettingsApplier {
         if view.minimumContrastRatio != display.minimumContrastRatio {
             view.minimumContrastRatio = display.minimumContrastRatio
         }
+        if view.copyOnSelect != display.copyOnSelect {
+            view.copyOnSelect = display.copyOnSelect
+        }
         view.lightPalette = settings.appearance.resolvedLightTheme(in: settings.themes).palette
         view.darkPalette = settings.appearance.resolvedDarkTheme(in: settings.themes).palette
     }

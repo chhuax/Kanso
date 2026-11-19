@@ -1251,7 +1251,7 @@ impl RealCore {
 
     pub(crate) fn has_selection(&self, session: SessionId) -> bool {
         self.sessions
-            .get(session)
+            .session(session)
             .is_some_and(|s| s.has_selection())
     }
 
