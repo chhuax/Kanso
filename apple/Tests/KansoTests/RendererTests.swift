@@ -286,4 +286,25 @@ final class RendererTests: XCTestCase {
         let fixed = guardrail.adjusted(foreground: RGB8(125, 125, 125), background: bg)
         XCTAssertGreaterThanOrEqual(ContrastGuard.ratio(fixed, bg), 4.5 - 0.01)
     }
+
+    func testBoldAnsiForegroundBrightensButRgbAndBrightStay() {
+        let p = TerminalPalette.kansoDark
+        // 粗体 + ANSI 0..=7 → 提亮到 8..=15（ls 的 01;32 等）。
+        XCTAssertEqual(
+            p.resolveForeground(.indexed(2), fallback: p.foreground, bold: true), p.ansi[10])
+        XCTAssertEqual(
+            p.resolveForeground(.indexed(4), fallback: p.foreground, bold: true), p.ansi[12])
+        // 非粗体保持原色；已是亮色不二次提亮。
+        XCTAssertEqual(
+            p.resolveForeground(.indexed(2), fallback: p.foreground, bold: false), p.ansi[2])
+        XCTAssertEqual(
+            p.resolveForeground(.indexed(10), fallback: p.foreground, bold: true), p.ansi[10])
+        // 粗体 RGB、语义色、默认色都不参与提亮。
+        XCTAssertEqual(
+            p.resolveForeground(.rgb(1, 2, 3), fallback: p.foreground, bold: true), RGB8(1, 2, 3))
+        XCTAssertEqual(
+            p.resolveForeground(.semantic(0), fallback: p.foreground, bold: true), p.semanticColor(0))
+        XCTAssertEqual(
+            p.resolveForeground(.defaultColor, fallback: p.foreground, bold: true), p.foreground)
+    }
 }

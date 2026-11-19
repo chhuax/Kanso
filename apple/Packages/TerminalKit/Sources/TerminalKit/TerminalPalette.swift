@@ -139,6 +139,18 @@ public struct TerminalPalette: Sendable {
         case .semantic(let c): semanticColor(c)
         }
     }
+
+    /// 解析粗体前景：ANSI 0..=7 提亮为 8..=15（bold-as-bright，xterm / Xshell 惯例）。
+    ///
+    /// 只作用于显示解析，帧里的索引与复制文本都不变。RGB、语义色、默认色以及
+    /// 已是亮色的 8..=15 原样返回。`ls` 的 `01;32`（粗体绿）靠这条规则显示成亮绿。
+    public func resolveForeground(_ color: FrameColor, fallback: RGB8, bold: Bool) -> RGB8 {
+        if bold, case .indexed(let i) = color, i <= 7 {
+            indexed(i + 8)
+        } else {
+            resolve(color, fallback: fallback)
+        }
+    }
 }
 
 /// 终端外观：决定使用哪一套配色。与系统外观解耦，让离屏渲染可以显式指定。

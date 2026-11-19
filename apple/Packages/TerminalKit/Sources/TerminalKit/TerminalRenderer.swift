@@ -566,7 +566,8 @@ public final class TerminalRenderer {
                 if let cursor, cursor.row == row, cursor.col == col { cursorWide = wide }
 
                 // ---- 颜色解析 ----
-                var fg = palette.resolve(cell.fg, fallback: palette.foreground)
+                let bold = cell.flags.contains(.bold)
+                var fg = palette.resolveForeground(cell.fg, fallback: palette.foreground, bold: bold)
                 var bg = palette.resolve(cell.bg, fallback: palette.background)
                 if cell.flags.contains(.inverse) { swap(&fg, &bg) }
                 if cell.flags.contains(.selected) {
@@ -612,14 +613,14 @@ public final class TerminalRenderer {
                 // ---- 字形 ----
                 if !cell.flags.contains(.hidden), !(rowQuiet && Self.isSpecialSymbol(cell.ch)) {
                     var entry: GlyphEntry?
-                    // 历史提示符去掉目录粗体；当前待输入的提示符保留。
-                    let bold = cell.flags.contains(.bold) && !rowQuiet
+                    // 历史提示符去掉目录粗体；当前待输入的提示符保留（字形弱化，不影响颜色提亮的 bold）。
+                    let glyphBold = cell.flags.contains(.bold) && !rowQuiet
                         && !(cell.flags.contains(.chip) && !rowEmphasized)
                     let italic = cell.flags.contains(.italic)
                     if cell.extra != 0, let cluster = frame.grapheme(for: cell) {
-                        entry = atlas.entry(cluster: cluster, bold: bold, italic: italic, wide: wide, face: .terminal)
+                        entry = atlas.entry(cluster: cluster, bold: glyphBold, italic: italic, wide: wide, face: .terminal)
                     } else if cell.ch > 0x20, cell.ch != 0x7F {
-                        entry = atlas.entry(scalar: cell.ch, bold: bold, italic: italic, wide: wide, face: .terminal)
+                        entry = atlas.entry(scalar: cell.ch, bold: glyphBold, italic: italic, wide: wide, face: .terminal)
                     }
                     if let entry {
                         let color = entry.isColor
