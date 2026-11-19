@@ -136,7 +136,13 @@ pub(super) async fn handle(stream: ipc::Stream, shared: Arc<Shared>) {
     }
 
     serve(reader, write, shared.clone(), id, cancel, identity).await;
+    // 顺序有意义：先从 Registry 移除客户端、再清理它打开的标签。`McpTabs::register` 在表锁内确认
+    // 客户端仍在 Registry 才登记，所以不会在清理之后留下孤儿条目。
     shared.registry.remove(id);
+    let core = shared.core.clone();
+    shared.tabs.release_client(&shared.delegate, id, |tab| {
+        core.mcp_session_status(tab).is_some()
+    });
 }
 
 /// 把连接交给 rmcp，直到客户端断开、出错或被取消。

@@ -7,7 +7,7 @@
 //!
 //! 与 mock 一样，所有 delegate 回调都在持有对应状态锁时发出（状态回调持 `inner`，客户端列表回调持
 //! `Registry` 的锁），回调顺序与状态变化严格一致。回调契约禁止重入，所以持锁回调是安全的。
-//! 加锁顺序固定为 `lifecycle` → `inner` → `Registry`，连接任务只会拿 `Registry` 的锁。
+//! 加锁顺序固定为 `lifecycle` → `inner` → `McpTabs` → `Registry`，连接任务只会拿 `McpTabs` 与 `Registry` 的锁。
 //!
 //! # 线程
 //!
@@ -17,6 +17,7 @@
 mod audit;
 mod conn;
 mod gate;
+mod headless;
 mod identity;
 #[cfg(unix)]
 #[path = "real/instance.rs"]
@@ -25,6 +26,8 @@ mod ipc;
 #[path = "real/windows.rs"]
 mod ipc;
 mod registry;
+mod remote;
+mod tabs;
 mod terminal;
 mod tools;
 
@@ -42,7 +45,9 @@ use tokio_util::task::TaskTracker;
 use self::audit::AuditSink;
 pub use self::gate::ClockFn;
 use self::gate::TabGate;
+use self::headless::HeadlessManager;
 use self::registry::Registry;
+use self::tabs::McpTabs;
 use crate::{
     McpClientInfo, McpServerConfig, McpServerDelegate, McpServerError, McpServerStatus,
     McpUnavailable, Result,
@@ -79,6 +84,10 @@ struct Shared {
     /// 每次判定客户端所在标签时按对端 pid 现取进程祖先链用。
     ancestors: AncestorsFn,
     audit: AuditSink,
+    /// 无界面连接管理器，跨客户端共享；每次 `start` 重建，`stop` 时全部关闭（见 `teardown`）。
+    headless: Arc<HeadlessManager>,
+    /// MCP 打开的标签登记表，同样每次 `start` 重建。
+    tabs: McpTabs,
     /// 所有连接任务都登记在这里，停止时要等它们结束：连接任务里正在执行的工具调用，
     /// 结束时还要写审计，必须赶在审计队列关闭之前。
     conns: TaskTracker,
@@ -106,6 +115,8 @@ struct Running {
     conns: TaskTracker,
     shutdown: CancellationToken,
     audit: tokio::task::JoinHandle<()>,
+    /// 停止时在连接任务结束之后关闭全部无界面会话。
+    headless: Arc<HeadlessManager>,
     /// 置位后审计任务不再回调 `on_audit_changed`：`Drop` 拆除时宿主不应再收到任何事件。
     /// 用锁而不是原子量：审计任务在锁内回调，置位返回即保证之后没有回调，见 `audit::notify_changed`。
     audit_quiet: Arc<Mutex<bool>>,
@@ -293,6 +304,14 @@ impl RealServer {
         let shutdown = CancellationToken::new();
         let (sink, rx) = audit::channel();
         let conns = TaskTracker::new();
+        let headless = HeadlessManager::new(
+            self.core.clone(),
+            self.hooks
+                .clock
+                .clone()
+                .unwrap_or_else(|| Arc::new(std::time::Instant::now)),
+            headless::IDLE_RELEASE,
+        );
         let shared = Arc::new(Shared {
             core: self.core.clone(),
             delegate: self.delegate.clone(),
@@ -304,11 +323,15 @@ impl RealServer {
                 .clone()
                 .unwrap_or_else(|| Arc::new(identity::ancestors)),
             audit: sink,
+            headless: headless.clone(),
+            tabs: McpTabs::default(),
             conns: conns.clone(),
         });
         self.registry.open(token);
         let accept_stop = CancellationToken::new();
         let accept = runtime.spawn(accept_loop(listener, shared, accept_stop.clone()));
+        // reaper 跟随 `shutdown`（在连接任务结束之后才取消），与审计任务同生命周期。
+        runtime.spawn(headless.clone().run_reaper(shutdown.clone()));
         let audit_quiet = Arc::new(Mutex::new(false));
         let audit = runtime.spawn(audit::run(
             self.core.clone(),
@@ -324,6 +347,7 @@ impl RealServer {
             conns,
             shutdown,
             audit,
+            headless,
             audit_quiet,
             socket: socket.to_owned(),
         })
@@ -370,6 +394,7 @@ impl RealServer {
             conns,
             shutdown,
             audit,
+            headless,
             socket,
             ..
         } = running;
@@ -380,6 +405,8 @@ impl RealServer {
                 conns.wait().await;
             })
             .await;
+            // 连接任务（含持有租约的调用）已结束或已超时放弃，再关无界面会话。
+            headless.close_all();
             shutdown.cancel();
             let _ = tokio::time::timeout(AUDIT_FLUSH_TIMEOUT, audit).await;
         });

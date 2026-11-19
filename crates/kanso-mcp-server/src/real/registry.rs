@@ -173,6 +173,15 @@ impl Registry {
         self.update(id, |c| c.own_session = session);
     }
 
+    /// 客户端当前的信息；客户端已断开（被移除）时为 `None`。
+    pub(super) fn client(&self, id: u64) -> Option<McpClientInfo> {
+        self.lock()
+            .clients
+            .iter()
+            .find(|c| c.info.id == id)
+            .map(|c| c.info.clone())
+    }
+
     /// 客户端当前的名称（活动标识要显示）；客户端已不存在时为空串。
     pub(super) fn client_name(&self, id: u64) -> String {
         self.lock()

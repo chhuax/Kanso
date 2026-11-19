@@ -373,8 +373,18 @@ fn lists_the_tools_and_records_client_name() {
     assert_eq!(
         names,
         [
+            "kanso_close_tab",
+            "kanso_exec",
             "kanso_get_cwd",
             "kanso_list_sessions",
+            "kanso_open_tab",
+            "kanso_sftp_list",
+            "kanso_sftp_mkdir",
+            "kanso_sftp_read",
+            "kanso_sftp_remove",
+            "kanso_sftp_rename",
+            "kanso_sftp_stat",
+            "kanso_sftp_write",
             "kanso_terminal_read",
             "kanso_terminal_run",
             "kanso_terminal_send"
