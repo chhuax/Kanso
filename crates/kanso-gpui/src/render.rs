@@ -13,8 +13,8 @@ use kanso_frame::{
     CELL_BOLD, CELL_CHIP, CELL_DIM, CELL_HIDDEN, CELL_INVERSE, CELL_ITALIC, CELL_MATCH,
     CELL_MATCH_CURRENT, CELL_SELECTED, CELL_STRIKE, CELL_UNDERLINE_MASK, CELL_UNDERLINE_SHIFT,
     CELL_WIDE, CELL_WIDE_SPACER, CURSOR_BAR, CURSOR_BLOCK, CURSOR_UNDERLINE, Cell, Color,
-    DecodedColor, FRAME_ALT_SCREEN, FRAME_CURSOR_VISIBLE, FRAME_MOUSE_REPORTING, FrameView,
-    LINE_BLANK, LINE_CURSOR, LINE_FIRST_PROMPT, LINE_PROMPT, LINE_WRAPPED,
+    CommandBlock, DecodedColor, FRAME_ALT_SCREEN, FRAME_CURSOR_VISIBLE, FRAME_MOUSE_REPORTING,
+    FrameView, LINE_BLANK, LINE_CURSOR, LINE_FIRST_PROMPT, LINE_PROMPT, LINE_WRAPPED,
 };
 use kanso_types::geometry::Rgb;
 
@@ -60,6 +60,8 @@ pub struct TextSpan {
     pub underline_color: Option<Rgb8>,
     /// 删除线。
     pub strike: bool,
+    /// 历史提示符：用更小的字号绘制。
+    pub small: bool,
 }
 
 /// 光标形状。
@@ -90,6 +92,82 @@ pub struct CursorDraw {
     pub color: Rgb8,
 }
 
+/// 哪些提示符标签保留边框和目录粗体。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LiveChips {
+    /// 没有命令块可对照（测试、尚未分块的会话）：全部按当前提示符画。
+    All,
+    /// 只有绝对行落在此闭区间内的标签保留边框和粗体。
+    Only { start: u64, end: u64 },
+}
+
+impl LiveChips {
+    /// 最新且尚未执行命令的块是当前待输入提示符；没有这种块时，可见标签都按历史提示符弱化。
+    pub fn from_blocks(blocks: &[CommandBlock]) -> Self {
+        if blocks.is_empty() {
+            return Self::All;
+        }
+        match blocks
+            .iter()
+            .find(|b| b.latest && !b.running && b.command_line.is_none())
+        {
+            Some(b) => Self::Only {
+                start: b.start_line,
+                end: b.end_line,
+            },
+            None => Self::Only { start: 1, end: 0 },
+        }
+    }
+
+    fn contains(self, abs: u64) -> bool {
+        match self {
+            Self::All => true,
+            Self::Only { start, end } => start <= abs && abs <= end,
+        }
+    }
+}
+
+/// 这一绝对行是不是已经执行过的提示符（不含命令和输出）。
+///
+/// 当前待输入的块不算。命令和命令输出留在原字号、原颜色。
+pub fn historical_prompt(blocks: &[CommandBlock], abs: u64) -> bool {
+    if blocks.is_empty() {
+        return false;
+    }
+    let live = blocks
+        .iter()
+        .find(|b| b.latest && !b.running && b.command_line.is_none());
+    blocks.iter().any(|b| {
+        if live.is_some_and(|live| live.id == b.id) {
+            return false;
+        }
+        match b.command_line {
+            Some(command) => b.start_line <= abs && abs < command,
+            None => b.start_line <= abs && abs <= b.end_line,
+        }
+    })
+}
+
+/// 私有区里的 Powerline / Nerd Font 图标。历史提示符不画它们，避免依赖特殊字体。
+pub fn is_special_symbol(ch: u32) -> bool {
+    (0xE000..=0xF8FF).contains(&ch)
+        || (0xF0000..=0xFFFFD).contains(&ch)
+        || (0x100000..=0x10FFFD).contains(&ch)
+}
+
+/// 一行连续的提示符标签。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ChipRun {
+    /// 视口行。
+    pub row: u16,
+    /// 起始列。
+    pub col: u16,
+    /// 宽度（单元格）。
+    pub cols: u16,
+    /// 当前待输入提示符：画边框，并保留目录粗体。
+    pub emphasized: bool,
+}
+
 /// 一行的元数据（时间戳栏、分隔线、命令块命中用）。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LineInfo {
@@ -118,8 +196,8 @@ pub struct RenderGrid {
     pub rows: u16,
     /// 背景矩形。
     pub bgs: Vec<BgRect>,
-    /// 每个提示符标签的行、起始列和宽度。
-    pub chips: Vec<(u16, u16, u16)>,
+    /// 每个提示符标签。
+    pub chips: Vec<ChipRun>,
     /// 文字片段。
     pub spans: Vec<TextSpan>,
     /// 光标（不可见或回滚查看历史时为 `None`）。
@@ -151,6 +229,7 @@ struct SpanStyle {
     underline: u16,
     underline_color: Option<Rgb8>,
     strike: bool,
+    small: bool,
 }
 
 struct ResolvedCell {
@@ -174,6 +253,8 @@ fn resolve(
     palette: &Palette,
     guard: Option<&mut ContrastGuard>,
     block_cursor: bool,
+    keep_chip_bold: bool,
+    quiet: bool,
 ) -> ResolvedCell {
     let mut fg = color_of(cell.fg, palette, palette.foreground);
     // 背景不会是语义色（语义着色只出现在前景）；遇到时按调色板解析即可。
@@ -204,17 +285,22 @@ fn resolve(
     if flags & CELL_DIM != 0 {
         fg = fg.mixed(bg, 0.4);
     }
+    // 历史提示符在对比度保护之后再压一层，绿字红字一并变淡。
+    if quiet {
+        fg = fg.mixed(palette.background, 0.55);
+    }
     let underline = (flags & CELL_UNDERLINE_MASK) >> CELL_UNDERLINE_SHIFT;
     let underline_color = (underline != 0 && underline_color_raw != 0)
         .then(|| color_of(underline_color_raw, palette, fg));
     ResolvedCell {
         style: SpanStyle {
             fg,
-            bold: flags & CELL_BOLD != 0,
+            bold: !quiet && flags & CELL_BOLD != 0 && (keep_chip_bold || flags & CELL_CHIP == 0),
             italic: flags & CELL_ITALIC != 0,
             underline,
             underline_color,
             strike: flags & CELL_STRIKE != 0,
+            small: quiet,
         },
         bg,
     }
@@ -226,10 +312,22 @@ pub fn build_render_grid(view: &FrameView<'_>, palette: &Palette) -> RenderGrid 
 }
 
 /// 把一帧转成渲染数据；`guard` 不为空时对程序指定的前景色做最低对比度保护。
+/// 不区分历史提示符，标签全部按当前待输入的样式处理。
 pub fn build_render_grid_with(
     view: &FrameView<'_>,
     palette: &Palette,
+    guard: Option<&mut ContrastGuard>,
+) -> RenderGrid {
+    build_render_grid_for(view, palette, guard, LiveChips::All, &[])
+}
+
+/// 同 [`build_render_grid_with`]，并按命令块区分当前提示符和历史提示符。
+pub fn build_render_grid_for(
+    view: &FrameView<'_>,
+    palette: &Palette,
     mut guard: Option<&mut ContrastGuard>,
+    live: LiveChips,
+    blocks: &[CommandBlock],
 ) -> RenderGrid {
     let header = view.header();
     let cols = header.cols;
@@ -244,6 +342,9 @@ pub fn build_render_grid_with(
 
     for row in 0..rows {
         let cells = view.row(row);
+        let abs = view.line_meta(row).map(|m| m.abs_line);
+        let emphasized = abs.is_some_and(|abs| live.contains(abs));
+        let quiet = abs.is_some_and(|abs| historical_prompt(blocks, abs));
         // 当前正在累积的普通片段。
         let mut open: Option<TextSpan> = None;
         let mut col: u16 = 0;
@@ -256,7 +357,12 @@ pub fn build_render_grid_with(
                     .iter()
                     .take_while(|c| c.flags & CELL_CHIP != 0)
                     .count();
-                chips.push((row, col, length as u16));
+                chips.push(ChipRun {
+                    row,
+                    col,
+                    cols: length as u16,
+                    emphasized,
+                });
             }
             if cell.flags & CELL_WIDE_SPACER != 0 {
                 // 宽字符的后半：已由前半覆盖。
@@ -278,6 +384,8 @@ pub fn build_render_grid_with(
                 palette,
                 guard.as_deref_mut(),
                 on_cursor && header.cursor_shape == CURSOR_BLOCK,
+                emphasized,
+                quiet,
             );
             if on_cursor {
                 match header.cursor_shape {
@@ -325,14 +433,18 @@ pub fn build_render_grid_with(
                 }
             }
 
-            // 文字。
-            let text: String = match (cell.flags & CELL_HIDDEN != 0, grapheme) {
-                (true, _) => " ".to_owned(),
-                (false, Some(g)) => g.to_owned(),
-                (false, None) => match char::from_u32(cell.ch) {
-                    Some(c) if cell.ch != 0 && !c.is_control() => c.to_string(),
-                    _ => " ".to_owned(),
-                },
+            // 文字。历史提示符里的私有区图标不进片段，避免依赖 Nerd Font。
+            let text: String = if quiet && is_special_symbol(cell.ch) {
+                " ".to_owned()
+            } else {
+                match (cell.flags & CELL_HIDDEN != 0, grapheme) {
+                    (true, _) => " ".to_owned(),
+                    (false, Some(g)) => g.to_owned(),
+                    (false, None) => match char::from_u32(cell.ch) {
+                        Some(c) if cell.ch != 0 && !c.is_control() => c.to_string(),
+                        _ => " ".to_owned(),
+                    },
+                }
             };
             let blank = text == " " && resolved.style.underline == 0 && !resolved.style.strike;
             let simple = !wide && text.chars().count() == 1;
@@ -439,6 +551,7 @@ fn new_span(row: u16, col: u16, cells: u16, text: String, simple: bool, s: SpanS
         underline: s.underline,
         underline_color: s.underline_color,
         strike: s.strike,
+        small: s.small,
     }
 }
 
@@ -449,6 +562,7 @@ fn same_style(span: &TextSpan, s: &SpanStyle) -> bool {
         && span.underline == s.underline
         && span.underline_color == s.underline_color
         && span.strike == s.strike
+        && span.small == s.small
 }
 
 /// 取一行的纯文本（宽字符占位格跳过，空单元格当空格），去掉行尾空白。自检与测试用。
@@ -945,10 +1059,135 @@ mod tests {
         b.set_cursor(3, 0, CURSOR_BLOCK);
         let f = frame(b);
         let g = build_render_grid_with(&f.view().unwrap(), &p, Some(&mut guard));
-        assert_eq!(g.chips, vec![(0, 0, 2)]);
+        assert_eq!(
+            g.chips,
+            vec![ChipRun {
+                row: 0,
+                col: 0,
+                cols: 2,
+                emphasized: true,
+            }]
+        );
         let fg = guard.adjusted(p.ansi[0], p.decorations.chip_background);
         assert_eq!(g.spans[0].fg, fg.mixed(p.background, 0.4));
         assert_eq!(g.spans[1].fg, p.cursor_text.mixed(p.cursor, 0.4));
+    }
+
+    #[test]
+    fn historical_chips_drop_bold_while_the_idle_prompt_keeps_it() {
+        let mut b = FrameBuilder::new(2, 2);
+        b.set_cell(
+            0,
+            0,
+            Cell {
+                flags: CELL_CHIP | CELL_BOLD,
+                ..plain('a')
+            },
+        );
+        b.set_cell(
+            1,
+            0,
+            Cell {
+                flags: CELL_CHIP | CELL_BOLD,
+                ..plain('b')
+            },
+        );
+        b.line_meta_mut(0).unwrap().abs_line = 1;
+        b.line_meta_mut(1).unwrap().abs_line = 4;
+        let f = frame(b);
+        let g = build_render_grid_for(
+            &f.view().unwrap(),
+            &Palette::kanso_dark(),
+            None,
+            LiveChips::Only { start: 4, end: 4 },
+            &[],
+        );
+        assert!(!g.chips[0].emphasized);
+        assert!(g.chips[1].emphasized);
+        assert!(!g.spans.iter().find(|s| s.row == 0).unwrap().bold);
+        assert!(g.spans.iter().find(|s| s.text == "b").unwrap().bold);
+    }
+
+    #[test]
+    fn historical_prompt_drops_special_symbols_and_shrinks() {
+        let mut b = FrameBuilder::new(4, 2);
+        // 提示符行：目录字 + 私有区图标。命令在下一行。
+        b.set_cell(0, 0, Cell { ..plain('~') });
+        b.set_cell(
+            0,
+            1,
+            Cell {
+                ch: 0xF07B,
+                fg: Color::encode(TermColor::Indexed(10)),
+                ..plain('\0')
+            },
+        );
+        b.set_cell(1, 0, Cell { ..plain('l') });
+        b.line_meta_mut(0).unwrap().abs_line = 3;
+        b.line_meta_mut(1).unwrap().abs_line = 4;
+        let block = CommandBlock {
+            id: 1,
+            latest: false,
+            start_line: 3,
+            end_line: 6,
+            command_line: Some(4),
+            running: false,
+            exit_code: Some(0),
+            duration: None,
+            can_copy_command: true,
+            can_copy_output: true,
+        };
+        let f = frame(b);
+        let g = build_render_grid_for(
+            &f.view().unwrap(),
+            &Palette::kanso_dark(),
+            None,
+            LiveChips::Only { start: 1, end: 0 },
+            &[block],
+        );
+        let prompt = g.spans.iter().find(|s| s.row == 0).unwrap();
+        assert_eq!(prompt.text, "~");
+        assert!(prompt.small);
+        assert!(!prompt.bold);
+        let full = Palette::kanso_dark().foreground;
+        assert_ne!(prompt.fg, full);
+        let command = g.spans.iter().find(|s| s.text == "l").unwrap();
+        assert!(!command.small);
+        assert_eq!(command.fg, full);
+    }
+
+    #[test]
+    fn only_the_idle_latest_block_keeps_full_chips() {
+        fn block(latest: bool, running: bool, command: Option<u64>, start: u64) -> CommandBlock {
+            CommandBlock {
+                id: start,
+                latest,
+                start_line: start,
+                end_line: start,
+                command_line: command,
+                running,
+                exit_code: None,
+                duration: None,
+                can_copy_command: command.is_some(),
+                can_copy_output: command.is_some(),
+            }
+        }
+        assert_eq!(LiveChips::from_blocks(&[]), LiveChips::All);
+        assert_eq!(
+            LiveChips::from_blocks(&[block(true, false, None, 8)]),
+            LiveChips::Only { start: 8, end: 8 }
+        );
+        // 命令已经开始，或还在跑：没有待输入提示符。
+        assert_eq!(
+            LiveChips::from_blocks(&[block(true, true, Some(2), 1)]),
+            LiveChips::Only { start: 1, end: 0 }
+        );
+        assert_eq!(
+            LiveChips::from_blocks(
+                &[block(false, false, Some(1), 1), block(true, false, None, 6),]
+            ),
+            LiveChips::Only { start: 6, end: 6 }
+        );
     }
 
     #[test]
