@@ -936,6 +936,7 @@ mod tests {
             name: "x".into(),
             color: None,
             group: None,
+            theme: None,
             kind: FfiProfileKind::Ssh {
                 profile: FfiSshProfile {
                     target: FfiSshTarget {

@@ -79,6 +79,7 @@ fn ssh_profile(name: &str, group: Option<GroupId>) -> Profile {
             b: 30,
         }),
         group,
+        theme: None,
         kind: ProfileKind::Ssh(SshProfile {
             target: SshTarget {
                 host: "example.com".into(),
@@ -102,6 +103,7 @@ fn local_profile(name: &str, shell: &str, start_dir: Option<String>) -> Profile 
         name: name.into(),
         color: None,
         group: None,
+        theme: None,
         kind: ProfileKind::Local(LocalProfile {
             shell_command: shell.into(),
             start_dir,

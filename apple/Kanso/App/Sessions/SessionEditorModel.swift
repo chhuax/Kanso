@@ -1,6 +1,7 @@
 import Foundation
 import KansoBridge
 import KansoUI
+import TerminalKit
 
 /// 会话颜色预设：色板里的 16 个固定 RGB（两行，每行 8 个），取样自参考截图的色板（visual-style §3.3）。
 ///
@@ -39,7 +40,7 @@ extension KansoCore: McpAccessStoring {}
 
 /// 编辑对话框里可显隐的字段行。
 enum SessionEditorField: CaseIterable {
-    case name, kind, color, group, mcpAccess
+    case name, kind, color, group, theme, mcpAccess
     case shellCommand, startDir
     case host, port, user, auth, password, keyPath, keyPassphrase, jump, proxyCommand
     case encoding, locale
@@ -75,6 +76,8 @@ final class SessionEditorModel {
     var kind: SessionKindChoice = .local
     var color: FfiRgb?
     var groupID: String?
+    /// 终端配色 id；nil 表示跟随全局浅/深外观。
+    var theme: String?
 
     var shellCommand = ""
     var startDir = ""
@@ -137,6 +140,7 @@ final class SessionEditorModel {
         name = profile.name
         color = profile.color
         groupID = profile.group
+        theme = profile.theme
         kind = profile.kindChoice
         switch profile.kind {
         case .local(let local):
@@ -181,6 +185,13 @@ final class SessionEditorModel {
 
     var encodingOptions: [SessionEncodings.Option] { SessionEncodings.options(including: encoding) }
 
+    /// 终端配色选项：nil（跟随全局）+ 内置主题（含 xshell）。当前 id 若不在列表里原样保留，避免保存时丢失。
+    var themeOptions: [String?] {
+        var list: [String?] = [nil] + TerminalTheme.builtIn.map { Optional($0.id) }
+        if let theme, !TerminalTheme.builtIn.contains(where: { $0.id == theme }) { list.append(theme) }
+        return list
+    }
+
     /// 颜色选项：无 + 16 个预设（界面色板只显示非 nil 的，"无"通过再次点击取消选择表达）；已有会话带着预设之外的颜色时也要保留，避免保存时丢失。
     var colorOptions: [FfiRgb?] {
         var list: [FfiRgb?] = [nil] + SessionColorPresets.all.map { Optional($0) }
@@ -201,6 +212,8 @@ final class SessionEditorModel {
             true
         case .name, .color, .group:
             !opensTemporaryShell
+        case .theme:
+            !opensTemporaryShell && kind != .sftp
         case .mcpAccess:
             showsMcpAccess && !opensTemporaryShell
         case .shellCommand, .startDir:
@@ -260,7 +273,7 @@ final class SessionEditorModel {
             guard let target = makeTarget() else { return nil }
             profileKind = .sftp(target: target)
         }
-        return FfiProfile(id: profileID, name: trimmedName, color: color, group: groupID, kind: profileKind)
+        return FfiProfile(id: profileID, name: trimmedName, color: color, group: groupID, theme: theme, kind: profileKind)
     }
 
     private var normalizedLocale: String? {

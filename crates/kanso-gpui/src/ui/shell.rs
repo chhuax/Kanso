@@ -433,7 +433,7 @@ impl ShellView {
             t.right_click_menu = right_click_menu;
             t
         });
-        let palette = self.terminal_palette(cx);
+        let palette = self.palette_for_session(id, cx);
         term.update(cx, |t, cx| t.set_palette(palette, cx));
         let sub = cx.subscribe_in(
             &term,
@@ -726,9 +726,25 @@ impl ShellView {
         });
     }
 
-    /// 当前外观下的终端配色。
+    /// 当前外观下的终端配色（无会话覆盖）。
     fn terminal_palette(&self, cx: &gpui::App) -> kanso_gpui::theme::Palette {
         self.settings.read(cx).terminal_palette(self.dark)
+    }
+
+    /// 某个会话的终端配色：会话配置了 theme 就用它，否则跟随全局外观。
+    /// 会话可能没有 Profile（临时本地 Shell），或 profile id 找不到，都回落全局。
+    fn palette_for_session(&self, id: SessionId, cx: &gpui::App) -> kanso_gpui::theme::Palette {
+        let theme = self
+            .ctl
+            .workspace()
+            .item(id)
+            .and_then(|item| item.profile)
+            .and_then(|pid| self.core.profiles().into_iter().find(|p| p.id == pid))
+            .and_then(|p| p.theme);
+        match theme {
+            Some(t) => self.settings.read(cx).palette_for_theme(&t, self.dark),
+            None => self.terminal_palette(cx),
+        }
     }
 
     /// 一行描述第一个终端的度量与配色（自检日志用）。
@@ -881,10 +897,10 @@ impl ShellView {
     fn refresh_display(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.dark = display::effective_dark(window);
         display::apply_titlebar(window);
-        let palette = self.terminal_palette(cx);
-        for t in self.terminals.values() {
+        for (sid, t) in &self.terminals {
+            let palette = self.palette_for_session(*sid, cx);
             t.update(cx, |t, cx| {
-                t.set_palette(palette.clone(), cx);
+                t.set_palette(palette, cx);
                 t.apply_display(window, cx);
             });
         }

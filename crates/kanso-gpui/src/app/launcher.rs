@@ -31,6 +31,9 @@ pub fn core_error_text(error: &CoreError) -> String {
 // ---- 列表行 ----
 
 /// 启动器列表里的一行（自上而下）。
+// Profile 含完整连接配置（SecureString、SSH 目标、编码等），本身较大；
+// 列表行按值持有它便于直接渲染，改为 Box 会波及所有构造与匹配点，收益有限。
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum LauncherRow {
     /// 分组标题（未分组的会话没有标题）。

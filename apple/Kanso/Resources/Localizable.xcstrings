@@ -1261,6 +1261,18 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "不分组" } }
       }
     },
+    "Follow Global" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Follow Global" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "跟随全局" } }
+      }
+    },
+    "Terminal Theme" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Terminal Theme" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "终端配色" } }
+      }
+    },
     "Delete…" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Delete…" } },

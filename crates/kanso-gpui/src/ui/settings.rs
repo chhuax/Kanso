@@ -133,6 +133,11 @@ impl SettingsModel {
         self.appearance().terminal_palette(dark, &self.themes)
     }
 
+    /// 按指定配色 id 解析（会话级配色覆盖用），未知 id 回落到该外观默认。
+    pub(crate) fn palette_for_theme(&self, id: &str, dark: bool) -> kanso_gpui::theme::Palette {
+        kanso_gpui::app::settings::palette_for_id(id, dark, &self.themes)
+    }
+
     pub(crate) fn timeline(&self) -> &TimelineSettings {
         self.store.timeline()
     }

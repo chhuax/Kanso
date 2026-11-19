@@ -94,6 +94,7 @@ fn ssh_profile(name: &str, t: SshTarget) -> Profile {
         name: name.into(),
         color: None,
         group: None,
+        theme: None,
         kind: ProfileKind::Ssh(SshProfile {
             target: t,
             encoding: EncodingLabel::new(""),
@@ -487,6 +488,7 @@ fn unreachable_target_closes_with_jump_unreachable() {
     drop(dead);
     let dest = ssh_profile("prod", target(dead_port));
     let dest = Profile {
+        theme: None,
         kind: match dest.kind {
             ProfileKind::Ssh(mut s) => {
                 s.target.jump = Some(jump.id);
@@ -611,6 +613,7 @@ fn non_ssh_jump_profile_is_an_error() {
     env.save(&dest);
     // 之后把被引用的 Profile 改成 SFTP 类型：引用方不会被改写，打开时报 JumpNotSsh。
     env.save(&Profile {
+        theme: None,
         kind: ProfileKind::Sftp(target(1)),
         ..jump.clone()
     });
@@ -647,6 +650,7 @@ fn chain_longer_than_eight_jumps_is_an_error() {
     let extra = ssh_profile("extra", target(1));
     env.save(&extra);
     env.save(&Profile {
+        theme: None,
         kind: ProfileKind::Ssh(SshProfile {
             target: SshTarget {
                 jump: Some(extra.id),

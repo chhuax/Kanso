@@ -415,7 +415,7 @@ pub(crate) fn upsert_group_on(conn: &Connection, g: &Group, now: i64) -> Result<
 pub(crate) fn profiles_on(conn: &Connection) -> Result<Vec<Profile>, StoreError> {
     let groups = live_group_ids(conn)?;
     let mut stmt = conn.prepare(
-        "SELECT id, name, group_id, color, config FROM profiles
+        "SELECT id, name, group_id, color, theme, config FROM profiles
          WHERE deleted = 0 ORDER BY sort_key, name, id",
     )?;
     let rows = stmt
@@ -425,12 +425,13 @@ pub(crate) fn profiles_on(conn: &Connection) -> Result<Vec<Profile>, StoreError>
                 r.get::<_, String>(1)?,
                 r.get::<_, Option<String>>(2)?,
                 r.get::<_, Option<String>>(3)?,
-                r.get::<_, String>(4)?,
+                r.get::<_, Option<String>>(4)?,
+                r.get::<_, String>(5)?,
             ))
         })?
         .collect::<Result<Vec<_>, _>>()?;
     let mut out = Vec::with_capacity(rows.len());
-    for (id, name, group_id, color, config) in rows {
+    for (id, name, group_id, color, theme, config) in rows {
         // 解析不了的行（id 损坏，或 config 来自更新版本程序的不认识的类型）不能让整个列表失败，
         // 也不能静默丢弃而不留痕迹：跳过并记日志，数据仍留在库里，升级后可恢复。
         let Ok(pid) = ProfileId::from_str(&id) else {
@@ -453,6 +454,7 @@ pub(crate) fn profiles_on(conn: &Connection) -> Result<Vec<Profile>, StoreError>
             name,
             color: color.as_deref().and_then(color_from_hex),
             group,
+            theme,
             kind,
         });
     }
@@ -470,12 +472,12 @@ pub(crate) fn upsert_profile_on(
     // kind 列必须与 config 的类型标签一致（schema.md §2.2），两者都由同一个 `p.kind` 派生。
     conn.execute(
         "INSERT INTO profiles
-            (id, name, kind, group_id, color, sort_key, config, updated_at, deleted)
-         VALUES (?1, ?2, ?3, ?4, ?5,
-                 (SELECT COALESCE(MAX(sort_key), 0) + 1 FROM profiles), ?6, ?7, 0)
+            (id, name, kind, group_id, color, theme, sort_key, config, updated_at, deleted)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6,
+                 (SELECT COALESCE(MAX(sort_key), 0) + 1 FROM profiles), ?7, ?8, 0)
          ON CONFLICT(id) DO UPDATE SET
             name = excluded.name, kind = excluded.kind, group_id = excluded.group_id,
-            color = excluded.color, config = excluded.config,
+            color = excluded.color, theme = excluded.theme, config = excluded.config,
             updated_at = excluded.updated_at, deleted = 0",
         params![
             p.id.to_string(),
@@ -483,6 +485,7 @@ pub(crate) fn upsert_profile_on(
             kind_column(p.kind.kind()),
             p.group.map(|g| g.to_string()),
             p.color.map(color_to_hex),
+            p.theme,
             config,
             now
         ],

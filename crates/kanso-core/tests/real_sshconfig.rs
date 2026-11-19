@@ -90,6 +90,7 @@ impl Fx {
             name: name.into(),
             color: Some(Rgb { r: 1, g: 2, b: 3 }),
             group: None,
+            theme: None,
             kind: ProfileKind::Ssh(SshProfile {
                 target: SshTarget {
                     host: host.into(),

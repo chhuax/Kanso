@@ -199,6 +199,11 @@ pub struct Profile {
     pub color: Option<Rgb>,
     /// 所属分组；`None` 表示未分组。
     pub group: Option<GroupId>,
+    /// 终端配色 id；`None` 表示跟随全局浅/深外观设置。
+    /// 取值与 `BUILTIN_THEMES` / `TerminalTheme.builtIn` 的 id 一致（如 `xshell`），
+    /// 也支持用户主题目录里的 id。SFTP 无终端，此字段被忽略。
+    #[serde(default)]
+    pub theme: Option<String>,
     /// 种类与专属配置。
     pub kind: ProfileKind,
 }

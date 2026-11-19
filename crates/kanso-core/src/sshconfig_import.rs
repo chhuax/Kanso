@@ -327,6 +327,7 @@ impl Planner<'_> {
             name: t.name.clone(),
             color: None,
             group: self.group,
+            theme: None,
             kind: ProfileKind::Ssh(SshProfile {
                 target: SshTarget {
                     host: t.host.clone(),

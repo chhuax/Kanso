@@ -110,6 +110,7 @@ fn ssh_profile(name: &str, t: SshTarget, encoding: &str) -> Profile {
         name: name.into(),
         color: None,
         group: None,
+        theme: None,
         kind: ProfileKind::Ssh(SshProfile {
             target: t,
             encoding: EncodingLabel::new(encoding),

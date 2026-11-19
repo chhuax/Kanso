@@ -33,6 +33,7 @@ pub(crate) fn ssh_profile(name: &str, host: &str, user: &str) -> Profile {
         name: name.into(),
         color: None,
         group: None,
+        theme: None,
         kind: ProfileKind::Ssh(SshProfile {
             target: ssh_target(host, user),
             encoding: EncodingLabel::default(),
@@ -43,6 +44,7 @@ pub(crate) fn ssh_profile(name: &str, host: &str, user: &str) -> Profile {
 
 pub(crate) fn sftp_profile(name: &str, host: &str, user: &str) -> Profile {
     Profile {
+        theme: None,
         kind: ProfileKind::Sftp(ssh_target(host, user)),
         ..ssh_profile(name, host, user)
     }
@@ -54,6 +56,7 @@ pub(crate) fn local_profile(name: &str, shell: &str) -> Profile {
         name: name.into(),
         color: None,
         group: None,
+        theme: None,
         kind: ProfileKind::Local(LocalProfile {
             shell_command: shell.into(),
             start_dir: None,

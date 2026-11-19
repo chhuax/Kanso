@@ -32,6 +32,10 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 3,
         sql: include_str!("../migrations/0003_mcp.sql"),
     },
+    Migration {
+        version: 4,
+        sql: include_str!("../migrations/0004_profile_theme.sql"),
+    },
 ];
 
 /// 当前程序支持的最高 schema 版本。

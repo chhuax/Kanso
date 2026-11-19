@@ -52,6 +52,7 @@ fn ssh_profile(name: &str, group: Option<GroupId>) -> Profile {
         name: name.into(),
         color: None,
         group,
+        theme: None,
         kind: ProfileKind::Ssh(SshProfile {
             target: SshTarget {
                 host: "example.com".into(),

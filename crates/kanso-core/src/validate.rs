@@ -110,6 +110,7 @@ mod tests {
             name: name.into(),
             color: None,
             group: None,
+            theme: None,
             kind: ProfileKind::Ssh(SshProfile {
                 target: t,
                 encoding: EncodingLabel::default(),
@@ -124,6 +125,7 @@ mod tests {
             name: name.into(),
             color: None,
             group: None,
+            theme: None,
             kind: ProfileKind::Local(LocalProfile {
                 shell_command: String::new(),
                 start_dir: None,
@@ -146,6 +148,7 @@ mod tests {
         let p = ssh("a", target("h", "", None));
         assert_eq!(validate_profile(&p, &[]), Err(Message::ProfileUserEmpty {}));
         let sftp = Profile {
+            theme: None,
             kind: ProfileKind::Sftp(target("", "u", None)),
             ..local("s")
         };

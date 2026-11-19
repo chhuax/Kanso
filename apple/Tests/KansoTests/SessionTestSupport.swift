@@ -80,16 +80,16 @@ enum SessionFixtures {
     }
 
     static func ssh(_ id: String, _ name: String, host: String = "h", user: String = "u", group: String? = nil) -> FfiProfile {
-        FfiProfile(id: id, name: name, color: nil, group: group,
+        FfiProfile(id: id, name: name, color: nil, group: group, theme: nil,
                    kind: .ssh(profile: FfiSshProfile(target: target(host: host, user: user), encoding: "", locale: nil)))
     }
 
     static func local(_ id: String, _ name: String, shell: String = "", group: String? = nil) -> FfiProfile {
-        FfiProfile(id: id, name: name, color: nil, group: group,
+        FfiProfile(id: id, name: name, color: nil, group: group, theme: nil,
                    kind: .local(profile: FfiLocalProfile(shellCommand: shell, startDir: nil, encoding: "", locale: nil)))
     }
 
     static func sftp(_ id: String, _ name: String) -> FfiProfile {
-        FfiProfile(id: id, name: name, color: nil, group: nil, kind: .sftp(target: target()))
+        FfiProfile(id: id, name: name, color: nil, group: nil, theme: nil, kind: .sftp(target: target()))
     }
 }

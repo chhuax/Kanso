@@ -286,6 +286,8 @@ ui-theme = Mode
 ui-light-theme = Light terminal theme
 
 ui-dark-theme = Dark terminal theme
+ui-terminal-theme = Terminal theme
+ui-follow-global = Follow global
 ui-open-themes-folder = Open Themes Folder
 
 ui-font = Font

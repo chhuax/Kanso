@@ -82,6 +82,7 @@ fn ssh_profile(name: &str, t: SshTarget) -> Profile {
         name: name.into(),
         color: None,
         group: None,
+        theme: None,
         kind: ProfileKind::Ssh(SshProfile {
             target: t,
             encoding: EncodingLabel::new(""),
@@ -92,6 +93,7 @@ fn ssh_profile(name: &str, t: SshTarget) -> Profile {
 
 fn sftp_profile(name: &str, t: SshTarget) -> Profile {
     Profile {
+        theme: None,
         kind: ProfileKind::Sftp(t),
         ..ssh_profile(name, target(0))
     }

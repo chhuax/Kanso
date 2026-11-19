@@ -21,7 +21,8 @@ use kanso_gpui::app::launcher::{
     auth_label, editor_error_text, kind_label, render_message, toggle_color,
 };
 use kanso_gpui::app::sessions::{
-    EditorField, EditorOptions, EncodingOption, SaveOutcome, SessionEditor,
+    EditorField, EditorOptions, EncodingOption, SaveOutcome, SessionEditor, ThemeOption,
+    theme_options,
 };
 use kanso_gpui::widgets::dropdown::Item;
 use kanso_gpui::widgets::style::{Appearance, color, number};
@@ -77,6 +78,7 @@ enum Pick {
     Kind,
     Shell,
     Group,
+    Theme,
     McpAccess,
     Auth,
     Jump,
@@ -96,6 +98,7 @@ enum Row {
     Kind,
     Name,
     Group,
+    Theme,
     McpAccess,
     Shell,
     StartDir,
@@ -114,6 +117,7 @@ fn row_of(stop: Stop) -> Row {
         Stop::Pick(Pick::Kind) => Row::Kind,
         Stop::Text(Text::Name) => Row::Name,
         Stop::Pick(Pick::Group) => Row::Group,
+        Stop::Pick(Pick::Theme) => Row::Theme,
         Stop::Pick(Pick::McpAccess) => Row::McpAccess,
         Stop::Text(Text::Shell) | Stop::Pick(Pick::Shell) => Row::Shell,
         Stop::Text(Text::StartDir) => Row::StartDir,
@@ -151,6 +155,7 @@ pub(crate) struct SessionEditorView {
     groups: Vec<Group>,
     jumps: Vec<Profile>,
     encodings: Vec<EncodingOption>,
+    themes: Vec<ThemeOption>,
     color: Option<kanso_types::geometry::Rgb>,
     color_options: Vec<kanso_types::geometry::Rgb>,
 
@@ -169,6 +174,7 @@ pub(crate) struct SessionEditorView {
     shell_pick: Entity<Dropdown>,
     shell_commands: Vec<String>,
     group: Entity<Dropdown>,
+    theme: Entity<Dropdown>,
     mcp_access: Entity<Dropdown>,
     show_mcp_sensitive_notice: bool,
     auth: Entity<Dropdown>,
@@ -195,11 +201,12 @@ fn appearance(window: &Window) -> Appearance {
     super::display::window_appearance(window)
 }
 
-const ALL_FIELDS: [EditorField; 18] = [
+const ALL_FIELDS: [EditorField; 19] = [
     EditorField::Name,
     EditorField::Kind,
     EditorField::Color,
     EditorField::Group,
+    EditorField::Theme,
     EditorField::McpAccess,
     EditorField::ShellCommand,
     EditorField::StartDir,
@@ -421,6 +428,24 @@ impl SessionEditorView {
             window,
             cx,
         );
+        let themes = theme_options(
+            model.theme.as_deref(),
+            &render_message(&Message::UiFollowGlobal {}),
+        );
+        let theme_selected = themes
+            .iter()
+            .position(|t| t.id.as_deref() == model.theme.as_deref())
+            .unwrap_or(0);
+        let theme = dropdown(
+            Pick::Theme,
+            themes
+                .iter()
+                .map(|t| Item::option(t.title.clone()))
+                .collect(),
+            theme_selected,
+            window,
+            cx,
+        );
         let mcp_access = dropdown(
             Pick::McpAccess,
             MCP_ACCESS_LEVELS
@@ -480,6 +505,7 @@ impl SessionEditorView {
             groups,
             jumps,
             encodings,
+            themes,
             color,
             color_options,
             name,
@@ -497,6 +523,7 @@ impl SessionEditorView {
             shell_pick,
             shell_commands,
             group,
+            theme,
             mcp_access,
             show_mcp_sensitive_notice: false,
             auth,
@@ -601,6 +628,9 @@ impl SessionEditorView {
                     .checked_sub(1)
                     .and_then(|i| self.groups.get(i))
                     .map(|g| g.id)
+            }
+            Pick::Theme => {
+                m.theme = self.themes.get(index).and_then(|t| t.id.clone());
             }
             Pick::McpAccess => {
                 let next = MCP_ACCESS_LEVELS[index];
@@ -788,6 +818,7 @@ impl SessionEditorView {
             Pick::Kind => unreachable!("类型使用分段卡片，不是下拉框"),
             Pick::Shell => &self.shell_pick,
             Pick::Group => &self.group,
+            Pick::Theme => &self.theme,
             Pick::McpAccess => &self.mcp_access,
             Pick::Auth => &self.auth,
             Pick::Jump => &self.jump,
@@ -1210,6 +1241,11 @@ impl Render for SessionEditorView {
             (
                 Row::Group,
                 self.field(th, &tr(Message::UiGroup {}), self.group.clone())
+                    .into_any_element(),
+            ),
+            (
+                Row::Theme,
+                self.field(th, &tr(Message::UiTerminalTheme {}), self.theme.clone())
                     .into_any_element(),
             ),
         ];

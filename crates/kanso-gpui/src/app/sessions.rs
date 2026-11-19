@@ -515,6 +515,38 @@ pub fn encoding_options(current: &str) -> Vec<EncodingOption> {
     list
 }
 
+/// 终端配色选项：`id` 为 None 表示“跟随全局”，与配色 id 一一对应。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ThemeOption {
+    /// 配色 id；`None` 表示跟随全局。
+    pub id: Option<String>,
+    /// 下拉里显示的文字。
+    pub title: String,
+}
+
+/// 会话配色下拉的候选。第一项固定是“跟随全局”，后接内置主题。
+/// 当前配色 id 若不在列表里（例如来自新版本或手改配置），原样追加一项，避免保存时被悄悄清空。
+pub fn theme_options(current: Option<&str>, follow_label: &str) -> Vec<ThemeOption> {
+    use super::settings::BUILTIN_THEMES;
+    let mut list = vec![ThemeOption {
+        id: None,
+        title: follow_label.to_owned(),
+    }];
+    list.extend(BUILTIN_THEMES.iter().map(|(id, name)| ThemeOption {
+        id: Some((*id).to_owned()),
+        title: (*name).to_owned(),
+    }));
+    if let Some(c) = current
+        && !list.iter().any(|o| o.id.as_deref() == Some(c))
+    {
+        list.push(ThemeOption {
+            id: Some(c.to_owned()),
+            title: c.to_owned(),
+        });
+    }
+    list
+}
+
 /// 编辑对话框里可显隐的字段行。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EditorField {
@@ -526,6 +558,8 @@ pub enum EditorField {
     Color,
     /// 分组。
     Group,
+    /// 终端配色。
+    Theme,
     /// MCP 访问级别。
     McpAccess,
     /// Shell 命令行（本地）。
@@ -641,6 +675,8 @@ pub struct SessionEditor<S: ProfileStore> {
     pub color: Option<Rgb>,
     /// 所属分组。
     pub group: Option<GroupId>,
+    /// 终端配色 id；`None` 表示跟随全局外观。
+    pub theme: Option<String>,
     mcp_access: McpAccess,
     mcp_access_changed: bool,
 
@@ -705,6 +741,7 @@ impl<S: ProfileStore> SessionEditor<S> {
             kind: SessionKind::Local,
             color: None,
             group: None,
+            theme: None,
             mcp_access,
             mcp_access_changed: false,
             shell_command: String::new(),
@@ -727,6 +764,7 @@ impl<S: ProfileStore> SessionEditor<S> {
             e.name = p.name.clone();
             e.color = p.color;
             e.group = p.group;
+            e.theme = p.theme.clone();
             match &p.kind {
                 ProfileKind::Local(l) => {
                     e.kind = SessionKind::Local;
@@ -843,6 +881,8 @@ impl<S: ProfileStore> SessionEditor<S> {
         use EditorField::*;
         match field {
             Name | Kind | Color | Group => true,
+            // SFTP 没有终端，配色对它无意义。
+            Theme => self.kind != SessionKind::Sftp,
             McpAccess => self.options.supports_mcp,
             ShellCommand | StartDir => self.kind == SessionKind::Local,
             Host | Port | User | Auth | Jump => self.is_ssh_like(),
@@ -906,6 +946,7 @@ impl<S: ProfileStore> SessionEditor<S> {
             name,
             color: self.color,
             group: self.group,
+            theme: self.theme.clone(),
             kind,
         })
     }
@@ -1477,6 +1518,39 @@ mod tests {
         assert_eq!(with.len(), 11);
         assert_eq!(with.last().unwrap().label, "iso-8859-2");
         assert_eq!(ENCODINGS[0].0, "", "UTF-8 存为空串");
+    }
+
+    #[test]
+    fn theme_options_follow_then_builtin_then_unknown() {
+        let opts = theme_options(None, "跟随全局");
+        // 第一项固定“跟随全局”，后接三个内置主题。
+        assert_eq!(opts.len(), 4);
+        assert_eq!(opts[0].id, None);
+        assert_eq!(opts[0].title, "跟随全局");
+        assert!(opts.iter().any(|o| o.id.as_deref() == Some("xshell")));
+        // 未知 id 原样追加，避免手改配置的值被保存时清空。
+        let with = theme_options(Some("file:custom"), "跟随全局");
+        assert_eq!(with.len(), 5);
+        assert_eq!(with.last().unwrap().id.as_deref(), Some("file:custom"));
+        // 已知 id 不重复追加。
+        assert_eq!(theme_options(Some("xshell"), "跟随全局").len(), 4);
+    }
+
+    #[test]
+    fn editor_theme_roundtrip_and_sftp_hidden() {
+        let mut e = SessionEditor::new(FakeStore::default(), opts(false));
+        assert_eq!(e.theme, None, "新建默认跟随全局");
+        e.theme = Some("xshell".to_owned());
+        let p = e.assemble().unwrap();
+        assert_eq!(p.theme.as_deref(), Some("xshell"));
+        // 回填已保存的 theme。
+        let mut e2 = SessionEditor::build(FakeStore::default(), opts(false), Some(p));
+        assert_eq!(e2.theme.as_deref(), Some("xshell"));
+        // SFTP 没有终端，配色字段不可见。
+        e2.kind = SessionKind::Sftp;
+        assert!(!e2.is_visible(EditorField::Theme));
+        e2.kind = SessionKind::Ssh;
+        assert!(e2.is_visible(EditorField::Theme));
     }
 
     #[test]

@@ -280,6 +280,8 @@ ui-theme = 模式
 ui-light-theme = 浅色终端配色
 
 ui-dark-theme = 深色终端配色
+ui-terminal-theme = 终端配色
+ui-follow-global = 跟随全局
 ui-open-themes-folder = 打开主题文件夹
 
 ui-font = 字体

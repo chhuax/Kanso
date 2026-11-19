@@ -7111,6 +7111,10 @@ public struct FfiProfile: Equatable, Hashable {
      */
     public var group: String?
     /**
+     * 终端配色 id；`None` 表示跟随全局浅/深外观（如 `xshell` 为固定配色）。
+     */
+    public var theme: String?
+    /**
      * 种类与专属配置。
      */
     public var kind: FfiProfileKind
@@ -7131,12 +7135,16 @@ public struct FfiProfile: Equatable, Hashable {
          * 所属分组 id（UUID 字符串）；`None` 为顶层。
          */group: String?, 
         /**
+         * 终端配色 id；`None` 表示跟随全局浅/深外观（如 `xshell` 为固定配色）。
+         */theme: String?, 
+        /**
          * 种类与专属配置。
          */kind: FfiProfileKind) {
         self.id = id
         self.name = name
         self.color = color
         self.group = group
+        self.theme = theme
         self.kind = kind
     }
 
@@ -7160,6 +7168,7 @@ public struct FfiConverterTypeFfiProfile: FfiConverterRustBuffer {
                 name: FfiConverterString.read(from: &buf), 
                 color: FfiConverterOptionTypeFfiRgb.read(from: &buf), 
                 group: FfiConverterOptionString.read(from: &buf), 
+                theme: FfiConverterOptionString.read(from: &buf), 
                 kind: FfiConverterTypeFfiProfileKind.read(from: &buf)
         )
     }
@@ -7169,6 +7178,7 @@ public struct FfiConverterTypeFfiProfile: FfiConverterRustBuffer {
         FfiConverterString.write(value.name, into: &buf)
         FfiConverterOptionTypeFfiRgb.write(value.color, into: &buf)
         FfiConverterOptionString.write(value.group, into: &buf)
+        FfiConverterOptionString.write(value.theme, into: &buf)
         FfiConverterTypeFfiProfileKind.write(value.kind, into: &buf)
     }
 }

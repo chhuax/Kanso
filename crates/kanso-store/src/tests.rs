@@ -33,6 +33,7 @@ fn ssh(name: &str, group: Option<GroupId>, jump: Option<ProfileId>) -> Profile {
         name: name.into(),
         color: Some(Rgb { r: 1, g: 2, b: 255 }),
         group,
+        theme: None,
         kind: ProfileKind::Ssh(SshProfile {
             target: target("example.com", jump),
             encoding: EncodingLabel::new("gbk"),
@@ -47,6 +48,7 @@ fn local(name: &str, group: Option<GroupId>) -> Profile {
         name: name.into(),
         color: None,
         group,
+        theme: None,
         kind: ProfileKind::Local(LocalProfile {
             shell_command: "/bin/zsh -l".into(),
             start_dir: Some("/tmp".into()),
@@ -166,12 +168,14 @@ fn ok(_: &Profile, _: &[Profile]) -> Result<(), Message> {
 fn profile_roundtrip_all_kinds_and_stable_order() {
     let mut s = store();
     let a = ssh("b-ssh", None, None);
-    let b = local("a-local", None);
+    let mut b = local("a-local", None);
+    b.theme = Some("xshell".into()); // 会话级配色要能随 DB 往返保留
     let c = Profile {
         id: ProfileId::new(),
         name: "sftp".into(),
         color: None,
         group: None,
+        theme: None,
         kind: ProfileKind::Sftp(target("files", None)),
     };
     for p in [&a, &b, &c] {
@@ -683,7 +687,8 @@ fn export_import_roundtrip() {
     a.upsert_group(&g).unwrap();
     let jump = ssh("jump", Some(g.id), None);
     let target_p = ssh("target", Some(g.id), Some(jump.id));
-    let loc = local("loc", None);
+    let mut loc = local("loc", None);
+    loc.theme = Some("xshell".into()); // 导出/导入要保留会话级配色
     for p in [&jump, &target_p, &loc] {
         a.upsert_profile(p).unwrap();
     }

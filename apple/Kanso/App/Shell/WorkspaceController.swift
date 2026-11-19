@@ -90,9 +90,15 @@ final class WorkspaceController {
         gridEstimator?.font = TerminalFontResolver.font(
             family: settings.display.fontFamily, size: settings.display.fontSize
         ).font
-        for host in hosts.values {
-            TerminalSettingsApplier.apply(settings, to: host.view)
+        for (id, host) in hosts {
+            TerminalSettingsApplier.apply(settings, to: host.view, themeOverride: themeOverride(for: id))
         }
+    }
+
+    /// 会话级终端配色：从会话绑定的 profile 取 theme id；没有 profile 或没配置时返回 nil（跟随全局）。
+    private func themeOverride(for id: SessionID) -> String? {
+        guard let profileID = workspace.item(id)?.profileID else { return nil }
+        return core.profiles().first { $0.id == profileID }?.theme
     }
 
     /// 全局模式变化：应用到会话的视图 + core 全局设置。视图改栏宽会改变列数，
@@ -303,7 +309,7 @@ final class WorkspaceController {
         host.completion.enabled = settings.completion.enabled
         // 必须在 wire 之前设置：wire 会补报一次网格，那时列数应已按当前栏宽与字体计算。
         host.view.gutterMode = gutter.mode
-        TerminalSettingsApplier.apply(settings, to: host.view)
+        TerminalSettingsApplier.apply(settings, to: host.view, themeOverride: themeOverride(for: id))
         wire(host)
         hosts[id] = host
         host.view.onCopied = { [weak self] in self?.onCopied?() }

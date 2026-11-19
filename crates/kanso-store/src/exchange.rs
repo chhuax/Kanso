@@ -151,6 +151,9 @@ struct ProfileDto {
     color: Option<String>,
     #[serde(default)]
     group: Option<GroupId>,
+    /// 终端配色 id；缺失或 null 表示跟随全局外观。
+    #[serde(default)]
+    theme: Option<String>,
     /// `local` / `ssh` / `sftp`。用字符串而不是枚举：未知类型要能识别出来并按"不支持的类型"跳过，
     /// 而不是整条反序列化失败。
     kind: String,
@@ -337,6 +340,7 @@ fn profile_to_dto(p: &Profile) -> Result<ProfileDto, StoreError> {
         name: p.name.clone(),
         color: p.color.map(color_to_hex),
         group: p.group,
+        theme: p.theme.clone(),
         kind: kind.to_owned(),
         config,
     })
@@ -396,6 +400,7 @@ fn dto_to_profile(dto: ProfileDto) -> Result<Profile, ProfileParseError> {
         name: dto.name,
         color,
         group: dto.group,
+        theme: dto.theme,
         kind,
     })
 }

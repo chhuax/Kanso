@@ -150,6 +150,7 @@ fn seed_ssh(name: &str, host: &str, user: &str, group: Option<GroupId>) -> Profi
         name: name.into(),
         color: None,
         group,
+        theme: None,
         kind: ProfileKind::Ssh(SshProfile {
             target: seed_target(host, user, None),
             encoding: EncodingLabel::default(),
@@ -168,6 +169,7 @@ fn seed_state() -> MockState {
         name: "Local".into(),
         color: None,
         group: None,
+        theme: None,
         kind: ProfileKind::Local(LocalProfile {
             shell_command: String::new(),
             start_dir: None,
@@ -183,6 +185,7 @@ fn seed_state() -> MockState {
         name: "files".into(),
         color: None,
         group: None,
+        theme: None,
         kind: ProfileKind::Sftp(seed_target(
             "files.internal.example.com",
             "ops",

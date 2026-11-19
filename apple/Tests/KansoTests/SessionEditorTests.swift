@@ -171,6 +171,22 @@ final class SessionEditorTests: XCTestCase {
         XCTAssertEqual(model.colorOptions.count, 18)
     }
 
+    func testTerminalThemeOptionRoundTrip() {
+        let model = SessionEditorModel(store: MemoryStore(), channel: "Direct")
+        // 第一项是“跟随全局”（nil），内置主题含 xshell。
+        XCTAssertTrue(model.themeOptions.count > 1 && model.themeOptions[0] == nil)
+        XCTAssertTrue(model.themeOptions.contains { $0 == "xshell" })
+        model.theme = "xshell"
+        XCTAssertEqual(model.assemble()?.theme, "xshell")
+        // 未知配色 id 也要保留，不能被选项列表悄悄丢掉。
+        model.theme = "file:custom"
+        XCTAssertTrue(model.themeOptions.contains { $0 == "file:custom" })
+        XCTAssertEqual(model.assemble()?.theme, "file:custom")
+        // SFTP 没有终端，配色字段不显示。
+        model.kind = .sftp
+        XCTAssertFalse(model.isVisible(.theme))
+    }
+
     // MARK: 保存与凭据
 
     func testBlankPasswordDoesNotCallSetCredential() async {

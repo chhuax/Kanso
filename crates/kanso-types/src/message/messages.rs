@@ -202,6 +202,10 @@ messages! {
     UiLightTheme = "ui-light-theme" {},
     /// GPUI 设置页面：深色终端配色。
     UiDarkTheme = "ui-dark-theme" {},
+    /// 会话编辑：终端配色字段标签。
+    UiTerminalTheme = "ui-terminal-theme" {},
+    /// 终端配色下拉第一项：跟随全局浅/深外观。
+    UiFollowGlobal = "ui-follow-global" {},
     /// 从设置打开用户的终端主题目录。
     UiOpenThemesFolder = "ui-open-themes-folder" {},
     /// GPUI 设置页面：字体。

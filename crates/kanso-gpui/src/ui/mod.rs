@@ -330,6 +330,7 @@ pub(crate) fn open_sftp_session(
         name: format!("{}@{}", spec.user, spec.host),
         color: None,
         group: None,
+        theme: None,
         kind: ProfileKind::Sftp(SshTarget {
             host: spec.host.clone(),
             port: spec.port,

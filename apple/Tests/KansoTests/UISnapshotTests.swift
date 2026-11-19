@@ -359,7 +359,7 @@ final class UISnapshotTests: XCTestCase {
     private func launcherCanvas() -> NSView {
         func profile(_ id: String, _ name: String, host: String, user: String, port: UInt16, color: FfiRgb?, group: String?) -> FfiProfile {
             let target = FfiSshTarget(host: host, port: port, user: user, auth: .password, privateKeyPath: nil, jump: nil, proxyCommand: nil)
-            return FfiProfile(id: id, name: name, color: color, group: group,
+            return FfiProfile(id: id, name: name, color: color, group: group, theme: nil,
                               kind: .ssh(profile: FfiSshProfile(target: target, encoding: "", locale: nil)))
         }
         let store = MemoryStore(

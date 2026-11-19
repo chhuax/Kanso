@@ -30,6 +30,7 @@ final class SessionEditorViewController: NSViewController, NSTextFieldDelegate {
     let nameField = KTextField()
     let colorPalette = ColorPaletteView()
     let groupPopup = KPopUpField()
+    let themePopup = KPopUpField()
     let mcpPopup = KPopUpField()
     let mcpHint = NSTextField(wrappingLabelWithString: McpText.sensitiveNotice)
     let shellField = KTextField()
@@ -147,6 +148,12 @@ final class SessionEditorViewController: NSViewController, NSTextFieldDelegate {
             model.groupID = index == 0 ? nil : model.groups[index - 1].id
         }
 
+        themePopup.setItems([String(localized: "Follow Global")] + TerminalTheme.builtIn.map(\.name))
+        themePopup.onChange = { [weak self] index in
+            guard let self else { return }
+            model.theme = index == 0 ? nil : TerminalTheme.builtIn[index - 1].id
+        }
+
         mcpPopup.setItems(McpText.accessLevels.map(McpText.accessTitle))
         mcpPopup.onChange = { [weak self] index in
             guard let self else { return }
@@ -206,6 +213,7 @@ final class SessionEditorViewController: NSViewController, NSTextFieldDelegate {
         sessionCard.addRow(pair(labeled(.name, String(localized: "Name"), nameField),
                                 labeled(.color, String(localized: "Color"), colorPalette)))
         sessionCard.addRow(labeled(.group, String(localized: "Group"), groupPopup))
+        sessionCard.addRow(labeled(.theme, String(localized: "Terminal Theme"), themePopup))
         let mcpColumn = NSStackView(views: [mcpPopup, mcpHint])
         mcpColumn.orientation = .vertical
         mcpColumn.alignment = .leading
@@ -237,6 +245,7 @@ final class SessionEditorViewController: NSViewController, NSTextFieldDelegate {
         kindCards.selectedIndex = kinds.firstIndex(of: model.kind) ?? 0
         colorPalette.selected = model.color
         groupPopup.selectItem(at: model.groupID.flatMap { id in model.groups.firstIndex { $0.id == id } }.map { $0 + 1 } ?? 0)
+        themePopup.selectItem(at: model.theme.flatMap { id in TerminalTheme.builtIn.firstIndex { $0.id == id } }.map { $0 + 1 } ?? 0)
         mcpPopup.selectItem(at: McpText.accessIndex(model.mcpAccess))
         mcpPopup.isEnabled = model.isMcpAccessEnabled
         if let reason = model.mcpAccessLoadError {

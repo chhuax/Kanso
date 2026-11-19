@@ -493,17 +493,27 @@ impl AppearanceSettings {
         } else {
             &self.light_theme
         };
-        if let Some(theme) = themes.iter().find(|t| t.id == *id) {
-            return Palette::from_theme(theme);
-        }
-        match id.as_str() {
-            "kanso-light" => Palette::kanso_light(),
-            "kanso-dark" => Palette::kanso_dark(),
-            "xshell" => Palette::xshell(),
-            // 未知 id：回落到该外观的默认配色。
-            _ if dark => Palette::kanso_dark(),
-            _ => Palette::kanso_light(),
-        }
+        palette_for_id(id, dark, themes)
+    }
+}
+
+/// 按配色 id 解析出 Palette；未知 id 回落到该外观的默认配色。
+/// 供会话级配色覆盖复用：id 来自 `Profile.theme`，与全局配色共用同一套解析与回落规则。
+pub fn palette_for_id(
+    id: &str,
+    dark: bool,
+    themes: &[kanso_core::terminal_themes::TerminalTheme],
+) -> Palette {
+    if let Some(theme) = themes.iter().find(|t| t.id == id) {
+        return Palette::from_theme(theme);
+    }
+    match id {
+        "kanso-light" => Palette::kanso_light(),
+        "kanso-dark" => Palette::kanso_dark(),
+        "xshell" => Palette::xshell(),
+        // 未知 id：回落到该外观的默认配色。
+        _ if dark => Palette::kanso_dark(),
+        _ => Palette::kanso_light(),
     }
 }
 

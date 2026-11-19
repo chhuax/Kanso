@@ -7,7 +7,9 @@ import TerminalKit
 /// 终端选项（回滚、默认光标样式）不在这里——它们下发给 core，由 `SettingsStore` 负责。
 @MainActor
 enum TerminalSettingsApplier {
-    static func apply(_ settings: SettingsStore, to view: TerminalView) {
+    /// - parameter themeOverride: 会话级配色 id（来自 `FfiProfile.theme`）。非 nil 时该会话固定用这套配色，
+    ///   不受浅/深外观影响：light/dark palette 都设成它。nil 时跟随全局外观设置。
+    static func apply(_ settings: SettingsStore, to view: TerminalView, themeOverride: String? = nil) {
         let display = settings.display
         let font = TerminalFontResolver.font(family: display.fontFamily, size: display.fontSize).font
         if view.font != font { view.font = font }
@@ -18,7 +20,13 @@ enum TerminalSettingsApplier {
         if view.minimumContrastRatio != display.minimumContrastRatio {
             view.minimumContrastRatio = display.minimumContrastRatio
         }
-        view.lightPalette = settings.appearance.resolvedLightTheme(in: settings.themes).palette
-        view.darkPalette = settings.appearance.resolvedDarkTheme(in: settings.themes).palette
+        if let id = themeOverride, let theme = TerminalTheme.theme(id: id, in: settings.themes) {
+            let palette = theme.palette
+            view.lightPalette = palette
+            view.darkPalette = palette
+        } else {
+            view.lightPalette = settings.appearance.resolvedLightTheme(in: settings.themes).palette
+            view.darkPalette = settings.appearance.resolvedDarkTheme(in: settings.themes).palette
+        }
     }
 }

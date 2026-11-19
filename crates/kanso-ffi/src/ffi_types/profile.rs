@@ -227,6 +227,8 @@ pub struct FfiProfile {
     pub color: Option<FfiRgb>,
     /// 所属分组 id（UUID 字符串）；`None` 为顶层。
     pub group: Option<String>,
+    /// 终端配色 id；`None` 表示跟随全局浅/深外观（如 `xshell` 为固定配色）。
+    pub theme: Option<String>,
     /// 种类与专属配置。
     pub kind: FfiProfileKind,
 }
@@ -365,6 +367,7 @@ impl From<&Profile> for FfiProfile {
             name: p.name.clone(),
             color: p.color.map(Into::into),
             group: p.group.map(|g| g.to_string()),
+            theme: p.theme.clone(),
             kind,
         }
     }
@@ -392,6 +395,7 @@ impl TryFrom<FfiProfile> for Profile {
                 .as_deref()
                 .map(|s| parse_id(s, "group"))
                 .transpose()?,
+            theme: p.theme,
             kind,
         })
     }
@@ -464,6 +468,7 @@ mod tests {
             name: "prod".into(),
             color: Some(Rgb { r: 1, g: 2, b: 3 }),
             group: Some(GroupId::new()),
+            theme: None,
             kind: ProfileKind::Ssh(SshProfile {
                 target: SshTarget {
                     host: "h".into(),
@@ -491,6 +496,7 @@ mod tests {
             name: "l".into(),
             color: None,
             group: None,
+            theme: None,
             kind: ProfileKind::Local(LocalProfile {
                 shell_command: "/bin/zsh".into(),
                 start_dir: Some("/tmp".into()),
@@ -501,6 +507,7 @@ mod tests {
         assert_eq!(Profile::try_from(FfiProfile::from(&local)).unwrap(), local);
 
         let sftp = Profile {
+            theme: None,
             kind: match ssh_profile().kind {
                 ProfileKind::Ssh(s) => ProfileKind::Sftp(s.target),
                 _ => unreachable!(),

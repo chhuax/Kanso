@@ -226,7 +226,7 @@ final class CoreFFITests: XCTestCase {
     func testUserErrorExposesMessageKey() throws {
         let (core, _, _) = makeCore()
         let profile = FfiProfile(
-            id: UUID().uuidString.lowercased(), name: "bad", color: nil, group: nil,
+            id: UUID().uuidString.lowercased(), name: "bad", color: nil, group: nil, theme: nil,
             kind: .ssh(profile: FfiSshProfile(
                 target: FfiSshTarget(
                     host: "", port: 22, user: "root", auth: .password,
