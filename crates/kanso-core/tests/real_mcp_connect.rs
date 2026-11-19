@@ -321,6 +321,59 @@ fn borrowed_session_survives_while_another_visible_tab_remains() {
     assert!(env.core.mcp_session_status(h).is_none());
 }
 
+fn is_closed(env: &Env, id: SessionId) -> bool {
+    matches!(
+        env.core.session_info(id).map(|i| i.state),
+        Some(SessionState::Closed(_))
+    )
+}
+
+#[test]
+fn visible_session_ending_by_itself_releases_borrowed_connection() {
+    let env = Env::new(password_server());
+    env.save_password("pw");
+    let tab = env.open_tab();
+    let (h, borrowed) = env.connected(ConnectMode::ReuseOnly);
+    assert!(borrowed);
+    // 测试服务器收到 `exit\n` 时发退出码并关闭 shell 通道：标签自己结束，没有经过 close_session。
+    env.core.text_input(tab, "exit\n").unwrap();
+    env.wait_until("tab ended", || is_closed(&env, tab));
+    // 释放由事件触发的后台任务完成。
+    env.wait_until("borrowed session released", || {
+        env.core.mcp_session_status(h).is_none()
+    });
+    env.wait_until("server sees disconnect", || {
+        env.server.stats.with(|o| o.closed == 1)
+    });
+}
+
+#[test]
+fn borrowed_session_stays_while_another_visible_tab_is_alive_after_self_exit() {
+    let env = Env::new(password_server());
+    env.save_password("pw");
+    let a = env.open_tab();
+    let b = env
+        .core
+        .open_session(OpenTarget::Duplicate(a), GRID)
+        .unwrap();
+    env.wait_until("dup connected", || {
+        env.core.session_info(b).map(|i| i.state) == Some(SessionState::Connected)
+    });
+    let (h, _) = env.connected(ConnectMode::ReuseOnly);
+
+    env.core.text_input(a, "exit\n").unwrap();
+    env.wait_until("a ended", || is_closed(&env, a));
+    // 给释放任务留出时间：b 还活着，借用会话必须保留。
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(env.core.mcp_session_status(h).is_some());
+
+    env.core.text_input(b, "exit\n").unwrap();
+    env.wait_until("b ended", || is_closed(&env, b));
+    env.wait_until("borrowed session released", || {
+        env.core.mcp_session_status(h).is_none()
+    });
+}
+
 #[test]
 fn non_interactive_missing_password_needs_user_without_prompting() {
     let env = Env::new(password_server());

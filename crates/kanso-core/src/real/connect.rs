@@ -251,8 +251,25 @@ impl RealCore {
         let name = profile_rec.name;
 
         if let Some((connection, borrowed)) = self.find_reusable(profile) {
-            let session = self.open_headless(profile, name, launch, Some(connection), borrowed)?;
-            return Ok(McpConnectOutcome::Connected { session, borrowed });
+            let connection_id = connection.id();
+            let session = self.open_headless(
+                profile,
+                name.clone(),
+                launch.clone(),
+                Some(connection),
+                borrowed,
+            )?;
+            if !borrowed {
+                return Ok(McpConnectOutcome::Connected { session, borrowed });
+            }
+            // 登记之后必须复查：`find_reusable` 到会话登记进 `headless` 表之间，用户可能恰好关掉了
+            // 这条连接上最后一个可见标签，那次释放检查看不到这个尚未登记的借用会话，
+            // 它就会永远持有连接（借用会话不受 MCP 空闲计时管理）。登记后再检查一次即可补上。
+            self.release_borrowed(connection_id);
+            if self.sessions.session(session).is_some() {
+                return Ok(McpConnectOutcome::Connected { session, borrowed });
+            }
+            // 刚被释放：连接已随用户的标签一起结束，当作没有可复用连接继续往下走。
         }
         if mode == ConnectMode::ReuseOnly {
             return Ok(McpConnectOutcome::NotConnected);
