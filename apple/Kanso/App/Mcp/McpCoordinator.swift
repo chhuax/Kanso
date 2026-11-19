@@ -44,23 +44,66 @@ enum McpText {
         name.isEmpty ? String(localized: "Unknown client") : name
     }
 
+    /// 把 MCP 访问级别从「关闭」调高时的敏感内容提示。编辑对话框的字段下方和启动器的确认框共用这一句，
+    /// 避免两处措辞漂移；文字不提「这个会话」，单个会话与整组都适用。
     static var sensitiveNotice: String {
-        String(localized: "Terminal contents may include sensitive information.")
+        String(localized: "AI tools will be able to read terminal contents and commands, which may include secrets and other sensitive information.")
     }
 
-    /// 审计行里的会话名。没有目标会话时返回 nil；id 还在但配置已删除时显示「已删除的会话」。
-    static func auditSessionTitle(profileId: String?, names: [String: String]) -> String? {
+    /// 启动器里从「关闭」调高访问级别前的确认框标题；整组设置时用复数。
+    static func raiseConfirmTitle(plural: Bool) -> String {
+        plural
+            ? String(localized: "Open these sessions to AI tools?")
+            : String(localized: "Open this session to AI tools?")
+    }
+
+    /// 启动器行尾 MCP 标记的悬停文字；只对不是「关闭」的级别使用。
+    static func badgeTooltip(_ level: FfiMcpAccess) -> String {
+        String(localized: "MCP: \(accessTitle(level))")
+    }
+
+    /// 设置页 MCP 卡里的已授权会话数说明。项目的 xcstrings 不做复数规则，单复数在这里分支。
+    static func grantedSessionsSummary(count: Int) -> String {
+        switch count {
+        case 0: String(localized: "No sessions are open to AI tools yet.")
+        case 1: String(localized: "1 session is open to AI tools. Change this from a session’s … menu or its editor.")
+        default: String(localized: "\(count) sessions are open to AI tools. Change this from a session’s … menu or its editor.")
+        }
+    }
+
+    /// 活动记录里的会话名。没有目标会话时返回 nil；id 还在但配置已删除时显示「已删除的会话」。
+    ///
+    /// 失败的记录（`failed`）若该会话**当前**是「关闭」级别（不在 `accesses` 里），显示「未授权的会话」（spec/mcp.md §6）。
+    /// 「当前级别」只是近似：审计记录不保存当时的级别，会话之后被授权过的话，早先被拒绝的记录会显示会话名。
+    /// - Parameter accesses: 会话 id → 级别，只含非「关闭」的会话（即 `mcpAccesses()` 的结果）。
+    static func auditSessionTitle(
+        profileId: String?, failed: Bool, names: [String: String], accesses: [String: FfiMcpAccess]
+    ) -> String? {
         guard let profileId else { return nil }
-        return names[profileId] ?? String(localized: "Deleted session")
+        guard let name = names[profileId] else { return String(localized: "Deleted session") }
+        if failed && accesses[profileId] == nil { return String(localized: "Unauthorized session") }
+        return name
     }
 
-    /// 审计行里的参数摘要：折成一行并截断，全文放 toolTip。
+    /// 活动记录里的参数摘要：折成一行并截断，全文放 toolTip。
     static func argsSummary(_ args: String, limit: Int = 80) -> String {
         var oneLine = args
         for separator in ["\r\n", "\r", "\n", "\t"] {
             oneLine = oneLine.replacingOccurrences(of: separator, with: " ")
         }
         return oneLine.count > limit ? String(oneLine.prefix(limit)) + "…" : oneLine
+    }
+
+    /// 审计行共用的开头：时间、客户端、工具（工具名为空时省略）。活动记录窗口用它拼每条记录的开头。
+    static func auditHeadParts(_ record: FfiMcpAuditRecord) -> [String] {
+        var parts = [timeText(unixMs: record.atMs), clientName(record.client)]
+        if !record.tool.isEmpty { parts.append(record.tool) }
+        return parts
+    }
+
+    /// 本地时区、简略日期加简短时间；设置页的客户端连接时间与活动记录窗口共用。
+    static func timeText(unixMs: Int64) -> String {
+        Date(timeIntervalSince1970: TimeInterval(unixMs) / 1000).formatted(date: .abbreviated, time: .shortened)
     }
 
     static func unavailableReason(_ reason: FfiMcpUnavailable) -> String {
@@ -126,6 +169,10 @@ final class McpCoordinator {
 
     /// 把 MCP 打开的标签放进窗口。由主窗口设置。
     var onPlaceSession: ((UInt64) -> Void)?
+
+    /// 打开（或前置）MCP 活动记录窗口。由主窗口设置，窗口的持有者在那里；设置页的「打开活动记录」按钮
+    /// 通过它打开，不必知道窗口怎么创建。没设置时什么也不做。
+    var onShowActivity: (() -> Void)?
 
     /// 测试可替换。默认 2 秒后在主线程执行；返回取消闭包。
     var scheduleAfter: (TimeInterval, @escaping @MainActor () -> Void) -> () -> Void

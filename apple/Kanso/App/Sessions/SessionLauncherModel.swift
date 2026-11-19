@@ -13,6 +13,16 @@ final class SessionLauncherModel {
     }
 
     let store: SessionStore
+    /// MCP 访问级别的读写。nil 表示渠道不支持 MCP（MAS / Setapp）：启动器不显示 MCP 菜单与标记。
+    let mcpAccess: (any McpAccessStoring)?
+
+    /// 一次批量设置 MCP 访问级别的结果；成功的会话保持新级别，失败的不回滚。
+    struct McpAccessChange {
+        let total: Int
+        let failed: Int
+        /// 第一个失败的错误，用来给用户说明原因；全部成功为 nil。
+        let firstError: Error?
+    }
 
     private(set) var sections: [Section] = []
     private(set) var hasAnyProfile = false
@@ -20,6 +30,8 @@ final class SessionLauncherModel {
     private(set) var selectedID: String?
     private var profiles: [FfiProfile] = []
     private(set) var groups: [FfiGroup] = []
+    /// 会话 id → MCP 访问级别，只含不是「关闭」的会话；每次 `reload` 用一次 `mcpAccesses()` 刷新。
+    private var mcpLevels: [String: FfiMcpAccess] = [:]
     nonisolated(unsafe) private var libraryObserver: NSObjectProtocol?
 
     private(set) var collapsedGroupIDs: Set<String>
@@ -36,8 +48,9 @@ final class SessionLauncherModel {
         }
     }
 
-    init(store: SessionStore, collapsedGroupIDs: Set<String> = []) {
+    init(store: SessionStore, mcpAccess: (any McpAccessStoring)? = nil, collapsedGroupIDs: Set<String> = []) {
         self.store = store
+        self.mcpAccess = mcpAccess
         self.collapsedGroupIDs = collapsedGroupIDs
         reload()
         selectedID = visibleProfiles.first?.id
@@ -57,6 +70,10 @@ final class SessionLauncherModel {
         profiles = store.profiles().sorted(by: Self.profileByName)
         groups = store.groups().sorted(by: Self.byName)
         hasAnyProfile = !profiles.isEmpty
+        // 读不会失败（`mcpAccesses()` 不抛错），所以行标记和菜单勾选不需要「读失败」状态。
+        mcpLevels = Dictionary(
+            (mcpAccess?.mcpAccesses() ?? []).map { ($0.profileId, $0.level) }, uniquingKeysWith: { _, new in new }
+        )
         filterSnapshot()
     }
 
@@ -152,6 +169,45 @@ final class SessionLauncherModel {
     func deleteProfile(id: String) async throws {
         try await store.deleteProfile(id: id)
         store.notifyLibraryChanged()
+    }
+
+    // MARK: - MCP 访问
+
+    /// 渠道是否支持 MCP 访问：为假时启动器不显示 MCP 菜单与标记。
+    var supportsMcpAccess: Bool { mcpAccess != nil }
+
+    /// 会话当前的 MCP 访问级别；不在授权表里就是「关闭」。
+    func mcpLevel(of profileID: String) -> FfiMcpAccess { mcpLevels[profileID] ?? .off }
+
+    /// 分组里全部会话的 id。取自完整快照而不是 `sections`：搜索会过滤 `sections`，
+    /// 而「整组设为…」必须作用于整个分组，不能只改搜索命中的那几个。
+    func profileIDs(inGroup groupID: String) -> [String] {
+        profiles.filter { $0.group == groupID }.map(\.id)
+    }
+
+    /// 把这些会话设成 `level` 是否会让某个原来「关闭」的会话对 AI 开放：是就要先让用户确认（spec/mcp.md §2、§7.2）。
+    func raisesMcpAccessFromOff(_ ids: [String], to level: FfiMcpAccess) -> Bool {
+        level != .off && ids.contains { mcpLevel(of: $0) == .off }
+    }
+
+    /// 逐个写入访问级别，成功的保留，失败的汇总进结果。写完通知会话库变化：
+    /// 启动器标记和设置页的授权数据此刷新（模型自己也通过通知重读快照）。
+    /// 只在渠道支持 MCP（`mcpAccess` 非 nil）时有意义，否则什么也不做。
+    @discardableResult
+    func setMcpAccess(_ ids: [String], to level: FfiMcpAccess) -> McpAccessChange {
+        guard let mcpAccess else { return McpAccessChange(total: 0, failed: 0, firstError: nil) }
+        var failed = 0
+        var firstError: Error?
+        for id in ids {
+            do {
+                try mcpAccess.setMcpAccess(profileId: id, level: level)
+            } catch {
+                failed += 1
+                firstError = firstError ?? error
+            }
+        }
+        store.notifyLibraryChanged()
+        return McpAccessChange(total: ids.count, failed: failed, firstError: firstError)
     }
 
     // MARK: - 分组
