@@ -727,6 +727,12 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "拷贝" } }
       }
     },
+    "Copy on Select" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Copy on Select" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "选中即复制" } }
+      }
+    },
     "Couldn’t copy to the clipboard." : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Couldn’t copy to the clipboard." } },

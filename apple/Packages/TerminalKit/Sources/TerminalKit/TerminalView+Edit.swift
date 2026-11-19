@@ -30,11 +30,14 @@ public protocol TerminalEditActions: AnyObject {
     func paste(_ content: TerminalPasteContent)
     /// 全选终端缓冲区（回滚 + 屏幕）。
     func selectAll()
+    /// 选中视口里 `point` 处的单词（右键弹菜单前调用，terminal.md §8.1）。
+    func selectWord(at point: ViewportPointValue)
     func commandBlockText(id: UInt64, part: FfiBlockText) -> String?
     func jumpCommandBlock(forward: Bool) -> UInt64?
 }
 
 extension TerminalEditActions {
+    public func selectWord(at point: ViewportPointValue) {}
     public func commandBlockText(id: UInt64, part: FfiBlockText) -> String? { nil }
     public func jumpCommandBlock(forward: Bool) -> UInt64? { nil }
 }
@@ -46,6 +49,11 @@ extension TerminalView: NSMenuItemValidation {
             copyCommandBlock(id, part: .all)
             return
         }
+        copySelectionIfPresent()
+    }
+
+    /// 复制当前文本选区（不回落命令块）；供 `copy(_:)` 与"选中即复制"共用。
+    func copySelectionIfPresent() {
         guard let text = editActions?.selectionText(), !text.isEmpty else { return }
         // 写剪贴板失败必须提示（terminal.md §8.2）：否则用户看到选区还在，会以为已经复制成功。
         if !writeCopiedText(text) {
