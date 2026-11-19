@@ -233,21 +233,22 @@ fn real_mcp_methods_on_missing_targets_do_not_panic() {
         rt.block_on(core.mcp_exec(s, "ls", limits)),
         Err(CoreError::NoSuchSession(s))
     );
+    // SFTP 补充操作已实现（行为见 real_sftp.rs）：不存在的会话是 NoSuchSession。
     assert_eq!(
         rt.block_on(core.sftp_entry(s, "/", false)),
-        Err(CoreError::NotSupported)
+        Err(CoreError::NoSuchSession(s))
     );
     assert_eq!(
         rt.block_on(core.sftp_read(s, "/x", 0, 10)),
-        Err(CoreError::NotSupported)
+        Err(CoreError::NoSuchSession(s))
     );
     assert_eq!(
         rt.block_on(core.sftp_write(s, "/x", vec![], SftpWriteMode::CreateNew)),
-        Err(CoreError::NotSupported)
+        Err(CoreError::NoSuchSession(s))
     );
     assert_eq!(
         rt.block_on(core.sftp_rmdir(s, "/x")),
-        Err(CoreError::NotSupported)
+        Err(CoreError::NoSuchSession(s))
     );
     core.shutdown();
 }
@@ -449,6 +450,62 @@ fn mock_sftp_write_create_new_refuses_existing() {
         .unwrap();
     let bytes = rt.block_on(core.sftp_read(session, "/x", 5, 4)).unwrap();
     assert_eq!(bytes, b"file");
+}
+
+#[test]
+fn mock_transfer_and_wait_completes_and_can_be_cancelled() {
+    use kanso_types::event::TransferOutcome;
+    use kanso_types::transfer::ConflictPolicy;
+    let (core, sink) = mock_core_with_sink();
+    let rt = rt();
+    let web = mock_profile(&core, "web-01");
+    let Ok(McpConnectOutcome::Connected { session, .. }) =
+        rt.block_on(core.mcp_connect(web, ConnectMode::NonInteractive))
+    else {
+        panic!("expected connected");
+    };
+    // 正常完成：下载与上传都等到 Completed，事件照常发出。
+    assert_eq!(
+        rt.block_on(core.download_and_wait(session, "/a/f.txt", "/tmp", ConflictPolicy::Fail)),
+        Ok(TransferOutcome::Completed { skipped: 0 })
+    );
+    assert_eq!(
+        rt.block_on(core.upload_and_wait(session, "/tmp/f.txt", "/a", ConflictPolicy::Fail)),
+        Ok(TransferOutcome::Completed { skipped: 0 })
+    );
+    let finished = sink
+        .take()
+        .iter()
+        .filter(|e| matches!(e, CoreEvent::TransferFinished { .. }))
+        .count();
+    assert_eq!(finished, 2);
+
+    // 等待期间取消：从 TransferStarted 拿 id。
+    let ghost = SessionId::from_raw(9999);
+    assert_eq!(
+        rt.block_on(core.download_and_wait(ghost, "/a", "/tmp", ConflictPolicy::Fail)),
+        Err(CoreError::NoSuchSession(ghost))
+    );
+    let out = std::thread::scope(|sc| {
+        let h = sc.spawn(|| {
+            rt.block_on(core.upload_and_wait(session, "/tmp/g.txt", "/a", ConflictPolicy::Fail))
+        });
+        let id = loop {
+            let found = sink.take().into_iter().find_map(|e| match e {
+                CoreEvent::TransferStarted { transfer, name, .. } if name == "g.txt" => {
+                    Some(transfer)
+                }
+                _ => None,
+            });
+            if let Some(id) = found {
+                break id;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        };
+        core.cancel_transfer(id);
+        h.join().unwrap()
+    });
+    assert_eq!(out, Ok(TransferOutcome::Cancelled));
 }
 
 // ---- 评审修复的回归测试 ----

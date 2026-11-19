@@ -268,6 +268,18 @@ fn outcome_of(report: kanso_ssh::sftp::TransferReport) -> TransferOutcome {
     }
 }
 
+/// 把传输结果交给 `*_and_wait` 调用方的通道。
+type OutcomeTx = tokio::sync::oneshot::Sender<TransferOutcome>;
+
+/// 等传输任务交回结果。发送端被丢弃而没有发结果（core 运行时已关闭、任务被销毁）时返回 `Internal`。
+async fn wait_outcome(
+    rx: tokio::sync::oneshot::Receiver<TransferOutcome>,
+) -> Result<TransferOutcome> {
+    rx.await.map_err(|_| CoreError::Internal {
+        detail: "transfer task ended without a result".to_owned(),
+    })
+}
+
 /// 传输任务向 UI 发事件的出口。只在传输任务内使用，所以事件天然按序。
 struct TransferEmitter {
     events: Arc<dyn EventSink>,
@@ -1626,6 +1638,32 @@ impl RealCore {
         local_dir: &str,
         conflict: ConflictPolicy,
     ) -> Result<TransferId> {
+        self.download_inner(session, remote_path, local_dir, conflict, None)
+    }
+
+    /// 发起下载并等它结束。参数错误立即返回；传输本身走与 `download` 完全相同的路径（同样的事件与传输表项）。
+    ///
+    /// 丢弃返回的 future 只是不再等结果，传输照常完成（spec/mcp.md §4.4）。
+    pub(crate) async fn download_and_wait(
+        &self,
+        session: SessionId,
+        remote_path: &str,
+        local_dir: &str,
+        conflict: ConflictPolicy,
+    ) -> Result<TransferOutcome> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.download_inner(session, remote_path, local_dir, conflict, Some(tx))?;
+        wait_outcome(rx).await
+    }
+
+    fn download_inner(
+        &self,
+        session: SessionId,
+        remote_path: &str,
+        local_dir: &str,
+        conflict: ConflictPolicy,
+        waiter: Option<OutcomeTx>,
+    ) -> Result<TransferId> {
         let client = self.sftp_client(session)?;
         let name = path_name(remote_path)?;
         // 参数类错误在调用时直接返回：下载目标目录必须已存在（引擎要求父目录存在）。
@@ -1652,6 +1690,7 @@ impl RealCore {
             session,
             TransferDirection::Download,
             name,
+            waiter,
             move |em, cancel| async move {
                 let stat = client.stat(&remote).await;
                 let (is_dir, total) = match &stat {
@@ -1680,6 +1719,30 @@ impl RealCore {
         local_path: &str,
         remote_dir: &str,
         conflict: ConflictPolicy,
+    ) -> Result<TransferId> {
+        self.upload_inner(session, local_path, remote_dir, conflict, None)
+    }
+
+    /// 上传版的 [`RealCore::download_and_wait`]，约定相同。
+    pub(crate) async fn upload_and_wait(
+        &self,
+        session: SessionId,
+        local_path: &str,
+        remote_dir: &str,
+        conflict: ConflictPolicy,
+    ) -> Result<TransferOutcome> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.upload_inner(session, local_path, remote_dir, conflict, Some(tx))?;
+        wait_outcome(rx).await
+    }
+
+    fn upload_inner(
+        &self,
+        session: SessionId,
+        local_path: &str,
+        remote_dir: &str,
+        conflict: ConflictPolicy,
+        waiter: Option<OutcomeTx>,
     ) -> Result<TransferId> {
         let client = self.sftp_client(session)?;
         let local = PathBuf::from(local_path);
@@ -1710,6 +1773,7 @@ impl RealCore {
             session,
             TransferDirection::Upload,
             name,
+            waiter,
             move |em, cancel| async move {
                 em.started(total);
                 let opts = em.options(conflict, cancel, total);
@@ -1759,6 +1823,7 @@ impl RealCore {
         session: SessionId,
         direction: TransferDirection,
         name: String,
+        waiter: Option<OutcomeTx>,
         body: F,
     ) -> TransferId
     where
@@ -1795,6 +1860,11 @@ impl RealCore {
                 },
             };
             table.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+            // 结果交给等待者与发事件在同一处完成：等待者在传输启动前就已登记（它随任务一起移入），
+            // 所以"传输在开始等待之前就结束"不会丢结果。等待者已放弃（future 被丢弃）时 send 失败，忽略。
+            if let Some(tx) = waiter {
+                let _ = tx.send(outcome.clone());
+            }
             events.on_event(CoreEvent::TransferFinished {
                 transfer: id,
                 outcome,
