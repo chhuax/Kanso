@@ -251,6 +251,19 @@ fn color_of(raw: u32, palette: &Palette, default: Rgb8) -> Rgb8 {
     }
 }
 
+/// 粗体前景的 ANSI 0..=7 提亮为 8..=15（bold-as-bright，xterm / Xshell 惯例）。
+///
+/// 只作用于显示解析：不改帧里的索引，原始网格、选区与复制文本都不受影响。
+/// 只对调色板索引生效——RGB、语义色、默认色以及已是亮色的 8..=15 都原样返回。
+/// `ls` 的 `01;32`（粗体绿）等 LS_COLORS 正是靠这条规则显示成亮色。
+fn brighten_bold_foreground(raw: u32, palette: &Palette, default: Rgb8, bold: bool) -> Rgb8 {
+    if bold && let DecodedColor::Indexed(i @ 0..=7) = Color::decode(raw) {
+        palette.indexed(i + 8)
+    } else {
+        color_of(raw, palette, default)
+    }
+}
+
 /// 按显示优先级合成单元格的前景和背景。
 fn resolve(
     cell: &Cell,
@@ -261,10 +274,11 @@ fn resolve(
     keep_chip_bold: bool,
     quiet: bool,
 ) -> ResolvedCell {
-    let mut fg = color_of(cell.fg, palette, palette.foreground);
+    let flags = cell.flags;
+    let bold = flags & CELL_BOLD != 0;
+    let mut fg = brighten_bold_foreground(cell.fg, palette, palette.foreground, bold);
     // 背景不会是语义色（语义着色只出现在前景）；遇到时按调色板解析即可。
     let mut bg = color_of(cell.bg, palette, palette.background);
-    let flags = cell.flags;
     if flags & CELL_INVERSE != 0 {
         std::mem::swap(&mut fg, &mut bg);
     }
@@ -300,6 +314,7 @@ fn resolve(
     ResolvedCell {
         style: SpanStyle {
             fg,
+            // 字形粗细沿用上游的视觉弱化规则；颜色提亮用上面的原始 bold（终端语义）。
             bold: !quiet && flags & CELL_BOLD != 0 && (keep_chip_bold || flags & CELL_CHIP == 0),
             italic: flags & CELL_ITALIC != 0,
             underline,
@@ -664,6 +679,81 @@ mod tests {
         );
         assert!(g.bgs.is_empty());
         assert!(g.spans.iter().all(|s| s.simple));
+    }
+
+    #[test]
+    fn bold_ansi_foreground_brightens_but_rgb_and_bright_stay() {
+        let p = pal();
+        // 粗体 + ANSI 0..=7 → 提亮到 8..=15（ls 的 01;32 等）。
+        assert_eq!(
+            brighten_bold_foreground(Color::encode(TermColor::Indexed(2)), &p, p.foreground, true),
+            p.ansi[10]
+        );
+        assert_eq!(
+            brighten_bold_foreground(Color::encode(TermColor::Indexed(4)), &p, p.foreground, true),
+            p.ansi[12]
+        );
+        // 非粗体保持原色。
+        assert_eq!(
+            brighten_bold_foreground(
+                Color::encode(TermColor::Indexed(2)),
+                &p,
+                p.foreground,
+                false
+            ),
+            p.ansi[2]
+        );
+        // 粗体但已是亮色 8..=15：保持原色，不二次提亮。
+        assert_eq!(
+            brighten_bold_foreground(
+                Color::encode(TermColor::Indexed(10)),
+                &p,
+                p.foreground,
+                true
+            ),
+            p.ansi[10]
+        );
+        // 粗体 RGB、语义色、默认色都不参与提亮。
+        let rgb = Color::encode(TermColor::Rgb(Rgb { r: 1, g: 2, b: 3 }));
+        assert_eq!(
+            brighten_bold_foreground(rgb, &p, p.foreground, true),
+            Rgb8::new(1, 2, 3)
+        );
+        assert_eq!(
+            brighten_bold_foreground(Color::semantic(0), &p, p.foreground, true),
+            p.semantic_color(0)
+        );
+        assert_eq!(
+            brighten_bold_foreground(0, &p, p.foreground, true),
+            p.foreground
+        );
+    }
+
+    #[test]
+    fn bold_ansi_reaches_render_grid_as_bright_color() {
+        let mut b = FrameBuilder::new(3, 1);
+        b.set_cell(
+            0,
+            0,
+            Cell {
+                fg: Color::encode(TermColor::Indexed(2)),
+                flags: CELL_BOLD,
+                ..plain('a')
+            },
+        );
+        b.set_cell(
+            0,
+            1,
+            Cell {
+                fg: Color::encode(TermColor::Indexed(2)),
+                ..plain('b')
+            },
+        );
+        let f = frame(b);
+        let p = pal();
+        let g = build_render_grid(&f.view().unwrap(), &p);
+        assert_eq!(g.spans[0].fg, p.ansi[10], "粗体绿应显示为亮绿");
+        assert_eq!(g.spans[1].fg, p.ansi[2], "非粗体绿应保持暗绿");
     }
 
     #[test]
