@@ -18,16 +18,26 @@ extension TerminalView {
         return frame.commandBlocks.first { $0.startLine <= line && line <= $0.endLine }
     }
 
+    /// 右键菜单里命令块动作的插入锚点：存在时插在该分隔项之前，保持末尾项（如关闭会话）贴底。
+    public static let commandBlockMenuAnchor = NSUserInterfaceItemIdentifier("kanso.context.commandBlocksAnchor")
+
     func addCommandBlockMenuItems(to menu: NSMenu, event: NSEvent) {
         let block = commandBlock(at: event)
         menuCommandBlock = block?.id
         guard let block, block.canCopyOutput else { return }
-        menu.addItem(.separator())
-        let command = menu.addItem(withTitle: String(localized: "Copy Command"), action: #selector(copyBlockCommand(_:)), keyEquivalent: "")
+        let command = NSMenuItem(title: String(localized: "Copy Command"), action: #selector(copyBlockCommand(_:)), keyEquivalent: "")
         command.target = self
+        command.image = NSImage(systemSymbolName: "terminal", accessibilityDescription: nil)
         command.isEnabled = block.canCopyCommand
-        let output = menu.addItem(withTitle: String(localized: "Copy Output"), action: #selector(copyBlockOutput(_:)), keyEquivalent: "")
+        let output = NSMenuItem(title: String(localized: "Copy Output"), action: #selector(copyBlockOutput(_:)), keyEquivalent: "")
         output.target = self
+        output.image = NSImage(systemSymbolName: "doc.text", accessibilityDescription: nil)
+        let items: [NSMenuItem] = [.separator(), command, output]
+        if let index = menu.items.firstIndex(where: { $0.identifier == Self.commandBlockMenuAnchor }) {
+            for (offset, item) in items.enumerated() { menu.insertItem(item, at: index + offset) }
+        } else {
+            for item in items { menu.addItem(item) }
+        }
     }
 
     @objc func copyBlockCommand(_ sender: Any?) {

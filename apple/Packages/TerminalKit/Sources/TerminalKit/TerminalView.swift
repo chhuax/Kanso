@@ -133,6 +133,8 @@ public final class TerminalView: NSView {
     /// 复制、粘贴、全选的出口（菜单 / ⌘C ⌘V ⌘A 经 responder chain 调到本视图后转给它）。
     /// 弱引用：由持有 core 的上层强持有。
     public weak var editActions: TerminalEditActions?
+    /// 选中即复制（terminal.md §8.2）：开启后松开鼠标完成选择时自动复制选区，默认关闭。
+    public var copyOnSelect = false
     public var onCopied: (() -> Void)?
     public var writeCopiedText: (String) -> Bool = { text in
         NSPasteboard.general.clearContents()
@@ -188,6 +190,8 @@ public final class TerminalView: NSView {
     var pressedKeyCodes: Set<UInt16> = []
     /// 尚未收到 Up 的鼠标按键及其最近一次事件，用于拖动防粘。
     var activeButtons: [TerminalMouseButton: TerminalMouseEvent] = [:]
+    /// 当前这次左键交互是否由终端自己处理选区（未交给程序鼠标上报）。
+    var leftDragIsSelection = false
     var scrollAccumulator = ScrollAccumulator()
     var reportedFocus = false
     var mouseTrackingArea: NSTrackingArea?

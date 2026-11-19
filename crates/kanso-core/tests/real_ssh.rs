@@ -944,3 +944,29 @@ fn prompt_inference_tracks_remote_commands_and_agent_turns() {
         activities(&env, id).last() == Some(&Activity::Idle)
     });
 }
+
+#[test]
+fn ssh_selection_reports_has_selection_and_text() {
+    let env = Env::new(fake_shell_server());
+    env.save_password("pw");
+    let id = env.open();
+    env.wait_connected(id);
+    env.wait_screen(id, "remote$");
+
+    assert!(!env.core.has_selection(id));
+    env.core.select_all(id).unwrap();
+    assert!(
+        env.core.has_selection(id),
+        "SSH 会话选中后 has_selection 应为真"
+    );
+    assert!(
+        env.core
+            .selection_text(id)
+            .as_deref()
+            .is_some_and(|text| text.contains("remote$")),
+        "SSH 会话应能取出选区文本"
+    );
+    env.core.clear_selection(id).unwrap();
+    assert!(!env.core.has_selection(id));
+    env.core.shutdown();
+}
