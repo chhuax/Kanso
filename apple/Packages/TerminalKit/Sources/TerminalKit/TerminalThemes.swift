@@ -50,4 +50,28 @@ extension TerminalPalette {
         chipBorder: RGBA8(r: 75, g: 81, b: 88, a: 255),
         chipIcon: RGBA8(r: 138, g: 138, b: 138, a: 255)
     )
+
+    /// 数值来自 design/terminal-themes/xshell.json。
+    public static let xshell = TerminalPalette(
+        foreground: RGB8(hex: 0xE5E5E5),
+        background: RGB8(hex: 0x000000),
+        cursor: RGB8(hex: 0x00FF00),
+        cursorText: RGB8(hex: 0x000000),
+        selectionBackground: RGB8(hex: 0x2F4F4F),
+        ansi: [
+            RGB8(hex: 0x010101), RGB8(hex: 0xCD0000), RGB8(hex: 0x006400), RGB8(hex: 0xCDCD00), RGB8(hex: 0x0000CD), RGB8(hex: 0xCD00CD), RGB8(hex: 0x00CDCD), RGB8(hex: 0xE5E5E5),
+            RGB8(hex: 0x7F7F7F), RGB8(hex: 0xFF5555), RGB8(hex: 0x00FF00), RGB8(hex: 0xFFFF00), RGB8(hex: 0x5C5CFF), RGB8(hex: 0xFF00FF), RGB8(hex: 0x00FFFF), RGB8(hex: 0xFFFFFF),
+        ],
+        semantic: [
+            RGB8(hex: 0x00CDCD), RGB8(hex: 0x00CD00), RGB8(hex: 0xFFB86C), RGB8(hex: 0xBD93F9), RGB8(hex: 0xFF55FF), RGB8(hex: 0x6C6CFF), RGB8(hex: 0xF1FA8C), RGB8(hex: 0x7F7F7F),
+            RGB8(hex: 0x8BC4B5), RGB8(hex: 0x00FF00), RGB8(hex: 0xFF5555), RGB8(hex: 0xF1FA8C), RGB8(hex: 0xF1FA8C),
+        ],
+        gutterText: RGBA8(r: 142, g: 148, b: 155, a: 255),
+        gutterCursorLine: RGBA8(r: 98, g: 176, b: 210, a: 38),
+        commandSeparator: RGBA8(r: 236, g: 237, b: 239, a: 38),
+        blockSelection: RGBA8(r: 32, g: 52, b: 62, a: 255),
+        chipBackground: RGBA8(r: 37, g: 40, b: 44, a: 255),
+        chipBorder: RGBA8(r: 75, g: 81, b: 88, a: 255),
+        chipIcon: RGBA8(r: 138, g: 138, b: 138, a: 255)
+    )
 }

@@ -426,8 +426,11 @@ impl ThemeMode {
 }
 
 /// 内置终端配色：`(id, 显示名)`。id 与 mac 版一致。
-pub const BUILTIN_THEMES: [(&str, &str); 2] =
-    [("kanso-light", "Kanso Light"), ("kanso-dark", "Kanso Dark")];
+pub const BUILTIN_THEMES: [(&str, &str); 3] = [
+    ("kanso-light", "Kanso Light"),
+    ("kanso-dark", "Kanso Dark"),
+    ("xshell", "Xshell"),
+];
 
 /// 外观设置。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -496,6 +499,7 @@ impl AppearanceSettings {
         match id.as_str() {
             "kanso-light" => Palette::kanso_light(),
             "kanso-dark" => Palette::kanso_dark(),
+            "xshell" => Palette::xshell(),
             // 未知 id：回落到该外观的默认配色。
             _ if dark => Palette::kanso_dark(),
             _ => Palette::kanso_light(),

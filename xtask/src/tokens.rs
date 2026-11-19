@@ -79,6 +79,45 @@ struct TerminalTheme {
 /// 终端配色 Swift 文件在仓库内的相对路径（入库，由 `gen-tokens` 生成，`check-tokens` 校验）。
 const THEMES_SWIFT: &str = "apple/Packages/TerminalKit/Sources/TerminalKit/TerminalThemes.swift";
 
+/// 内置终端主题清单，顺序即生成物中出现顺序。
+/// 元组为 (Swift 标识, 归属外观, 文件名 stem, 是否为该外观的默认主题)。
+/// xshell 是深色主题，界面 token（gutter/chip）沿用 dark（与 Swift `TerminalTheme.fromFile`
+/// 按背景明暗选 base 的行为一致）；它不是默认主题，故不参与 appearance token 的装饰色校验。
+const BUILTIN_THEMES: [(&str, Appearance, &str, bool); 3] = [
+    ("kansoLight", Appearance::Light, "kanso-light", true),
+    ("kansoDark", Appearance::Dark, "kanso-dark", true),
+    ("xshell", Appearance::Dark, "xshell", false),
+];
+
+/// 已读取并校验过的内置主题。
+struct LoadedTheme {
+    swift_ident: &'static str,
+    appearance: Appearance,
+    rel: String,
+    theme: TerminalTheme,
+    is_default: bool,
+}
+
+/// 读取全部内置主题并逐个做配色自身校验（前景/语义/ANSI 对比度）。
+fn load_builtin_themes(root: &Path, errors: &mut Vec<String>) -> Vec<LoadedTheme> {
+    BUILTIN_THEMES
+        .iter()
+        .filter_map(|&(swift_ident, appearance, stem, is_default)| {
+            let rel = format!("design/terminal-themes/{stem}.json");
+            let value = read_json(&root.join(&rel), errors)?;
+            let theme = parse_theme(&rel, &value, errors)?;
+            errors.extend(check_theme(&rel, &theme));
+            Some(LoadedTheme {
+                swift_ident,
+                appearance,
+                rel,
+                theme,
+                is_default,
+            })
+        })
+        .collect()
+}
+
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -408,46 +447,31 @@ pub fn check() -> ExitCode {
     let tokens = read_json(&tokens_path, &mut errors)
         .map(|v| parse_tokens("design/tokens.json", &v, &mut errors));
 
-    let mut themes = vec![];
-    for (a, name) in [
-        (Appearance::Light, "kanso-light"),
-        (Appearance::Dark, "kanso-dark"),
-    ] {
-        let rel = format!("design/terminal-themes/{name}.json");
-        let Some(v) = read_json(&root.join(&rel), &mut errors) else {
-            continue;
-        };
-        if let Some(theme) = parse_theme(&rel, &v, &mut errors) {
-            errors.extend(check_theme(&rel, &theme));
-            themes.push((a, rel, theme));
-        }
-    }
+    let themes = load_builtin_themes(&root, &mut errors);
 
     if let Some(t) = &tokens {
-        let refs: Vec<_> = themes
+        // appearance token（gutterText、chip 背景）只按各外观的默认主题校验；
+        // 其它内置主题（如 xshell）沿用默认主题的界面 token，不重复参与这项检查。
+        let default_refs: Vec<_> = themes
             .iter()
-            .map(|(a, n, th)| (*a, n.as_str(), th))
+            .filter(|item| item.is_default)
+            .map(|item| (item.appearance, item.rel.as_str(), &item.theme))
             .collect();
-        // 终端配色缺失时对应错误已记录，此处只检查能检查的部分。
-        errors.extend(check_tokens("design/tokens.json", t, &refs));
+        errors.extend(check_tokens("design/tokens.json", t, &default_refs));
 
         // 入库的 TerminalThemes.swift 必须与 JSON 一致：包内生成物入库是为了让单独的
         // `swift build` 不依赖 xtask，代价就是要在这里兜底，防止改了 JSON 忘记重新生成。
         if errors.is_empty() {
-            let light = themes.iter().find(|(a, _, _)| *a == Appearance::Light);
-            let dark = themes.iter().find(|(a, _, _)| *a == Appearance::Dark);
-            if let (Some((_, _, l)), Some((_, _, d))) = (light, dark) {
-                let expected = render_terminal_themes(t, l, d);
-                let path = root.join(THEMES_SWIFT);
-                match fs::read_to_string(&path) {
-                    Ok(actual) if actual == expected => {}
-                    Ok(_) => errors.push(format!(
-                        "{THEMES_SWIFT} 与 design/ 下的配色不一致，请运行 `cargo xtask gen-tokens` 并提交"
-                    )),
-                    Err(e) => errors.push(format!(
-                        "{THEMES_SWIFT} 无法读取（{e}），请运行 `cargo xtask gen-tokens`"
-                    )),
-                }
+            let expected = render_terminal_themes(t, &themes);
+            let path = root.join(THEMES_SWIFT);
+            match fs::read_to_string(&path) {
+                Ok(actual) if actual == expected => {}
+                Ok(_) => errors.push(format!(
+                    "{THEMES_SWIFT} 与 design/ 下的配色不一致，请运行 `cargo xtask gen-tokens` 并提交"
+                )),
+                Err(e) => errors.push(format!(
+                    "{THEMES_SWIFT} 无法读取（{e}），请运行 `cargo xtask gen-tokens`"
+                )),
             }
         }
     }
@@ -566,13 +590,13 @@ fn swift_rgba(c: Rgba) -> String {
     format!("RGBA8(r: {}, g: {}, b: {}, a: {})", c.r, c.g, c.b, c.a)
 }
 
-/// 生成 `TerminalThemes.swift`：浅色对应 `kanso-light.json`，深色对应 `kanso-dark.json`。
+/// 生成 `TerminalThemes.swift`：为每个内置主题烘焙一个 `TerminalPalette` 常量。
 ///
 /// 界面 token（`terminal.gutterText` 等）也一并烘焙进来，而不是运行时从 Asset Catalog 取：
 /// TerminalKit 是独立的 SwiftPM 包，拿不到 App 的 Asset Catalog，而且离屏渲染要能按指定外观取色，
 /// 不依赖 `NSAppearance` 的动态颜色解析。调用方须保证三个 token 存在（`parse_tokens` 之后由
 /// `check_tokens` 校验 `terminal.gutterText`，其余两个缺失时这里直接 panic 以免悄悄生成错误文件）。
-fn render_terminal_themes(t: &Tokens, light: &TerminalTheme, dark: &TerminalTheme) -> String {
+fn render_terminal_themes(t: &Tokens, themes: &[LoadedTheme]) -> String {
     let token = |name: &str, a: Appearance| -> Rgba {
         t.colors
             .get(name)
@@ -585,10 +609,13 @@ fn render_terminal_themes(t: &Tokens, light: &TerminalTheme, dark: &TerminalThem
          // 入库是为了让单独的 `swift build` 不依赖 xtask；cargo xtask check-tokens 会校验它与来源一致。\n\n\
          extension TerminalPalette {\n",
     );
-    for (ident, label, a, th) in [
-        ("kansoLight", "kanso-light.json", Appearance::Light, light),
-        ("kansoDark", "kanso-dark.json", Appearance::Dark, dark),
-    ] {
+    for (i, item) in themes.iter().enumerate() {
+        let (ident, label, a, th) = (
+            item.swift_ident,
+            item.rel.rsplit('/').next().unwrap_or(&item.rel),
+            item.appearance,
+            &item.theme,
+        );
         s.push_str(&format!(
             "    /// 数值来自 design/terminal-themes/{label}。\n"
         ));
@@ -640,7 +667,7 @@ fn render_terminal_themes(t: &Tokens, light: &TerminalTheme, dark: &TerminalThem
             swift_rgba(token("terminal.chipIcon", a))
         ));
         s.push_str("    )\n");
-        if ident == "kansoLight" {
+        if i + 1 < themes.len() {
             s.push('\n');
         }
     }
@@ -696,13 +723,7 @@ pub fn generate(args: &[String]) -> ExitCode {
     };
 
     let swift = render_swift(&tokens, &mut errors);
-    let mut theme_files = vec![];
-    for name in ["kanso-light", "kanso-dark"] {
-        let rel = format!("design/terminal-themes/{name}.json");
-        let theme = read_json(&root.join(&rel), &mut errors)
-            .and_then(|v| parse_theme(&rel, &v, &mut errors));
-        theme_files.push(theme);
-    }
+    let themes = load_builtin_themes(&root, &mut errors);
     for key in [
         "terminal.gutterText",
         "terminal.gutterCursorLine",
@@ -742,10 +763,8 @@ pub fn generate(args: &[String]) -> ExitCode {
             write(&p, &pretty(&colorset_contents(tok)))?;
         }
         write(&out.join("DesignTokens.swift"), &swift)?;
-        // 上面已确认两份配色都解析成功。
-        if let [Some(light), Some(dark)] = theme_files.as_slice() {
-            write(&themes_out, &render_terminal_themes(&tokens, light, dark))?;
-        }
+        // 上面已确认各主题都解析成功。
+        write(&themes_out, &render_terminal_themes(&tokens, &themes))?;
         Ok(())
     })();
     match result {
@@ -765,11 +784,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn semantic_colors_meet_contrast_in_both_themes() {
-        for source in [
-            include_str!("../../design/terminal-themes/kanso-light.json"),
-            include_str!("../../design/terminal-themes/kanso-dark.json"),
-        ] {
+    fn semantic_colors_meet_contrast_in_all_themes() {
+        for source in BUILTIN_THEMES.map(|(_, _, stem, _)| match stem {
+            "kanso-light" => include_str!("../../design/terminal-themes/kanso-light.json"),
+            "kanso-dark" => include_str!("../../design/terminal-themes/kanso-dark.json"),
+            "xshell" => include_str!("../../design/terminal-themes/xshell.json"),
+            _ => unreachable!("内置主题清单新增成员须在此登记"),
+        }) {
             let value = serde_json::from_str(source).unwrap();
             let mut errors = Vec::new();
             let theme = parse_theme("theme", &value, &mut errors).unwrap();

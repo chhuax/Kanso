@@ -144,6 +144,7 @@ pub struct Palette {
 
 const DARK_JSON: &str = include_str!("../../../design/terminal-themes/kanso-dark.json");
 const LIGHT_JSON: &str = include_str!("../../../design/terminal-themes/kanso-light.json");
+const XSHELL_JSON: &str = include_str!("../../../design/terminal-themes/xshell.json");
 
 impl Palette {
     /// 从主题 JSON 解析。
@@ -175,6 +176,11 @@ impl Palette {
     /// Kanso Light。
     pub fn kanso_light() -> Palette {
         Palette::from_json(LIGHT_JSON).expect("内置浅色主题必须合法")
+    }
+
+    /// Xshell。
+    pub fn xshell() -> Palette {
+        Palette::from_json(XSHELL_JSON).expect("内置 Xshell 主题必须合法")
     }
 
     /// 256 色调色板：0..16 取主题 ANSI，16..232 为 6×6×6 色块，232..256 为灰阶（xterm 约定）。

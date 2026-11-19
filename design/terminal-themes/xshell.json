@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "name": "Xshell",
+  "foreground": "#E5E5E5",
+  "background": "#000000",
+  "cursor": "#00FF00",
+  "cursorText": "#000000",
+  "selectionBackground": "#2F4F4F",
+  "ansi": [
+    "#010101", "#CD0000", "#006400", "#CDCD00", "#0000CD", "#CD00CD", "#00CDCD", "#E5E5E5",
+    "#7F7F7F", "#FF5555", "#00FF00", "#FFFF00", "#5C5CFF", "#FF00FF", "#00FFFF", "#FFFFFF"
+  ],
+  "semantic": [
+    "#00CDCD", "#00CD00", "#FFB86C", "#BD93F9", "#FF55FF", "#6C6CFF", "#F1FA8C", "#7F7F7F",
+    "#8BC4B5", "#00FF00", "#FF5555", "#F1FA8C", "#F1FA8C"
+  ]
+}

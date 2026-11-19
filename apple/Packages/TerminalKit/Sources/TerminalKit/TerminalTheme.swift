@@ -15,6 +15,7 @@ public struct TerminalTheme: Identifiable, Equatable, Sendable {
 
     public static let kansoLight = TerminalTheme(id: "kanso-light", name: "Kanso Light", palette: .kansoLight)
     public static let kansoDark = TerminalTheme(id: "kanso-dark", name: "Kanso Dark", palette: .kansoDark)
+    public static let xshell = TerminalTheme(id: "xshell", name: "Xshell", palette: .xshell)
 
     /// 把共享读取器已经校验的主题转换为终端调色板；装饰色与 Windows 使用相同的明暗判定。
     public static func fromFile(_ file: FfiTerminalTheme) -> TerminalTheme {
@@ -33,7 +34,7 @@ public struct TerminalTheme: Identifiable, Equatable, Sendable {
     }
 
     /// 全部内置配色。浅色与深色两个下拉框都列出全部，不按明暗过滤。
-    public static let builtIn: [TerminalTheme] = [.kansoLight, .kansoDark]
+    public static let builtIn: [TerminalTheme] = [.kansoLight, .kansoDark, .xshell]
 
     /// 按 id 查找；未知 id（旧版本或新版本写入的）返回 nil，由调用方回落到该外观的默认配色。
     public static func theme(id: String, in themes: [TerminalTheme] = builtIn) -> TerminalTheme? {

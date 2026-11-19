@@ -197,9 +197,10 @@ final class CursorBlinkTests: XCTestCase {
     }
 
     func testBuiltInThemeCatalog() {
-        XCTAssertEqual(TerminalTheme.builtIn.map(\.id), ["kanso-light", "kanso-dark"])
-        XCTAssertEqual(TerminalTheme.builtIn.map(\.name), ["Kanso Light", "Kanso Dark"])
+        XCTAssertEqual(TerminalTheme.builtIn.map(\.id), ["kanso-light", "kanso-dark", "xshell"])
+        XCTAssertEqual(TerminalTheme.builtIn.map(\.name), ["Kanso Light", "Kanso Dark", "Xshell"])
         XCTAssertEqual(TerminalTheme.theme(id: "kanso-dark"), .kansoDark)
+        XCTAssertEqual(TerminalTheme.theme(id: "xshell"), .xshell)
         XCTAssertNil(TerminalTheme.theme(id: "nope"))
     }
 
