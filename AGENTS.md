@@ -26,7 +26,6 @@
 ## 验证
 
 - 改动后跑相关的测试：`cargo test -p <crate>`，Swift 用 `cargo xtask apple-test --only-testing KansoTests/<Suite>`。
-- 交付前跑一次完整 `cargo xtask ci`（只改 Rust 时可加 `--skip-apple`，并在报告里注明）。
 - 改了 `kanso-ffi` 导出接口后运行 `cargo xtask bindgen` 并提交生成的绑定。
 - 先用 `rg` 定位再按行范围读取；不要在输出里回显整份源码或构建日志。
 
