@@ -400,6 +400,35 @@ fn check_tokens(
     errors
 }
 
+/// 随程序附带的配色（`design/terminal-themes/bundled/*.json`，由 kanso-core 嵌入）。
+/// 它们不生成代码、不参与外观 token 校验，但对比度要求与内置配色相同；目录缺失视为错误，
+/// 防止改名或挪位置后这项检查悄悄失效。
+fn check_bundled_themes(root: &Path) -> Vec<String> {
+    let dir = "design/terminal-themes/bundled";
+    let mut errors = vec![];
+    let mut paths = match fs::read_dir(root.join(dir)) {
+        Ok(entries) => entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|x| x == "json"))
+            .collect::<Vec<_>>(),
+        Err(e) => return vec![format!("{dir} 无法读取（{e}）")],
+    };
+    paths.sort();
+    for path in paths {
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        let rel = format!("{dir}/{name}");
+        if let Some(v) = read_json(&path, &mut errors)
+            && let Some(theme) = parse_theme(&rel, &v, &mut errors)
+        {
+            errors.extend(check_theme(&rel, &theme));
+        }
+    }
+    errors
+}
+
 /// `cargo xtask check-tokens`。
 pub fn check() -> ExitCode {
     let root = repo_root();
@@ -422,6 +451,7 @@ pub fn check() -> ExitCode {
             themes.push((a, rel, theme));
         }
     }
+    errors.extend(check_bundled_themes(&root));
 
     if let Some(t) = &tokens {
         let refs: Vec<_> = themes
