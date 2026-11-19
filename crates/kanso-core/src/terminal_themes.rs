@@ -81,8 +81,39 @@ impl TerminalTheme {
     }
 }
 
-/// 扫描目录的第一层。内置主题使用独立标识；用户文件用文件名识别，修改显示名不会丢失选择。
+/// 随程序附带的配色：`(id, JSON)`。与用户配色文件同格式、同加载流程，两端不用为它们单独写代码；
+/// 与 Kanso Light / Kanso Dark 不同，它们不参与 token 代码生成，也不是任何外观的默认配色。
+/// id 用 `bundled:` 前缀，与用户文件的 `file:` 分开：用户放一个同名文件不会顶掉它，
+/// 已保存的选择也不会因为用户删文件而失效。新增配色时在这里登记，并放进
+/// `design/terminal-themes/bundled/`（`check-tokens` 会校验该目录下每个文件的对比度）。
+const BUNDLED_THEMES: [(&str, &str); 1] = [(
+    "bundled:classic-console",
+    include_str!("../../../design/terminal-themes/bundled/classic-console.json"),
+)];
+
+/// 随程序附带的配色，按登记顺序排列。
+fn bundled_terminal_themes() -> Vec<TerminalTheme> {
+    BUNDLED_THEMES
+        .iter()
+        .map(|(id, json)| {
+            // 编译期嵌入，内容固定；`bundled_themes_parse_and_ids_are_unique` 测试保证能解析。
+            TerminalTheme::parse((*id).to_owned(), json).expect("内置配色必须合法")
+        })
+        .collect()
+}
+
+/// 可选的全部文件配色：先是随程序附带的配色，再是用户目录里的配色。
+///
+/// 两端（mac 经 FFI、GPUI 直接调用）都用它取配色列表，再接在 Kanso Light / Kanso Dark 之后。
+/// 用户目录读不了时仍返回附带配色，避免目录权限问题让它们从菜单里消失。
 pub fn load_terminal_themes(directory: &Path) -> Vec<TerminalTheme> {
+    let mut themes = bundled_terminal_themes();
+    themes.extend(load_user_themes(directory));
+    themes
+}
+
+/// 扫描用户目录的第一层。用户文件用文件名识别，修改显示名不会丢失选择。
+fn load_user_themes(directory: &Path) -> Vec<TerminalTheme> {
     let files = match fs::create_dir_all(directory).and_then(|()| fs::read_dir(directory)) {
         Ok(files) => files,
         Err(error) => {
@@ -134,23 +165,23 @@ mod tests {
     fn discover_update_remove_and_restore_by_filename() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().join("themes");
-        assert!(load_terminal_themes(&dir).is_empty());
+        assert!(load_user_themes(&dir).is_empty());
         let path = dir.join("青色.JSON");
         fs::write(&path, format!("\u{feff}{SAMPLE}")).unwrap();
         fs::write(dir.join("bad.json"), "{").unwrap();
-        let theme = load_terminal_themes(&dir).pop().unwrap();
+        let theme = load_user_themes(&dir).pop().unwrap();
         assert_eq!(theme.id, "file:青色");
         assert_eq!(theme.ansi[1], 0xe5645a);
         fs::write(&path, SAMPLE.replace("Kanso Dark", "青色")).unwrap();
-        let changed = load_terminal_themes(&dir);
+        let changed = load_user_themes(&dir);
         assert_eq!(
             (changed[0].id.as_str(), changed[0].name.as_str()),
             ("file:青色", "青色")
         );
         fs::remove_file(&path).unwrap();
-        assert!(load_terminal_themes(&dir).is_empty());
+        assert!(load_user_themes(&dir).is_empty());
         fs::write(&path, SAMPLE).unwrap();
-        assert_eq!(load_terminal_themes(&dir), [theme]);
+        assert_eq!(load_user_themes(&dir), [theme]);
     }
 
     #[test]
@@ -170,5 +201,34 @@ mod tests {
                 "{key}"
             );
         }
+    }
+
+    #[test]
+    fn bundled_themes_parse_and_ids_are_unique() {
+        let bundled = bundled_terminal_themes();
+        assert_eq!(bundled.len(), BUNDLED_THEMES.len());
+        assert_eq!(bundled[0].id, "bundled:classic-console");
+        assert_eq!(bundled[0].name, "Classic Console");
+        for (i, t) in bundled.iter().enumerate() {
+            assert!(t.id.starts_with("bundled:"), "{}", t.id);
+            assert!(!bundled[..i].iter().any(|o| o.id == t.id), "{}", t.id);
+        }
+    }
+
+    #[test]
+    fn bundled_themes_come_first_and_survive_user_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("themes");
+        let bundled = bundled_terminal_themes();
+        assert_eq!(load_terminal_themes(&dir), bundled);
+        // 用户放一个同名文件，得到的是另一个 id，附带配色不受影响。
+        fs::write(dir.join("classic-console.json"), SAMPLE).unwrap();
+        let all = load_terminal_themes(&dir);
+        assert_eq!(all[..bundled.len()], bundled[..]);
+        assert_eq!(all[bundled.len()].id, "file:classic-console");
+        // 目录无法创建（这里用一个普通文件占住路径）时，附带配色仍在。
+        let blocked = tmp.path().join("blocked");
+        fs::write(&blocked, "").unwrap();
+        assert_eq!(load_terminal_themes(&blocked), bundled);
     }
 }
