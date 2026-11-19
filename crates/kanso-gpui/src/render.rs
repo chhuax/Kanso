@@ -98,7 +98,12 @@ pub enum LiveChips {
     /// 没有命令块可对照（测试、尚未分块的会话）：全部按当前提示符画。
     All,
     /// 只有绝对行落在此闭区间内的标签保留边框和粗体。
-    Only { start: u64, end: u64 },
+    Only {
+        /// 起始绝对行，含本行。
+        start: u64,
+        /// 结束绝对行，含本行。
+        end: u64,
+    },
 }
 
 impl LiveChips {
