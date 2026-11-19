@@ -1862,13 +1862,15 @@ impl RealCore {
             table.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
             // 结果交给等待者与发事件在同一处完成：等待者在传输启动前就已登记（它随任务一起移入），
             // 所以"传输在开始等待之前就结束"不会丢结果。等待者已放弃（future 被丢弃）时 send 失败，忽略。
-            if let Some(tx) = waiter {
-                let _ = tx.send(outcome.clone());
-            }
+            // 必须先发事件、再交结果：等待者一被唤醒就可能去看传输列表或事件，顺序反过来时
+            // 它会看到传输仍处于进行中。
             events.on_event(CoreEvent::TransferFinished {
                 transfer: id,
-                outcome,
+                outcome: outcome.clone(),
             });
+            if let Some(tx) = waiter {
+                let _ = tx.send(outcome);
+            }
         });
         id
     }

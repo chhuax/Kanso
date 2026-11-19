@@ -281,15 +281,16 @@ fn run_mock_transfer(
     cancel: Arc<AtomicBool>,
     waiter: Option<tokio::sync::oneshot::Sender<TransferOutcome>>,
 ) {
-    // 结果同时交给等待者；等待者已放弃（future 被丢弃）时忽略。
+    // 结果同时交给等待者；等待者已放弃（future 被丢弃）时忽略。与真实后端一致：先发事件再交结果，
+    // 等待者被唤醒时 `TransferFinished` 一定已经发出。
     let finish = |outcome: TransferOutcome| {
-        if let Some(tx) = waiter {
-            let _ = tx.send(outcome.clone());
-        }
         events.on_event(CoreEvent::TransferFinished {
             transfer: id,
-            outcome,
+            outcome: outcome.clone(),
         });
+        if let Some(tx) = waiter {
+            let _ = tx.send(outcome);
+        }
     };
     let step_bytes = MOCK_TRANSFER_BYTES / MOCK_TRANSFER_STEPS;
     for step in 1..=MOCK_TRANSFER_STEPS {
