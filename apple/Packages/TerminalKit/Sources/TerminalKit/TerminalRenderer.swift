@@ -430,16 +430,10 @@ public final class TerminalRenderer {
         )
     }
 
-    private func addGlyph(_ entry: GlyphEntry, x: Int, y: Int, color: SIMD4<Float>, scale: Float = 1) {
+    private func addGlyph(_ entry: GlyphEntry, x: Int, y: Int, color: SIMD4<Float>) {
         guard !entry.isEmpty else { return }
-        let w = Float(entry.width) * scale
-        let h = Float(entry.height) * scale
         let instance = GlyphInstance(
-            rect: SIMD4(
-                Float(x) + Float(entry.width) * (1 - scale) / 2,
-                Float(y) + Float(entry.height) * (1 - scale) / 2,
-                w, h
-            ),
+            rect: SIMD4(Float(x), Float(y), Float(entry.width), Float(entry.height)),
             uv: entry.uv, color: color
         )
         if entry.isColor {
@@ -626,8 +620,9 @@ public final class TerminalRenderer {
                         let color = entry.isColor
                             ? SIMD4<Float>(1, 1, 1, (cell.flags.contains(.dim) || rowQuiet) ? 0.6 : 1)
                             : Self.vec(glyphFg)
-                        addGlyph(entry, x: x + Int(entry.offsetX), y: rowY + Int(entry.offsetY), color: color,
-                                 scale: rowQuiet ? 0.8 : 1)
+                        // 历史提示符只靠颜色变淡弱化，不缩小字形：等宽网格里格宽不变，
+                        // 缩小的字居中放回原格会在字与字之间留出空隙，看起来像拉开了字距。
+                        addGlyph(entry, x: x + Int(entry.offsetX), y: rowY + Int(entry.offsetY), color: color)
                     }
                 }
 

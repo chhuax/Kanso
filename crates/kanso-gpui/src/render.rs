@@ -60,8 +60,6 @@ pub struct TextSpan {
     pub underline_color: Option<Rgb8>,
     /// 删除线。
     pub strike: bool,
-    /// 历史提示符：用更小的字号绘制。
-    pub small: bool,
 }
 
 /// 光标形状。
@@ -234,7 +232,6 @@ struct SpanStyle {
     underline: u16,
     underline_color: Option<Rgb8>,
     strike: bool,
-    small: bool,
 }
 
 struct ResolvedCell {
@@ -320,7 +317,6 @@ fn resolve(
             underline,
             underline_color,
             strike: flags & CELL_STRIKE != 0,
-            small: quiet,
         },
         bg,
     }
@@ -571,7 +567,6 @@ fn new_span(row: u16, col: u16, cells: u16, text: String, simple: bool, s: SpanS
         underline: s.underline,
         underline_color: s.underline_color,
         strike: s.strike,
-        small: s.small,
     }
 }
 
@@ -582,7 +577,6 @@ fn same_style(span: &TextSpan, s: &SpanStyle) -> bool {
         && span.underline == s.underline
         && span.underline_color == s.underline_color
         && span.strike == s.strike
-        && span.small == s.small
 }
 
 /// 取一行的纯文本（宽字符占位格跳过，空单元格当空格），去掉行尾空白。自检与测试用。
@@ -1242,12 +1236,10 @@ mod tests {
         );
         let prompt = g.spans.iter().find(|s| s.row == 0).unwrap();
         assert_eq!(prompt.text, "~");
-        assert!(prompt.small);
         assert!(!prompt.bold);
         let full = Palette::kanso_dark().foreground;
         assert_ne!(prompt.fg, full);
         let command = g.spans.iter().find(|s| s.text == "l").unwrap();
-        assert!(!command.small);
         assert_eq!(command.fg, full);
     }
 
