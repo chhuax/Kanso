@@ -84,6 +84,8 @@ struct McpChange: OptionSet {
     static let status = McpChange(rawValue: 1 << 2)
     /// 令牌缓存或启动错误等只影响设置页的变化。
     static let other = McpChange(rawValue: 1 << 3)
+    /// 审计库内容变了（一批记录落库或旧记录被清理），只影响活动记录窗口；设置页、侧栏与状态栏忽略它。
+    static let audit = McpChange(rawValue: 1 << 4)
 }
 
 /// App 包内 `kanso-mcp` 的路径。文件还没打进包时也照样返回这个路径。
@@ -305,6 +307,7 @@ final class McpCoordinator {
                 clearActivities { !alive.contains($0.clientId) }
             }
         }
+        if batch.audit { change.insert(.audit) }
         emitChange(change)
     }
 
@@ -362,6 +365,8 @@ final class McpDelegateBridge: FfiMcpServerDelegate, @unchecked Sendable {
         var opened: [(UInt64, FfiMcpClientInfo)] = []
         var activities: [(UInt64, FfiMcpActivity?)] = []
         var released: [UInt64] = []
+        /// 同一批内多次审计变化只算一次。
+        var audit = false
     }
 
     nonisolated(unsafe) weak var owner: McpCoordinator?
@@ -387,6 +392,10 @@ final class McpDelegateBridge: FfiMcpServerDelegate, @unchecked Sendable {
 
     func onSessionReleased(sessionId: UInt64) {
         enqueue { $0.released.append(sessionId) }
+    }
+
+    func onAuditChanged() {
+        enqueue { $0.audit = true }
     }
 
     private func enqueue(_ body: (inout Batch) -> Void) {

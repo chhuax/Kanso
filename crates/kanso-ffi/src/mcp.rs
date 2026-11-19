@@ -333,6 +333,9 @@ pub trait FfiMcpServerDelegate: Send + Sync {
     fn on_activity(&self, session_id: u64, activity: Option<FfiMcpActivity>);
     /// 客户端断开后，它打开的标签变成普通标签：去掉"由 MCP 打开"标记。
     fn on_session_released(&self, session_id: u64);
+    /// 审计库内容变了（真实服务才会触发）：一批记录已写入，或定期清理删除了旧记录；宿主据此刷新
+    /// 活动记录窗口，不必轮询。一批只回调一次；写入失败或清理没删到记录时不回调。
+    fn on_audit_changed(&self);
 }
 
 /// 把 Swift 的 [`FfiMcpServerDelegate`] 适配成服务的 [`McpServerDelegate`]：只做类型转换后转发。
@@ -361,6 +364,9 @@ impl McpServerDelegate for DelegateAdapter {
     }
     fn on_session_released(&self, session: SessionId) {
         self.0.on_session_released(session.raw());
+    }
+    fn on_audit_changed(&self) {
+        self.0.on_audit_changed();
     }
 }
 

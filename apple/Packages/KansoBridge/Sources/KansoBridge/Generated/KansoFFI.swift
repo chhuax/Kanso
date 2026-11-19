@@ -1077,6 +1077,12 @@ public protocol FfiMcpServerDelegate: AnyObject, Sendable {
      */
     func onSessionReleased(sessionId: UInt64) 
     
+    /**
+     * 审计库内容变了（真实服务才会触发）：一批记录已写入，或定期清理删除了旧记录；宿主据此刷新
+     * 活动记录窗口，不必轮询。一批只回调一次；写入失败或清理没删到记录时不回调。
+     */
+    func onAuditChanged() 
+    
 }
 /**
  * 服务回调，由 Swift 实现。
@@ -1196,6 +1202,18 @@ open func onSessionReleased(sessionId: UInt64)  {try! rustCall() {
     uniffi_kanso_ffi_fn_method_ffimcpserverdelegate_on_session_released(
             self.uniffiCloneHandle(),
         FfiConverterUInt64.lower(sessionId),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * 审计库内容变了（真实服务才会触发）：一批记录已写入，或定期清理删除了旧记录；宿主据此刷新
+     * 活动记录窗口，不必轮询。一批只回调一次；写入失败或清理没删到记录时不回调。
+     */
+open func onAuditChanged()  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_method_ffimcpserverdelegate_on_audit_changed(
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 }
 }
@@ -1341,6 +1359,28 @@ fileprivate struct UniffiCallbackInterfaceFfiMcpServerDelegate {
                 }
                 return uniffiObj.onSessionReleased(
                      sessionId: try FfiConverterUInt64.lift(sessionId)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onAuditChanged: { (
+            uniffiHandle: UInt64,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeFfiMcpServerDelegate.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onAuditChanged(
                 )
             }
 
@@ -14622,6 +14662,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_kanso_ffi_checksum_method_ffimcpserverdelegate_on_session_released() != 2215) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_kanso_ffi_checksum_method_ffimcpserverdelegate_on_audit_changed() != 65478) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_kanso_ffi_checksum_method_kansomcpserver_clients() != 26776) {

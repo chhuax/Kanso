@@ -285,6 +285,13 @@ typedef void (*UniffiCallbackInterfaceFfiMcpServerDelegateMethod4)(uint64_t, uin
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_MCP_SERVER_DELEGATE_METHOD5
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_MCP_SERVER_DELEGATE_METHOD5
+typedef void (*UniffiCallbackInterfaceFfiMcpServerDelegateMethod5)(uint64_t, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_SECRET_STORE_METHOD0
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_SECRET_STORE_METHOD0
 typedef void (*UniffiCallbackInterfaceFfiSecretStoreMethod0)(uint64_t, RustBuffer, RustBuffer* _Nonnull, 
@@ -325,6 +332,7 @@ typedef struct UniffiVTableCallbackInterfaceFfiMcpServerDelegate {
     UniffiCallbackInterfaceFfiMcpServerDelegateMethod2 _Nonnull onSessionOpened;
     UniffiCallbackInterfaceFfiMcpServerDelegateMethod3 _Nonnull onActivity;
     UniffiCallbackInterfaceFfiMcpServerDelegateMethod4 _Nonnull onSessionReleased;
+    UniffiCallbackInterfaceFfiMcpServerDelegateMethod5 _Nonnull onAuditChanged;
 } UniffiVTableCallbackInterfaceFfiMcpServerDelegate;
 
 #endif
@@ -938,6 +946,11 @@ void uniffi_kanso_ffi_fn_method_ffimcpserverdelegate_on_activity(uint64_t ptr, u
 #ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_FFIMCPSERVERDELEGATE_ON_SESSION_RELEASED
 #define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_FFIMCPSERVERDELEGATE_ON_SESSION_RELEASED
 void uniffi_kanso_ffi_fn_method_ffimcpserverdelegate_on_session_released(uint64_t ptr, uint64_t session_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_FFIMCPSERVERDELEGATE_ON_AUDIT_CHANGED
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_FFIMCPSERVERDELEGATE_ON_AUDIT_CHANGED
+void uniffi_kanso_ffi_fn_method_ffimcpserverdelegate_on_audit_changed(uint64_t ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_CLONE_KANSOMCPSERVER
@@ -1938,6 +1951,12 @@ uint16_t uniffi_kanso_ffi_checksum_method_ffimcpserverdelegate_on_activity(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_FFIMCPSERVERDELEGATE_ON_SESSION_RELEASED
 #define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_FFIMCPSERVERDELEGATE_ON_SESSION_RELEASED
 uint16_t uniffi_kanso_ffi_checksum_method_ffimcpserverdelegate_on_session_released(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_FFIMCPSERVERDELEGATE_ON_AUDIT_CHANGED
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_FFIMCPSERVERDELEGATE_ON_AUDIT_CHANGED
+uint16_t uniffi_kanso_ffi_checksum_method_ffimcpserverdelegate_on_audit_changed(void
     
 );
 #endif

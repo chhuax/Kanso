@@ -6,6 +6,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixStream;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -15,7 +16,7 @@ use kanso_mcp_server::{
     McpActivity, McpClientInfo, McpServer, McpServerConfig, McpServerDelegate, McpServerError,
     McpServerStatus, McpUnavailable,
 };
-use kanso_types::mcp::{McpAccess, McpAuditFilter};
+use kanso_types::mcp::{McpAccess, McpAuditEntry, McpAuditFilter};
 use kanso_types::secret::SecretString;
 use kanso_types::{GridSize, SessionId};
 use serde_json::{Value, json};
@@ -29,7 +30,8 @@ enum Call {
 }
 
 #[derive(Default)]
-struct Recorder(Mutex<Vec<Call>>);
+/// 第二个字段统计 `on_audit_changed` 的调用次数。
+struct Recorder(Mutex<Vec<Call>>, AtomicUsize);
 
 impl Recorder {
     fn take(&self) -> Vec<Call> {
@@ -50,6 +52,9 @@ impl McpServerDelegate for Recorder {
     fn on_session_opened(&self, _: SessionId, _: McpClientInfo) {}
     fn on_activity(&self, _: SessionId, _: Option<McpActivity>) {}
     fn on_session_released(&self, _: SessionId) {}
+    fn on_audit_changed(&self) {
+        self.1.fetch_add(1, Ordering::SeqCst);
+    }
 }
 
 fn new_core() -> Arc<Core> {
@@ -424,6 +429,85 @@ fn invalid_token_gets_error_reply_audit_and_is_closed() {
     assert_eq!(entry.error_code.as_deref(), Some("INVALID_TOKEN"));
     assert_eq!(entry.client, "");
     assert_eq!(entry.tool, "");
+}
+
+#[test]
+fn audit_changed_callback_follows_successful_writes() {
+    let f = Fixture::started();
+    let audit_calls = || f.rec.1.load(Ordering::SeqCst);
+
+    // 被拒连接也会写审计，同样要回调。
+    let mut bad = f.connect("wrong");
+    bad.send(json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}));
+    let _ = bad.read();
+    wait_until("audit callback after rejected connection", || {
+        audit_calls() >= 1
+    });
+    let after_rejected = audit_calls();
+
+    // 成功的工具调用落库后计数继续增加；总开关关着时工具调用会被拒，所以先打开。
+    f.core.set_mcp_enabled(true).unwrap();
+    let mut c = f.ready_client("tester");
+    let (is_error, text) = c.call(2, "kanso_list_sessions", json!({}));
+    assert!(!is_error, "{text}");
+    wait_until("audit callback after tool call", || {
+        audit_calls() > after_rejected
+    });
+}
+
+#[test]
+fn prune_that_removes_records_triggers_the_audit_callback() {
+    let f = Fixture::new();
+    // 启动后审计任务的第一次 prune 立即执行；先放一条远超保留期的旧记录让它有东西可删。
+    f.core
+        .mcp_audit_append(vec![McpAuditEntry {
+            at_ms: 0,
+            client: "old".into(),
+            mcp_session: "s".into(),
+            tool: "kanso_list_sessions".into(),
+            profile: None,
+            session: None,
+            args: String::new(),
+            error_code: None,
+            duration_ms: 1,
+            bytes: 0,
+        }])
+        .unwrap();
+    f.server.start(config(TOKEN)).unwrap();
+    wait_until("audit callback after prune", || {
+        f.rec.1.load(Ordering::SeqCst) >= 1
+    });
+    assert!(
+        f.core
+            .mcp_audit(McpAuditFilter::default())
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn prune_without_removals_does_not_trigger_the_audit_callback() {
+    let f = Fixture::started();
+    // 第一次 prune 在启动时立即执行；库里没有过期记录，等它跑完后计数仍为 0。
+    std::thread::sleep(Duration::from_millis(700));
+    assert_eq!(f.rec.1.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn no_audit_callback_after_drop_returns() {
+    let f = Fixture::started();
+    f.core.set_mcp_enabled(true).unwrap();
+    let mut c = f.ready_client("tester");
+    for id in 2..8 {
+        let _ = c.call(id, "kanso_list_sessions", json!({}));
+    }
+    let rec = f.rec.clone();
+    drop(c);
+    // drop 之前已经发出的回调不算；返回之后计数必须不再增长。
+    drop(f.server);
+    let at_drop = rec.1.load(Ordering::SeqCst);
+    std::thread::sleep(Duration::from_secs(1));
+    assert_eq!(rec.1.load(Ordering::SeqCst), at_drop);
 }
 
 #[test]
