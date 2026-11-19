@@ -228,7 +228,7 @@ impl McpPage {
         let core = self.model.read(cx).core();
         let mut profiles = core.profiles();
         let mut groups = core.groups();
-        // 读失败时不能当成"全部关闭"：保留上次已知的下拉选择，显示错误，审计列表也不再标"未授权"。
+        // 读失败时不能当成"全部关闭"：显示错误、禁用并清空级别下拉框（见下方），审计列表也不再标"未授权"。
         match core.mcp_accesses() {
             Ok(levels) => {
                 self.levels = levels.into_iter().collect();
@@ -249,14 +249,26 @@ impl McpPage {
             self.rebuild_grants(window, cx);
             self.update_audit_sessions(cx);
         }
-        for (id, _, dropdown) in self.grants.iter().flat_map(|group| &group.rows) {
-            if self.levels_error.is_some() {
-                break;
-            }
-            let level = self.levels.get(id).copied().unwrap_or_default();
-            let selected = Some(level as usize);
-            if dropdown.read(cx).selected_index() != selected {
-                dropdown.update(cx, |d, cx| d.set_selected(selected, cx));
+        // 读失败时级别未知：所有下拉框清空选择并禁用，不能显示成"关闭"，也不能让用户基于错误的现状去改；
+        // 读成功后恢复（空分组的批量下拉框始终禁用）。
+        let unreadable = self.levels_error.is_some();
+        for group in &self.grants {
+            let batch_disabled = unreadable || group.rows.is_empty();
+            group
+                .batch
+                .update(cx, |d, cx| d.set_disabled(batch_disabled, cx));
+            for (id, _, dropdown) in &group.rows {
+                let selected = if unreadable {
+                    None
+                } else {
+                    Some(self.levels.get(id).copied().unwrap_or_default() as usize)
+                };
+                dropdown.update(cx, |d, cx| {
+                    d.set_disabled(unreadable, cx);
+                    if d.selected_index() != selected {
+                        d.set_selected(selected, cx);
+                    }
+                });
             }
         }
         self.grants_dirty = false;

@@ -186,7 +186,6 @@ impl Dropdown {
     }
 
     /// 切换禁用状态。
-    #[allow(dead_code)]
     pub fn set_disabled(&mut self, disabled: bool, cx: &mut Context<Self>) {
         self.disabled = disabled;
         self.focus = self.focus.clone().tab_stop(!disabled);
