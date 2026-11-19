@@ -63,6 +63,7 @@ fn reply_error(stable_code: &str, message: &str) -> ExitCode {
 
 #[cfg(unix)]
 mod unix {
+    #[cfg(target_os = "macos")]
     use std::ffi::CStr;
     use std::io::{self, Write};
     use std::os::fd::AsRawFd;
@@ -107,7 +108,8 @@ mod unix {
     fn relay(mut stream: UnixStream) -> ExitCode {
         // 令牌缺失也照常连接：由 App 拒绝并回复"令牌无效"，用户能看到明确的原因。
         let token = std::env::var(TOKEN_ENV).unwrap_or_default();
-        let line = hello::encode(&token, controlling_tty().as_deref());
+        let (tty, tty_dev) = controlling_tty();
+        let line = hello::encode(&token, tty.as_deref(), tty_dev);
         if stream.write_all(line.as_bytes()).is_err() {
             return reply_error(CODE_NOT_RUNNING, NOT_RUNNING);
         }
@@ -143,28 +145,54 @@ mod unix {
         rc != 0 && io::Error::last_os_error().raw_os_error() == Some(libc::EWOULDBLOCK)
     }
 
-    /// 本进程的控制终端路径，例如 `/dev/ttys003`；没有控制终端时为 `None`。
+    /// 本进程控制终端的设备路径（如 `/dev/ttys003`）与设备号；没有控制终端时都为 `None`。
+    ///
     /// stdin/stdout 是与 AI 工具之间的管道，所以打开 `/dev/tty` 取控制终端，而不是看 stdin。
-    #[allow(unsafe_code)]
-    fn controlling_tty() -> Option<String> {
+    /// 注意 `/dev/tty` 只是"当前控制终端"的别名：对它调 `ttyname` 得到的永远是字面的 `/dev/tty`，
+    /// 与 App 里本地标签的 `/dev/ttysNNN` 不可能相等。所以必须取设备号（`st_rdev`）才能比对，
+    /// 设备名则由设备号反查，只作为日志与旧版 App 的退路。
+    fn controlling_tty() -> (Option<String>, Option<u64>) {
+        use std::os::unix::fs::MetadataExt;
         // 带 O_NOCTTY：只是查询，不能让本进程因此获得控制终端。
-        let tty = std::fs::File::options()
+        let Ok(tty) = std::fs::File::options()
             .read(true)
             .custom_flags(libc::O_NOCTTY)
             .open("/dev/tty")
-            .ok()?;
-        // SAFETY: `tty` 是有效的已打开描述符；ttyname 返回指向静态缓冲区的指针或 NULL，
-        // 本程序在此刻只有主线程调用它，立即复制出来，不保留指针。
-        let name = unsafe { libc::ttyname(tty.as_raw_fd()) };
+        else {
+            return (None, None);
+        };
+        // fstat 打开的 `/dev/tty` 得到的是真实终端的设备号，不是别名本身的。
+        let Ok(meta) = tty.metadata() else {
+            return (None, None);
+        };
+        let dev = meta.rdev();
+        (device_path(dev), Some(dev))
+    }
+
+    /// 由终端设备号反查 `/dev/<name>` 路径。只在 macOS 上实现：Linux 的 `/dev/pts/N` 没有对应的反查接口，
+    /// 不发 `tty`，App 只按设备号比较即可。
+    #[cfg(target_os = "macos")]
+    #[allow(unsafe_code)]
+    fn device_path(dev: u64) -> Option<String> {
+        let dev = libc::dev_t::try_from(dev).ok()?;
+        // SAFETY: devname 返回指向静态缓冲区的指针或 NULL；本程序此刻只有主线程调用它，
+        // 下面立即复制出来，不保留指针。
+        let name = unsafe { libc::devname(dev, libc::S_IFCHR) };
         if name.is_null() {
             return None;
         }
         // SAFETY: 非空时指向以 NUL 结尾的字符串。
-        Some(
-            unsafe { CStr::from_ptr(name) }
-                .to_string_lossy()
-                .into_owned(),
-        )
+        let name = unsafe { CStr::from_ptr(name) }.to_string_lossy();
+        // 查不到时 devname 返回 "??" 或形如 "#C0x…" 的占位串，不是真实设备名。
+        if name.is_empty() || name == "??" || name.starts_with('#') {
+            return None;
+        }
+        Some(format!("/dev/{name}"))
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn device_path(_dev: u64) -> Option<String> {
+        None
     }
 }
 
