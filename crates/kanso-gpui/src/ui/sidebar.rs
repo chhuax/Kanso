@@ -61,8 +61,8 @@ impl ShellView {
             .overflow_y_scroll()
             .flex()
             .flex_col()
-            .gap(px(2.0))
-            .px(px(8.0))
+            .gap(px(number("spacing", "tabRow.gap")))
+            .px(px(number("spacing", "tabRow.paddingX")))
             .py(px(8.0))
             .on_scroll_wheel(cx.listener(|this, _, _, cx| this.cancel_tab_reorder(cx)))
             .on_mouse_down(
@@ -328,7 +328,7 @@ impl ShellView {
             .flex()
             .items_center()
             .gap(px(8.0))
-            .px(px(number("spacing", "tabRow.paddingX") - 2.0))
+            .px(px(number("spacing", "tabRow.paddingX")))
             .rounded(px(number("radius", "tabRow")))
             .cursor_pointer()
             .hover(|s| s.bg(th.c("bg.tabHover")))
@@ -355,7 +355,7 @@ impl ShellView {
                                 order,
                                 ev.position.y.into(),
                                 (row.origin.y + row.size.height / 2.).into(),
-                                f32::from(row.size.height) + 2.,
+                                f32::from(row.size.height) + number("spacing", "tabRow.gap"),
                             ));
                         }
                     }
@@ -370,6 +370,11 @@ impl ShellView {
             );
         if let Some(bg) = bg {
             row = row.bg(bg);
+        }
+        if selected && in_active_pane {
+            row = row.border_1().border_color(th.c("border.strong"));
+        } else if pane_current {
+            row = row.border_1().border_color(th.ca("border.strong", 0x80));
         }
         if show_bar {
             row = row.child(

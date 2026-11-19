@@ -142,7 +142,7 @@ final class TabRowView: NSView {
         super.layout()
         let pad = DesignTokens.Spacing.tabRowPaddingX
         let h = bounds.height
-        iconView.frame = NSRect(x: pad + 4, y: (h - Self.iconSize) / 2, width: Self.iconSize, height: Self.iconSize)
+        iconView.frame = NSRect(x: pad, y: (h - Self.iconSize) / 2, width: Self.iconSize, height: Self.iconSize)
         mcpOpenedMark.frame = NSRect(x: iconView.frame.maxX - 8, y: iconView.frame.maxY - 8, width: 10, height: 10)
         let textX = iconView.frame.maxX + DesignTokens.Spacing.sm
         var trailing = bounds.width - pad
@@ -172,14 +172,24 @@ final class TabRowView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let radius = DesignTokens.Radius.tabRow
-        let path = NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius)
+        // 选中靠 1px 描边才看得出来：底色和侧栏太接近，描边画在路径中线，内缩半像素才不会被裁掉。
+        let outlined = model.selection != .none
+        let rect = outlined ? bounds.insetBy(dx: 0.5, dy: 0.5) : bounds
+        let corner = max(0, radius - (outlined ? 0.5 : 0))
+        let path = NSBezierPath(roundedRect: rect, xRadius: corner, yRadius: corner)
         switch model.selection {
         case .windowActive:
             NSColor.token(DesignTokens.Color.bgTabSelected).setFill()
             path.fill()
+            NSColor.token(DesignTokens.Color.borderStrong).setStroke()
+            path.lineWidth = 1
+            path.stroke()
         case .paneActive:
             NSColor.token(DesignTokens.Color.bgTabSelected).withAlphaComponent(0.5).setFill()
             path.fill()
+            NSColor.token(DesignTokens.Color.borderStrong).withAlphaComponent(0.5).setStroke()
+            path.lineWidth = 1
+            path.stroke()
         case .none:
             if isHovered {
                 NSColor.token(DesignTokens.Color.bgTabHover).setFill()
