@@ -1318,8 +1318,11 @@ impl Core {
         dispatch!(self, mcp_access(profile))
     }
 
-    /// 全部不是 `Off` 的授权（设置页列表用）。读失败记日志并返回空。
-    pub fn mcp_accesses(&self) -> Vec<(ProfileId, McpAccess)> {
+    /// 全部不是 `Off` 的授权（设置页列表用）。
+    ///
+    /// - 出错：存储读失败返回 `Internal`。**调用方不得把错误当成"全部关闭"**：授权状态未知时，
+    ///   展示层应显示"读取失败"，MCP 服务应拒绝服务，否则会误导用户或泄露本应隐藏的会话。
+    pub fn mcp_accesses(&self) -> Result<Vec<(ProfileId, McpAccess)>> {
         dispatch!(self, mcp_accesses())
     }
 

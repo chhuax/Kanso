@@ -117,8 +117,9 @@ final class AccessStub: McpAccessStoring, @unchecked Sendable {
         return levels[profileId] ?? .off
     }
 
-    func mcpAccesses() -> [FfiMcpGrant] {
+    func mcpAccesses() throws -> [FfiMcpGrant] {
         batchReads += 1
+        if failReads { throw Failure() }
         return levels.filter { $0.value != .off }.map { FfiMcpGrant(profileId: $0.key, level: $0.value) }
     }
 
@@ -578,6 +579,35 @@ final class McpUITests: XCTestCase {
         try core.setMcpAccess(profileId: other.id, level: .off)
         core.notifyLibraryChanged()
         XCTAssertEqual(page.grantedLabel.stringValue, String(localized: "No sessions are open to AI tools yet."))
+    }
+
+    func testGrantedSummaryShowsTheReadErrorInsteadOfACount() throws {
+        let (coordinator, _, _) = makeCoordinator()
+        let page = try XCTUnwrap(makeSettings(mcp: coordinator).mcpViewController)
+        let stub = AccessStub()
+        stub.failReads = true
+        page.accessStore = stub
+        _ = page.view
+        XCTAssertEqual(page.grantedLabel.stringValue, String(localized: "Could not read MCP access: \(CoreMessageText.text(for: AccessStub.Failure()))"))
+        XCTAssertEqual(page.grantedLabel.textColor, .token(DesignTokens.Color.statusError))
+
+        stub.failReads = false
+        page.reloadGrantedSummary()
+        XCTAssertEqual(page.grantedLabel.stringValue, String(localized: "No sessions are open to AI tools yet."))
+        XCTAssertNotEqual(page.grantedLabel.textColor, .token(DesignTokens.Color.statusError))
+    }
+
+    private func allTextFields(in view: NSView) -> [NSTextField] {
+        (view.subviews.compactMap { $0 as? NSTextField }) + view.subviews.flatMap { allTextFields(in: $0) }
+    }
+
+    func testTmuxBlindSpotIsInTheMasterSwitchTooltipNotAStandingCaption() throws {
+        let (coordinator, _, _) = makeCoordinator()
+        let page = try XCTUnwrap(makeSettings(mcp: coordinator).mcpViewController)
+        _ = page.view
+        let text = String(localized: "If an AI tool runs inside tmux or screen in a local tab, Kanso cannot tell which tab it is in.")
+        XCTAssertEqual(page.enabledRow.toolTip, text)
+        XCTAssertFalse(allTextFields(in: page.view).contains { $0.stringValue == text }, "不再有常显说明行")
     }
 
     func testGrantedSummaryAlsoRefreshesWhenThePageAppears() throws {

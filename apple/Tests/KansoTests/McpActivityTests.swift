@@ -251,7 +251,8 @@ final class McpActivityTests: XCTestCase {
         let content = controller.content
         let reads = Reads()
         content.readPage = pager(total: 25, reads: reads)
-        // 先显示再翻页：显示窗口本身会从第一页重载。
+        // 首次显示不再重读，先整体重载拿到第一页，再翻页。
+        content.refreshFromStart()
         show(controller)
         content.moreButton.performClick(nil)
         XCTAssertEqual(content.displayedRecordCount, 25)
@@ -307,12 +308,107 @@ final class McpActivityTests: XCTestCase {
         let reads = Reads()
         content.readPage = pager(total: 25, reads: reads)
         controller.present()
+        XCTAssertEqual(content.displayedRecordCount, 0, "首次显示不重读：创建时 loadView 刚读过")
+        // 关闭后期间的事件没处理过，内容过期，再次打开时整体重载。
+        controller.window?.close()
+        controller.present()
         XCTAssertEqual(content.displayedRecordCount, 20, "窗口关闭期间的事件没处理过，打开时整体重载")
         content.moreButton.performClick(nil)
         let before = reads.filters.count
         controller.present()
         XCTAssertEqual(reads.filters.count, before, "窗口已经可见时再次打开只前置，不丢掉翻页进度")
         XCTAssertEqual(content.displayedRecordCount, 25)
+    }
+
+    func testFirstPresentDoesNotReadAgainAndReopenReadsOnce() {
+        let (controller, _) = makeWindow()
+        let content = controller.content
+        let reads = Reads()
+        var profileReads = 0, accessReads = 0
+        let core = controller.content.readProfiles
+        content.readProfiles = { profileReads += 1; return core() }
+        content.readAccesses = { accessReads += 1; return [:] }
+        content.readPage = pager(total: 3, reads: reads)
+
+        controller.present()
+        XCTAssertTrue(reads.filters.isEmpty, "创建时 loadView 已读过，首次 present 不能再读页")
+        XCTAssertEqual(profileReads, 0)
+        XCTAssertEqual(accessReads, 0)
+
+        controller.present()
+        XCTAssertTrue(reads.filters.isEmpty, "已可见时再次 present 也不读")
+
+        controller.window?.close()
+        controller.present()
+        XCTAssertEqual(reads.filters.count, 1, "关闭后重开只整体重载一次")
+        XCTAssertEqual(profileReads, 1)
+        XCTAssertEqual(accessReads, 1)
+    }
+
+    func testDeminiaturizeReloadsOnceViaTheObserver() {
+        let (controller, _) = makeWindow()
+        let content = controller.content
+        let reads = Reads()
+        content.readPage = pager(total: 3, reads: reads)
+        controller.present()
+        NotificationCenter.default.post(name: NSWindow.didMiniaturizeNotification, object: controller.window)
+        NotificationCenter.default.post(name: NSWindow.didDeminiaturizeNotification, object: controller.window)
+        XCTAssertEqual(reads.filters.count, 1, "恢复最小化只在 didDeminiaturize 里重载一次")
+        // 之后窗口仍可见时 present 不再重复读。
+        controller.present()
+        XCTAssertEqual(reads.filters.count, 1)
+    }
+
+    func testMoreReadingAnEmptyPageDoesNotCountAsPaging() {
+        let clock = TestClock()
+        let (controller, coordinator) = makeWindow(clock: clock)
+        let content = controller.content
+        let reads = Reads()
+        // 恰好一整页（20 条）：「更多」仍显示，点击后读回 0 条。
+        content.readPage = pager(total: 20, reads: reads)
+        content.refreshFromStart()
+        show(controller)
+        XCTAssertFalse(content.moreButton.isHidden)
+        content.moreButton.performClick(nil)
+        XCTAssertEqual(content.displayedRecordCount, 20)
+        XCTAssertFalse(content.hasPagedBeyondFirstPage, "读回空页不算翻页")
+        XCTAssertTrue(content.moreButton.isHidden)
+        let base = reads.filters.count
+
+        emitAudit(coordinator)
+        clock.fire()
+        XCTAssertEqual(reads.filters.count, base + 1, ".audit 仍自动重载第一页")
+        XCTAssertNil(reads.filters.last?.beforeId)
+        XCTAssertTrue(content.newActivityButton.isHidden)
+    }
+
+    // MARK: - 授权读取失败
+
+    func testAccessReadFailureKeepsNamesAndHidesUnauthorizedLabelWithAnError() throws {
+        let (controller, coordinator) = makeWindow()
+        let content = controller.content
+        let web = try XCTUnwrap(coordinator.core.profiles().first { $0.name == "web-01" })
+        let stub = AccessStub()
+        stub.failReads = true
+        content.readAccesses = { try stub.mcpLevelMap() }
+        content.readPage = { _ in
+            [self.record(2, profileId: web.id, error: "NOT_AUTHORIZED"), self.record(1, profileId: web.id)]
+        }
+        content.refreshFromStart()
+        let texts = allLabels(in: content.view).map(\.stringValue)
+        XCTAssertFalse(texts.contains { $0.contains(String(localized: "Unauthorized session")) }, "无法判断，不能标未授权：\(texts)")
+        XCTAssertTrue(texts.contains { $0.hasSuffix("· web-01 · NOT_AUTHORIZED") }, "会话名照常显示：\(texts)")
+        XCTAssertNotNil(content.accessError)
+        XCTAssertFalse(content.accessErrorLabel.isHidden)
+        XCTAssertEqual(content.accessErrorLabel.stringValue, String(localized: "Could not read MCP access: \(CoreMessageText.text(for: AccessStub.Failure()))"))
+        XCTAssertEqual(content.accessErrorLabel.textColor, .token(DesignTokens.Color.statusError))
+
+        // 读取恢复后错误消失，失败记录重新按授权判断。
+        stub.failReads = false
+        content.refreshFromStart()
+        XCTAssertNil(content.accessError)
+        XCTAssertTrue(content.accessErrorLabel.isHidden)
+        XCTAssertTrue(allLabels(in: content.view).map(\.stringValue).contains { $0.contains(String(localized: "Unauthorized session")) })
     }
 
     func testPresentKeepsAQueuedAuditRefreshWhenTheWindowIsAlreadyVisible() {
@@ -362,8 +458,10 @@ final class McpActivityTests: XCTestCase {
         var profileReads = 0, accessReads = 0
         let core = coordinator.core
         content.readProfiles = { profileReads += 1; return core.profiles() }
-        content.readAccesses = { accessReads += 1; return core.mcpAccesses() }
+        content.readAccesses = { accessReads += 1; return try core.mcpLevelMap() }
         content.readPage = pager(total: 3, reads: Reads())
+        // 首次显示不再重读（创建时已读过）；这里主动整体重载一次，建立读取次数基线。
+        content.refreshFromStart()
         show(controller)
         let profileBase = profileReads, accessBase = accessReads
         XCTAssertGreaterThan(profileBase, 0, "整体重载会读会话列表")

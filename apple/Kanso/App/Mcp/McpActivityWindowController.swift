@@ -15,8 +15,8 @@ final class McpActivityViewController: NSViewController, NSTextFieldDelegate {
     var clearRecords: () throws -> Void
     /// 读会话列表（填充下拉框与会话名缓存）；默认读 core。测试替换它来统计读取次数。
     var readProfiles: () -> [FfiProfile]
-    /// 读全部非「关闭」的授权（一次读出，不逐行查）；默认读 core。测试可替换。
-    var readAccesses: () -> [FfiMcpGrant]
+    /// 读全部非「关闭」的授权（一次读出，不逐行查）；默认读 core。测试可替换。失败会抛错。
+    var readAccesses: () throws -> [String: FfiMcpAccess]
     /// 清空前的确认。默认以 sheet 挂在窗口上；测试注入，不弹真的对话框。
     var confirmClear: () async -> Bool = { true }
     /// 用户要求关闭窗口（Esc）；由窗口控制器接线。
@@ -25,6 +25,8 @@ final class McpActivityViewController: NSViewController, NSTextFieldDelegate {
     let introLabel = NSTextField(wrappingLabelWithString: String(
         localized: "Every action an AI tool takes through MCP is recorded here. Records stay on this Mac for 30 days."
     ))
+    /// 授权读取失败时显示原因（错误色），位于说明行下方；读取成功时隐藏。
+    let accessErrorLabel = NSTextField(wrappingLabelWithString: "")
     let clientField = KTextField()
     let sessionPopup = KPopUpField()
     let errorsOnlyRow = KCheckRow(title: String(localized: "Errors only"))
@@ -47,7 +49,10 @@ final class McpActivityViewController: NSViewController, NSTextFieldDelegate {
     /// 自动刷新与翻页渲染直接复用，不再重复拉取 profiles。
     private var profileNames: [String: String] = [:]
     /// 会话 id → 当前 MCP 级别，只含不是「关闭」的会话；与 `profileNames` 同时刷新。
-    private var profileAccesses: [String: FfiMcpAccess] = [:]
+    /// 读取失败时为 nil：授权未知，不能把会话判成「未授权」。
+    private var profileAccesses: [String: FfiMcpAccess]? = [:]
+    /// 最近一次读取授权失败的原因；非 nil 时窗口说明行下方显示它。
+    private(set) var accessError: String?
     nonisolated(unsafe) private var libraryObserver: NSObjectProtocol?
     /// 是否已经翻过页（显示的记录超过第一页）。翻过页时自动刷新不能重载，否则用户已加载的页会被丢掉。
     private(set) var hasPagedBeyondFirstPage = false
@@ -57,7 +62,7 @@ final class McpActivityViewController: NSViewController, NSTextFieldDelegate {
         readPage = { try core.mcpAudit(filter: $0) }
         clearRecords = { try core.mcpAuditClear() }
         readProfiles = { core.profiles() }
-        readAccesses = { core.mcpAccesses() }
+        readAccesses = { try core.mcpLevelMap() }
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -79,6 +84,9 @@ final class McpActivityViewController: NSViewController, NSTextFieldDelegate {
 
         introLabel.font = .systemFont(ofSize: DesignTokens.Font.uiCaption)
         introLabel.textColor = .token(DesignTokens.Color.textTertiary)
+        accessErrorLabel.font = .systemFont(ofSize: DesignTokens.Font.uiCaption)
+        accessErrorLabel.textColor = .token(DesignTokens.Color.statusError)
+        accessErrorLabel.isHidden = true
 
         clientField.placeholder = String(localized: "Client")
         clientField.textField.delegate = self
@@ -140,7 +148,7 @@ final class McpActivityViewController: NSViewController, NSTextFieldDelegate {
         bar.alignment = .centerY
         bar.spacing = DesignTokens.Spacing.sm
 
-        let column = NSStackView(views: [introLabel, filters, errorsOnlyRow, listBox, bar])
+        let column = NSStackView(views: [introLabel, accessErrorLabel, filters, errorsOnlyRow, listBox, bar])
         column.orientation = .vertical
         column.alignment = .leading
         column.spacing = DesignTokens.Spacing.md
@@ -153,7 +161,7 @@ final class McpActivityViewController: NSViewController, NSTextFieldDelegate {
             column.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: inset),
             column.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -inset),
         ])
-        for row in [introLabel, filters, errorsOnlyRow, listBox, bar] {
+        for row in [introLabel, accessErrorLabel, filters, errorsOnlyRow, listBox, bar] {
             row.translatesAutoresizingMaskIntoConstraints = false
             row.leadingAnchor.constraint(equalTo: column.leadingAnchor).isActive = true
             row.trailingAnchor.constraint(equalTo: column.trailingAnchor).isActive = true
@@ -257,7 +265,9 @@ final class McpActivityViewController: NSViewController, NSTextFieldDelegate {
                 records = page
             } else {
                 records.append(contentsOf: page)
-                hasPagedBeyondFirstPage = true
+                // 读回空页（恰好整页数量的记录时点「更多」）没有新增内容：不能算翻过页，
+                // 否则之后的 `.audit` 自动刷新会被误拦成只提示。
+                if !page.isEmpty { hasPagedBeyondFirstPage = true }
             }
             moreButton.isHidden = page.count < Int(pageSize)
         } catch {
@@ -272,9 +282,16 @@ final class McpActivityViewController: NSViewController, NSTextFieldDelegate {
     @discardableResult
     private func refreshSessionData() -> Bool {
         let selectionLost = refillSessionPopup()
-        profileAccesses = Dictionary(
-            readAccesses().map { ($0.profileId, $0.level) }, uniquingKeysWith: { _, new in new }
-        )
+        do {
+            profileAccesses = try readAccesses()
+            accessError = nil
+        } catch {
+            // 读失败不能当成「全部关闭」：否则每条失败记录都会被误标成「未授权的会话」。
+            profileAccesses = nil
+            accessError = String(localized: "Could not read MCP access: \(CoreMessageText.text(for: error))")
+        }
+        accessErrorLabel.stringValue = accessError ?? ""
+        accessErrorLabel.isHidden = accessError == nil
         return selectionLost
     }
 
@@ -382,6 +399,10 @@ final class McpActivityWindowController: NSWindowController {
     /// 合并计时的取消闭包；非 nil 表示已经有一次处理在排队，此时到来的 `.audit` 直接并入它。
     private var pendingAudit: (() -> Void)?
     nonisolated(unsafe) private var deminiaturizeObserver: NSObjectProtocol?
+    nonisolated(unsafe) private var hideObservers: [NSObjectProtocol] = []
+    /// 窗口内容是否是最新的。创建时 `loadView` 已读过一次，所以初始为真；窗口关闭或最小化后期间的
+    /// `.audit` 事件被丢弃，内容过期，下次显示要整体重载。
+    private var contentIsFresh = true
 
     /// - Parameter autosaveName: 窗口位置与大小的记忆名；测试传 nil，避免写入用户真实的 `UserDefaults.standard`。
     init(mcp: McpCoordinator, autosaveName: String? = "KansoMcpActivityWindow") {
@@ -413,10 +434,24 @@ final class McpActivityWindowController: NSWindowController {
             guard let self, change.contains(.audit), window.isVisible else { return }
             scheduleAuditRefresh()
         }
+        // 关闭与最小化之后内容过期；恢复最小化只在 didDeminiaturize 里重载一次，`present()` 不再重复。
+        for name in [NSWindow.willCloseNotification, NSWindow.didMiniaturizeNotification] {
+            hideObservers.append(NotificationCenter.default.addObserver(
+                forName: name, object: window, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.contentIsFresh = false }
+            })
+        }
         deminiaturizeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didDeminiaturizeNotification, object: window, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.content.refreshFromStart() }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.pendingAudit?()
+                self.pendingAudit = nil
+                self.content.refreshFromStart()
+                self.contentIsFresh = true
+            }
         }
     }
 
@@ -425,16 +460,22 @@ final class McpActivityWindowController: NSWindowController {
 
     deinit {
         if let deminiaturizeObserver { NotificationCenter.default.removeObserver(deminiaturizeObserver) }
+        for observer in hideObservers { NotificationCenter.default.removeObserver(observer) }
     }
 
-    /// 打开或前置窗口，并从第一页重新读取：窗口关闭期间的 `.audit` 事件没有处理过。
+    /// 打开或前置窗口。内容过期（窗口关闭或最小化期间的 `.audit` 事件没处理过）时从第一页重新读取。
+    /// 首次创建时 `loadView` 刚读过，不重复读；从最小化恢复由 didDeminiaturize 的观察者重载，这里不再读一遍
+    /// （`showWindow` 会触发恢复，两处都读会白读一次库）。
     func present() {
         // 只有窗口不可见、要整体重载时才取消排队的刷新（重载已经包含它）。
         // 窗口已可见时只前置：排队的刷新必须保留，否则这次前置会把期间到达的新记录吞掉。
         if window?.isVisible != true {
             pendingAudit?()
             pendingAudit = nil
-            content.refreshFromStart()
+            if window?.isMiniaturized != true, !contentIsFresh {
+                content.refreshFromStart()
+                contentIsFresh = true
+            }
         }
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)

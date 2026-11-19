@@ -204,7 +204,8 @@ final class SessionLauncherViewController: NSViewController, NSTextFieldDelegate
             return view
         case .profile(let profile):
             let view = LauncherProfileRowView(profile: profile)
-            view.mcpLevel = model.mcpLevel(of: profile.id)
+            // 读失败时授权未知，不显示标记（`.off` 即不显示），免得把未知当成已关闭或已授权。
+            view.mcpLevel = model.mcpReadError == nil ? model.mcpLevel(of: profile.id) : .off
             view.isSelected = profile.id == model.selectedID
             view.onClick = { [weak self] in self?.actions.connect(profile.id) }
             view.onMenu = { [weak self] anchor in self?.showProfileMenu(profile, from: anchor) }
@@ -262,10 +263,15 @@ final class SessionLauncherViewController: NSViewController, NSTextFieldDelegate
             let accessItem = NSMenuItem(title: String(localized: "MCP Access"), action: nil, keyEquivalent: "")
             let accessMenu = NSMenu()
             let current = model.mcpLevel(of: profile.id)
+            // 关闭自动启用：否则 AppKit 验证菜单时会因 target/action 有效而把手动禁用的项重新启用。
+            accessMenu.autoenablesItems = false
+            addMcpReadErrorItem(to: accessMenu)
             for level in McpText.accessLevels {
-                accessMenu.addItem(ActionMenuItem(McpText.accessTitle(level), checked: level == current) { [weak self] in
+                let item = ActionMenuItem(McpText.accessTitle(level), checked: model.mcpReadError == nil && level == current) { [weak self] in
                     self?.setMcpAccess([profile.id], to: level)
-                })
+                }
+                item.isEnabled = model.mcpReadError == nil
+                accessMenu.addItem(item)
             }
             accessItem.submenu = accessMenu
             menu.addItem(accessItem)
@@ -283,21 +289,37 @@ final class SessionLauncherViewController: NSViewController, NSTextFieldDelegate
     func makeGroupMenu(_ group: FfiGroup) -> NSMenu {
         let menu = NSMenu()
         menu.addItem(ActionMenuItem(String(localized: "Rename…")) { [weak self] in self?.rename(group) })
-        menu.addItem(ActionMenuItem(String(localized: "Delete…")) { [weak self] in self?.delete(group) })
         if model.supportsMcpAccess {
             // 没有「当前级别」可勾：组内会话级别可以各不相同，所以只提供「整组设为…」。
             let accessItem = NSMenuItem(title: String(localized: "MCP Access"), action: nil, keyEquivalent: "")
             let accessMenu = NSMenu()
+            // 关闭自动启用：否则 AppKit 验证菜单时会因 target/action 有效而把手动禁用的项重新启用。
+            accessMenu.autoenablesItems = false
+            addMcpReadErrorItem(to: accessMenu)
             for level in McpText.accessLevels {
-                accessMenu.addItem(ActionMenuItem(String(localized: "Set Whole Group to \(McpText.accessTitle(level))")) { [weak self] in
+                let item = ActionMenuItem(String(localized: "Set Whole Group to \(McpText.accessTitle(level))")) { [weak self] in
                     guard let self else { return }
                     setMcpAccess(model.profileIDs(inGroup: group.id), to: level)
-                })
+                }
+                item.isEnabled = model.mcpReadError == nil
+                accessMenu.addItem(item)
             }
             accessItem.submenu = accessMenu
             menu.addItem(accessItem)
         }
+        // 破坏性的「删除…」放最后并用分隔线隔开，与会话菜单一致，避免误点。
+        menu.addItem(.separator())
+        menu.addItem(ActionMenuItem(String(localized: "Delete…")) { [weak self] in self?.delete(group) })
         return menu
+    }
+
+    /// 授权读取失败时，在「MCP 访问」子菜单顶部放一条禁用的说明项（后面的级别项也已禁用）；读取成功则什么也不加。
+    private func addMcpReadErrorItem(to menu: NSMenu) {
+        guard let reason = model.mcpReadError else { return }
+        let item = NSMenuItem(title: String(localized: "Could not read MCP access: \(reason)"), action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        menu.addItem(item)
+        menu.addItem(.separator())
     }
 
     private func move(_ profile: FfiProfile, to groupID: String?) {
@@ -314,7 +336,8 @@ final class SessionLauncherViewController: NSViewController, NSTextFieldDelegate
     /// 不需要确认时直接写入并刷新列表，不关浮层；但写入失败要弹错误框，错误框同样是 sheet，
     /// 所以失败时也走 `withDialog`，与确认路径一致（否则浮层失焦关闭时错误框会连带消失或错位）。
     private func setMcpAccess(_ ids: [String], to level: FfiMcpAccess) {
-        guard !ids.isEmpty else { return }
+        // 读授权失败时菜单项已禁用；这里再挡一次，防止状态未知时写入。
+        guard !ids.isEmpty, model.mcpReadError == nil else { return }
         let model = model, dialogs = dialogs
         guard model.raisesMcpAccessFromOff(ids, to: level) else {
             let result = model.setMcpAccess(ids, to: level)

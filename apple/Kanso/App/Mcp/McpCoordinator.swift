@@ -75,13 +75,14 @@ enum McpText {
     ///
     /// 失败的记录（`failed`）若该会话**当前**是「关闭」级别（不在 `accesses` 里），显示「未授权的会话」（spec/mcp.md §6）。
     /// 「当前级别」只是近似：审计记录不保存当时的级别，会话之后被授权过的话，早先被拒绝的记录会显示会话名。
-    /// - Parameter accesses: 会话 id → 级别，只含非「关闭」的会话（即 `mcpAccesses()` 的结果）。
+    /// - Parameter accesses: 会话 id → 级别，只含非「关闭」的会话（即 `mcpLevelMap()` 的结果）；
+    ///   nil 表示授权读取失败、级别未知：此时无法判断是否「未授权」，只显示会话名。
     static func auditSessionTitle(
-        profileId: String?, failed: Bool, names: [String: String], accesses: [String: FfiMcpAccess]
+        profileId: String?, failed: Bool, names: [String: String], accesses: [String: FfiMcpAccess]?
     ) -> String? {
         guard let profileId else { return nil }
         guard let name = names[profileId] else { return String(localized: "Deleted session") }
-        if failed && accesses[profileId] == nil { return String(localized: "Unauthorized session") }
+        if failed, let accesses, accesses[profileId] == nil { return String(localized: "Unauthorized session") }
         return name
     }
 
@@ -441,6 +442,9 @@ final class McpDelegateBridge: FfiMcpServerDelegate, @unchecked Sendable {
         enqueue { $0.released.append(sessionId) }
     }
 
+    /// 审计回调发生时 Rust 侧持有服务的拆除同步锁，而销毁 `KansoMcpServer` 的主线程要拿同一把锁：
+    /// 这里绝不能 `DispatchQueue.main.sync` 或以其他方式同步等待主线程。`enqueue` 只在锁内记标志，
+    /// 并用 `DispatchQueue.main.async` 异步投递后立即返回，所以不会死锁。
     func onAuditChanged() {
         enqueue { $0.audit = true }
     }

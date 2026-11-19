@@ -144,16 +144,18 @@ impl KansoCore {
         Ok(self.inner.mcp_access(id).into())
     }
 
-    /// 全部不是"关闭"的授权。
-    pub fn mcp_accesses(&self) -> Vec<FfiMcpGrant> {
-        self.inner
-            .mcp_accesses()
+    /// 全部不是"关闭"的授权。读库失败时抛错：宿主不得把失败当成"全部关闭"，
+    /// 应显示读取失败并禁用依赖授权状态的操作。
+    pub fn mcp_accesses(&self) -> Result<Vec<FfiMcpGrant>, FfiCoreError> {
+        Ok(self
+            .inner
+            .mcp_accesses()?
             .into_iter()
             .map(|(p, level)| FfiMcpGrant {
                 profile_id: p.to_string(),
                 level: level.into(),
             })
-            .collect()
+            .collect())
     }
 
     /// 设置访问级别，`Off` 即撤销。会话配置不存在返回 `NoSuchProfile`。
@@ -335,6 +337,9 @@ pub trait FfiMcpServerDelegate: Send + Sync {
     fn on_session_released(&self, session_id: u64);
     /// 审计库内容变了（真实服务才会触发）：一批记录已写入，或定期清理删除了旧记录；宿主据此刷新
     /// 活动记录窗口，不必轮询。一批只回调一次；写入失败或清理没删到记录时不回调。
+    ///
+    /// 回调期间持有服务的拆除同步锁，而销毁 `KansoMcpServer` 的线程（通常是主线程）要拿同一把锁：
+    /// 实现绝不能在回调里同步等待主线程（如 `DispatchQueue.main.sync`），只能异步投递后立即返回。
     fn on_audit_changed(&self);
 }
 

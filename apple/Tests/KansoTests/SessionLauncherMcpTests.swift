@@ -45,7 +45,7 @@ final class SessionLauncherMcpTests: XCTestCase {
         }
     }
 
-    private func makeFixture(supportsMcp: Bool = true, levels: [String: FfiMcpAccess] = [:]) -> Fixture {
+    private func makeFixture(supportsMcp: Bool = true, levels: [String: FfiMcpAccess] = [:], failReads: Bool = false) -> Fixture {
         let store = MemoryStore(
             profiles: [
                 SessionFixtures.ssh("1", "alpha", group: "g"),
@@ -56,6 +56,8 @@ final class SessionLauncherMcpTests: XCTestCase {
         )
         let access = AccessStub()
         access.levels = levels
+        // 要在建模型之前置位：模型初始化时就读一次授权。
+        access.failReads = failReads
         let dialogs = StubDialogs()
         let tasks = Tasks()
         let model = SessionLauncherModel(store: store, mcpAccess: supportsMcp ? access : nil)
@@ -107,6 +109,58 @@ final class SessionLauncherMcpTests: XCTestCase {
             sub.items.map(\.title),
             McpText.accessLevels.map { String(localized: "Set Whole Group to \(McpText.accessTitle($0))") }
         )
+    }
+
+    func testGroupMenuPutsMcpAccessBeforeASeparatedDelete() throws {
+        let f = makeFixture()
+        let items = f.launcher.makeGroupMenu(FfiGroup(id: "g", name: "Prod")).items
+        XCTAssertEqual(
+            items.map { $0.isSeparatorItem ? "-" : $0.title },
+            [String(localized: "Rename…"), accessMenuTitle, "-", String(localized: "Delete…")]
+        )
+    }
+
+    // MARK: - 授权读取失败
+
+    func testReadFailureHidesBadgesAndDisablesTheMcpSubmenus() throws {
+        // levels 里有值，证明无标记不是因为「没有授权」，而是读失败。
+        let f = makeFixture(levels: ["1": .full], failReads: true)
+        XCTAssertNotNil(f.model.mcpReadError)
+
+        f.launcher.view.layoutSubtreeIfNeeded()
+        let scroll = try XCTUnwrap(f.launcher.view.subviews.compactMap { $0 as? NSScrollView }.first)
+        let table = try XCTUnwrap(scroll.documentView as? NSTableView)
+        let rows = (0..<table.numberOfRows).compactMap {
+            table.view(atColumn: 0, row: $0, makeIfNecessary: true) as? LauncherProfileRowView
+        }
+        XCTAssertFalse(rows.isEmpty)
+        XCTAssertTrue(rows.allSatisfy { !$0.isMcpBadgeVisible }, "读失败时行尾不显示标记")
+
+        let reason = try XCTUnwrap(f.model.mcpReadError)
+        let note = String(localized: "Could not read MCP access: \(reason)")
+        let menus = [
+            f.launcher.makeProfileMenu(try profile(f, "1")),
+            f.launcher.makeGroupMenu(FfiGroup(id: "g", name: "Prod")),
+        ]
+        for menu in menus {
+            let sub = try XCTUnwrap(submenu(menu, titled: accessMenuTitle))
+            XCTAssertEqual(sub.items.first?.title, note, "子菜单顶部是说明项")
+            XCTAssertEqual(sub.items.first?.isEnabled, false)
+            let actions = sub.items.filter { !$0.isSeparatorItem && $0.title != note }
+            XCTAssertEqual(actions.count, McpText.accessLevels.count)
+            XCTAssertTrue(actions.allSatisfy { !$0.isEnabled }, "级别项全部禁用")
+            XCTAssertFalse(sub.autoenablesItems, "否则 AppKit 会把手动禁用的项重新启用")
+            XCTAssertTrue(actions.allSatisfy { $0.state != .on }, "不勾选任何级别")
+        }
+        XCTAssertFalse(f.model.raisesMcpAccessFromOff(["1", "2"], to: .full), "未知时不能据此弹确认")
+    }
+
+    func testReadFailureRecoversAfterALaterSuccessfulRead() throws {
+        let f = makeFixture(levels: ["1": .full], failReads: true)
+        f.access.failReads = false
+        f.store.notifyLibraryChanged()
+        XCTAssertNil(f.model.mcpReadError)
+        XCTAssertEqual(f.model.mcpLevel(of: "1"), .full)
     }
 
     func testMenusHaveNoMcpEntriesWhenMcpIsNotSupported() throws {

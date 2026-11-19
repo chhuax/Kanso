@@ -28,6 +28,9 @@ final class McpSettingsViewController: SettingsPageViewController {
     let grantedLabel = SettingsPageViewController.caption("")
     let openActivityButton = KButton(title: String(localized: "Open Activity Log"), style: .secondary)
 
+    /// 读已授权会话的来源；默认是 core，测试替换成可失败的替身来覆盖读失败路径。
+    var accessStore: any McpAccessStoring
+
     private let clientStack = NSStackView()
     private var deminiaturizeObserver: NSObjectProtocol?
     /// 客户端列表上次渲染时的内容；没变就不重建，避免每次事件都重排整页。
@@ -37,6 +40,7 @@ final class McpSettingsViewController: SettingsPageViewController {
 
     init(mcp: McpCoordinator) {
         self.mcp = mcp
+        accessStore = mcp.core
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -45,6 +49,10 @@ final class McpSettingsViewController: SettingsPageViewController {
 
     override func loadView() {
         enabledRow.onToggle = { [weak self] on in self?.toggleEnabled(on) }
+        // spec/mcp.md §2.5 / §7.1：tmux / screen 盲区放在总开关的悬停提示里，不占用常显的说明行。
+        enabledRow.toolTip = String(
+            localized: "If an AI tool runs inside tmux or screen in a local tab, Kanso cannot tell which tab it is in."
+        )
 
         statusLabel.font = .systemFont(ofSize: DesignTokens.Font.uiBody)
         statusLabel.textColor = .token(DesignTokens.Color.textPrimary)
@@ -66,9 +74,6 @@ final class McpSettingsViewController: SettingsPageViewController {
         )))
         switchCard.addRow(grantedLabel)
         switchCard.addRow(buttonRow([openActivityButton]))
-        switchCard.addRow(SettingsPageViewController.caption(String(
-            localized: "If an AI tool runs inside tmux or screen in a local tab, Kanso cannot tell which tab it is in."
-        )))
 
         let serviceCard = KCard(title: String(localized: "MCP service"), symbol: "antenna.radiowaves.left.and.right")
         serviceCard.addRow(statusLabel)
@@ -319,8 +324,16 @@ final class McpSettingsViewController: SettingsPageViewController {
     }
 
     /// 刷新已授权会话数说明。一次 `mcpAccesses()` 读出全部非「关闭」的授权，不逐个会话查库。
+    /// 读失败显示原因（错误色），不显示数量：显示「0 个」会把读取失败误导成「全部关闭」。
     func reloadGrantedSummary() {
-        grantedLabel.stringValue = McpText.grantedSessionsSummary(count: mcp.core.mcpAccesses().count)
+        do {
+            let count = try accessStore.mcpAccesses().count
+            grantedLabel.stringValue = McpText.grantedSessionsSummary(count: count)
+            grantedLabel.textColor = .token(DesignTokens.Color.textTertiary)
+        } catch {
+            grantedLabel.stringValue = String(localized: "Could not read MCP access: \(CoreMessageText.text(for: error))")
+            grantedLabel.textColor = .token(DesignTokens.Color.statusError)
+        }
     }
 
     private func buttonRow(_ buttons: [NSView]) -> NSStackView {

@@ -38,11 +38,8 @@ impl RealCore {
         })
     }
 
-    pub(crate) fn mcp_accesses(&self) -> Vec<(ProfileId, McpAccess)> {
-        self.db().mcp_accesses().unwrap_or_else(|e| {
-            tracing::warn!(error = %e, "failed to read mcp accesses");
-            Vec::new()
-        })
+    pub(crate) fn mcp_accesses(&self) -> Result<Vec<(ProfileId, McpAccess)>> {
+        self.db().mcp_accesses().map_err(store_err)
     }
 
     pub(crate) fn set_mcp_access(&self, profile: ProfileId, level: McpAccess) -> Result<()> {
