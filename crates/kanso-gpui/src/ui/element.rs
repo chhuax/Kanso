@@ -8,7 +8,7 @@ use gpui::{
 };
 use kanso_frame::UNDERLINE_CURLY;
 use kanso_gpui::ime::layout_preedit;
-use kanso_gpui::render::{CursorKind, RenderGrid};
+use kanso_gpui::render::{ChipRun, CursorKind, RenderGrid};
 use kanso_gpui::theme::{Palette, Rgb8};
 
 use super::decor;
@@ -181,6 +181,32 @@ pub(super) fn cell_rect(
     )
 }
 
+/// 当前待输入提示符的小圆角标签。历史提示符不画这块底，只留缩小、变淡的文字。
+fn paint_chip(
+    chip: &ChipRun,
+    palette: &Palette,
+    m: &Metrics,
+    origin: Point<Pixels>,
+    stroke: Pixels,
+    window: &mut Window,
+) {
+    if !chip.emphasized {
+        return;
+    }
+    let mut bounds = cell_rect(origin, m, chip.row, chip.col, chip.cols);
+    bounds.origin.y += stroke;
+    bounds.size.height -= stroke * 2.;
+    let radius = px(3.).min(bounds.size.height / 2.);
+    window.paint_quad(gpui::quad(
+        bounds,
+        radius,
+        hsla(palette.decorations.chip_background),
+        stroke,
+        hsla(palette.decorations.chip_border),
+        BorderStyle::Solid,
+    ));
+}
+
 fn paint_grid(
     grid: &RenderGrid,
     palette: &Palette,
@@ -198,21 +224,8 @@ fn paint_grid(
     }
 
     let stroke = px(1. / window.scale_factor());
-    for &(row, col, width) in &grid.chips {
-        let mut bounds = cell_rect(origin, m, row, col, width);
-        bounds.origin.y += stroke;
-        bounds.size.height -= stroke * 2.;
-        let radius = px(m.cell_w / 2.)
-            .max(stroke * 3.)
-            .min(bounds.size.height / 2.);
-        window.paint_quad(gpui::quad(
-            bounds,
-            radius,
-            hsla(palette.decorations.chip_background),
-            stroke,
-            hsla(palette.decorations.chip_border),
-            BorderStyle::Solid,
-        ));
+    for chip in &grid.chips {
+        paint_chip(chip, palette, m, origin, stroke, window);
     }
     for span in &grid.spans {
         let fg = hsla(span.fg);
@@ -231,16 +244,29 @@ fn paint_grid(
                 color: Some(fg),
             }),
         };
-        let force = span.simple.then(|| px(m.cell_w));
+        let force = span
+            .simple
+            .then(|| px(if span.small { m.cell_w * 0.8 } else { m.cell_w }));
+        let font_size = if span.small {
+            m.font_size * 0.8
+        } else {
+            m.font_size
+        };
         let line = window.text_system().shape_line(
             SharedString::from(span.text.clone()),
-            px(m.font_size),
+            px(font_size),
             &[run],
             force,
         );
+        // 小字在单元格里垂直居中，避免贴着行顶。
+        let nudge = if span.small {
+            (m.cell_h - font_size) * 0.35
+        } else {
+            0.
+        };
         let at = point(
             origin.x + px((f32::from(span.col) * m.cell_w).round()),
-            origin.y + px((f32::from(span.row) * m.cell_h).round()),
+            origin.y + px((f32::from(span.row) * m.cell_h).round() + nudge),
         );
         let _ = line.paint(at, line_height, window, cx);
     }
