@@ -1236,6 +1236,34 @@ fn mcp_sftp_overwrite_failure_reports_leftover_temp_path_in_detail() {
 }
 
 #[test]
+fn mcp_sftp_create_new_failure_reports_partially_written_file() {
+    let mut env = Env::new();
+    // 写第 1 个块之后连接断开：已创建的目标文件删不掉，只写了一半。
+    let s = env.start_sftp(|c| c.disconnect_after_writes = Some(1));
+    let id = env.open_sftp(s);
+    let err = env
+        .block(env.core.sftp_write(
+            id,
+            "/home/tester/new",
+            pattern(200_000),
+            SftpWriteMode::CreateNew,
+        ))
+        .unwrap_err();
+    let CoreError::User(Message::SftpOpFailed {
+        reason: Reason::Other { detail },
+        ..
+    }) = err
+    else {
+        panic!("{err:?}");
+    };
+    assert!(
+        detail.contains("partially written file left at /home/tester/new"),
+        "{detail}"
+    );
+    assert!(env.remote(s, "/home/tester/new").exists());
+}
+
+#[test]
 fn mcp_sftp_ops_on_local_and_missing_sessions() {
     let mut env = Env::new();
     env.start_sftp(|_| {});

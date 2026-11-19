@@ -93,6 +93,8 @@ pub struct SftpServerStats {
     pub writes: AtomicUsize,
     /// 收到的请求总数。
     pub requests: AtomicUsize,
+    /// 第一个 WRITE 到达时，目标文件当时的权限位（含类型位；非 unix 为 `None`）。
+    pub first_write_mode: Mutex<Option<u32>>,
 }
 
 impl SftpServerStats {
@@ -464,6 +466,10 @@ async fn handle_request(sh: &Arc<Shared>, ty: u8, id: u32, body: &[u8]) -> Optio
                 return st(proto::FX_FAILURE, "not a file");
             };
             let n = sh.stats.writes.fetch_add(1, Ordering::SeqCst) + 1;
+            if n == 1 {
+                *sh.stats.first_write_mode.lock().unwrap() =
+                    f.lock().unwrap().metadata().ok().map(|md| mode_of(&md));
+            }
             if sh.cfg.fail_writes_after.is_some_and(|m| n > m) {
                 return st(proto::FX_FAILURE, "injected write failure");
             }

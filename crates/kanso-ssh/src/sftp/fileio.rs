@@ -186,7 +186,7 @@ impl SftpClient {
     ///    目标不存在时按新文件处理；目标是目录时直接报错（rename 会覆盖不了目录）。
     /// 3. 临时文件建在**真实目标所在目录**（rename 不能跨文件系统），名为
     ///    `.<原名>.kanso-tmp-<8 位十六进制>`，用 `EXCL` 创建，撞名换后缀重试，最多 3 次。
-    /// 4. 目标原本存在时，写完后把临时文件的权限位设成原权限；属主、属组不处理（普通用户改不了）。
+    /// 4. 目标原本存在时，在写任何数据之前把临时文件的权限位设成原权限（避免写入期间以默认权限暴露内容）；属主、属组不处理（普通用户改不了）。
     /// 5. 创建临时文件之后的任何失败都会尝试删除它；删不掉时路径记在 [`WriteFailure::leftover`]。
     pub async fn overwrite_file(&self, path: &str, data: &[u8]) -> Result<(), OverwriteError> {
         let s = self.session().await?;
@@ -230,7 +230,10 @@ impl SftpClient {
     }
 }
 
-/// 写完数据、改权限、改名；`handle` 在本函数内一定被关闭（写失败时仍尝试关闭）。
+/// 改权限、写完数据、改名；`handle` 在本函数内一定被关闭（任何一步失败都会关闭）。
+///
+/// 权限必须在写任何数据**之前**设置：临时文件创建时是服务器默认权限（常为 0644），
+/// 等写完再设会让原本受限（如 0600）的内容在写入期间以更宽的权限暴露。写完后不再重复设置。
 async fn write_swap(
     s: &Session,
     handle: &[u8],
@@ -239,10 +242,14 @@ async fn write_swap(
     data: &[u8],
     old_perm: Option<u32>,
 ) -> Result<(), SftpError> {
-    write_and_close(s, handle, tmp, data).await?;
-    if let Some(mode) = old_perm {
-        setstat_permissions(s, tmp, mode).await?;
+    if let Some(mode) = old_perm
+        && let Err(e) = setstat_permissions(s, tmp, mode).await
+    {
+        // 还没写数据，关闭句柄的结果无关紧要，以 setstat 的错误为准。
+        let _ = close_handle(s, handle, tmp, SftpOp::Open).await;
+        return Err(e);
     }
+    write_and_close(s, handle, tmp, data).await?;
     posix_rename(s, tmp, target).await
 }
 

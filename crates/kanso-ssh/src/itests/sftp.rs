@@ -1660,6 +1660,33 @@ async fn overwrite_replaces_content_keeps_permissions_and_leaves_no_temp() {
     assert_eq!(e.server.sftp_stats.open_handles(), 0);
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn overwrite_restricts_temp_permissions_before_first_write() {
+    use std::os::unix::fs::PermissionsExt;
+    let e = env().await;
+    let p = e.remote("home/tester/secret");
+    std::fs::write(&p, b"old").unwrap();
+    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600)).unwrap();
+    e.client
+        .overwrite_file("/home/tester/secret", b"new")
+        .await
+        .unwrap();
+    // 第一个 WRITE 到达时临时文件就已经是 0600，而不是服务器默认权限。
+    let mode = e
+        .server
+        .sftp_stats
+        .first_write_mode
+        .lock()
+        .unwrap()
+        .unwrap();
+    assert_eq!(mode & 0o7777, 0o600);
+    assert_eq!(
+        std::fs::metadata(&p).unwrap().permissions().mode() & 0o7777,
+        0o600
+    );
+}
+
 #[tokio::test]
 async fn overwrite_creates_missing_target() {
     let e = env().await;

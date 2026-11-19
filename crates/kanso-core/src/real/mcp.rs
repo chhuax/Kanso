@@ -278,20 +278,17 @@ impl RealCore {
         let path = path.to_owned();
         self.on_runtime(async move {
             match mode {
-                SftpWriteMode::CreateNew => client.write_new(&path, &data).await.map_err(|f| {
-                    if let Some(tmp) = &f.leftover {
-                        // CreateNew 的残留文件就是目标本身，用户从错误里已经能看出路径；这里只留日志。
-                        tracing::warn!(path = %tmp, "failed to remove partially written file");
-                    }
-                    sftp_err(f.error)
-                }),
+                SftpWriteMode::CreateNew => client
+                    .write_new(&path, &data)
+                    .await
+                    .map_err(|f| write_failure(&path, mode, f)),
                 SftpWriteMode::Overwrite => {
                     client
                         .overwrite_file(&path, &data)
                         .await
                         .map_err(|e| match e {
                             OverwriteError::Unsupported => CoreError::NotSupported,
-                            OverwriteError::Failed(f) => write_failure(&path, f),
+                            OverwriteError::Failed(f) => write_failure(&path, mode, f),
                         })
                 }
             }
@@ -308,17 +305,24 @@ impl RealCore {
     }
 }
 
-/// 覆盖写失败 → 用户可见错误。有残留临时文件时，把它的完整路径写进 `SftpOpFailed` 的 detail
-/// （spec/mcp.md §3.5：调用方要能据此手动清理）；没有残留就沿用通用的错误映射。
-fn write_failure(path: &str, f: WriteFailure) -> CoreError {
-    let Some(tmp) = f.leftover else {
+/// 写失败 → 用户可见错误。有残留文件时，把路径写进 `SftpOpFailed` 的 detail
+/// （spec/mcp.md §3.5：调用方要能据此手动清理，或知道目标只写了一半）；没有残留就沿用通用的错误映射。
+///
+/// 措辞按模式区分：`Overwrite` 残留的是临时文件，目标本身未被改动；
+/// `CreateNew` 残留的就是目标路径，内容只写了一半。
+fn write_failure(path: &str, mode: SftpWriteMode, f: WriteFailure) -> CoreError {
+    let Some(left) = f.leftover else {
         return sftp_err(f.error);
+    };
+    let detail = match mode {
+        SftpWriteMode::Overwrite => format!("{}; leftover temp file: {left}", f.error),
+        SftpWriteMode::CreateNew => {
+            format!("{}; partially written file left at {left}", f.error)
+        }
     };
     CoreError::User(Message::SftpOpFailed {
         op: SftpOp::Open,
         path: path.to_owned(),
-        reason: Reason::Other {
-            detail: format!("{}; leftover temp file: {tmp}", f.error),
-        },
+        reason: Reason::Other { detail },
     })
 }
