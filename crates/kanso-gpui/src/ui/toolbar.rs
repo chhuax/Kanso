@@ -393,24 +393,39 @@ impl ShellView {
         cx.notify();
     }
 
+    /// 顶部菜单栏的一级项：子菜单在按钮下方弹出，动作项直接执行命令。
+    fn open_top_menu_item(
+        &mut self,
+        index: usize,
+        x: gpui::Pixels,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let items = app_menu(self.app_menu_state(cx));
+        match items.get(index) {
+            Some(MenuItem::Submenu { items, .. }) => {
+                self.open_menu(items.clone(), point(x, px(HEIGHT)), window, cx);
+            }
+            Some(MenuItem::Action { id, .. }) => {
+                if let Some(command) = decode(id) {
+                    self.run_command(command, window, cx);
+                }
+            }
+            _ => {}
+        }
+    }
+
     pub(super) fn render_toolbar(
         &self,
         th: Theme,
         window: &Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let width = f32::from(window.viewport_size().width);
         let controls = if window.is_fullscreen() || !custom_decorations(window) {
             0.0
         } else {
             3.0 * CAPTION_BUTTON_W
         };
-        // 右侧还有 Git 按钮和应用菜单按钮，搜索框让出这部分宽度。
-        let right = controls + 96.;
-        let search_w = (width - right - 86.).clamp(0., 240.);
-        let search_x = ((width - search_w) * 0.5)
-            .min(width - right - 40. - search_w)
-            .max(40.);
         let button = |id, name| {
             div()
                 .id(id)
@@ -426,6 +441,36 @@ impl ShellView {
                 .hover(|s| s.bg(th.c("bg.rowHover")))
                 .child(icon(name, 16., th.c("text.secondary")))
         };
+        // 把应用菜单的一级项铺在左侧，替代原先右上角的汉堡按钮。
+        let mut menu_bar = div().flex().flex_none().items_center().gap(px(2.));
+        for (index, item) in app_menu(self.app_menu_state(cx)).iter().enumerate() {
+            if matches!(item, MenuItem::Separator) {
+                continue;
+            }
+            menu_bar = menu_bar.child(
+                div()
+                    .id(("app-menu-bar", index))
+                    .occlude()
+                    .flex_none()
+                    .h(px(26.))
+                    .px(px(8.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(5.))
+                    .cursor_pointer()
+                    .text_size(px(13.))
+                    .text_color(th.c("text.secondary"))
+                    .hover(|s| s.bg(th.c("bg.rowHover")))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, ev: &MouseDownEvent, w, cx| {
+                            this.open_top_menu_item(index, ev.position.x, w, cx);
+                        }),
+                    )
+                    .child(item.label().to_owned()),
+            );
+        }
         div()
             .absolute()
             .top_0()
@@ -454,20 +499,26 @@ impl ShellView {
                         })
                     }),
             )
-            .child(button("sidebar-toggle", "panel-left").on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _: &MouseDownEvent, w, cx| {
-                    this.run_command(AppCommand::ToggleSidebar, w, cx)
-                }),
-            ))
+            .child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .gap(px(4.))
+                    .child(button("sidebar-toggle", "panel-left").on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _: &MouseDownEvent, w, cx| {
+                            this.run_command(AppCommand::ToggleSidebar, w, cx)
+                        }),
+                    ))
+                    .child(menu_bar),
+            )
             .child(
                 div()
                     .id("toolbar-search")
                     .occlude()
-                    .absolute()
-                    .left(px(search_x))
-                    .top(px(6.))
-                    .w(px(search_w))
+                    .flex_1()
+                    .max_w(px(240.))
                     .h(px(22.))
                     .flex()
                     .items_center()
@@ -491,15 +542,9 @@ impl ShellView {
             .child(
                 div()
                     .flex()
+                    .flex_none()
                     .items_center()
-                    .gap(px(2.))
-                    .child(self.git_status_item(th, cx))
-                    .child(button("app-menu", "menu").on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, ev: &MouseDownEvent, w, cx| {
-                            this.open_app_menu(point(ev.position.x, px(HEIGHT)), w, cx)
-                        }),
-                    )),
+                    .child(self.git_status_item(th, cx)),
             )
     }
 
