@@ -316,7 +316,7 @@ final class SessionLauncherViewController: NSViewController, NSTextFieldDelegate
     /// 授权读取失败时，在「MCP 访问」子菜单顶部放一条禁用的说明项（后面的级别项也已禁用）；读取成功则什么也不加。
     private func addMcpReadErrorItem(to menu: NSMenu) {
         guard let reason = model.mcpReadError else { return }
-        let item = NSMenuItem(title: String(localized: "Could not read MCP access: \(reason)"), action: nil, keyEquivalent: "")
+        let item = NSMenuItem(title: String(localized: "Could not read the MCP access level: \(reason)"), action: nil, keyEquivalent: "")
         item.isEnabled = false
         menu.addItem(item)
         menu.addItem(.separator())

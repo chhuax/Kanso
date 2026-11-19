@@ -84,6 +84,11 @@ impl MockCore {
         st.mcp_grants.get(&profile).copied().unwrap_or_default()
     }
 
+    /// mock 的内存状态读不会失败。
+    pub(crate) fn try_mcp_access(&self, profile: ProfileId) -> Result<McpAccess> {
+        Ok(self.mcp_access(profile))
+    }
+
     pub(crate) fn mcp_accesses(&self) -> Result<Vec<(ProfileId, McpAccess)>> {
         let st = self.lock();
         // mock 的内存状态读不会失败；真实实现的失败路径由 real 侧负责。

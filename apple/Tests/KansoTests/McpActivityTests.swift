@@ -400,7 +400,7 @@ final class McpActivityTests: XCTestCase {
         XCTAssertTrue(texts.contains { $0.hasSuffix("· web-01 · NOT_AUTHORIZED") }, "会话名照常显示：\(texts)")
         XCTAssertNotNil(content.accessError)
         XCTAssertFalse(content.accessErrorLabel.isHidden)
-        XCTAssertEqual(content.accessErrorLabel.stringValue, String(localized: "Could not read MCP access: \(CoreMessageText.text(for: AccessStub.Failure()))"))
+        XCTAssertEqual(content.accessErrorLabel.stringValue, String(localized: "Could not read the MCP access level: \(CoreMessageText.text(for: AccessStub.Failure()))"))
         XCTAssertEqual(content.accessErrorLabel.textColor, .token(DesignTokens.Color.statusError))
 
         // 读取恢复后错误消失，失败记录重新按授权判断。

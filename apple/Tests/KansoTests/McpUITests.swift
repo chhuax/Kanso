@@ -588,7 +588,7 @@ final class McpUITests: XCTestCase {
         stub.failReads = true
         page.accessStore = stub
         _ = page.view
-        XCTAssertEqual(page.grantedLabel.stringValue, String(localized: "Could not read MCP access: \(CoreMessageText.text(for: AccessStub.Failure()))"))
+        XCTAssertEqual(page.grantedLabel.stringValue, String(localized: "Could not read the MCP access level: \(CoreMessageText.text(for: AccessStub.Failure()))"))
         XCTAssertEqual(page.grantedLabel.textColor, .token(DesignTokens.Color.statusError))
 
         stub.failReads = false

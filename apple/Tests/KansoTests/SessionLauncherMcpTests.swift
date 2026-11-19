@@ -137,7 +137,7 @@ final class SessionLauncherMcpTests: XCTestCase {
         XCTAssertTrue(rows.allSatisfy { !$0.isMcpBadgeVisible }, "读失败时行尾不显示标记")
 
         let reason = try XCTUnwrap(f.model.mcpReadError)
-        let note = String(localized: "Could not read MCP access: \(reason)")
+        let note = String(localized: "Could not read the MCP access level: \(reason)")
         let menus = [
             f.launcher.makeProfileMenu(try profile(f, "1")),
             f.launcher.makeGroupMenu(FfiGroup(id: "g", name: "Prod")),
@@ -152,7 +152,7 @@ final class SessionLauncherMcpTests: XCTestCase {
             XCTAssertFalse(sub.autoenablesItems, "否则 AppKit 会把手动禁用的项重新启用")
             XCTAssertTrue(actions.allSatisfy { $0.state != .on }, "不勾选任何级别")
         }
-        XCTAssertFalse(f.model.raisesMcpAccessFromOff(["1", "2"], to: .full), "未知时不能据此弹确认")
+        XCTAssertTrue(f.model.raisesMcpAccessFromOff(["1", "2"], to: .full), "状态未知时宁可要求确认，不能默认放行")
     }
 
     func testReadFailureRecoversAfterALaterSuccessfulRead() throws {

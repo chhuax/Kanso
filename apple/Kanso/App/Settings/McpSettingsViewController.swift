@@ -331,7 +331,7 @@ final class McpSettingsViewController: SettingsPageViewController {
             grantedLabel.stringValue = McpText.grantedSessionsSummary(count: count)
             grantedLabel.textColor = .token(DesignTokens.Color.textTertiary)
         } catch {
-            grantedLabel.stringValue = String(localized: "Could not read MCP access: \(CoreMessageText.text(for: error))")
+            grantedLabel.stringValue = String(localized: "Could not read the MCP access level: \(CoreMessageText.text(for: error))")
             grantedLabel.textColor = .token(DesignTokens.Color.statusError)
         }
     }

@@ -187,6 +187,10 @@ impl Dropdown {
 
     /// 切换禁用状态。
     pub fn set_disabled(&mut self, disabled: bool, cx: &mut Context<Self>) {
+        // 值没变就不通知：调用方可能每次同步都调用（例如设置页逐行刷新），避免无谓重绘。
+        if self.disabled == disabled {
+            return;
+        }
         self.disabled = disabled;
         self.focus = self.focus.clone().tab_stop(!disabled);
         if disabled {

@@ -209,6 +209,8 @@ final class McpActivityViewController: NSViewController, NSTextFieldDelegate {
     /// 只重读记录并重建记录行：筛选条件用 `committedFilter`（输入框里未提交的文字不能借自动刷新生效），
     /// 会话下拉框与会话名缓存也不动（它们只在会话库变化和整体重载时刷新）。
     func handleAuditChange() {
+        // 上次读授权失败（可能是瞬时的库忙）：顺带重试，否则错误提示要等会话库变化或重开窗口才会消失。
+        if profileAccesses == nil { refreshAccesses() }
         if hasPagedBeyondFirstPage {
             newActivityButton.isHidden = false
         } else {
@@ -282,17 +284,22 @@ final class McpActivityViewController: NSViewController, NSTextFieldDelegate {
     @discardableResult
     private func refreshSessionData() -> Bool {
         let selectionLost = refillSessionPopup()
+        refreshAccesses()
+        return selectionLost
+    }
+
+    /// 重读「会话 → 级别」缓存；失败时置 nil 并显示原因。
+    private func refreshAccesses() {
         do {
             profileAccesses = try readAccesses()
             accessError = nil
         } catch {
             // 读失败不能当成「全部关闭」：否则每条失败记录都会被误标成「未授权的会话」。
             profileAccesses = nil
-            accessError = String(localized: "Could not read MCP access: \(CoreMessageText.text(for: error))")
+            accessError = String(localized: "Could not read the MCP access level: \(CoreMessageText.text(for: error))")
         }
         accessErrorLabel.stringValue = accessError ?? ""
         accessErrorLabel.isHidden = accessError == nil
-        return selectionLost
     }
 
     private func refillSessionPopup() -> Bool {
@@ -431,7 +438,13 @@ final class McpActivityWindowController: NSWindowController {
         content.onClose = { [weak self] in self?.window?.performClose(nil) }
         // 只在窗口可见时处理；不可见期间的事件被丢弃，`present()` 与恢复最小化时会整体重载补上。
         mcp.addChangeHandler { [weak self] change in
-            guard let self, change.contains(.audit), window.isVisible else { return }
+            guard let self, change.contains(.audit) else { return }
+            // 窗口不可见（关闭、最小化，或整个 App 被隐藏）时丢掉事件，但要记下内容已过期，
+            // 下次 `present()` 才会重读；只靠关闭 / 最小化两个特例会漏掉 ⌘H 隐藏的情况。
+            guard window.isVisible else {
+                contentIsFresh = false
+                return
+            }
             scheduleAuditRefresh()
         }
         // 关闭与最小化之后内容过期；恢复最小化只在 didDeminiaturize 里重载一次，`present()` 不再重复。

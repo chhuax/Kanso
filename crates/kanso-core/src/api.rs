@@ -1318,6 +1318,15 @@ impl Core {
         dispatch!(self, mcp_access(profile))
     }
 
+    /// 同 [`Core::mcp_access`]，但读库失败时返回错误而不是按 `Off` 处理。
+    ///
+    /// 给界面用：编辑对话框等要把"读不到"如实告诉用户，不能显示成"关闭"让用户基于错误的现状修改。
+    /// 授权判断（MCP 服务）仍用 [`Core::mcp_access`]，读失败按 `Off` 处理更保守。
+    /// - 出错：存储读失败返回 `Internal`。线程：任意。阻塞：同步，极短。
+    pub fn try_mcp_access(&self, profile: ProfileId) -> Result<McpAccess> {
+        dispatch!(self, try_mcp_access(profile))
+    }
+
     /// 全部不是 `Off` 的授权（设置页列表用）。
     ///
     /// - 出错：存储读失败返回 `Internal`。**调用方不得把错误当成"全部关闭"**：授权状态未知时，

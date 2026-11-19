@@ -138,10 +138,11 @@ impl KansoCore {
         Ok(self.inner.set_mcp_enabled(enabled)?)
     }
 
-    /// 会话配置的访问级别；不含总开关。
+    /// 会话配置的访问级别；不含总开关。读库失败时抛错（不按"关闭"返回）。
     pub fn mcp_access(&self, profile_id: String) -> Result<FfiMcpAccess, FfiCoreError> {
         let id: ProfileId = parse_id(&profile_id, "profile")?;
-        Ok(self.inner.mcp_access(id).into())
+        // 读库失败要抛给宿主，不能按 Off 返回：编辑对话框据此显示读取失败并禁用字段。
+        Ok(self.inner.try_mcp_access(id)?.into())
     }
 
     /// 全部不是"关闭"的授权。读库失败时抛错：宿主不得把失败当成"全部关闭"，

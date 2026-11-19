@@ -3160,12 +3160,6 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "无法读取 MCP 访问级别：%@" } }
       }
     },
-    "Could not read MCP access: %@" : {
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not read MCP access: %@" } },
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "无法读取 MCP 授权：%@" } }
-      }
-    },
     "The session was saved, but its MCP access level could not be saved: %@" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "The session was saved, but its MCP access level could not be saved: %@" } },

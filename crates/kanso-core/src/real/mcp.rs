@@ -38,6 +38,10 @@ impl RealCore {
         })
     }
 
+    pub(crate) fn try_mcp_access(&self, profile: ProfileId) -> Result<McpAccess> {
+        self.db().mcp_access(profile).map_err(store_err)
+    }
+
     pub(crate) fn mcp_accesses(&self) -> Result<Vec<(ProfileId, McpAccess)>> {
         self.db().mcp_accesses().map_err(store_err)
     }

@@ -194,9 +194,11 @@ final class SessionLauncherModel {
     }
 
     /// 把这些会话设成 `level` 是否会让某个原来「关闭」的会话对 AI 开放：是就要先让用户确认（spec/mcp.md §2、§7.2）。
-    /// 授权读取失败（状态未知）时返回 false：不能据此判断「原来是关闭」而弹确认。
     func raisesMcpAccessFromOff(_ ids: [String], to level: FfiMcpAccess) -> Bool {
-        mcpReadError == nil && level != .off && ids.contains { mcpLevel(of: $0) == .off }
+        // 状态未知时按「可能从关闭调高」处理（要确认）：安全上宁可多问一次，不能默认放行。
+        // 实际写入另由 `setMcpAccess` 的调用方在读失败时拒绝。
+        guard level != .off else { return false }
+        return mcpReadError != nil || ids.contains { mcpLevel(of: $0) == .off }
     }
 
     /// 逐个写入访问级别，成功的保留，失败的汇总进结果。写完通知会话库变化：

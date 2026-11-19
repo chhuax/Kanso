@@ -2388,7 +2388,7 @@ public protocol KansoCoreProtocol: AnyObject, Sendable {
     func xmodemStart(sessionId: UInt64, block: FfiXmodemBlock?) throws  -> UInt64
     
     /**
-     * 会话配置的访问级别；不含总开关。
+     * 会话配置的访问级别；不含总开关。读库失败时抛错（不按"关闭"返回）。
      */
     func mcpAccess(profileId: String) throws  -> FfiMcpAccess
     
@@ -3630,7 +3630,7 @@ open func xmodemStart(sessionId: UInt64, block: FfiXmodemBlock?)throws  -> UInt6
 }
     
     /**
-     * 会话配置的访问级别；不含总开关。
+     * 会话配置的访问级别；不含总开关。读库失败时抛错（不按"关闭"返回）。
      */
 open func mcpAccess(profileId: String)throws  -> FfiMcpAccess  {
     return try  FfiConverterTypeFfiMcpAccess_lift(try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
@@ -14609,7 +14609,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_kanso_ffi_checksum_method_kansocore_xmodem_start() != 37194) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_kanso_ffi_checksum_method_kansocore_mcp_access() != 16155) {
+    if (uniffi_kanso_ffi_checksum_method_kansocore_mcp_access() != 40590) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_kanso_ffi_checksum_method_kansocore_mcp_accesses() != 59527) {
