@@ -149,6 +149,7 @@ impl McpServerDelegate for NoopDelegate {
     fn on_session_opened(&self, _: SessionId, _: McpClientInfo) {}
     fn on_activity(&self, _: SessionId, _: Option<McpActivity>) {}
     fn on_session_released(&self, _: SessionId) {}
+    fn on_audit_changed(&self) {}
 }
 
 fn make_server(dir: &std::path::Path) -> (Arc<Core>, McpServer) {

@@ -16,7 +16,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         PerformanceProbe.mark("launch")
-        NSApp.mainMenu = Self.makeMainMenu(appearance: appearance, gutter: gutter)
+        // 渠道不支持 MCP（MAS / Setapp）时窗口菜单里不出现 MCP 活动记录。
+        NSApp.mainMenu = Self.makeMainMenu(appearance: appearance, gutter: gutter, showsMcpActivity: mcpSupported())
         // 菜单按默认键构造；这里应用用户的改绑（此时设置可能还没载入，载入后观察者会再应用一次）。
         keybindings.applyToMenu()
         PerformanceProbe.mark("menu")
@@ -27,7 +28,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // 设置在窗口创建过程中载入（core 此时才创建），并立即应用外观与时间轴模式，窗口第一次绘制就是正确的外观。
             let controller = try MainWindowController(defaults: PerformanceProbe.defaults ?? .standard, gutter: gutter, settings: settings, keybindings: keybindings)
             mainWindowController = controller
-            controller.onOpenMcpSettings = { [weak self] in self?.showSettings(tab: .mcp) }
             controller.showWindow(nil)
             controller.filer.cleanPreviousEditsAfterWindowShown()
             NSApp.activate()
@@ -59,6 +59,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func kansoShowSettings(_ sender: Any?) {
         showSettings(tab: .general)
+    }
+
+    /// 窗口 → MCP 活动记录。
+    @objc func kansoShowMcpActivity(_ sender: Any?) {
+        mainWindowController?.showMcpActivity()
     }
 
     @objc func kansoShowAbout(_ sender: Any?) {
@@ -110,7 +115,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
+        // 单元测试以本 App 为宿主：测试里显示过的窗口被关闭或释放后，宿主若因此退出，测试进程会被重启。
+        // 正式运行仍是关掉最后一个窗口就退出。
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
     }
 
     // MARK: - 主菜单
@@ -118,7 +125,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 主菜单。除标准系统动作外，动作一律用 first responder 链上的 selector（target 为 nil）：
     /// 终端视图实现 copy: / paste:，窗口控制器实现会话类动作，由 `validateMenuItem` 决定是否可用。
     /// internal 而非 private：菜单结构测试要直接构造它（不启动 App）。
-    static func makeMainMenu(appearance: AppearanceController, gutter: GutterModeController) -> NSMenu {
+    ///
+    /// - Parameter showsMcpActivity: 窗口菜单是否带「MCP 活动记录」；只有渠道支持 MCP 时为真，默认不带。
+    static func makeMainMenu(
+        appearance: AppearanceController, gutter: GutterModeController, showsMcpActivity: Bool = false
+    ) -> NSMenu {
         let main = NSMenu()
 
         @discardableResult
@@ -240,6 +251,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let windowMenu = submenu(String(localized: "Window"))
         add(windowMenu, String(localized: "Minimize"), #selector(NSWindow.performMiniaturize(_:)), "m")
         add(windowMenu, String(localized: "Zoom"), #selector(NSWindow.performZoom(_:)))
+        if showsMcpActivity {
+            windowMenu.addItem(.separator())
+            add(windowMenu, String(localized: "MCP Activity"), #selector(AppDelegate.kansoShowMcpActivity(_:))).target = NSApp.delegate
+        }
         // 登记为窗口菜单后，系统会自动追加打开的窗口列表。
         NSApp.windowsMenu = windowMenu
 

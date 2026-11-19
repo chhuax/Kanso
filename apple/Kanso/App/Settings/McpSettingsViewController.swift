@@ -4,13 +4,12 @@ import KansoUI
 
 /// 设置 → MCP。是否出现这一页只由 `McpCoordinator.supported` 决定（见 `SettingsWindowController`），不看服务状态。
 ///
-/// 页面内容放在 `NSScrollView` 里，高度有上限；会话、客户端、审计记录多了就滚动。内容高度变化后
+/// 页面只管总开关、接入配置和已连接的客户端；会话授权在会话启动器与编辑对话框里，活动记录在独立窗口
+/// （spec/mcp.md §7）。页面内容放在 `NSScrollView` 里，高度有上限；客户端多了就滚动。内容高度变化后
 /// 调用 `relayout()` 同步页面高度和窗口高度。
 @MainActor
-final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDelegate {
+final class McpSettingsViewController: SettingsPageViewController {
     let mcp: McpCoordinator
-    /// 授权读写用的存储，默认就是 `mcp.core`；测试注入可失败的替身。
-    private let accessStore: any McpAccessStoring
     var copyText: (String) -> Void = { text in
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
@@ -18,57 +17,42 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
 
     let enabledRow = KCheckRow(title: String(localized: "Enable MCP"))
     let statusLabel = NSTextField(wrappingLabelWithString: "")
-    /// 操作失败（授权写入、重新生成令牌）的原因；没有错误时隐藏。
+    /// 操作失败（开关、重新生成令牌）的原因；没有错误时隐藏。
     let errorLabel = NSTextField(wrappingLabelWithString: "")
     let pathLabel = NSTextField(wrappingLabelWithString: "")
     let clientPopup = KPopUpField()
     let commandLabel = NSTextField(wrappingLabelWithString: "")
     let copyCommandButton = KButton(title: String(localized: "Copy Command"), style: .primary)
     let regenerateButton = KButton(title: String(localized: "Regenerate Token"), style: .secondary)
-    let sensitiveNotice = SettingsPageViewController.caption(McpText.sensitiveNotice)
-    let auditClientField = KTextField()
-    let auditSessionPopup = KPopUpField()
-    let errorsOnlyRow = KCheckRow(title: String(localized: "Errors only"))
-    let auditMoreButton = KButton(title: String(localized: "More"), style: .secondary)
-    let auditClearButton = KButton(title: String(localized: "Clear"), style: .secondary)
+    /// 已授权会话数的只读说明（0 / 1 / 多个三种文案）；设置页不列出会话、不改级别。
+    let grantedLabel = SettingsPageViewController.caption("")
+    let openActivityButton = KButton(title: String(localized: "Open Activity Log"), style: .secondary)
+
+    /// 读已授权会话的来源；默认是 core，测试替换成可失败的替身来覆盖读失败路径。
+    var accessStore: any McpAccessStoring
 
     private let clientStack = NSStackView()
-    private let grantStack = NSStackView()
-    private let auditStack = NSStackView()
-    private var levelPopups: [String: KPopUpField] = [:]
-    private var groupPopups: [String: KPopUpField] = [:]
-    /// 读取访问级别失败的行的原因文字（行里下拉框同时被禁用）。
-    private(set) var levelErrorLabels: [String: NSTextField] = [:]
-    private var auditRecords: [FfiMcpAuditRecord] = []
-    private var auditSessionIDs: [String?] = []
-    /// 上次提交（reset）时的筛选条件。翻页必须沿用它：用户可能在输入框里改了字但还没提交，
-    /// 此时「更多」读输入框会让后一页和已显示的前几页来自不同条件。
-    private var committedFilter: (client: String?, profileId: String?, errorsOnly: Bool) = (nil, nil, false)
-    /// 读取或清空审计失败的原因；非 nil 时审计区显示它而不是记录列表。
-    private var auditError: String?
-    private let auditPageSize: UInt32 = 20
-
     private var deminiaturizeObserver: NSObjectProtocol?
     /// 客户端列表上次渲染时的内容；没变就不重建，避免每次事件都重排整页。
     private var renderedClients: [FfiMcpClientInfo]?
     private var contentView: NSView?
     private var heightConstraint: NSLayoutConstraint?
 
-    init(mcp: McpCoordinator, accessStore: (any McpAccessStoring)? = nil) {
+    init(mcp: McpCoordinator) {
         self.mcp = mcp
-        self.accessStore = accessStore ?? mcp.core
+        accessStore = mcp.core
         super.init(nibName: nil, bundle: nil)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) 不支持") }
 
-    func levelPopup(for profileId: String) -> KPopUpField? { levelPopups[profileId] }
-    func groupPopup(for groupId: String?) -> KPopUpField? { groupPopups[groupId ?? ""] }
-
     override func loadView() {
         enabledRow.onToggle = { [weak self] on in self?.toggleEnabled(on) }
-        sensitiveNotice.isHidden = true
+        // spec/mcp.md §2.5 / §7.1：tmux / screen 盲区放在总开关的悬停提示里，不占用常显的说明行。
+        enabledRow.toolTip = String(
+            localized: "If an AI tool runs inside tmux or screen in a local tab, Kanso cannot tell which tab it is in."
+        )
 
         statusLabel.font = .systemFont(ofSize: DesignTokens.Font.uiBody)
         statusLabel.textColor = .token(DesignTokens.Color.textPrimary)
@@ -81,15 +65,15 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
 
         copyCommandButton.onPress = { [weak self] in self?.copyConfig() }
         regenerateButton.onPress = { [weak self] in self?.regenerate() }
+        openActivityButton.onPress = { [weak self] in self?.mcp.onShowActivity?() }
 
         let switchCard = KCard(title: String(localized: "MCP"), symbol: "point.3.connected.trianglepath.dotted")
         switchCard.addRow(enabledRow)
         switchCard.addRow(SettingsPageViewController.caption(String(
-            localized: "When on, AI tools on this Mac can access the sessions authorized below."
+            localized: "When on, AI tools on this Mac can access the sessions you have opened to them."
         )))
-        switchCard.addRow(SettingsPageViewController.caption(String(
-            localized: "If an AI tool runs inside tmux or screen in a local tab, Kanso cannot tell which tab it is in."
-        )))
+        switchCard.addRow(grantedLabel)
+        switchCard.addRow(buttonRow([openActivityButton]))
 
         let serviceCard = KCard(title: String(localized: "MCP service"), symbol: "antenna.radiowaves.left.and.right")
         serviceCard.addRow(statusLabel)
@@ -135,59 +119,37 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
         let clientsCard = KCard(title: String(localized: "Connected clients"), symbol: "person.2")
         clientsCard.addRow(clientStack)
 
-        grantStack.orientation = .vertical
-        grantStack.alignment = .leading
-        grantStack.spacing = DesignTokens.Spacing.sm
-        let grantsCard = KCard(title: String(localized: "Session access"), symbol: "lock")
-        grantsCard.addRow(sensitiveNotice)
-        grantsCard.addRow(grantStack)
-
-        auditClientField.placeholder = String(localized: "Client")
-        auditClientField.textField.delegate = self
-        errorsOnlyRow.onToggle = { [weak self] _ in self?.reloadAudit(reset: true) }
-        auditSessionPopup.onChange = { [weak self] _ in self?.reloadAudit(reset: true) }
-        auditMoreButton.onPress = { [weak self] in self?.reloadAudit(reset: false) }
-        auditClearButton.onPress = { [weak self] in self?.clearAudit() }
-        auditStack.orientation = .vertical
-        auditStack.alignment = .leading
-        auditStack.spacing = DesignTokens.Spacing.xs
-        let auditCard = KCard(title: String(localized: "Audit log"), symbol: "list.bullet.rectangle")
-        auditCard.addRow(KCard.pair(
-            LabeledField(title: String(localized: "Client"), control: auditClientField),
-            LabeledField(title: String(localized: "Session"), control: auditSessionPopup)
-        ))
-        auditCard.addRow(errorsOnlyRow)
-        auditCard.addRow(auditStack)
-        auditCard.addRow(buttonRow([auditMoreButton, auditClearButton]))
-
-        view = makeScrollingPage(makePageView([switchCard, serviceCard, configCard, clientsCard, grantsCard, auditCard]))
+        view = makeScrollingPage(makePageView([switchCard, serviceCard, configCard, clientsCard]))
         // MCP 事件只更新状态和客户端列表，且只在页面可见时做；重新显示时 `viewWillAppear` 会补一次。
-        mcp.addChangeHandler { [weak self] _ in
+        mcp.addChangeHandler { [weak self] change in
             guard let self, view.window?.isVisible == true else { return }
-            refreshLive()
+            refreshLive(for: change)
         }
         NotificationCenter.default.addObserver(
             forName: .sessionLibraryDidChange, object: mcp.core, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.reloadGrants() }
+            // 不看页面是否可见：只是一次 `mcpAccesses()` 读取，授权变化又不频繁。
+            MainActor.assumeIsolated {
+                self?.reloadGrantedSummary()
+                self?.relayout()
+            }
         }
         reloadStatus()
         reloadTokenButtons()
         reloadClients()
-        reloadGrants()
-        reloadAudit(reset: true)
+        reloadGrantedSummary()
         mcp.refreshTokenCache()
     }
 
     override func viewWillAppear() {
         super.viewWillAppear()
-        refreshLive()
+        refreshLive(for: [.status, .clients])
         // 窗口最小化期间事件被跳过；恢复时不会再触发 viewWillAppear，要自己补一次。
         if let window = view.window {
             deminiaturizeObserver = NotificationCenter.default.addObserver(
                 forName: NSWindow.didDeminiaturizeNotification, object: window, queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.refreshLive() }
+                MainActor.assumeIsolated { self?.refreshLive(for: [.status, .clients]) }
             }
         }
     }
@@ -227,7 +189,7 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
         return root
     }
 
-    /// 内容增减后重算页面高度并让设置窗口跟上。客户端、授权、审计列表变化后都要调用，
+    /// 内容增减后重算页面高度并让设置窗口跟上。客户端列表、授权数说明变化后都要调用，
     /// 否则窗口高度停在旧值，内容会被裁掉或留空。
     func relayout() {
         guard let contentView, let heightConstraint else { return }
@@ -241,21 +203,24 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
         (view.window?.windowController as? SettingsWindowController)?.resizeToFitCurrentPage()
     }
 
-    /// MCP 事件触发的局部更新：状态、客户端列表、令牌按钮。
-    private func refreshLive() {
+    /// 按变化类型做局部更新。由页面可见时的 change handler 与 `viewWillAppear` 调用；
+    /// 测试直接调用以绕开「窗口可见」的门槛。
+    ///
+    /// 只有 `.marks` 或 `.audit` 时什么都不做：设置页既不显示标签标记，也不显示活动记录。
+    /// `.clients` / `.status` / `.other` 刷新状态、客户端、令牌按钮与已授权会话数
+    /// （`viewWillAppear` 用 `[.status, .clients]` 补一次全量刷新，窗口最小化期间错过的事件由它补上）。
+    func refreshLive(for change: McpChange) {
+        guard !change.isDisjoint(with: [.clients, .status, .other]) else { return }
         reloadStatus()
         reloadClients()
         reloadTokenButtons()
+        reloadGrantedSummary()
         relayout()
     }
 
     private func showError(_ text: String?) {
         errorLabel.stringValue = text ?? ""
         errorLabel.isHidden = text == nil
-    }
-
-    func controlTextDidEndEditing(_ obj: Notification) {
-        reloadAudit(reset: true)
     }
 
     private func toggleEnabled(_ on: Bool) {
@@ -341,7 +306,7 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
             let name = NSTextField(labelWithString: McpText.clientName(client.name))
             name.font = .systemFont(ofSize: DesignTokens.Font.uiBody)
             name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-            let when = NSTextField(labelWithString: Self.timeText(unixMs: client.connectedAtMs))
+            let when = NSTextField(labelWithString: McpText.timeText(unixMs: client.connectedAtMs))
             when.font = .systemFont(ofSize: DesignTokens.Font.uiCaption)
             when.textColor = .token(DesignTokens.Color.textSecondary)
             let calls = NSTextField(labelWithString: String(localized: "\(Int(client.calls)) calls"))
@@ -358,213 +323,16 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
         }
     }
 
-    func reloadGrants() {
-        for view in grantStack.arrangedSubviews { view.removeFromSuperview() }
-        levelPopups.removeAll()
-        levelErrorLabels.removeAll()
-        groupPopups.removeAll()
-        let profiles = mcp.core.profiles().sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        let groups = mcp.core.groups().sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        var buckets: [String: [FfiProfile]] = [:]
-        var ungrouped: [FfiProfile] = []
-        let groupIDs = Set(groups.map(\.id))
-        for profile in profiles {
-            if let group = profile.group, groupIDs.contains(group) {
-                buckets[group, default: []].append(profile)
-            } else {
-                ungrouped.append(profile)
-            }
-        }
-        if !ungrouped.isEmpty {
-            addGrantSection(title: String(localized: "No Group"), groupId: nil, profiles: ungrouped)
-        }
-        for group in groups {
-            addGrantSection(title: group.name, groupId: group.id, profiles: buckets[group.id] ?? [])
-        }
-        relayout()
-    }
-
-    private func addGrantSection(title: String, groupId: String?, profiles: [FfiProfile]) {
-        let header = NSTextField(labelWithString: title)
-        header.font = .systemFont(ofSize: DesignTokens.Font.uiBody, weight: .semibold)
-        let batch = KPopUpField()
-        batch.setItems([
-            String(localized: "Set group"),
-            McpText.accessTitle(.off),
-            McpText.accessTitle(.readOnly),
-            McpText.accessTitle(.full),
-        ])
-        let ids = profiles.map(\.id)
-        batch.onChange = { [weak self] index in
-            guard let self, index > 0 else { return }
-            let level = McpText.accessLevels[index - 1]
-            self.setLevels(ids, to: level)
-            batch.selectItem(at: 0)
-        }
-        groupPopups[groupId ?? ""] = batch
-        let headerRow = NSStackView(views: [header, batch])
-        headerRow.orientation = .horizontal
-        headerRow.alignment = .centerY
-        headerRow.spacing = DesignTokens.Spacing.sm
-        grantStack.addArrangedSubview(headerRow)
-        batch.widthAnchor.constraint(equalToConstant: 160).isActive = true
-        for profile in profiles {
-            let popup = KPopUpField()
-            popup.setItems(McpText.accessLevels.map(McpText.accessTitle))
-            let profileId = profile.id
-            popup.onChange = { [weak self] index in
-                self?.setLevels([profileId], to: McpText.accessLevels[index])
-            }
-            levelPopups[profile.id] = popup
-            let name = NSTextField(labelWithString: profile.name)
-            name.font = .systemFont(ofSize: DesignTokens.Font.uiBody)
-            name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-            let row = NSStackView(views: [name, popup])
-            row.orientation = .horizontal
-            row.alignment = .centerY
-            row.spacing = DesignTokens.Spacing.sm
-            do {
-                popup.selectItem(at: McpText.accessIndex(try accessStore.mcpAccess(profileId: profile.id)))
-            } catch {
-                // 读不到就不能假装是「关闭」：禁用下拉框并说明原因，这一行也不参与敏感信息提示的判断。
-                let reason = CoreMessageText.text(for: error)
-                popup.isEnabled = false
-                let label = NSTextField(labelWithString: String(localized: "Could not read the MCP access level: \(reason)"))
-                label.font = .systemFont(ofSize: DesignTokens.Font.uiCaption)
-                label.textColor = .token(DesignTokens.Color.statusError)
-                label.lineBreakMode = .byTruncatingTail
-                label.toolTip = reason
-                label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-                levelErrorLabels[profile.id] = label
-                row.addArrangedSubview(label)
-            }
-            grantStack.addArrangedSubview(row)
-            popup.widthAnchor.constraint(equalToConstant: 160).isActive = true
-        }
-    }
-
-    /// 写入授权。失败时下拉框回到实际存储的级别（重新读取），并在页面上显示原因，不让界面停在没生效的值上。
-    private func setLevels(_ ids: [String], to level: FfiMcpAccess) {
-        showError(nil)
-        var raised = false
-        var failure: Error?
-        for id in ids {
-            // 读不到原级别（nil）时不能当作 .off，否则会误弹敏感信息提示。
-            let before = try? accessStore.mcpAccess(profileId: id)
-            do {
-                try accessStore.setMcpAccess(profileId: id, level: level)
-                levelPopups[id]?.selectItem(at: McpText.accessIndex(level))
-                if before == .off, level != .off { raised = true }
-            } catch {
-                failure = error
-                if let actual = try? accessStore.mcpAccess(profileId: id) {
-                    levelPopups[id]?.selectItem(at: McpText.accessIndex(actual))
-                }
-            }
-        }
-        if raised { sensitiveNotice.isHidden = false }
-        if let failure {
-            showError(String(localized: "Could not change the MCP access level: \(CoreMessageText.text(for: failure))"))
-        }
-        relayout()
-    }
-
-    private func reloadAudit(reset: Bool) {
-        if reset {
-            auditRecords = []
-            refillAuditSessionPopup()
-            let client = auditClientField.stringValue.trimmingCharacters(in: .whitespaces)
-            let index = auditSessionPopup.indexOfSelectedItem
-            committedFilter = (
-                client.isEmpty ? nil : client,
-                auditSessionIDs.indices.contains(index) ? auditSessionIDs[index] : nil,
-                errorsOnlyRow.isChecked
-            )
-        }
-        let filter = FfiMcpAuditFilter(
-            client: committedFilter.client,
-            profileId: committedFilter.profileId,
-            errorsOnly: committedFilter.errorsOnly,
-            beforeId: reset ? nil : auditRecords.last?.id,
-            limit: auditPageSize
-        )
+    /// 刷新已授权会话数说明。一次 `mcpAccesses()` 读出全部非「关闭」的授权，不逐个会话查库。
+    /// 读失败显示原因（错误色），不显示数量：显示「0 个」会把读取失败误导成「全部关闭」。
+    func reloadGrantedSummary() {
         do {
-            let page = try mcp.core.mcpAudit(filter: filter)
-            auditError = nil
-            if reset { auditRecords = page } else { auditRecords.append(contentsOf: page) }
-            auditMoreButton.isHidden = page.count < Int(auditPageSize)
+            let count = try accessStore.mcpAccesses().count
+            grantedLabel.stringValue = McpText.grantedSessionsSummary(count: count)
+            grantedLabel.textColor = .token(DesignTokens.Color.textTertiary)
         } catch {
-            // 读取失败不能当作「没有记录」；保留已显示的记录用于翻页失败的情况，但错误说明优先显示。
-            auditError = String(localized: "Could not read the audit log: \(CoreMessageText.text(for: error))")
-            auditMoreButton.isHidden = true
-        }
-        renderAudit()
-    }
-
-    private func refillAuditSessionPopup() {
-        let profiles = mcp.core.profiles().sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        let selected = auditSessionIDs.indices.contains(auditSessionPopup.indexOfSelectedItem)
-            ? auditSessionIDs[auditSessionPopup.indexOfSelectedItem] : nil
-        auditSessionIDs = [nil] + profiles.map(\.id)
-        auditSessionPopup.setItems([String(localized: "All sessions")] + profiles.map(\.name))
-        if let selected, let index = auditSessionIDs.firstIndex(of: selected) {
-            auditSessionPopup.selectItem(at: index)
-        } else {
-            // 原选中的会话已被删除：setItems 之后选中项不保证回到第 0 项，显式回到「全部会话」。
-            auditSessionPopup.selectItem(at: 0)
-        }
-    }
-
-    private func renderAudit() {
-        for view in auditStack.arrangedSubviews { view.removeFromSuperview() }
-        if let auditError {
-            let label = NSTextField(wrappingLabelWithString: auditError)
-            label.font = .systemFont(ofSize: DesignTokens.Font.uiCaption)
-            label.textColor = .token(DesignTokens.Color.statusError)
-            label.preferredMaxLayoutWidth = SettingsPageViewController.pageWidth - 80
-            auditStack.addArrangedSubview(label)
-            relayout()
-            return
-        }
-        if auditRecords.isEmpty {
-            auditStack.addArrangedSubview(SettingsPageViewController.caption(String(localized: "No audit records.")))
-            relayout()
-            return
-        }
-        let names = Dictionary(uniqueKeysWithValues: mcp.core.profiles().map { ($0.id, $0.name) })
-        for record in auditRecords {
-            let session = McpText.auditSessionTitle(profileId: record.profileId, names: names)
-            var parts = [Self.timeText(unixMs: record.atMs), McpText.clientName(record.client)]
-            if !record.tool.isEmpty { parts.append(record.tool) }
-            if let session { parts.append(session) }
-            if let error = record.errorCode { parts.append(error) }
-            let label = NSTextField(wrappingLabelWithString: parts.joined(separator: " · "))
-            label.font = .systemFont(ofSize: DesignTokens.Font.uiCaption)
-            label.textColor = .token(DesignTokens.Color.textSecondary)
-            label.preferredMaxLayoutWidth = SettingsPageViewController.pageWidth - 80
-            auditStack.addArrangedSubview(label)
-            if !record.args.isEmpty {
-                // 参数摘要可能很长（整条命令），界面只放截断后的一行，悬停看全文。
-                let args = NSTextField(labelWithString: McpText.argsSummary(record.args))
-                args.font = .monospacedSystemFont(ofSize: DesignTokens.Font.uiCaption, weight: .regular)
-                args.textColor = .token(DesignTokens.Color.textTertiary)
-                args.lineBreakMode = .byTruncatingTail
-                args.toolTip = record.args
-                args.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-                args.preferredMaxLayoutWidth = SettingsPageViewController.pageWidth - 80
-                auditStack.addArrangedSubview(args)
-            }
-        }
-        relayout()
-    }
-
-    private func clearAudit() {
-        do {
-            try mcp.core.mcpAuditClear()
-            reloadAudit(reset: true)
-        } catch {
-            auditError = String(localized: "Could not clear the audit log: \(CoreMessageText.text(for: error))")
-            renderAudit()
+            grantedLabel.stringValue = String(localized: "Could not read the MCP access level: \(CoreMessageText.text(for: error))")
+            grantedLabel.textColor = .token(DesignTokens.Color.statusError)
         }
     }
 
@@ -574,9 +342,5 @@ final class McpSettingsViewController: SettingsPageViewController, NSTextFieldDe
         row.alignment = .centerY
         row.spacing = DesignTokens.Spacing.sm
         return row
-    }
-
-    private static func timeText(unixMs: Int64) -> String {
-        Date(timeIntervalSince1970: TimeInterval(unixMs) / 1000).formatted(date: .abbreviated, time: .shortened)
     }
 }

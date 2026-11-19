@@ -7,7 +7,7 @@ import XCTest
 @testable import Kanso
 
 /// 内存钥匙串。查询字典的键与 `KeychainSecretStore.baseQuery` 一致。
-private final class MemoryKeychain: KeychainClient, @unchecked Sendable {
+final class MemoryKeychain: KeychainClient, @unchecked Sendable {
     var items: [String: Data] = [:]
     /// 非 nil 时读取一律返回这个错误状态，模拟钥匙串授权被拒。
     var readFailure: OSStatus?
@@ -45,27 +45,31 @@ private final class MemoryKeychain: KeychainClient, @unchecked Sendable {
 }
 
 /// 注入的计时器。记录尚未取消的延迟；`fire` 只执行没被取消的工作。
-private final class TestClock {
+/// 取消闭包按唯一 id 取消：`fire` 会清空队列，按数组下标取消的话，旧闭包可能越界或误取消新排的计时。
+final class TestClock {
     private struct Item {
+        var id: Int
         var delay: TimeInterval
         var work: @MainActor () -> Void
-        var cancelled = false
     }
 
     private var items: [Item] = []
-    var delays: [TimeInterval] { items.filter { !$0.cancelled }.map(\.delay) }
+    private var nextId = 0
+    var delays: [TimeInterval] { items.map(\.delay) }
 
     func schedule(_ delay: TimeInterval, _ work: @escaping @MainActor () -> Void) -> () -> Void {
-        items.append(Item(delay: delay, work: work))
-        let index = items.count - 1
-        return { [weak self] in self?.items[index].cancelled = true }
+        let id = nextId
+        nextId += 1
+        items.append(Item(id: id, delay: delay, work: work))
+        // 已触发或已取消的 id 不在队列里，此时调用是无害的空操作。
+        return { [weak self] in self?.items.removeAll { $0.id == id } }
     }
 
     @MainActor
     func fire() {
         let due = items
         items.removeAll()
-        for item in due where !item.cancelled { item.work() }
+        for item in due { item.work() }
     }
 }
 
@@ -97,16 +101,26 @@ private final class FailingMcpServer: KansoMcpServerProtocol, @unchecked Sendabl
 }
 
 /// 可控的访问级别存储：记录写入次数，可让读或写失败。
-private final class AccessStub: McpAccessStoring, @unchecked Sendable {
+final class AccessStub: McpAccessStoring, @unchecked Sendable {
     struct Failure: Error {}
     var levels: [String: FfiMcpAccess] = [:]
     var failReads = false
     var failWrites = false
     private(set) var writes: [(String, FfiMcpAccess)] = []
+    /// `mcpAccess(profileId:)` 与 `mcpAccesses()` 的调用次数，用来确认列表只做一次批量读取。
+    private(set) var singleReads = 0
+    private(set) var batchReads = 0
 
     func mcpAccess(profileId: String) throws -> FfiMcpAccess {
+        singleReads += 1
         if failReads { throw Failure() }
         return levels[profileId] ?? .off
+    }
+
+    func mcpAccesses() throws -> [FfiMcpGrant] {
+        batchReads += 1
+        if failReads { throw Failure() }
+        return levels.filter { $0.value != .off }.map { FfiMcpGrant(profileId: $0.key, level: $0.value) }
     }
 
     func setMcpAccess(profileId: String, level: FfiMcpAccess) throws {
@@ -276,37 +290,16 @@ final class McpUITests: XCTestCase {
         XCTAssertNotEqual(coordinator.clients.first?.id, idBefore)
     }
 
-    func testSessionAccessIsReadAndWrittenPerProfileAndPerGroup() async throws {
+    func testSessionAccessIsEditedFromTheEditorNotTheSettingsPage() async throws {
         let (coordinator, _, _) = makeCoordinator()
         let core = coordinator.core
         let web = try profile(core, named: "web-01")
-        let outsider = try profile(core, named: "legacy-switch")
-        XCTAssertEqual(try core.mcpAccess(profileId: web.id), .off)
-        XCTAssertEqual(try core.mcpAccess(profileId: outsider.id), .off)
-
-        let page = try XCTUnwrap(makeSettings(mcp: coordinator).mcpViewController)
-        _ = page.view
-        XCTAssertTrue(page.sensitiveNotice.isHidden)
-
-        page.levelPopup(for: web.id)?.userSelect(at: McpText.accessIndex(.readOnly))
-        XCTAssertEqual(try core.mcpAccess(profileId: web.id), .readOnly)
-        XCTAssertEqual(try core.mcpAccess(profileId: outsider.id), .off)
-        XCTAssertFalse(page.sensitiveNotice.isHidden)
-
-        let group = try XCTUnwrap(core.groups().first { $0.name == "生产" })
-        page.groupPopup(for: group.id)?.userSelect(at: McpText.accessIndex(.full) + 1)
-        XCTAssertEqual(try core.mcpAccess(profileId: web.id), .full)
-        XCTAssertEqual(try core.mcpAccess(profileId: outsider.id), .off)
-        XCTAssertEqual(page.groupPopup(for: group.id)?.indexOfSelectedItem, 0)
-
         let editing = SessionEditorModel(store: core, editing: web, showsMcpAccess: true, mcpAccessStore: core)
-        XCTAssertEqual(editing.mcpAccess, .full)
+        XCTAssertEqual(editing.mcpAccess, .off)
         editing.mcpAccess = .readOnly
         let saved = await editing.save()
         XCTAssertEqual(saved, .saved)
-        await flush()
         XCTAssertEqual(try core.mcpAccess(profileId: web.id), .readOnly)
-        XCTAssertEqual(page.levelPopup(for: web.id)?.indexOfSelectedItem, McpText.accessIndex(.readOnly))
 
         let hidden = SessionEditorModel(store: core, editing: web, showsMcpAccess: false)
         XCTAssertFalse(hidden.isVisible(.mcpAccess))
@@ -324,10 +317,17 @@ final class McpUITests: XCTestCase {
         let createdSave = await created.save()
         XCTAssertEqual(createdSave, .saved)
         XCTAssertEqual(try core.mcpAccess(profileId: created.profileID), .off)
-        let shownEditor = SessionEditorViewController(model: created)
+        let shownEditor = SessionEditorViewController(
+            model: SessionEditorModel(store: core, editing: try profile(core, named: "legacy-switch"), showsMcpAccess: true, mcpAccessStore: core)
+        )
         _ = shownEditor.view
-        XCTAssertTrue(shownEditor.mcpPopup.isHiddenOrHasHiddenAncestor)
+        XCTAssertFalse(shownEditor.mcpPopup.isHiddenOrHasHiddenAncestor)
         XCTAssertEqual(shownEditor.mcpPopup.indexOfSelectedItem, McpText.accessIndex(.off))
+        // 从「关闭」调高会出现敏感内容提示，措辞与启动器的确认框共用。
+        XCTAssertTrue(shownEditor.mcpHint.isHidden)
+        shownEditor.mcpPopup.userSelect(at: McpText.accessIndex(.full))
+        XCTAssertFalse(shownEditor.mcpHint.isHidden)
+        XCTAssertEqual(shownEditor.mcpHint.stringValue, McpText.sensitiveNotice)
     }
 
     func testActivityBadgeStaysUntilTheScheduledTwoSeconds() async throws {
@@ -483,14 +483,220 @@ final class McpUITests: XCTestCase {
 
     func testDeletedSessionUsesTheSpecifiedTitle() {
         XCTAssertEqual(
-            McpText.auditSessionTitle(profileId: "missing", names: [:]),
+            McpText.auditSessionTitle(profileId: "missing", failed: false, names: [:], accesses: [:]),
             String(localized: "Deleted session")
         )
-        XCTAssertNil(McpText.auditSessionTitle(profileId: nil, names: [:]))
+        XCTAssertEqual(
+            McpText.auditSessionTitle(profileId: "missing", failed: true, names: [:], accesses: [:]),
+            String(localized: "Deleted session"), "已删除优先于未授权"
+        )
+        XCTAssertNil(McpText.auditSessionTitle(profileId: nil, failed: true, names: [:], accesses: [:]))
+        let names = ["a": "alpha"]
+        XCTAssertEqual(McpText.auditSessionTitle(profileId: "a", failed: false, names: names, accesses: [:]), "alpha")
+        XCTAssertEqual(
+            McpText.auditSessionTitle(profileId: "a", failed: true, names: names, accesses: [:]),
+            String(localized: "Unauthorized session")
+        )
+        XCTAssertEqual(
+            McpText.auditSessionTitle(profileId: "a", failed: true, names: names, accesses: ["a": .readOnly]), "alpha"
+        )
         XCTAssertEqual(
             mcpHelperPath(),
             Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/kanso-mcp").path
         )
+    }
+
+    func testAuditHeadPartsOmitEmptyTool() {
+        let record = FfiMcpAuditRecord(
+            id: 1, atMs: 1_700_000_000_000, client: "", mcpSession: "s", tool: "",
+            profileId: nil, sessionId: nil, args: "", errorCode: nil, durationMs: 1, bytes: 0
+        )
+        XCTAssertEqual(
+            McpText.auditHeadParts(record),
+            [McpText.timeText(unixMs: record.atMs), McpText.clientName("")]
+        )
+    }
+
+    func testBridgeCoalescesAuditChangesIntoOneAuditEvent() async throws {
+        let (coordinator, _, _) = makeCoordinator()
+        let bridge = McpDelegateBridge()
+        bridge.owner = coordinator
+        var changes: [McpChange] = []
+        coordinator.addChangeHandler { changes.append($0) }
+        bridge.onAuditChanged()
+        bridge.onAuditChanged()
+        bridge.onAuditChanged()
+        await flush()
+        // bridge 的 owner 是弱引用：这一行让 bridge 与 coordinator 活到 flush 之后，
+        // 否则优化器可能在 flush 期间就释放它们，批次送不到而断言失败。
+        withExtendedLifetime((bridge, coordinator)) {}
+        XCTAssertEqual(changes, [.audit], "同一批多次审计变化只发一次 .audit")
+    }
+
+    // MARK: - 设置页只管开关与接入
+
+    private func allSubviews(of view: NSView) -> [NSView] {
+        view.subviews + view.subviews.flatMap { allSubviews(of: $0) }
+    }
+
+    func testPageHasNoSessionAccessOrAuditCards() throws {
+        let (coordinator, _, _) = makeCoordinator()
+        let page = try XCTUnwrap(makeSettings(mcp: coordinator).mcpViewController)
+        _ = page.view
+        let titles = allSubviews(of: page.view).compactMap { ($0 as? KCard)?.titleLabel.stringValue }
+        XCTAssertEqual(titles, [
+            String(localized: "MCP"), String(localized: "MCP service"),
+            String(localized: "Configuration"), String(localized: "Connected clients"),
+        ])
+    }
+
+    func testGrantedSessionsSummaryFollowsTheLibrary() throws {
+        let (coordinator, _, _) = makeCoordinator()
+        let core = coordinator.core
+        let page = try XCTUnwrap(makeSettings(mcp: coordinator).mcpViewController)
+        _ = page.view
+        XCTAssertEqual(page.grantedLabel.stringValue, String(localized: "No sessions are open to AI tools yet."))
+
+        let web = try profile(core, named: "web-01")
+        try core.setMcpAccess(profileId: web.id, level: .readOnly)
+        core.notifyLibraryChanged()
+        XCTAssertEqual(
+            page.grantedLabel.stringValue,
+            String(localized: "1 session is open to AI tools. Change this from a session’s … menu or its editor.")
+        )
+
+        let other = try profile(core, named: "legacy-switch")
+        try core.setMcpAccess(profileId: other.id, level: .full)
+        core.notifyLibraryChanged()
+        let count = 2
+        XCTAssertEqual(
+            page.grantedLabel.stringValue,
+            String(localized: "\(count) sessions are open to AI tools. Change this from a session’s … menu or its editor.")
+        )
+
+        // 改回「关闭」后不再计数。
+        try core.setMcpAccess(profileId: web.id, level: .off)
+        try core.setMcpAccess(profileId: other.id, level: .off)
+        core.notifyLibraryChanged()
+        XCTAssertEqual(page.grantedLabel.stringValue, String(localized: "No sessions are open to AI tools yet."))
+    }
+
+    func testGrantedSummaryShowsTheReadErrorInsteadOfACount() throws {
+        let (coordinator, _, _) = makeCoordinator()
+        let page = try XCTUnwrap(makeSettings(mcp: coordinator).mcpViewController)
+        let stub = AccessStub()
+        stub.failReads = true
+        page.accessStore = stub
+        _ = page.view
+        XCTAssertEqual(page.grantedLabel.stringValue, String(localized: "Could not read the MCP access level: \(CoreMessageText.text(for: AccessStub.Failure()))"))
+        XCTAssertEqual(page.grantedLabel.textColor, .token(DesignTokens.Color.statusError))
+
+        stub.failReads = false
+        page.reloadGrantedSummary()
+        XCTAssertEqual(page.grantedLabel.stringValue, String(localized: "No sessions are open to AI tools yet."))
+        XCTAssertNotEqual(page.grantedLabel.textColor, .token(DesignTokens.Color.statusError))
+    }
+
+    private func allTextFields(in view: NSView) -> [NSTextField] {
+        (view.subviews.compactMap { $0 as? NSTextField }) + view.subviews.flatMap { allTextFields(in: $0) }
+    }
+
+    func testTmuxBlindSpotIsInTheMasterSwitchTooltipNotAStandingCaption() throws {
+        let (coordinator, _, _) = makeCoordinator()
+        let page = try XCTUnwrap(makeSettings(mcp: coordinator).mcpViewController)
+        _ = page.view
+        let text = String(localized: "If an AI tool runs inside tmux or screen in a local tab, Kanso cannot tell which tab it is in.")
+        XCTAssertEqual(page.enabledRow.toolTip, text)
+        XCTAssertFalse(allTextFields(in: page.view).contains { $0.stringValue == text }, "不再有常显说明行")
+    }
+
+    func testGrantedSummaryAlsoRefreshesWhenThePageAppears() throws {
+        let (coordinator, _, _) = makeCoordinator()
+        let page = try XCTUnwrap(makeSettings(mcp: coordinator).mcpViewController)
+        _ = page.view
+        let web = try profile(coordinator.core, named: "web-01")
+        // 不发通知（模拟页面不在时错过了变化）：重新出现时的全量刷新要补上。
+        try coordinator.core.setMcpAccess(profileId: web.id, level: .full)
+        page.viewWillAppear()
+        XCTAssertEqual(
+            page.grantedLabel.stringValue,
+            String(localized: "1 session is open to AI tools. Change this from a session’s … menu or its editor.")
+        )
+    }
+
+    func testOpenActivityButtonAsksTheCoordinatorToOpenTheWindow() throws {
+        let (coordinator, _, _) = makeCoordinator()
+        var opened = 0
+        coordinator.onShowActivity = { opened += 1 }
+        let page = try XCTUnwrap(makeSettings(mcp: coordinator).mcpViewController)
+        _ = page.view
+        page.openActivityButton.performClick(nil)
+        XCTAssertEqual(opened, 1)
+    }
+
+    func testAuditAndMarkChangesDoNotRefreshTheSettingsPage() throws {
+        let (coordinator, _, _) = makeCoordinator()
+        let page = try XCTUnwrap(makeSettings(mcp: coordinator).mcpViewController)
+        _ = page.view
+        page.statusLabel.stringValue = "sentinel"
+        page.refreshLive(for: .audit)
+        page.refreshLive(for: .marks)
+        XCTAssertEqual(page.statusLabel.stringValue, "sentinel", "设置页不显示审计与标签标记，这两类变化不刷新")
+        page.refreshLive(for: .status)
+        XCTAssertNotEqual(page.statusLabel.stringValue, "sentinel")
+    }
+
+    // MARK: - 活动记录窗口的入口
+
+    func testActivityWindowIsASingletonOpenedFromAllEntries() throws {
+        let (window, _) = try makeWindow(supported: true)
+        XCTAssertNil(window.mcpActivityWindowController)
+        window.showMcpActivity()
+        let first = try XCTUnwrap(window.mcpActivityWindowController)
+        addTeardownBlock { @MainActor in first.window?.orderOut(nil) }
+        XCTAssertEqual(first.window?.title, String(localized: "MCP Activity"))
+        XCTAssertEqual(first.window?.isVisible, true)
+        XCTAssertTrue(first.window?.styleMask.contains(.resizable) == true)
+
+        // 状态栏指示器与设置页按钮走同一个窗口。
+        window.mcp.onShowActivity?()
+        XCTAssertTrue(window.mcpActivityWindowController === first)
+        try window.mcp.setEnabled(true)
+        window.clickMcpIndicator()
+        XCTAssertTrue(window.mcpActivityWindowController === first)
+    }
+
+    func testClosingTheMainWindowAlsoClosesTheActivityWindow() throws {
+        let (window, _) = try makeWindow(supported: true)
+        window.showMcpActivity()
+        let activity = try XCTUnwrap(window.mcpActivityWindowController?.window)
+        XCTAssertTrue(activity.isVisible)
+        // 活动记录窗口留着的话，App 不会因「最后一个窗口关闭」退出，shutdown 不执行。
+        window.windowWillClose(Notification(name: NSWindow.willCloseNotification))
+        XCTAssertFalse(activity.isVisible)
+    }
+
+    func testActivityWindowDoesNotExistWhenMcpIsNotSupported() throws {
+        let (window, _) = try makeWindow(supported: false)
+        window.showMcpActivity()
+        XCTAssertNil(window.mcpActivityWindowController)
+        window.mcp.onShowActivity?()
+        XCTAssertNil(window.mcpActivityWindowController)
+    }
+
+    func testWindowMenuHasMcpActivityOnlyWhenSupported() {
+        let settings = SettingsStore.attached(to: MemorySettingsBackend())
+        func windowMenu(_ shows: Bool) -> NSMenu? {
+            let menu = AppDelegate.makeMainMenu(
+                appearance: AppearanceController(settings: settings, apply: { _ in }),
+                gutter: GutterModeController(settings: settings),
+                showsMcpActivity: shows
+            )
+            return menu.items.first { $0.submenu?.title == String(localized: "Window") }?.submenu
+        }
+        let titles = { (menu: NSMenu?) in menu?.items.map(\.title) ?? [] }
+        XCTAssertTrue(titles(windowMenu(true)).contains(String(localized: "MCP Activity")))
+        XCTAssertFalse(titles(windowMenu(false)).contains(String(localized: "MCP Activity")))
     }
 
     // MARK: - 审查修复
@@ -606,23 +812,6 @@ final class McpUITests: XCTestCase {
         XCTAssertEqual(outcome, .savedButMcpAccessFailed)
         XCTAssertEqual(notified, 1)
         XCTAssertNotNil(model.errorText)
-    }
-
-    func testFailedAccessWriteRestoresThePopupAndShowsTheError() throws {
-        let (coordinator, _, _) = makeCoordinator()
-        let web = try profile(coordinator.core, named: "web-01")
-        let stub = AccessStub()
-        stub.levels[web.id] = .readOnly
-        let page = McpSettingsViewController(mcp: coordinator, accessStore: stub)
-        _ = page.view
-        XCTAssertEqual(page.levelPopup(for: web.id)?.indexOfSelectedItem, McpText.accessIndex(.readOnly))
-        XCTAssertTrue(page.errorLabel.isHidden)
-
-        stub.failWrites = true
-        page.levelPopup(for: web.id)?.userSelect(at: McpText.accessIndex(.full))
-        XCTAssertEqual(page.levelPopup(for: web.id)?.indexOfSelectedItem, McpText.accessIndex(.readOnly))
-        XCTAssertFalse(page.errorLabel.isHidden)
-        XCTAssertFalse(page.errorLabel.stringValue.isEmpty)
     }
 
     func testFailedRegenerateShowsTheErrorAndKeepsTheOldToken() throws {
@@ -813,21 +1002,6 @@ final class McpUITests: XCTestCase {
         batch.clients = []
         coordinator.apply(batch)
         XCTAssertEqual(changes, [.clients])
-    }
-
-    func testGrantRowWithUnreadableLevelIsDisabledAndDoesNotRaiseTheNotice() throws {
-        let (coordinator, _, _) = makeCoordinator()
-        let web = try profile(coordinator.core, named: "web-01")
-        let stub = AccessStub()
-        stub.failReads = true
-        let page = McpSettingsViewController(mcp: coordinator, accessStore: stub)
-        _ = page.view
-        XCTAssertEqual(page.levelPopup(for: web.id)?.isEnabled, false)
-        XCTAssertNotNil(page.levelErrorLabels[web.id])
-        // 读不到原级别时，批量设置不能把它当作「关闭」而弹敏感信息提示。
-        let group = coordinator.core.groups().first { $0.name == "生产" }
-        page.groupPopup(for: group?.id)?.userSelect(at: McpText.accessIndex(.full) + 1)
-        XCTAssertTrue(page.sensitiveNotice.isHidden)
     }
 
     func testLateActivityForAClosedSessionIsIgnored() async throws {

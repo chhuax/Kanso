@@ -54,6 +54,7 @@ impl McpServerDelegate for Recorder {
     fn on_session_released(&self, session: SessionId) {
         self.0.lock().unwrap().push(Call::Released(session));
     }
+    fn on_audit_changed(&self) {}
 }
 
 fn config() -> McpServerConfig {
