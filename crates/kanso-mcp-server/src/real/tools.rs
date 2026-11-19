@@ -743,6 +743,23 @@ impl KansoHandler {
         })
     }
 
+    /// 登记刚打开的标签并告知宿主。客户端已在此刻断开（`register` 返回 `false`）时关掉这个标签：
+    /// 宿主从未收到 `on_session_opened`，没有摆放过它，留下来就是界面上看不见、却一直占着连接的孤儿标签。
+    fn register_opened_tab(&self, session: SessionId) -> Result<Value, ToolError> {
+        let shared = &self.shared;
+        if !shared
+            .tabs
+            .register(&shared.registry, &shared.delegate, session, self.client_id)
+        {
+            shared.core.close_session(session);
+            return Err(ToolError::new(
+                "INTERRUPTED",
+                "The MCP connection was closed while the tab was being opened; the tab was closed again.",
+            ));
+        }
+        Ok(json!({ "tab": session.raw() }))
+    }
+
     /// 取得无界面会话并执行 `op`，整个过程可被中断（连接取消、客户端取消、总开关、降级）。
     /// 租约随 future 一起释放，被中断时也不会留下"进行中"的计数。
     /// 连接方式依据会话**当前的级别**而不是工具是否只读：只读 → 只复用，完全 → 可新建但不提问（spec/mcp.md §2.4）。
@@ -1296,20 +1313,7 @@ impl KansoHandler {
             match outcome {
                 McpConnectOutcome::Connected { session, .. } => {
                     target.set_session(session);
-                    let shared = &self.shared;
-                    if !shared.tabs.register(
-                        &shared.registry,
-                        &shared.delegate,
-                        session,
-                        self.client_id,
-                    ) {
-                        // 客户端在标签建好的同时断开了：标签留作普通标签，调用结果也没人接收。
-                        return Err(ToolError::new(
-                            "INTERRUPTED",
-                            "The MCP connection was closed while the tab was being opened.",
-                        ));
-                    }
-                    Ok(json!({ "tab": session.raw() }))
+                    self.register_opened_tab(session)
                 }
                 McpConnectOutcome::NotConnected => Err(remote::not_connected()),
                 McpConnectOutcome::NeedsUser(need) => Err(remote::needs_user(need)),
@@ -2023,14 +2027,19 @@ mod tests {
 
     /// 记录 `on_activity` 的 delegate。
     #[derive(Default)]
-    struct Activities(Mutex<Vec<(u64, bool)>>);
+    struct Activities {
+        log: Mutex<Vec<(u64, bool)>>,
+        opened: Mutex<Vec<SessionId>>,
+    }
 
     impl McpServerDelegate for Activities {
         fn on_status_changed(&self, _: McpServerStatus) {}
         fn on_clients_changed(&self, _: Vec<McpClientInfo>) {}
-        fn on_session_opened(&self, _: SessionId, _: McpClientInfo) {}
+        fn on_session_opened(&self, s: SessionId, _: McpClientInfo) {
+            self.opened.lock().unwrap().push(s);
+        }
         fn on_activity(&self, session: SessionId, activity: Option<McpActivity>) {
-            self.0
+            self.log
                 .lock()
                 .unwrap()
                 .push((session.raw(), activity.is_some()));
@@ -2156,7 +2165,7 @@ mod tests {
 
         async fn wait_activity_count(&self, n: usize) {
             for _ in 0..500 {
-                if self.activities.0.lock().unwrap().len() >= n {
+                if self.activities.log.lock().unwrap().len() >= n {
                     return;
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -2166,7 +2175,7 @@ mod tests {
 
         fn activity_log(&self) -> Vec<bool> {
             self.activities
-                .0
+                .log
                 .lock()
                 .unwrap()
                 .iter()
@@ -2181,6 +2190,20 @@ mod tests {
 
     fn no_takeover(_: &()) -> bool {
         false
+    }
+
+    #[test]
+    fn opened_tab_is_closed_when_the_client_already_disconnected() {
+        let e = env(ClientIdentity::unknown());
+        // Env 的 Registry 里没有登记过客户端 1，等同于"register 时客户端已从 Registry 移除"。
+        let tab = e
+            .core
+            .open_session(OpenTarget::Profile(e.web), GridSize { cols: 80, rows: 24 })
+            .unwrap();
+        let err = e.handler.register_opened_tab(tab).unwrap_err();
+        assert_eq!(err.code, "INTERRUPTED");
+        assert!(e.core.session_info(tab).is_none(), "孤儿标签必须被关闭");
+        assert!(e.activities.opened.lock().unwrap().is_empty());
     }
 
     fn code<T>(r: Result<T, ToolError>) -> &'static str {

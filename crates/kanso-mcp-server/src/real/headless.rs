@@ -7,7 +7,7 @@
 //! - 同一 profile 的 `acquire` 由一把 per-profile 的异步互斥串行化：否则两个并发调用都看到"没有条目"，
 //!   各自 `mcp_connect`，会建出两条连接，其中一条没人管。互斥在整个"查缓存 → 建连接 → 登记"期间持有。
 //!   不同 profile 之间互不阻塞。
-//! - 条目表（`entries`）是叶子锁，只在内存里改字段，从不在持锁时 `await`。"进行中调用数"与"到期判断"
+//! - 条目表（`entries`）是叶子锁，只在内存里改字段，从不在持锁时 `await`，也不在持锁时调用 core。"进行中调用数"与"到期判断"
 //!   在同一把锁里读写，所以 reaper 不会关掉一个刚被复用的连接（复用先加计数，reaper 再看到就不到期）。
 //! - [`Lease`] 的 `Drop` 才减计数并刷新 `last_used`：调用被取消（future 被丢弃）、连接断开、panic 都会走到，
 //!   不会让条目永远处于"进行中"而无法释放。
@@ -150,20 +150,28 @@ impl HeadlessManager {
     ///
     /// 失效的例子：借用的连接被用户关掉，或自建连接被服务器断开。失效条目也调用 `close_session`：
     /// 会话已不存在时它什么也不做；还以"已关闭"状态留在 core 里时借此清掉，避免残留。
+    ///
+    /// 查询状态进入 core，所以不在持 `entries` 锁时做：先取出 session id、放锁、查询，再重新加锁，
+    /// 核对条目仍是同一个 session 才加计数或移除。调用方持有 profile 锁，条目只可能被 reaper 移除；
+    /// 核对不通过就当作没有可复用的条目返回 `None`，由调用方新建连接。
     fn reuse(self: &Arc<Self>, profile: ProfileId) -> Option<Lease> {
+        let session = self.entries().get(&profile)?.session;
+        let usable = self
+            .core
+            .mcp_session_status(session)
+            .is_some_and(|s| s.info.state == SessionState::Connected);
         let stale = {
             let mut entries = self.entries();
             let entry = entries.get_mut(&profile)?;
-            let usable = self
-                .core
-                .mcp_session_status(entry.session)
-                .is_some_and(|s| s.info.state == SessionState::Connected);
+            if entry.session != session {
+                return None;
+            }
             if usable {
                 entry.in_flight += 1;
                 return Some(Lease {
                     manager: self.clone(),
                     profile,
-                    session: entry.session,
+                    session,
                 });
             }
             entries.remove(&profile)
