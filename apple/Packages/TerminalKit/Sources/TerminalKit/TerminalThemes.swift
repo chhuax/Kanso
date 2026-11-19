@@ -22,8 +22,8 @@ extension TerminalPalette {
         gutterCursorLine: RGBA8(r: 42, g: 106, b: 138, a: 31),
         commandSeparator: RGBA8(r: 27, g: 29, b: 32, a: 38),
         blockSelection: RGBA8(r: 223, g: 235, b: 239, a: 255),
-        chipBackground: RGBA8(r: 245, g: 245, b: 240, a: 255),
-        chipBorder: RGBA8(r: 201, g: 205, b: 197, a: 255),
+        chipBackground: RGBA8(r: 241, g: 241, b: 236, a: 255),
+        chipBorder: RGBA8(r: 213, g: 213, b: 207, a: 255),
         chipIcon: RGBA8(r: 77, g: 82, b: 88, a: 255)
     )
 
@@ -46,8 +46,8 @@ extension TerminalPalette {
         gutterCursorLine: RGBA8(r: 98, g: 176, b: 210, a: 38),
         commandSeparator: RGBA8(r: 236, g: 237, b: 239, a: 38),
         blockSelection: RGBA8(r: 32, g: 52, b: 62, a: 255),
-        chipBackground: RGBA8(r: 37, g: 40, b: 44, a: 255),
-        chipBorder: RGBA8(r: 75, g: 81, b: 88, a: 255),
+        chipBackground: RGBA8(r: 18, g: 18, b: 20, a: 255),
+        chipBorder: RGBA8(r: 42, g: 42, b: 44, a: 255),
         chipIcon: RGBA8(r: 138, g: 138, b: 138, a: 255)
     )
 }

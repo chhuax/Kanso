@@ -109,7 +109,7 @@ fn real_grants_and_switch_persist_across_restart() {
     let core = real_core(&tmp);
     assert!(core.mcp_enabled());
     assert_eq!(core.mcp_access(p.id), McpAccess::Full);
-    assert_eq!(core.mcp_accesses(), vec![(p.id, McpAccess::Full)]);
+    assert_eq!(core.mcp_accesses().unwrap(), vec![(p.id, McpAccess::Full)]);
     core.shutdown();
 }
 
@@ -259,9 +259,12 @@ fn mock_access_rules_match_real_store() {
     let web = mock_profile(&core, "web-01");
     assert_eq!(core.mcp_access(web), McpAccess::Off);
     core.set_mcp_access(web, McpAccess::ReadOnly).unwrap();
-    assert_eq!(core.mcp_accesses(), vec![(web, McpAccess::ReadOnly)]);
+    assert_eq!(
+        core.mcp_accesses().unwrap(),
+        vec![(web, McpAccess::ReadOnly)]
+    );
     core.set_mcp_access(web, McpAccess::Off).unwrap();
-    assert!(core.mcp_accesses().is_empty());
+    assert!(core.mcp_accesses().unwrap().is_empty());
     let ghost = ProfileId::new();
     assert_eq!(
         core.set_mcp_access(ghost, McpAccess::Full),

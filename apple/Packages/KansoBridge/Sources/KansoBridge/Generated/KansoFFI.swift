@@ -1077,6 +1077,15 @@ public protocol FfiMcpServerDelegate: AnyObject, Sendable {
      */
     func onSessionReleased(sessionId: UInt64) 
     
+    /**
+     * 审计库内容变了（真实服务才会触发）：一批记录已写入，或定期清理删除了旧记录；宿主据此刷新
+     * 活动记录窗口，不必轮询。一批只回调一次；写入失败或清理没删到记录时不回调。
+     *
+     * 回调期间持有服务的拆除同步锁，而销毁 `KansoMcpServer` 的线程（通常是主线程）要拿同一把锁：
+     * 实现绝不能在回调里同步等待主线程（如 `DispatchQueue.main.sync`），只能异步投递后立即返回。
+     */
+    func onAuditChanged() 
+    
 }
 /**
  * 服务回调，由 Swift 实现。
@@ -1196,6 +1205,21 @@ open func onSessionReleased(sessionId: UInt64)  {try! rustCall() {
     uniffi_kanso_ffi_fn_method_ffimcpserverdelegate_on_session_released(
             self.uniffiCloneHandle(),
         FfiConverterUInt64.lower(sessionId),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * 审计库内容变了（真实服务才会触发）：一批记录已写入，或定期清理删除了旧记录；宿主据此刷新
+     * 活动记录窗口，不必轮询。一批只回调一次；写入失败或清理没删到记录时不回调。
+     *
+     * 回调期间持有服务的拆除同步锁，而销毁 `KansoMcpServer` 的线程（通常是主线程）要拿同一把锁：
+     * 实现绝不能在回调里同步等待主线程（如 `DispatchQueue.main.sync`），只能异步投递后立即返回。
+     */
+open func onAuditChanged()  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_method_ffimcpserverdelegate_on_audit_changed(
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 }
 }
@@ -1341,6 +1365,28 @@ fileprivate struct UniffiCallbackInterfaceFfiMcpServerDelegate {
                 }
                 return uniffiObj.onSessionReleased(
                      sessionId: try FfiConverterUInt64.lift(sessionId)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onAuditChanged: { (
+            uniffiHandle: UInt64,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeFfiMcpServerDelegate.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onAuditChanged(
                 )
             }
 
@@ -2342,14 +2388,15 @@ public protocol KansoCoreProtocol: AnyObject, Sendable {
     func xmodemStart(sessionId: UInt64, block: FfiXmodemBlock?) throws  -> UInt64
     
     /**
-     * 会话配置的访问级别；不含总开关。
+     * 会话配置的访问级别；不含总开关。读库失败时抛错（不按"关闭"返回）。
      */
     func mcpAccess(profileId: String) throws  -> FfiMcpAccess
     
     /**
-     * 全部不是"关闭"的授权。
+     * 全部不是"关闭"的授权。读库失败时抛错：宿主不得把失败当成"全部关闭"，
+     * 应显示读取失败并禁用依赖授权状态的操作。
      */
-    func mcpAccesses()  -> [FfiMcpGrant]
+    func mcpAccesses() throws  -> [FfiMcpGrant]
     
     /**
      * 查询审计日志。
@@ -3583,7 +3630,7 @@ open func xmodemStart(sessionId: UInt64, block: FfiXmodemBlock?)throws  -> UInt6
 }
     
     /**
-     * 会话配置的访问级别；不含总开关。
+     * 会话配置的访问级别；不含总开关。读库失败时抛错（不按"关闭"返回）。
      */
 open func mcpAccess(profileId: String)throws  -> FfiMcpAccess  {
     return try  FfiConverterTypeFfiMcpAccess_lift(try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
@@ -3596,10 +3643,11 @@ open func mcpAccess(profileId: String)throws  -> FfiMcpAccess  {
 }
     
     /**
-     * 全部不是"关闭"的授权。
+     * 全部不是"关闭"的授权。读库失败时抛错：宿主不得把失败当成"全部关闭"，
+     * 应显示读取失败并禁用依赖授权状态的操作。
      */
-open func mcpAccesses() -> [FfiMcpGrant]  {
-    return try!  FfiConverterSequenceTypeFfiMcpGrant.lift(try! rustCall() {
+open func mcpAccesses()throws  -> [FfiMcpGrant]  {
+    return try  FfiConverterSequenceTypeFfiMcpGrant.lift(try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
         uniffiCallStatus in
     uniffi_kanso_ffi_fn_method_kansocore_mcp_accesses(
             self.uniffiCloneHandle(),uniffiCallStatus
@@ -14561,10 +14609,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_kanso_ffi_checksum_method_kansocore_xmodem_start() != 37194) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_kanso_ffi_checksum_method_kansocore_mcp_access() != 16155) {
+    if (uniffi_kanso_ffi_checksum_method_kansocore_mcp_access() != 40590) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_kanso_ffi_checksum_method_kansocore_mcp_accesses() != 64093) {
+    if (uniffi_kanso_ffi_checksum_method_kansocore_mcp_accesses() != 59527) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_kanso_ffi_checksum_method_kansocore_mcp_audit() != 34478) {
@@ -14622,6 +14670,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_kanso_ffi_checksum_method_ffimcpserverdelegate_on_session_released() != 2215) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_kanso_ffi_checksum_method_ffimcpserverdelegate_on_audit_changed() != 42159) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_kanso_ffi_checksum_method_kansomcpserver_clients() != 26776) {

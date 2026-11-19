@@ -224,6 +224,12 @@ fn command(cwd: &str, args: &[&str]) -> Command {
         .env("LC_ALL", "C")
         .args(["--no-pager", "--literal-pathspecs", "-c", "color.ui=false"])
         .args(args);
+    // GUI 应用启动控制台子进程会闪一个黑窗；git 只跑几十毫秒，窗口一闪而过。
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
     command
 }
 

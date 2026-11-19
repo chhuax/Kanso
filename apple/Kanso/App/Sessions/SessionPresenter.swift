@@ -29,7 +29,7 @@ final class SessionPresenter {
     /// 导入 / 导出用的文件面板；测试替换为不弹窗的替身。
     var filePanels: DataFilePanels = SystemDataFilePanels()
     var onDataImported: (() -> Void)?
-    /// 编辑对话框是否显示「MCP 访问」。由主窗口注入 `McpCoordinator.supported`，这里不直接问渠道。
+    /// 编辑对话框与启动器是否显示「MCP 访问」。由主窗口注入 `McpCoordinator.supported`，这里不直接问渠道。
     var mcpSupported: () -> Bool = { false }
 
     init(controller: WorkspaceController, dialogs: SessionDialogs = AlertSessionDialogs()) {
@@ -47,7 +47,10 @@ final class SessionPresenter {
         closeLauncher()
         guard let hostWindow = view.window ?? window else { return }
         anchor = (view, rect, preferredEdge)
-        let model = SessionLauncherModel(store: store, collapsedGroupIDs: collapsedGroupIDs)
+        // MCP 菜单与标记只在渠道支持时出现：传 nil 即关掉，与编辑对话框的 `showsMcpAccess` 同一个判断来源。
+        let model = SessionLauncherModel(
+            store: store, mcpAccess: mcpSupported() ? controller.core : nil, collapsedGroupIDs: collapsedGroupIDs
+        )
         model.onCollapsedGroupsChange = { [weak self] in self?.collapsedGroupIDs = $0 }
         let actions = SessionLauncherActions(
             newLocalShell: { [weak self] in

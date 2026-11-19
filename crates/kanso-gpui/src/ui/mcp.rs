@@ -50,6 +50,9 @@ impl McpServerDelegate for Delegate {
     fn on_session_released(&self, session: SessionId) {
         let _ = self.0.unbounded_send(Event::Released(session));
     }
+
+    // GPUI 端的 MCP 活动记录界面不在本次范围内，审计变化暂不处理。
+    fn on_audit_changed(&self) {}
 }
 
 pub(super) struct TabOpened(pub(super) SessionId);

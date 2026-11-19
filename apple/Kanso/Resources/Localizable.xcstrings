@@ -1,6 +1,126 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Every action an AI tool takes through MCP is recorded here. Records stay on this Mac for 30 days." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Every action an AI tool takes through MCP is recorded here. Records stay on this Mac for 30 days." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "AI 工具通过 MCP 进行的每次操作都记在这里，只保存在本机，保留 30 天。" } }
+      }
+    },
+    "Activity log changed — Reload" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Activity log changed — Reload" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "活动记录有变化，点击刷新" } }
+      }
+    },
+    "MCP Activity" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "MCP Activity" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "MCP 活动记录" } }
+      }
+    },
+    "Clear the MCP activity log?" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Clear the MCP activity log?" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "清空 MCP 活动记录？" } }
+      }
+    },
+    "All records of what AI tools did through MCP will be deleted. This can’t be undone." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "All records of what AI tools did through MCP will be deleted. This can’t be undone." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "AI 工具通过 MCP 进行操作的所有记录都会被删除，此操作无法撤销。" } }
+      }
+    },
+    "Could not read the audit log: %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not read the audit log: %@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "无法读取活动记录：%@" } }
+      }
+    },
+    "Could not clear the audit log: %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not clear the audit log: %@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "无法清空活动记录：%@" } }
+      }
+    },
+    "Open Activity Log" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Open Activity Log" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "打开活动记录" } }
+      }
+    },
+    "When on, AI tools on this Mac can access the sessions you have opened to them." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "When on, AI tools on this Mac can access the sessions you have opened to them." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "开启后，本机的 AI 工具可以访问你已对其开放的会话。" } }
+      }
+    },
+    "No sessions are open to AI tools yet." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No sessions are open to AI tools yet." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "还没有对 AI 工具开放任何会话。" } }
+      }
+    },
+    "1 session is open to AI tools. Change this from a session’s … menu or its editor." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "1 session is open to AI tools. Change this from a session’s … menu or its editor." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "有 1 个会话对 AI 工具开放。可在会话的“…”菜单或会话编辑对话框中修改。" } }
+      }
+    },
+    "%lld sessions are open to AI tools. Change this from a session’s … menu or its editor." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%lld sessions are open to AI tools. Change this from a session’s … menu or its editor." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "有 %lld 个会话对 AI 工具开放。可在会话的“…”菜单或会话编辑对话框中修改。" } }
+      }
+    },
+    "AI tools will be able to read terminal contents and commands, which may include secrets and other sensitive information." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "AI tools will be able to read terminal contents and commands, which may include secrets and other sensitive information." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "AI 工具将能读取终端内容和命令，其中可能包含密钥等敏感信息。" } }
+      }
+    },
+    "Open these sessions to AI tools?" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Open these sessions to AI tools?" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "对 AI 工具开放这些会话？" } }
+      }
+    },
+    "Open this session to AI tools?" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Open this session to AI tools?" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "对 AI 工具开放这个会话？" } }
+      }
+    },
+    "MCP: %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "MCP: %@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "MCP：%@" } }
+      }
+    },
+    "MCP Access" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "MCP Access" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "MCP 访问" } }
+      }
+    },
+    "Set Whole Group to %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Set Whole Group to %@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "整组设为%@" } }
+      }
+    },
+    "Could not change MCP access" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not change MCP access" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "无法修改 MCP 访问级别" } }
+      }
+    },
+    "%lld of %lld sessions could not be changed: %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%lld of %lld sessions could not be changed: %@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "%lld / %lld 个会话未能修改：%@" } }
+      }
+    },
     "Search directories…" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Search directories…" } },
@@ -2908,12 +3028,6 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "MCP" } }
       }
     },
-    "When on, AI tools on this Mac can access the sessions authorized below." : {
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "When on, AI tools on this Mac can access the sessions authorized below." } },
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "开启后，本机的 AI 工具可以访问下方已授权的会话。" } }
-      }
-    },
     "If an AI tool runs inside tmux or screen in a local tab, Kanso cannot tell which tab it is in." : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "If an AI tool runs inside tmux or screen in a local tab, Kanso cannot tell which tab it is in." } },
@@ -3040,12 +3154,6 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "无法重新生成令牌，旧令牌仍然有效。%@" } }
       }
     },
-    "Could not change the MCP access level: %@" : {
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not change the MCP access level: %@" } },
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "无法修改 MCP 访问级别：%@" } }
-      }
-    },
     "Could not read the MCP access level: %@" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not read the MCP access level: %@" } },
@@ -3070,24 +3178,6 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "%lld 次调用" } }
       }
     },
-    "Session access" : {
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Session access" } },
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "会话授权" } }
-      }
-    },
-    "Terminal contents may include sensitive information." : {
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Terminal contents may include sensitive information." } },
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "终端内容可能含敏感信息。" } }
-      }
-    },
-    "Set group" : {
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Set group" } },
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "设置整组" } }
-      }
-    },
     "Read only" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Read only" } },
@@ -3098,12 +3188,6 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Full" } },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "完全" } }
-      }
-    },
-    "Audit log" : {
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Audit log" } },
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "审计日志" } }
       }
     },
     "Client" : {
@@ -3122,6 +3206,12 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Errors only" } },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "只看失败" } }
+      }
+    },
+    "Unauthorized session" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unauthorized session" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "未授权的会话" } }
       }
     },
     "Deleted session" : {

@@ -356,7 +356,7 @@ Kanso App 进程
 |---|---|---|
 | `kanso-mcp-server` | 与 `kanso-ffi` 同层，依赖 `kanso-core` | 工具、授权和审计。AppKit 与 GPUI 通过 `McpServer` / `McpServerDelegate` 共用真实服务。界面测试可使用 mock 服务 |
 | `kanso-mcp`（二进制） | `crates/kanso-mcp` | std 加系统 API 绑定。Unix 用 `libc` 处理文件锁和控制终端，Windows 用 `windows-sys` 处理命名管道 |
-| `kanso-ffi` | 现有 | `KansoCore` 导出授权、总开关、审计读写；导出 `KansoMcpServer` 对象（`start`、`stop`、`set_token`、状态、客户端列表、断开客户端，mock 另有 `debug_*`）、回调接口 `FfiMcpServerDelegate`（状态、客户端、标签摆放、MCP 标识、标签释放）和 `mcp_client_config`。**三个渠道都导出**：Swift 绑定只生成一份、三个渠道共用，按渠道裁剪会让 MAS 版链接失败；非 Direct 渠道的服务恒为"不支持"。界面**只按 `mcp_supported()`** 决定是否显示 MCP 页面，不看 `start` 的结果：Direct 构建里 `start` 失败要在页面上显示错误，若因此隐藏页面，用户就再也关不掉开关 |
+| `kanso-ffi` | 现有 | `KansoCore` 导出授权、总开关、审计读写；导出 `KansoMcpServer` 对象（`start`、`stop`、`set_token`、状态、客户端列表、断开客户端，mock 另有 `debug_*`）、回调接口 `FfiMcpServerDelegate`（状态、客户端、标签摆放、MCP 标识、标签释放、审计变化）和 `mcp_client_config`。**三个渠道都导出**：Swift 绑定只生成一份、三个渠道共用，按渠道裁剪会让 MAS 版链接失败；非 Direct 渠道的服务恒为"不支持"。界面**只按 `mcp_supported()`** 决定是否显示 MCP 页面，不看 `start` 的结果：Direct 构建里 `start` 失败要在页面上显示错误，若因此隐藏页面，用户就再也关不掉开关 |
 | `kanso-store` | 现有 | 新增 `mcp_grants`、`mcp_local`、`mcp_audit` 三张表（§16.4） |
 | Swift | KansoUI、KansoApp | 设置 → MCP 页面、会话编辑对话框字段、标签行 MCP 标识、状态栏指示器、处理 MCP 打开标签的事件 |
 | xtask | `apple-build`、`dmg` | 为目标架构编译 `kanso-mcp`，由 Xcode Run Script 复制进 `Contents/MacOS/`，用与 App 相同的签名身份和 hardened runtime 签名 |
