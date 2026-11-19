@@ -488,7 +488,7 @@ ui-tab-bar = 标签栏
 
 ui-view = 视图
 
-ui-settings-2 = 设置…
+ui-settings-2 = 设置
 
 ui-quit = 退出
 

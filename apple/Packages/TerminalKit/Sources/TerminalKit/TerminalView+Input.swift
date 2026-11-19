@@ -156,11 +156,15 @@ extension TerminalView {
     public override func mouseDragged(with event: NSEvent) { pointerDragged(event, button: .left) }
     public override func mouseUp(with event: NSEvent) { pointerUp(event, button: .left) }
 
-    // 右键只发 Down / Up；是否弹菜单由上层决定（T10）。这里不调用 super，避免触发 NSView 的 menu(for:)。
+    // 右键：程序开启鼠标上报且未按 Shift 时交给程序；否则先选中指针下的单词再弹菜单（terminal.md §8.1）。
+    // 这里不调用 super，避免触发 NSView 的 menu(for:)。
     public override func rightMouseDown(with event: NSEvent) {
-        // 有菜单提供者且给出了菜单：弹菜单，不把这次右键发给程序（鼠标上报下需要按住 Shift 才能到这里的规则
-        // 由终端自己的选择逻辑承担，这里不重复判断）。
-        if let menu = contextMenuProvider?() {
+        let reporting = currentFrame?.flags.contains(.mouseReporting) == true
+        let bypass = KeyModifiers(event.modifierFlags).contains(.shift)
+        if (!reporting || bypass), let menu = contextMenuProvider?() {
+            if let point = viewportPoint(for: event) {
+                editActions?.selectWord(at: point)
+            }
             addCommandBlockMenuItems(to: menu, event: event)
             window?.makeFirstResponder(self)
             NSMenu.popUpContextMenu(menu, with: event, for: self)
@@ -191,6 +195,8 @@ extension TerminalView {
 
     private func pointerDown(_ event: NSEvent, button: TerminalMouseButton) {
         if button == .left {
+            leftDragIsSelection = currentFrame?.flags.contains(.mouseReporting) != true
+                || KeyModifiers(event.modifierFlags).contains(.shift)
             clickedCommandBlock = nil
             clickedDirectoryChip = event.clickCount == 1 ? directoryChip(at: event) : nil
             if event.clickCount == 1, currentFrame?.flags.contains(.mouseReporting) != true {
@@ -234,7 +240,9 @@ extension TerminalView {
 
     private func pointerUp(_ event: NSEvent, button: TerminalMouseButton) {
         var directoryAnchor: NSRect?
+        let shouldAutoCopy = button == .left && copyOnSelect && leftDragIsSelection && activeButtons[button] != nil
         if button == .left {
+            leftDragIsSelection = false
             if activeButtons[button]?.kind == .down, event.clickCount == 1,
                currentFrame?.flags.contains(.mouseReporting) != true {
                 if let anchor = directoryChip(at: event), anchor == clickedDirectoryChip {
@@ -255,6 +263,10 @@ extension TerminalView {
             kind: .up, button: button, point: point, mods: KeyModifiers(event.modifierFlags),
             clickCount: UInt8(clamping: max(1, event.clickCount))
         ))
+        // 选中即复制（terminal.md §8.2）：松开鼠标完成选择后，只有确实产生了非空文本选区才复制。
+        if shouldAutoCopy, editActions?.hasSelection == true {
+            copySelectionIfPresent()
+        }
         if let directoryAnchor { onDirectoryChipClick?(directoryAnchor) }
     }
 
@@ -262,6 +274,7 @@ extension TerminalView {
     /// 视图离开窗口时调用。
     func endAllDrags() {
         clickedCommandBlock = nil
+        leftDragIsSelection = false
         guard !activeButtons.isEmpty else { return }
         let pending = activeButtons
         activeButtons.removeAll()

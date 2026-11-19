@@ -20,6 +20,9 @@ enum TerminalSettingsApplier {
         if view.minimumContrastRatio != display.minimumContrastRatio {
             view.minimumContrastRatio = display.minimumContrastRatio
         }
+        if view.copyOnSelect != display.copyOnSelect {
+            view.copyOnSelect = display.copyOnSelect
+        }
         if let id = themeOverride, let theme = TerminalTheme.theme(id: id, in: settings.themes) {
             let palette = theme.palette
             view.lightPalette = palette

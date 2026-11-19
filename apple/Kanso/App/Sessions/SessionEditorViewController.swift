@@ -1,6 +1,7 @@
 import AppKit
 import KansoBridge
 import KansoUI
+import TerminalKit
 
 /// 会话编辑对话框的内容（visual-style §3.3）。新建与编辑共用；逻辑都在 `SessionEditorModel`，这里只管控件与布局。
 ///

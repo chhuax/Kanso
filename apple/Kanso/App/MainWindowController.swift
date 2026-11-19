@@ -718,6 +718,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         controller.settings.updateCompletion { $0.enabled.toggle() }
     }
 
+    @objc func kansoCopyOnSelect(_ sender: Any?) {
+        controller.settings.updateDisplay { $0.copyOnSelect.toggle() }
+    }
+
     @objc func kansoClearCommandHistory(_ sender: Any?) {
         guard let window else { return }
         let alert = NSAlert()
@@ -771,6 +775,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         switch menuItem.action {
         case #selector(kansoCommandSuggestions(_:)):
             menuItem.state = controller.settings.completion.enabled ? .on : .off
+            return true
+        case #selector(kansoCopyOnSelect(_:)):
+            menuItem.state = controller.settings.display.copyOnSelect ? .on : .off
             return true
         case #selector(kansoToggleSender(_:)):
             menuItem.title = senderItem.isCollapsed ? String(localized: "Show Sender") : String(localized: "Hide Sender")

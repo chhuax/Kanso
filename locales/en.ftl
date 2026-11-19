@@ -494,7 +494,7 @@ ui-tab-bar = Tab Bar
 
 ui-view = View
 
-ui-settings-2 = Settings…
+ui-settings-2 = Settings
 
 ui-quit = Quit
 
