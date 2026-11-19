@@ -69,22 +69,11 @@ final class TerminalHost {
                 keybindings?.interceptTerminalKey(event, in: view) ?? false
             }
         }
-        // 右键菜单：复制 / 粘贴 + "在 Filer 中显示工作目录"。动作带发起标签的 id，
-        // 右键点的不是活动标签时也作用于被点的这个（filer.md §2：锁定发起时的标签）。
-        view.contextMenuProvider = { [weak view, session] in
+        // 右键菜单：编辑 / 查找 / 清屏 / 拆分 / 在 Filer 中显示工作目录 / 关闭会话。
+        // 定位目录带发起标签的 id，右键点的不是活动标签时也作用于被点的这个（filer.md §2：锁定发起时的标签）。
+        view.contextMenuProvider = { [weak view, weak keybindings, session] in
             guard let view else { return nil }
-            let menu = NSMenu()
-            let copy = menu.addItem(withTitle: String(localized: "Copy"), action: #selector(TerminalView.copy(_:)), keyEquivalent: "")
-            copy.target = view
-            let paste = menu.addItem(withTitle: String(localized: "Paste"), action: #selector(TerminalView.paste(_:)), keyEquivalent: "")
-            paste.target = view
-            menu.addItem(.separator())
-            let locate = menu.addItem(
-                withTitle: String(localized: "Show Working Directory in File Browser"),
-                action: #selector(MainWindowController.kansoLocateWorkingDirectory(_:)), keyEquivalent: ""
-            )
-            locate.representedObject = session
-            return menu
+            return Self.makeContextMenu(view: view, session: session, keybindings: keybindings)
         }
         findBar = FindBarController(target: CoreSearchTarget(core: core, session: session))
         findBar.install(in: view)
@@ -93,5 +82,40 @@ final class TerminalHost {
             guard let view else { return }
             view.window?.makeFirstResponder(view)
         }
+    }
+
+    /// 构造终端右键菜单：带 SF Symbol 图标与当前生效快捷键。
+    static func makeContextMenu(view: TerminalView, session: SessionID, keybindings: KeybindingController?) -> NSMenu {
+        let menu = NSMenu()
+
+        @discardableResult
+        func add(_ command: KeyCommand, symbol: String, action: Selector? = nil, target: AnyObject? = nil) -> NSMenuItem {
+            let chord = keybindings.map { $0.chord(for: command) } ?? command.defaultChord
+            let item = menu.addItem(
+                withTitle: command.title,
+                action: action ?? command.action,
+                keyEquivalent: chord?.menuKeyEquivalent ?? ""
+            )
+            item.keyEquivalentModifierMask = chord?.modifiers.flags ?? []
+            item.image = .symbol(symbol)
+            item.target = target
+            return item
+        }
+
+        add(.copy, symbol: "doc.on.doc", action: #selector(TerminalView.copy(_:)), target: view)
+        add(.paste, symbol: "doc.on.clipboard", action: #selector(TerminalView.paste(_:)), target: view)
+        add(.selectAll, symbol: "selection.pin.in.out", action: #selector(TerminalView.selectAll(_:)), target: view)
+        add(.find, symbol: "magnifyingglass")
+        add(.clearBuffer, symbol: "eraser")
+        menu.addItem(.separator())
+        add(.splitRight, symbol: "rectangle.split.2x1")
+        add(.splitDown, symbol: "rectangle.split.1x2")
+        let locate = add(.locateWorkingDirectory, symbol: "folder")
+        locate.representedObject = session
+        let tailSeparator = NSMenuItem.separator()
+        tailSeparator.identifier = TerminalView.commandBlockMenuAnchor
+        menu.addItem(tailSeparator)
+        add(.closeSession, symbol: "xmark")
+        return menu
     }
 }

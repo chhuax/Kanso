@@ -160,6 +160,8 @@ pub struct DisplaySettings {
     pub minimum_contrast_ratio: f64,
     /// 语义着色。
     pub semantic_coloring: bool,
+    /// 选中即复制（与 mac 版共用字段，保证往返不丢）。
+    pub copy_on_select: bool,
     /// 界面字体族；空串 = 平台默认界面字体。
     pub ui_font_family: String,
     /// 界面字号。
@@ -218,6 +220,7 @@ impl DisplaySettings {
                 Self::CONTRAST_RANGE,
             ),
             semantic_coloring: get_bool(&m, "semanticColoring", d.semantic_coloring),
+            copy_on_select: get_bool(&m, "copyOnSelect", d.copy_on_select),
             ui_font_family: get_str(&m, "uiFontFamily", &d.ui_font_family),
             ui_font_size: get_f64(&m, "uiFontSize", d.ui_font_size, Self::UI_FONT_SIZE_RANGE),
         }
@@ -236,6 +239,7 @@ impl DisplaySettings {
             "minimumContrastEnabled": self.minimum_contrast_enabled,
             "minimumContrastRatio": self.minimum_contrast_ratio,
             "semanticColoring": self.semantic_coloring,
+            "copyOnSelect": self.copy_on_select,
             "uiFontFamily": self.ui_font_family,
             "uiFontSize": self.ui_font_size,
         })
@@ -272,6 +276,7 @@ impl Default for DisplaySettings {
             minimum_contrast_enabled: true,
             minimum_contrast_ratio: 4.5,
             semantic_coloring: true,
+            copy_on_select: false,
             ui_font_family: String::new(),
             ui_font_size: Self::DEFAULT_UI_FONT_SIZE,
         }
@@ -877,6 +882,7 @@ mod tests {
             cursor_shape: CursorShapeSetting::Block,
             cursor_blink: false,
             scrollback_lines: 50_000,
+            copy_on_select: true,
             ui_font_family: "Segoe UI".into(),
             ..DisplaySettings::default()
         };

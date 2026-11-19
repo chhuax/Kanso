@@ -213,6 +213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         addCommand(editMenu, .copy)
         addCommand(editMenu, .paste)
         addCommand(editMenu, .selectAll)
+        add(editMenu, String(localized: "Copy on Select"), #selector(MainWindowController.kansoCopyOnSelect(_:)))
         editMenu.addItem(.separator())
         addCommand(editMenu, .clearBuffer)
         addCommand(editMenu, .previousCommandBlock)
