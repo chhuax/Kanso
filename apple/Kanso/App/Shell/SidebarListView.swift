@@ -42,7 +42,7 @@ enum SessionColor {
 /// 行视图的鼠标事件只是转发，测试可以直接调用。
 @MainActor
 final class SidebarListView: NSView {
-    static let rowSpacing: CGFloat = 2
+    static let rowSpacing: CGFloat = DesignTokens.Spacing.tabRowGap
     static let headerHeight: CGFloat = 24
     static let horizontalInset: CGFloat = 8
     static let verticalInset: CGFloat = 4
