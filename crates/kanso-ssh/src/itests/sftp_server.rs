@@ -47,6 +47,10 @@ pub struct SftpServerConfig {
     pub inject_entries: Vec<(String, u64)>,
     /// 所有普通文件的 attrs 都声称 size = 0（模拟 procfs 之类大小不可信的文件）。
     pub zero_size_attrs: bool,
+    /// VERSION 回复里是否声明 `posix-rename@openssh.com`（并处理对应的 EXTENDED 请求）。
+    pub posix_rename: bool,
+    /// 第 N 个 WRITE 起一律回 FAILURE（通道保持正常，用来验证写失败后的清理）。
+    pub fail_writes_after: Option<usize>,
 }
 
 impl SftpServerConfig {
@@ -66,6 +70,8 @@ impl SftpServerConfig {
             realpath_fails: false,
             inject_entries: Vec::new(),
             zero_size_attrs: false,
+            posix_rename: true,
+            fail_writes_after: None,
         }
     }
 }
@@ -318,7 +324,22 @@ async fn handle_request(sh: &Arc<Shared>, ty: u8, id: u32, body: &[u8]) -> Optio
             if !real.exists() {
                 return st(proto::FX_NO_SUCH_FILE, "no such file");
             }
-            let v = virt(&normalize(&sh.cfg.home, &path));
+            // 与 realpath(3) 一致：解析符号链接。解析结果落在 root 之内时映射回虚拟路径，
+            // 否则（指向 root 之外）退回词法规范化。
+            let lexical = virt(&normalize(&sh.cfg.home, &path));
+            let v = match (real.canonicalize(), sh.cfg.root.canonicalize()) {
+                (Ok(c), Ok(r)) => match c.strip_prefix(&r) {
+                    Ok(rel) => {
+                        let parts: Vec<String> = rel
+                            .components()
+                            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                            .collect();
+                        virt(&parts)
+                    }
+                    Err(_) => lexical,
+                },
+                _ => lexical,
+            };
             let mut p = proto::begin_packet(proto::FXP_NAME, Some(id), 32);
             put_u32(&mut p, 1);
             put_str(&mut p, v.as_bytes());
@@ -443,6 +464,9 @@ async fn handle_request(sh: &Arc<Shared>, ty: u8, id: u32, body: &[u8]) -> Optio
                 return st(proto::FX_FAILURE, "not a file");
             };
             let n = sh.stats.writes.fetch_add(1, Ordering::SeqCst) + 1;
+            if sh.cfg.fail_writes_after.is_some_and(|m| n > m) {
+                return st(proto::FX_FAILURE, "injected write failure");
+            }
             if sh.cfg.disconnect_after_writes.is_some_and(|m| n > m) {
                 sh.kill.notify_one();
                 return None;
@@ -557,6 +581,40 @@ async fn handle_request(sh: &Arc<Shared>, ty: u8, id: u32, body: &[u8]) -> Optio
             tryio!(std::fs::rename(a, b));
             st(proto::FX_OK, "")
         }
+        proto::FXP_SETSTAT => {
+            let path = tryp!(rd.string());
+            let attrs = tryp!(rd.attrs());
+            let real = match sh.resolve(&path) {
+                Ok(p) => p,
+                Err(c) => return st(c, "denied"),
+            };
+            #[cfg(unix)]
+            if let Some(mode) = attrs.permissions {
+                use std::os::unix::fs::PermissionsExt;
+                tryio!(std::fs::set_permissions(
+                    &real,
+                    std::fs::Permissions::from_mode(mode & 0o7777)
+                ));
+            }
+            #[cfg(not(unix))]
+            let _ = (attrs, real);
+            st(proto::FX_OK, "")
+        }
+        proto::FXP_EXTENDED => {
+            let name = tryp!(rd.string());
+            if name != proto::EXT_POSIX_RENAME || !sh.cfg.posix_rename {
+                return st(proto::FX_OP_UNSUPPORTED, "unsupported extension");
+            }
+            let from = tryp!(rd.string());
+            let to = tryp!(rd.string());
+            let (a, b) = match (sh.resolve(&from), sh.resolve(&to)) {
+                (Ok(a), Ok(b)) => (a, b),
+                (Err(c), _) | (_, Err(c)) => return st(c, "denied"),
+            };
+            // rename(2) 语义：覆盖已有目标。
+            tryio!(std::fs::rename(a, b));
+            st(proto::FX_OK, "")
+        }
         _ => st(proto::FX_OP_UNSUPPORTED, "unsupported"),
     }
 }
@@ -595,6 +653,10 @@ where
         if ty == proto::FXP_INIT {
             let mut p = proto::begin_packet(proto::FXP_VERSION, None, 4);
             put_u32(&mut p, 3);
+            if sh.cfg.posix_rename {
+                put_str(&mut p, proto::EXT_POSIX_RENAME.as_bytes());
+                put_str(&mut p, b"1");
+            }
             proto::finish_packet(&mut p);
             sh.send(p).await;
             continue;

@@ -1498,3 +1498,340 @@ async fn skip_policy_upload_dir_merges_and_skips_existing_files() {
     assert_eq!(std::fs::read(dst.join("sub/c")).unwrap(), b"new-c");
     assert_eq!(std::fs::read(dst.join("a.txt")).unwrap(), b"new-a");
 }
+
+// ---------------------------------------------------------------------------
+// MCP 的 SFTP 补充：entry / read_range / write_new / overwrite_file / rmdir
+
+use crate::sftp::{OverwriteError, WriteFailure};
+
+/// 目录里没有 `.kanso-tmp-` 临时文件残留。
+fn no_tmp_left(dir: &Path) -> bool {
+    std::fs::read_dir(dir).unwrap().all(|e| {
+        !e.unwrap()
+            .file_name()
+            .to_string_lossy()
+            .contains(".kanso-tmp-")
+    })
+}
+
+#[tokio::test]
+async fn entry_matches_listing_fields() {
+    let e = env().await;
+    std::fs::write(e.remote("home/tester/f.txt"), b"12345").unwrap();
+    std::fs::create_dir(e.remote("home/tester/d")).unwrap();
+    let listed = e
+        .client
+        .list("/home/tester")
+        .await
+        .unwrap()
+        .collect_all()
+        .await
+        .unwrap();
+    for name in ["f.txt", "d"] {
+        let want = listed.iter().find(|x| x.name == name).unwrap();
+        let got = e
+            .client
+            .entry(&format!("/home/tester/{name}"), true)
+            .await
+            .unwrap();
+        assert_eq!(&got, want);
+    }
+    let err = e.client.entry("/home/tester/none", true).await.unwrap_err();
+    assert!(err.is_not_found());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn entry_follow_symlinks_switches_between_stat_and_lstat() {
+    let e = env().await;
+    std::fs::create_dir(e.remote("home/tester/d")).unwrap();
+    std::os::unix::fs::symlink("d", e.remote("home/tester/link")).unwrap();
+    let lstat = e.client.entry("/home/tester/link", false).await.unwrap();
+    assert!(lstat.is_symlink && lstat.is_dir);
+    assert_eq!(lstat.name, "link");
+    assert_eq!(lstat.path, "/home/tester/link");
+    let stat = e.client.entry("/home/tester/link", true).await.unwrap();
+    assert!(!stat.is_symlink && stat.is_dir);
+}
+
+#[tokio::test]
+async fn read_range_reads_in_segments_to_eof_and_past_it() {
+    // 服务器每次最多回 1000 字节：必须循环补读。
+    let e = env_with(|c| c.max_read = Some(1000)).await;
+    let data = pattern(100_000);
+    std::fs::write(e.remote("home/tester/big"), &data).unwrap();
+    let c = &e.client;
+    // 分段：中间一段。
+    let got = c
+        .read_range("/home/tester/big", 12_345, 50_000)
+        .await
+        .unwrap();
+    assert_eq!(got, data[12_345..62_345]);
+    // 请求超过文件末尾：返回实际剩余。
+    let got = c
+        .read_range("/home/tester/big", 99_000, 5_000)
+        .await
+        .unwrap();
+    assert_eq!(got, data[99_000..]);
+    // 恰好在 EOF 与超出 EOF：空。
+    assert!(
+        c.read_range("/home/tester/big", 100_000, 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        c.read_range("/home/tester/big", 1 << 40, 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    // 长度 0。
+    assert!(
+        c.read_range("/home/tester/big", 0, 0)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    // 不存在。
+    assert!(
+        c.read_range("/home/tester/none", 0, 1)
+            .await
+            .unwrap_err()
+            .is_not_found()
+    );
+    assert_eq!(e.server.sftp_stats.open_handles(), 0);
+}
+
+#[tokio::test]
+async fn write_new_fails_when_exists_and_keeps_original() {
+    let e = env().await;
+    std::fs::write(e.remote("home/tester/keep"), b"precious").unwrap();
+    let err = e
+        .client
+        .write_new("/home/tester/keep", b"overwritten?")
+        .await
+        .unwrap_err();
+    assert!(err.error.is_already_exists(), "{err:?}");
+    assert_eq!(err.leftover, None);
+    assert_eq!(
+        std::fs::read(e.remote("home/tester/keep")).unwrap(),
+        b"precious"
+    );
+    // 不存在时写入，大于一个块。
+    let data = pattern(100_000);
+    e.client.write_new("/home/tester/new", &data).await.unwrap();
+    assert_eq!(std::fs::read(e.remote("home/tester/new")).unwrap(), data);
+    assert_eq!(e.server.sftp_stats.open_handles(), 0);
+}
+
+#[tokio::test]
+async fn write_new_removes_the_file_it_created_when_write_fails() {
+    let e = env_with(|c| c.fail_writes_after = Some(1)).await;
+    let err = e
+        .client
+        .write_new("/home/tester/new", &pattern(200_000))
+        .await
+        .unwrap_err();
+    assert_eq!(err.leftover, None);
+    assert!(!e.remote("home/tester/new").exists());
+    assert_eq!(e.server.sftp_stats.open_handles(), 0);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn overwrite_replaces_content_keeps_permissions_and_leaves_no_temp() {
+    use std::os::unix::fs::PermissionsExt;
+    let e = env().await;
+    let p = e.remote("home/tester/f");
+    std::fs::write(&p, b"old").unwrap();
+    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o640)).unwrap();
+    let data = pattern(100_000);
+    e.client
+        .overwrite_file("/home/tester/f", &data)
+        .await
+        .unwrap();
+    assert_eq!(std::fs::read(&p).unwrap(), data);
+    assert_eq!(
+        std::fs::metadata(&p).unwrap().permissions().mode() & 0o7777,
+        0o640
+    );
+    assert!(no_tmp_left(&e.remote("home/tester")));
+    assert_eq!(e.server.sftp_stats.open_handles(), 0);
+}
+
+#[tokio::test]
+async fn overwrite_creates_missing_target() {
+    let e = env().await;
+    e.client
+        .overwrite_file("/home/tester/fresh", b"hello")
+        .await
+        .unwrap();
+    assert_eq!(
+        std::fs::read(e.remote("home/tester/fresh")).unwrap(),
+        b"hello"
+    );
+    assert!(no_tmp_left(&e.remote("home/tester")));
+}
+
+#[tokio::test]
+async fn overwrite_refuses_directory_target_without_writing() {
+    let e = env().await;
+    std::fs::create_dir(e.remote("home/tester/d")).unwrap();
+    let err = e
+        .client
+        .overwrite_file("/home/tester/d", b"x")
+        .await
+        .unwrap_err();
+    assert!(matches!(err, OverwriteError::Failed(_)), "{err:?}");
+    assert!(no_tmp_left(&e.remote("home/tester")));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn overwrite_through_symlink_updates_target_and_keeps_link() {
+    let e = env().await;
+    std::fs::create_dir(e.remote("home/tester/real")).unwrap();
+    std::fs::write(e.remote("home/tester/real/target"), b"old").unwrap();
+    std::os::unix::fs::symlink("real/target", e.remote("home/tester/link")).unwrap();
+    e.client
+        .overwrite_file("/home/tester/link", b"new content")
+        .await
+        .unwrap();
+    // 链接仍是链接，指向不变；真实文件被更新。
+    let md = std::fs::symlink_metadata(e.remote("home/tester/link")).unwrap();
+    assert!(md.file_type().is_symlink());
+    assert_eq!(
+        std::fs::read_link(e.remote("home/tester/link")).unwrap(),
+        Path::new("real/target")
+    );
+    assert_eq!(
+        std::fs::read(e.remote("home/tester/real/target")).unwrap(),
+        b"new content"
+    );
+    // 临时文件建在真实目标所在目录，而不是链接所在目录，两处都不应残留。
+    assert!(no_tmp_left(&e.remote("home/tester")));
+    assert!(no_tmp_left(&e.remote("home/tester/real")));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn overwrite_dangling_symlink_fails_without_writing() {
+    let e = env().await;
+    std::os::unix::fs::symlink("nowhere", e.remote("home/tester/dangling")).unwrap();
+    let err = e
+        .client
+        .overwrite_file("/home/tester/dangling", b"x")
+        .await
+        .unwrap_err();
+    let OverwriteError::Failed(WriteFailure { error, leftover }) = err else {
+        panic!("expected Failed");
+    };
+    assert_eq!(leftover, None);
+    assert_eq!(error.to_message().key(), "sftp-op-failed");
+    assert!(no_tmp_left(&e.remote("home/tester")));
+    assert!(!e.remote("home/tester/nowhere").exists());
+}
+
+#[tokio::test]
+async fn overwrite_without_posix_rename_is_unsupported_and_writes_nothing() {
+    let e = env_with(|c| c.posix_rename = false).await;
+    std::fs::write(e.remote("home/tester/f"), b"original").unwrap();
+    assert!(
+        !e.client
+            .has_extension("posix-rename@openssh.com")
+            .await
+            .unwrap()
+    );
+    let err = e
+        .client
+        .overwrite_file("/home/tester/f", b"replacement")
+        .await
+        .unwrap_err();
+    assert_eq!(err, OverwriteError::Unsupported);
+    assert_eq!(
+        std::fs::read(e.remote("home/tester/f")).unwrap(),
+        b"original"
+    );
+    assert!(no_tmp_left(&e.remote("home/tester")));
+    // 检查先于任何写入：服务器没有收到 WRITE，除了协商后的 LSTAT 之类请求外也没有 OPEN。
+    assert_eq!(e.server.sftp_stats.writes.load(Ordering::SeqCst), 0);
+    // 扩展存在时能查到。
+    let e2 = env().await;
+    assert!(
+        e2.client
+            .has_extension("posix-rename@openssh.com")
+            .await
+            .unwrap()
+    );
+    // 低层 posix_rename 在没有扩展时同样拒绝。
+    let err = e
+        .client
+        .posix_rename("/home/tester/f", "/home/tester/g")
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        SftpError::Status {
+            kind: StatusKind::Unsupported,
+            ..
+        }
+    ));
+}
+
+#[tokio::test]
+async fn overwrite_failure_removes_temp_and_keeps_original() {
+    let e = env_with(|c| c.fail_writes_after = Some(1)).await;
+    std::fs::write(e.remote("home/tester/f"), b"original").unwrap();
+    let err = e
+        .client
+        .overwrite_file("/home/tester/f", &pattern(200_000))
+        .await
+        .unwrap_err();
+    let OverwriteError::Failed(f) = err else {
+        panic!("expected Failed");
+    };
+    assert_eq!(f.leftover, None);
+    assert_eq!(
+        std::fs::read(e.remote("home/tester/f")).unwrap(),
+        b"original"
+    );
+    assert!(no_tmp_left(&e.remote("home/tester")));
+}
+
+#[tokio::test]
+async fn overwrite_reports_leftover_temp_path_when_cleanup_fails() {
+    // 写到一半连接断开：删除临时文件也会失败，残留路径要交给调用方。
+    let e = env_with(|c| c.disconnect_after_writes = Some(1)).await;
+    std::fs::write(e.remote("home/tester/f"), b"original").unwrap();
+    let err = e
+        .client
+        .overwrite_file("/home/tester/f", &pattern(200_000))
+        .await
+        .unwrap_err();
+    let OverwriteError::Failed(f) = err else {
+        panic!("expected Failed");
+    };
+    let leftover = f.leftover.expect("leftover path");
+    assert!(
+        leftover.starts_with("/home/tester/.f.kanso-tmp-"),
+        "{leftover}"
+    );
+    assert_eq!(
+        std::fs::read(e.remote("home/tester/f")).unwrap(),
+        b"original"
+    );
+    assert!(e.remote(leftover.trim_start_matches('/')).exists());
+}
+
+#[tokio::test]
+async fn rmdir_removes_empty_directory_only() {
+    let e = env().await;
+    std::fs::create_dir(e.remote("home/tester/empty")).unwrap();
+    std::fs::create_dir(e.remote("home/tester/full")).unwrap();
+    std::fs::write(e.remote("home/tester/full/f"), b"x").unwrap();
+    e.client.remove_dir("/home/tester/empty").await.unwrap();
+    assert!(!e.remote("home/tester/empty").exists());
+    assert!(e.client.remove_dir("/home/tester/full").await.is_err());
+    assert!(e.remote("home/tester/full/f").exists());
+}

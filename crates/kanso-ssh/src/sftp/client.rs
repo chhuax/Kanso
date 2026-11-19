@@ -447,6 +447,37 @@ fn owner_group_from_longname(longname: &str) -> Option<(String, String)> {
     Some((owner.to_owned(), group.to_owned()))
 }
 
+/// 由 attrs 构造 [`DirEntry`]：目录列表与单条查询（`SftpClient::entry`）共用，两处的字段规则必须一致。
+///
+/// `is_dir` 由调用方给出：符号链接要看目标是不是目录，attrs 本身（lstat 语义）回答不了。
+/// `longname` 没有时传空串，属主 / 属组退回数字 id。
+pub(crate) fn build_entry(
+    path: String,
+    name: String,
+    longname: &str,
+    attrs: &FileAttrs,
+    is_dir: bool,
+) -> DirEntry {
+    let (owner, group) = match owner_group_from_longname(longname) {
+        Some((o, g)) => (Some(o), Some(g)),
+        None => (
+            attrs.uid.map(|u| u.to_string()),
+            attrs.gid.map(|g| g.to_string()),
+        ),
+    };
+    DirEntry {
+        path,
+        name,
+        is_dir,
+        is_symlink: attrs.is_symlink(),
+        size: attrs.size.unwrap_or(0),
+        mtime_ms: attrs.mtime.map(|t| i64::from(t) * 1000),
+        permissions: attrs.permissions.map(|p| p & 0o7777),
+        owner,
+        group,
+    }
+}
+
 impl DirListing {
     /// 取下一批；读完返回 `Ok(None)`。批内已去掉 `.` 与 `..`，且不会返回空批。
     pub async fn next_batch(&mut self) -> Result<Option<Vec<DirEntry>>, SftpError> {
@@ -522,7 +553,6 @@ impl DirListing {
         }
         let mut out = Vec::with_capacity(raw.len());
         for ((name, longname, attrs), st) in raw.into_iter().zip(stats) {
-            let is_symlink = attrs.is_symlink();
             let mut is_dir = attrs.is_dir();
             if let Some(reply) = st {
                 // 悬空链接 / 无权限：STAT 失败就当"不是目录"，仍作为链接列出。
@@ -532,24 +562,13 @@ impl DirListing {
                     is_dir = target.is_dir();
                 }
             }
-            let (owner, group) = match owner_group_from_longname(&longname) {
-                Some((o, g)) => (Some(o), Some(g)),
-                None => (
-                    attrs.uid.map(|u| u.to_string()),
-                    attrs.gid.map(|g| g.to_string()),
-                ),
-            };
-            out.push(DirEntry {
-                path: join_remote(&self.base, &name),
+            out.push(build_entry(
+                join_remote(&self.base, &name),
                 name,
+                &longname,
+                &attrs,
                 is_dir,
-                is_symlink,
-                size: attrs.size.unwrap_or(0),
-                mtime_ms: attrs.mtime.map(|t| i64::from(t) * 1000),
-                permissions: attrs.permissions.map(|p| p & 0o7777),
-                owner,
-                group,
-            });
+            ));
         }
         Ok(out)
     }

@@ -4,18 +4,20 @@
 //! （`mcp_session_status`、`terminal_text`、`mcp_terminal_run`、`mcp_terminal_send`，本地与 SSH 会话共用，
 //! 逻辑在 `kanso-session` 的 `mcp` 模块，这里只做契约类型的映射）。
 //! 无界面会话、连接复用与后台执行在 `connect.rs` / `exec.rs`。
-//! 尚未实现（**F9**）：SFTP 补充操作。
+//! SFTP 补充操作（`sftp_entry` / `sftp_read` / `sftp_write` / `sftp_rmdir`）复用 `real` 的 SFTP 客户端与错误映射。
 //! 按 `real` 模块的约定不 panic：返回 `NotSupported`。
 
 use std::time::Duration;
 
 use kanso_session::{McpBusy, McpOutput, McpRun, McpScreen, McpSend, McpWrite, ReadScope};
+use kanso_ssh::sftp::{OverwriteError, WriteFailure};
 use kanso_types::event::Activity;
 use kanso_types::mcp::{McpAccess, McpAuditEntry, McpAuditFilter, McpAuditRecord};
+use kanso_types::message::{Message, Reason, SftpOp};
 use kanso_types::profile::SessionKind;
 use kanso_types::{DirEntry, GridSize, ProfileId, SessionId};
 
-use super::{RealCore, store_err};
+use super::{RealCore, sftp_err, store_err};
 use crate::api::{CoreError, Result};
 use crate::mcp::{
     CapturedText, ConnectMode, ExecOutcome, McpConnectOutcome, McpInput, McpSessionStatus,
@@ -244,7 +246,11 @@ impl RealCore {
         path: &str,
         follow_symlinks: bool,
     ) -> Result<DirEntry> {
-        Err(CoreError::NotSupported)
+        let client = self.sftp_client(session)?;
+        let path = path.to_owned();
+        self.on_runtime(async move { client.entry(&path, follow_symlinks).await })
+            .await?
+            .map_err(sftp_err)
     }
 
     pub(crate) async fn sftp_read(
@@ -254,7 +260,11 @@ impl RealCore {
         offset: u64,
         len: u32,
     ) -> Result<Vec<u8>> {
-        Err(CoreError::NotSupported)
+        let client = self.sftp_client(session)?;
+        let path = path.to_owned();
+        self.on_runtime(async move { client.read_range(&path, offset, len).await })
+            .await?
+            .map_err(sftp_err)
     }
 
     pub(crate) async fn sftp_write(
@@ -264,10 +274,51 @@ impl RealCore {
         data: Vec<u8>,
         mode: SftpWriteMode,
     ) -> Result<()> {
-        Err(CoreError::NotSupported)
+        let client = self.sftp_client(session)?;
+        let path = path.to_owned();
+        self.on_runtime(async move {
+            match mode {
+                SftpWriteMode::CreateNew => client.write_new(&path, &data).await.map_err(|f| {
+                    if let Some(tmp) = &f.leftover {
+                        // CreateNew 的残留文件就是目标本身，用户从错误里已经能看出路径；这里只留日志。
+                        tracing::warn!(path = %tmp, "failed to remove partially written file");
+                    }
+                    sftp_err(f.error)
+                }),
+                SftpWriteMode::Overwrite => {
+                    client
+                        .overwrite_file(&path, &data)
+                        .await
+                        .map_err(|e| match e {
+                            OverwriteError::Unsupported => CoreError::NotSupported,
+                            OverwriteError::Failed(f) => write_failure(&path, f),
+                        })
+                }
+            }
+        })
+        .await?
     }
 
     pub(crate) async fn sftp_rmdir(&self, session: SessionId, path: &str) -> Result<()> {
-        Err(CoreError::NotSupported)
+        let client = self.sftp_client(session)?;
+        let path = path.to_owned();
+        self.on_runtime(async move { client.remove_dir(&path).await })
+            .await?
+            .map_err(sftp_err)
     }
+}
+
+/// 覆盖写失败 → 用户可见错误。有残留临时文件时，把它的完整路径写进 `SftpOpFailed` 的 detail
+/// （spec/mcp.md §3.5：调用方要能据此手动清理）；没有残留就沿用通用的错误映射。
+fn write_failure(path: &str, f: WriteFailure) -> CoreError {
+    let Some(tmp) = f.leftover else {
+        return sftp_err(f.error);
+    };
+    CoreError::User(Message::SftpOpFailed {
+        op: SftpOp::Open,
+        path: path.to_owned(),
+        reason: Reason::Other {
+            detail: format!("{}; leftover temp file: {tmp}", f.error),
+        },
+    })
 }
