@@ -156,7 +156,7 @@ impl KansoHandler {
                         message: "Listing sessions was interrupted by an internal error."
                             .to_owned(),
                     }
-                })
+                })?
         })
         .await
     }
@@ -191,8 +191,21 @@ impl ServerHandler for KansoHandler {
 }
 
 /// `kanso_list_sessions`：只列访问级别不是 Off 的已保存会话，绝不带任何凭据相关字段（spec/mcp.md §2.4）。
-fn list_sessions(core: &Core, params: &ListSessionsParams) -> Value {
-    let accesses: HashMap<_, _> = core.mcp_accesses().into_iter().collect();
+///
+/// 读不到授权时返回错误而不是空列表：把"未知"当成"全部 Off"会让 AI 以为用户没有授权任何会话。
+/// spec §9 没有"授权存储不可读"的专用错误码，沿用 `INTERRUPTED`（其他中断），说明里写明原因。
+fn list_sessions(core: &Core, params: &ListSessionsParams) -> Result<Value, ToolError> {
+    let accesses: HashMap<_, _> = core
+        .mcp_accesses()
+        .map_err(|e| {
+            tracing::warn!("kanso_list_sessions: failed to read access levels: {e}");
+            ToolError {
+                code: "INTERRUPTED",
+                message: "Could not read session access levels; no sessions are listed.".to_owned(),
+            }
+        })?
+        .into_iter()
+        .collect();
     let groups: HashMap<_, _> = core.groups().into_iter().map(|g| (g.id, g.name)).collect();
     let tabs = core.sessions();
     let name_filter = params.name.as_deref().map(str::to_lowercase);
@@ -243,7 +256,7 @@ fn list_sessions(core: &Core, params: &ListSessionsParams) -> Value {
         item["tabs"] = Value::Array(tab_items);
         out.push(item);
     }
-    json!({ "sessions": out })
+    Ok(json!({ "sessions": out }))
 }
 
 fn tab_json(core: &Core, info: &kanso_core::SessionInfo) -> Value {

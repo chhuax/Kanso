@@ -63,7 +63,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private let defaults: UserDefaults
     private let statusBar = StatusBarView()
     let mcp: McpCoordinator
-    var onOpenMcpSettings: (() -> Void)?
+    /// MCP 活动记录窗口；第一次打开时才创建，之后一直持有，保证同一时间只有一个。
+    private var mcpActivity: McpActivityWindowController?
+    /// 活动记录窗口的位置记忆名；mock core（测试、截图）下为 nil，不写用户真实的偏好。
+    private let mcpActivityAutosaveName: String?
     private var terminalTransfers: [UInt64: (FfiTransferDirection, FfiXferProtocol)] = [:]
     private let baseTitle = "Kanso · \(KansoChannel.current)"
     /// 用户已确认退出（关窗确认过）。之后的 `applicationShouldTerminate` 不再询问，避免确认两次。
@@ -86,6 +89,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     ) throws {
         stateStore = WindowStateStore(defaults: defaults)
         self.defaults = defaults
+        mcpActivityAutosaveName = useMockCore ? nil : "KansoMcpActivityWindow"
         gitReadsEnabled = !useMockCore
         confirmer = AlertCloseConfirmer()
         let dispatcher = CoreEventDispatcher()
@@ -206,13 +210,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         if !useMockCore && PerformanceProbe.root == nil { window.setFrameAutosaveName("MainWindow") }
         super.init(window: window)
         sidebarController.mcpMark = { [weak self] id in self?.mcp.mark(for: id) }
-        statusBar.onOpenMcp = { [weak self] in self?.onOpenMcpSettings?() }
+        // 点指示器看的是 AI 工具做了什么，所以打开活动记录；开关与接入命令在设置页，菜单里有入口。
+        statusBar.onOpenMcp = { [weak self] in self?.showMcpActivity() }
+        mcp.onShowActivity = { [weak self] in self?.showMcpActivity() }
         mcp.onPlaceSession = { [weak self] id in self?.placeMcpSession(id) }
         controller.sessions.mcpSupported = { [weak self] in self?.mcp.supported ?? false }
         controller.onSessionClosed = { [weak self] id in self?.mcp.forget(session: id) }
         // 只刷新侧栏标签行与状态栏指示器；`controller.refresh()` 会刷新整个工作区，MCP 事件用不着。
-        // 只有标签标记或服务状态变化才刷新侧栏；clients 变化只影响状态栏指示器。
+        // 只有标签标记或服务状态变化才刷新侧栏；clients 变化只影响状态栏指示器；
+        // `.audit`（审计库变化）只与活动记录窗口有关，这里忽略。
         mcp.addChangeHandler { [weak self, weak sidebarController] change in
+            guard !change.isDisjoint(with: [.clients, .status, .marks]) else { return }
             self?.updateMcpIndicator()
             if !change.isDisjoint(with: [.marks, .status]) { sidebarController?.refresh() }
         }
@@ -520,6 +528,18 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         statusBar.setMcpClientCount(mcp.supported ? mcp.clients.count : 0)
     }
 
+    /// 打开或前置 MCP 活动记录窗口。入口：菜单栏「窗口 → MCP 活动记录」、状态栏指示器、设置页按钮。
+    /// MAS / Setapp 渠道（`mcp.supported` 为假）没有这个窗口，直接忽略。
+    func showMcpActivity() {
+        guard mcp.supported else { return }
+        let controller = mcpActivity ?? McpActivityWindowController(mcp: mcp, autosaveName: mcpActivityAutosaveName)
+        mcpActivity = controller
+        controller.present()
+    }
+
+    /// 已创建的活动记录窗口，供测试确认单例。
+    var mcpActivityWindowController: McpActivityWindowController? { mcpActivity }
+
     var isMcpIndicatorVisible: Bool { statusBar.isMcpIndicatorVisible }
     func clickMcpIndicator() { statusBar.clickMcpIndicator() }
 
@@ -583,6 +603,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     func windowWillClose(_ notification: Notification) {
+        // App 靠「最后一个窗口关闭」退出（`applicationShouldTerminateAfterLastWindowClosed`）。
+        // 活动记录窗口是独立的可见窗口，不先关掉的话主窗口关闭后它还在，App 不退出，
+        // `shutdown()` 不执行，SSH 会话和 MCP 服务继续运行。
+        mcpActivity?.close()
         saveWindowState()
         senderModel.shutdown()
     }
