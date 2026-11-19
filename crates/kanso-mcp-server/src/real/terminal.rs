@@ -18,13 +18,13 @@ pub(super) const RUN_TIMEOUT_DEFAULT: u64 = 30;
 pub(super) const RUN_TIMEOUT_MAX: u64 = 600;
 /// `kanso_terminal_send` 的等待安静上限，单位毫秒（spec/mcp.md §3.3）。
 pub(super) const SETTLE_MAX_MS: u64 = 10_000;
-/// 一次 `kanso_terminal_send` 的输入项数与文字总字节数上限。规格没有规定，
-/// 这里设上限是为了拒绝明显失控的请求，而不是限制正常交互；超出返回 `TOO_LARGE`。
+/// 一次 `kanso_terminal_send` 的输入项数与文字总字节数上限（spec/mcp.md §3.3：最多 256 项、文字合计最多 64 KiB）；
+/// 超出返回 `TOO_LARGE`（spec/mcp.md §9）。
 pub(super) const SEND_MAX_ITEMS: usize = 256;
 pub(super) const SEND_MAX_TEXT_BYTES: usize = 64 * 1024;
 
-/// 无效参数的错误码。spec/mcp.md §9 没有专门的参数错误码，用一个稳定的自定义码，
-/// 让 AI 能与 `TAB_BUSY` 等"稍后重试"类错误区分开。
+/// 无效参数的错误码，对应 spec/mcp.md §9 的 `INVALID_ARGUMENT`：参数不合法（命令含控制字符、按键名无法识别等），
+/// 不会触达终端，AI 应修正参数而不是重试，与 `TAB_BUSY` 等"稍后重试"类错误区分开。
 pub(super) const INVALID_ARGUMENT: &str = "INVALID_ARGUMENT";
 
 pub(super) fn invalid(message: impl Into<String>) -> ToolError {

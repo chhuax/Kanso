@@ -33,7 +33,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::Shared;
 use super::gate::{ActivityGuard, GateDenied};
-use super::identity::ClientIdentity;
+use super::identity::{ClientIdentity, Probe};
 use super::terminal::{
     self, READ_LINES_DEFAULT, READ_LINES_MAX, RUN_TIMEOUT_DEFAULT, RUN_TIMEOUT_MAX, SEND_MAX_ITEMS,
     SEND_MAX_TEXT_BYTES, SETTLE_MAX_MS,
@@ -42,6 +42,67 @@ use crate::{McpActivity, now_ms};
 
 /// 审计里参数摘要的最大字符数：参数由 AI 给出，长度不可控，审计表不该被它撑大。
 const ARGS_SUMMARY_MAX_CHARS: usize = 512;
+
+/// 审计里的参数摘要，**边构造边截断**：写入累计达到 [`ARGS_SUMMARY_MAX_CHARS`] 个字符就不再接收。
+///
+/// 参数由 AI 给出，单个 command / text 可能有数 MiB（rmcp 单行上限 16 MiB）。若先把整个请求
+/// 转义、拼接成字符串再截取，每次调用都要白白处理全部内容；这里只处理前缀，开销与上限成正比。
+/// 不能改回"先 `format!` 再 `chars().take()`"。
+pub(super) struct ArgsSummary {
+    buf: String,
+    chars: usize,
+}
+
+impl ArgsSummary {
+    pub(super) fn new() -> ArgsSummary {
+        ArgsSummary {
+            buf: String::new(),
+            chars: 0,
+        }
+    }
+
+    /// 已达上限；调用方可据此提前结束循环。
+    fn is_full(&self) -> bool {
+        self.chars >= ARGS_SUMMARY_MAX_CHARS
+    }
+
+    fn push_char(&mut self, c: char) {
+        if !self.is_full() {
+            self.buf.push(c);
+            self.chars += 1;
+        }
+    }
+
+    /// 原样追加，超出上限的部分丢弃（只遍历到上限为止）。
+    pub(super) fn push_str(&mut self, s: &str) -> &mut ArgsSummary {
+        for c in s
+            .chars()
+            .take(ARGS_SUMMARY_MAX_CHARS.saturating_sub(self.chars))
+        {
+            self.push_char(c);
+        }
+        self
+    }
+
+    /// 以带引号、转义控制字符的形式追加（与 `{:?}` 的效果一致），逐字符转义，达到上限即停。
+    fn push_quoted(&mut self, s: &str) -> &mut ArgsSummary {
+        self.push_char('"');
+        for c in s.chars() {
+            if self.is_full() {
+                return self;
+            }
+            for e in c.escape_debug() {
+                self.push_char(e);
+            }
+        }
+        self.push_char('"');
+        self
+    }
+
+    fn into_string(self) -> String {
+        self.buf
+    }
+}
 
 /// 业务错误：作为工具结果（`isError`）返回给 AI，而不是协议错误，否则客户端看不到原因。
 #[derive(Debug)]
@@ -137,7 +198,8 @@ fn resolve_tab(
     if access < need {
         return Err(Denied::Insufficient);
     }
-    let own = identity.is_own(&status);
+    // 每次现算：祖先链不缓存（pid 会被复用），见 `ClientIdentity`。
+    let own = identity.probe().is_own(&status);
     Ok(Resolved { status, own })
 }
 
@@ -178,7 +240,8 @@ pub(super) struct RunParams {
     #[schemars(description = "Tab id, as returned by kanso_list_sessions.")]
     tab: u64,
     #[schemars(
-        description = "One command line, without a trailing newline. Line breaks are rejected."
+        description = "One command line of printable text, without a trailing newline. Control \
+            characters (tab, CR, LF, ESC, DEL, ...) are rejected; use kanso_terminal_send for keys."
     )]
     command: String,
     #[schemars(
@@ -254,7 +317,16 @@ impl KansoHandler {
     ///
     /// `work` 收到本次调用的 [`Target`]，解析出目标会话 / 标签后要填进去，审计的 `profile`、`session`
     /// 字段就取自它；被拒绝的调用也要填（spec/mcp.md §6：未授权的调用要能看出尝试的是哪个会话）。
-    async fn invoke<F, Fut>(&self, tool: &'static str, args: String, work: F) -> CallToolResult
+    ///
+    /// `tab` 是请求里的标签 id（没有标签参数的工具传 `None`）。它在检查总开关**之前**就记进审计目标：
+    /// 总开关关闭、参数校验失败等在工具解析标签之前就被拒的调用，也要能看出尝试的是哪个标签。
+    async fn invoke<F, Fut>(
+        &self,
+        tool: &'static str,
+        tab: Option<u64>,
+        args: ArgsSummary,
+        work: F,
+    ) -> CallToolResult
     where
         F: FnOnce(Arc<Target>) -> Fut,
         Fut: Future<Output = Result<Value, ToolError>>,
@@ -273,6 +345,10 @@ impl KansoHandler {
             .await
             .unwrap_or(false);
         let target = Arc::new(Target::default());
+        let tab = tab.map(SessionId::from_raw);
+        if let Some(session) = tab {
+            target.set_session(session);
+        }
         let outcome = if enabled {
             work(target.clone()).await
         } else {
@@ -289,6 +365,25 @@ impl KansoHandler {
                 (Value::Object(body).to_string(), Some(e.code))
             }
         };
+        // 被拒的调用若还没解析出 profile（总开关关闭、INVALID_ARGUMENT、TOO_LARGE 都发生在解析之前），
+        // 这里补查：只读 profile，不做授权判断。审计是本地日志，profile 不会返回给 AI，
+        // 所以对没授权的标签记下 profile 不泄露信息（与 `resolve_tab` 对 Off 会话的处理一致）。
+        if let (Some(session), Some(_)) = (tab, error_code)
+            && target.get().0.is_none()
+        {
+            let core = self.shared.core.clone();
+            let found = tokio::task::spawn_blocking(move || {
+                core.mcp_session_status(session)
+                    .filter(|status| !status.headless)
+                    .and_then(|status| status.info.profile)
+            })
+            .await
+            .ok()
+            .flatten();
+            if let Some(profile) = found {
+                target.set_profile(profile);
+            }
+        }
         let (profile, session) = target.get();
         self.shared.audit.push(McpAuditEntry {
             at_ms,
@@ -297,7 +392,7 @@ impl KansoHandler {
             tool: tool.to_owned(),
             profile,
             session,
-            args: args.chars().take(ARGS_SUMMARY_MAX_CHARS).collect(),
+            args: args.into_string(),
             error_code: error_code.map(str::to_owned),
             duration_ms: u32::try_from(started.elapsed().as_millis()).unwrap_or(u32::MAX),
             bytes: text.len() as u64,
@@ -441,9 +536,13 @@ impl KansoHandler {
         tokio::pin!(fut);
         loop {
             tokio::select! {
+                // `biased` 且 core 分支放第一位：同一轮里 future 已经就绪时优先取结果。
+                // 随机顺序下，"用户接管"的结果与取消/断开同时就绪时可能先选中取消分支、丢掉结果，
+                // 冷却就没有被记录（`write_op` 只在拿到结果后才记）。
+                biased;
                 out = &mut fut => return Ok(out),
                 () = self.cancel.cancelled() => {
-                    return Err(ToolError::new("INTERRUPTED", "The MCP client disconnected."));
+                    return Err(ToolError::new("INTERRUPTED", "The MCP connection was closed (the client disconnected, the token was changed, or MCP was turned off)."));
                 }
                 () = request_ct.cancelled() => {
                     return Err(ToolError::new("CANCELLED", "The call was cancelled by the client."));
@@ -566,14 +665,14 @@ impl KansoHandler {
         &self,
         Parameters(params): Parameters<ListSessionsParams>,
     ) -> CallToolResult {
-        let args = format!(
-            "name={}, group={}",
-            params.name.as_deref().unwrap_or(""),
-            params.group.as_deref().unwrap_or("")
-        );
+        let mut args = ArgsSummary::new();
+        args.push_str("name=")
+            .push_str(params.name.as_deref().unwrap_or(""))
+            .push_str(", group=")
+            .push_str(params.group.as_deref().unwrap_or(""));
         let core = self.shared.core.clone();
         let identity = self.identity.clone();
-        self.invoke("kanso_list_sessions", args, |_target| async move {
+        self.invoke("kanso_list_sessions", None, args, |_target| async move {
             // 同 `invoke`：整个枚举都是同步读库，放进阻塞线程池，避免占住只有 2 个线程的运行时。
             tokio::task::spawn_blocking(move || list_sessions(&core, &params, &identity))
                 .await
@@ -598,9 +697,12 @@ impl KansoHandler {
     )]
     async fn kanso_get_cwd(&self, Parameters(params): Parameters<TabParams>) -> CallToolResult {
         let session = SessionId::from_raw(params.tab);
+        let mut args = ArgsSummary::new();
+        args.push_str(&format!("tab={}", params.tab));
         self.invoke(
             "kanso_get_cwd",
-            format!("tab={}", params.tab),
+            Some(params.tab),
+            args,
             |target| async move {
                 self.resolve(session, McpAccess::ReadOnly, &target).await?;
                 let cwd = self
@@ -640,28 +742,35 @@ impl KansoHandler {
                 lines: lines.unwrap_or(READ_LINES_DEFAULT).clamp(1, READ_LINES_MAX),
             },
         };
-        let args = format!("tab={}, scope={scope:?}", params.tab);
-        self.invoke("kanso_terminal_read", args, |target| async move {
-            self.resolve(session, McpAccess::ReadOnly, &target).await?;
-            let core = self.shared.core.clone();
-            // 读终端要持终端锁、拷贝最多 2000 行，放进阻塞线程池。
-            let text = tokio::task::spawn_blocking(move || {
-                core.terminal_text(session, scope, MCP_TEXT_LIMIT)
-            })
-            .await
-            .map_err(|e| {
-                tracing::warn!("kanso_terminal_read task failed: {e}");
-                internal_error()
-            })?
-            .map_err(|e| core_error(&e, "NOT_FOUND"))?;
-            Ok(terminal::text_json(&text))
-        })
+        let mut args = ArgsSummary::new();
+        args.push_str(&format!("tab={}, scope={scope:?}", params.tab));
+        self.invoke(
+            "kanso_terminal_read",
+            Some(params.tab),
+            args,
+            |target| async move {
+                self.resolve(session, McpAccess::ReadOnly, &target).await?;
+                let core = self.shared.core.clone();
+                // 读终端要持终端锁、拷贝最多 2000 行，放进阻塞线程池。
+                let text = tokio::task::spawn_blocking(move || {
+                    core.terminal_text(session, scope, MCP_TEXT_LIMIT)
+                })
+                .await
+                .map_err(|e| {
+                    tracing::warn!("kanso_terminal_read task failed: {e}");
+                    internal_error()
+                })?
+                .map_err(|e| core_error(&e, "NOT_FOUND"))?;
+                Ok(terminal::text_json(&text))
+            },
+        )
         .await
     }
 
     #[tool(
         name = "kanso_terminal_run",
-        description = "Type one command line into a tab, press Enter, wait for the prompt to \
+        description = "Type one command line into a tab (printable text only: no control \
+            characters such as tab, newline or ESC; use kanso_terminal_send for keys), press Enter, wait for the prompt to \
             return and return the command's output and exit code (exit_code is \"unknown\" when \
             the shell has no OSC 133 integration). The tab must be idle at an empty shell prompt \
             (otherwise TAB_BUSY). On timeout (TIMEOUT) the command is left running, no Ctrl+C \
@@ -684,16 +793,22 @@ impl KansoHandler {
         let timeout_secs =
             terminal::clamp_or(params.timeout_secs, RUN_TIMEOUT_DEFAULT, 1, RUN_TIMEOUT_MAX);
         // 命令文本进审计（spec/mcp.md §6）。
-        let args = format!(
-            "tab={}, timeout_secs={timeout_secs}, command={}",
-            params.tab, params.command
-        );
-        self.invoke("kanso_terminal_run", args, |target| async move {
-            if params.command.contains(['\n', '\r']) {
-                target.set_session(session);
+        let mut args = ArgsSummary::new();
+        args.push_str(&format!(
+            "tab={}, timeout_secs={timeout_secs}, command=",
+            params.tab
+        ))
+        .push_str(&params.command);
+        self.invoke("kanso_terminal_run", Some(params.tab), args, |target| async move {
+            // 命令文本必须是一行可打印文字：C0 控制字符（含 \t、\r、\n、ESC）与 DEL 一律拒绝。
+            // 命令是"输入后回车"执行的，里面的 ESC 序列、Ctrl+字符会被终端当作按键解释，
+            // 绕开 `kanso_terminal_send` 的按键语义，也可能夹带第二行命令。
+            if params.command.chars().any(|c| c.is_ascii_control()) {
                 return Err(terminal::invalid(
-                    "The command contains a line break. kanso_terminal_run takes a single line; \
-                     run multi-line scripts one command at a time.",
+                    "The command contains a control character (C0 controls such as tab, carriage \
+                     return, line feed or ESC, or DEL). kanso_terminal_run takes one line of \
+                     printable text; to press keys such as Tab, Enter, Esc or Ctrl+C use \
+                     kanso_terminal_send, and run multi-line scripts one command at a time.",
                 ));
             }
             let limits = WaitLimits {
@@ -740,24 +855,28 @@ impl KansoHandler {
         let settle = params
             .settle_ms
             .map(|ms| Duration::from_millis(ms.min(SETTLE_MAX_MS)));
-        // 文字原样进审计，与命令文本同级别敏感（spec/mcp.md §6）。
-        let summary: Vec<String> = params
-            .inputs
-            .iter()
-            .map(|i| match (&i.text, &i.key) {
-                (Some(t), None) => format!("text:{t:?}"),
-                (None, Some(k)) => format!("key:{k}"),
-                _ => "invalid".to_owned(),
-            })
-            .collect();
-        let args = format!(
-            "tab={}, settle_ms={}, inputs=[{}]",
+        // 文字原样进审计，与命令文本同级别敏感（spec/mcp.md §6）；摘要边写边截断，见 `ArgsSummary`。
+        let mut args = ArgsSummary::new();
+        args.push_str(&format!(
+            "tab={}, settle_ms={}, inputs=[",
             params.tab,
             settle.map_or_else(|| "none".to_owned(), |d| d.as_millis().to_string()),
-            summary.join(", ")
-        );
-        self.invoke("kanso_terminal_send", args, |target| async move {
-            target.set_session(session);
+        ));
+        for (n, i) in params.inputs.iter().enumerate() {
+            if args.is_full() {
+                break;
+            }
+            if n > 0 {
+                args.push_str(", ");
+            }
+            match (&i.text, &i.key) {
+                (Some(t), None) => args.push_str("text:").push_quoted(t),
+                (None, Some(k)) => args.push_str("key:").push_str(k),
+                _ => args.push_str("invalid"),
+            };
+        }
+        args.push_str("]");
+        self.invoke("kanso_terminal_send", Some(params.tab), args, |target| async move {
             if params.inputs.is_empty() {
                 return Err(terminal::invalid("inputs must not be empty."));
             }
@@ -848,6 +967,8 @@ fn list_sessions(
         .collect();
     let groups: HashMap<_, _> = core.groups().into_iter().map(|g| (g.id, g.name)).collect();
     let tabs = core.sessions();
+    // 一次调用内共用一个 probe：祖先链最多读一次，下一次调用会重新读。
+    let probe = identity.probe();
     let name_filter = params.name.as_deref().map(str::to_lowercase);
 
     let mut out = Vec::new();
@@ -891,7 +1012,7 @@ fn list_sessions(
         let tab_items: Vec<Value> = tabs
             .iter()
             .filter(|s| s.profile == Some(profile.id))
-            .map(|s| tab_json(core, s, identity))
+            .map(|s| tab_json(core, s, &probe))
             .collect();
         item["tabs"] = Value::Array(tab_items);
         out.push(item);
@@ -899,7 +1020,7 @@ fn list_sessions(
     Ok(json!({ "sessions": out }))
 }
 
-fn tab_json(core: &Core, info: &kanso_core::SessionInfo, identity: &ClientIdentity) -> Value {
+fn tab_json(core: &Core, info: &kanso_core::SessionInfo, probe: &Probe<'_>) -> Value {
     let mut tab = json!({
         "id": info.id.raw(),
         "title": info.name,
@@ -914,7 +1035,7 @@ fn tab_json(core: &Core, info: &kanso_core::SessionInfo, identity: &ClientIdenti
     });
     // 真实后端暂时没有这项状态（返回 None）：缺失就省略，`is_client_tab` 保持 false，不编造。
     if let Some(status) = core.mcp_session_status(info.id) {
-        tab["is_client_tab"] = json!(identity.is_own(&status));
+        tab["is_client_tab"] = json!(probe.is_own(&status));
         tab["activity"] = json!(match status.activity {
             Activity::Idle => "idle",
             Activity::CommandRunning => "command-running",
@@ -1112,7 +1233,7 @@ mod tests {
 
     #[tokio::test]
     async fn success_reports_activity_start_and_end() {
-        let e = env(ClientIdentity::default());
+        let e = env(ClientIdentity::unknown());
         let r = e
             .write(&CancellationToken::new(), ready_ok(), no_takeover)
             .await;
@@ -1122,7 +1243,7 @@ mod tests {
 
     #[tokio::test]
     async fn second_writer_is_busy_and_lock_is_released_on_cancel() {
-        let e = env(ClientIdentity::default());
+        let e = env(ClientIdentity::unknown());
         let first = e.start_hanging().await;
         // 另一个客户端对同一标签写：立即 TAB_BUSY，且不应产生活动回调。
         let r = e
@@ -1143,7 +1264,7 @@ mod tests {
 
     #[tokio::test]
     async fn takeover_starts_cooldown_that_expires() {
-        let e = env(ClientIdentity::default());
+        let e = env(ClientIdentity::unknown());
         let r = e
             .write(
                 &CancellationToken::new(),
@@ -1175,7 +1296,7 @@ mod tests {
 
     #[tokio::test]
     async fn level_checks() {
-        let e = env(ClientIdentity::default());
+        let e = env(ClientIdentity::unknown());
         e.core.set_mcp_access(e.web, McpAccess::ReadOnly).unwrap();
         let r = e
             .write(&CancellationToken::new(), ready_ok(), no_takeover)
@@ -1213,7 +1334,7 @@ mod tests {
 
     #[tokio::test]
     async fn own_tab_is_refused() {
-        let e = env(ClientIdentity::default());
+        let e = env(ClientIdentity::unknown());
         // 用 mock 的 Local 配置开一个本地标签，再让客户端身份指向它的 shell。
         let local = profile(&e.core, "Local");
         e.core.set_mcp_access(local, McpAccess::Full).unwrap();
@@ -1222,10 +1343,13 @@ mod tests {
             .open_session(OpenTarget::Profile(local), GridSize { cols: 80, rows: 24 })
             .unwrap();
         let status = e.core.mcp_session_status(tab).unwrap();
-        let own = ClientIdentity {
-            tty: None,
-            ancestors: vec![1234, status.shell_pid.unwrap()],
-        };
+        let shell_pid = status.shell_pid.unwrap();
+        let own = ClientIdentity::new(
+            None,
+            None,
+            Some(1234),
+            Arc::new(move |_| vec![1234, shell_pid]),
+        );
         let e2 = env_with_core(&e, own);
         let target = Arc::new(Target::default());
         let r = e2
@@ -1266,7 +1390,7 @@ mod tests {
 
     #[tokio::test]
     async fn switch_off_interrupts_a_waiting_call() {
-        let e = env(ClientIdentity::default());
+        let e = env(ClientIdentity::unknown());
         let task = e.start_hanging().await;
         e.core.set_mcp_enabled(false).unwrap();
         let err = task.await.unwrap().err().unwrap();
@@ -1277,7 +1401,7 @@ mod tests {
 
     #[tokio::test]
     async fn downgrade_interrupts_and_later_writes_are_denied() {
-        let e = env(ClientIdentity::default());
+        let e = env(ClientIdentity::unknown());
         let task = e.start_hanging().await;
         // 别的会话的级别变化与这次调用无关，不能中断它。
         let other = profile(&e.core, "legacy-switch");
@@ -1296,12 +1420,12 @@ mod tests {
 
     #[tokio::test]
     async fn client_disconnect_and_request_cancel_end_the_wait() {
-        let e = env(ClientIdentity::default());
+        let e = env(ClientIdentity::unknown());
         let task = e.start_hanging().await;
         e.cancel.cancel();
         assert_eq!(task.await.unwrap().err().unwrap().code, "INTERRUPTED");
 
-        let e = env(ClientIdentity::default());
+        let e = env(ClientIdentity::unknown());
         let ct = CancellationToken::new();
         let ct2 = ct.clone();
         let canceller = tokio::spawn(async move {
@@ -1320,7 +1444,7 @@ mod tests {
 
     #[tokio::test]
     async fn core_error_during_the_call_is_an_interruption() {
-        let e = env(ClientIdentity::default());
+        let e = env(ClientIdentity::unknown());
         let r = e
             .write(
                 &CancellationToken::new(),
@@ -1330,5 +1454,75 @@ mod tests {
             .await;
         assert_eq!(code(r), "INTERRUPTED");
         assert_eq!(e.activity_log(), [true, false]);
+    }
+    #[tokio::test]
+    async fn takeover_is_recorded_even_when_cancel_arrives_in_the_same_round() {
+        let e = env(ClientIdentity::unknown());
+        // 连接已被取消、请求也已被取消，同时 core 的结果（用户接管）已经就绪：
+        // `biased` 让 core 分支优先，结果不会被取消分支吞掉，冷却照常记录。
+        e.cancel.cancel();
+        let ct = CancellationToken::new();
+        ct.cancel();
+        let r = e
+            .write(
+                &ct,
+                || {
+                    std::future::ready(Ok::<_, CoreError>(TerminalRunOutcome::TakenOver {
+                        output: Default::default(),
+                    }))
+                },
+                |o| matches!(o, TerminalRunOutcome::TakenOver { .. }),
+            )
+            .await;
+        assert_eq!(code(r), "ok");
+        let err = e
+            .write(&CancellationToken::new(), ready_ok(), no_takeover)
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(err.code, "USER_TOOK_OVER");
+    }
+
+    #[tokio::test]
+    async fn connection_close_message_is_neutral() {
+        let e = env(ClientIdentity::unknown());
+        let task = e.start_hanging().await;
+        e.cancel.cancel();
+        let err = task.await.unwrap().err().unwrap();
+        assert_eq!(err.code, "INTERRUPTED");
+        assert!(
+            err.message.contains("connection was closed"),
+            "{}",
+            err.message
+        );
+        assert!(err.message.contains("token was changed"), "{}", err.message);
+    }
+
+    #[test]
+    fn args_summary_is_truncated_while_building() {
+        // 10 MiB 的输入：只处理到上限为止，结果长度恰为上限。
+        let huge = "ab\n".repeat(4 * 1024 * 1024);
+        let mut s = ArgsSummary::new();
+        s.push_str("command=").push_str(&huge);
+        let out = s.into_string();
+        assert_eq!(out.chars().count(), ARGS_SUMMARY_MAX_CHARS);
+        assert!(out.starts_with("command=ab\n"));
+
+        // 转义也边写边截断：换行写成两个字符 `\n`，且在上限处停止。
+        let mut s = ArgsSummary::new();
+        s.push_str("t=").push_quoted(&huge);
+        let out = s.into_string();
+        assert_eq!(out.chars().count(), ARGS_SUMMARY_MAX_CHARS);
+        assert!(out.starts_with("t=\"ab\\nab\\n"), "{out}");
+
+        // 没超上限时带完整的闭合引号。
+        let mut s = ArgsSummary::new();
+        s.push_quoted("a\"b\n");
+        assert_eq!(s.into_string(), "\"a\\\"b\\n\"");
+
+        // 多字节字符按字符计数，不会在字符中间截断。
+        let mut s = ArgsSummary::new();
+        s.push_str(&"汉".repeat(ARGS_SUMMARY_MAX_CHARS + 10));
+        assert_eq!(s.into_string().chars().count(), ARGS_SUMMARY_MAX_CHARS);
     }
 }

@@ -22,6 +22,9 @@ use windows_sys::Win32::Security::{
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAG_OVERLAPPED, PIPE_ACCESS_DUPLEX,
 };
+use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+    CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
+};
 use windows_sys::Win32::System::Pipes::{
     CreateNamedPipeW, GetNamedPipeClientProcessId, GetNamedPipeServerProcessId,
     PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
@@ -160,6 +163,33 @@ pub fn client_pid(pipe: &impl AsRawHandle) -> io::Result<u32> {
     }
     require_same_user(pid)?;
     Ok(pid)
+}
+
+/// 当前所有进程的 pid -> 父 pid 表（`CreateToolhelp32Snapshot` 快照），供 App 沿祖先链识别客户端所在标签。
+///
+/// 只能由 App 在需要判定时现取：Windows 的父 pid 是创建时记下的，父进程退出后 pid 可能被复用，
+/// 所以表不能长期缓存。快照失败（权限、资源不足）返回错误，调用方按"识别不到"处理。
+pub fn process_parents() -> io::Result<std::collections::HashMap<u32, u32>> {
+    // SAFETY: 只创建只读的进程快照，参数是常量与 0（所有进程）。
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    if snapshot == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: 快照句柄由本函数独占，交给 OwnedHandle 保证任何返回路径都会关闭。
+    let snapshot = unsafe { OwnedHandle::from_raw_handle(snapshot) };
+    // SAFETY: PROCESSENTRY32W 是纯数据结构体，全零是合法初始值。
+    let mut entry: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
+    // 必须先填 dwSize，否则 Process32FirstW 会失败。
+    entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+    let mut parents = std::collections::HashMap::new();
+    // SAFETY: 句柄有效，entry 指向可写的、dwSize 已设置的结构体。
+    let mut more = unsafe { Process32FirstW(snapshot.as_raw_handle(), &mut entry) } != 0;
+    while more {
+        parents.insert(entry.th32ProcessID, entry.th32ParentProcessID);
+        // SAFETY: 同上。
+        more = unsafe { Process32NextW(snapshot.as_raw_handle(), &mut entry) } != 0;
+    }
+    Ok(parents)
 }
 
 /// 转发程序先确认管道属于同一用户，再发送令牌。

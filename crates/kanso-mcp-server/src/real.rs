@@ -74,9 +74,9 @@ struct Shared {
     core: Arc<Core>,
     delegate: Arc<dyn McpServerDelegate>,
     registry: Arc<Registry>,
-    /// 标签写锁与用户接管冷却，跨客户端共享。
+    /// 标签写锁与用户接管冷却，跨客户端共享；属于 `RealServer`，跨 stop/start 保留。
     gate: Arc<TabGate>,
-    /// 连接建立时取对端进程祖先链用。
+    /// 每次判定客户端所在标签时按对端 pid 现取进程祖先链用。
     ancestors: AncestorsFn,
     audit: AuditSink,
     /// 所有连接任务都登记在这里，停止时要等它们结束：连接任务里正在执行的工具调用，
@@ -122,6 +122,11 @@ pub(crate) struct RealServer {
     core: Arc<Core>,
     delegate: Arc<dyn McpServerDelegate>,
     registry: Arc<Registry>,
+    /// 标签写锁与用户接管冷却。属于服务本身而不是某次 `start`：冷却记录的是"用户刚在这个标签里操作过"，
+    /// 与 MCP 开关无关；若每次 `start` 重建，用户接管后立刻关再开开关就能绕过 10 秒冷却。
+    /// 标签 id 在一次 App 运行期间不复用（见 `gate.rs`），所以保留不会误伤新标签。
+    /// 租约随调用的 future 释放，停止时连接任务被取消，租约一并释放。
+    gate: Arc<TabGate>,
     /// 测试指定的目录；`None` 时按 `core.bundle_id()` 推出。
     dir: Option<PathBuf>,
     hooks: TestHooks,
@@ -153,8 +158,13 @@ impl RealServer {
         dir: Option<PathBuf>,
         hooks: TestHooks,
     ) -> RealServer {
+        let clock = hooks
+            .clock
+            .clone()
+            .unwrap_or_else(|| Arc::new(std::time::Instant::now));
         let server = RealServer {
             registry: Arc::new(Registry::new(delegate.clone())),
+            gate: TabGate::new(clock),
             delegate,
             dir,
             hooks,
@@ -283,16 +293,11 @@ impl RealServer {
         let shutdown = CancellationToken::new();
         let (sink, rx) = audit::channel();
         let conns = TaskTracker::new();
-        let clock = self
-            .hooks
-            .clock
-            .clone()
-            .unwrap_or_else(|| Arc::new(std::time::Instant::now));
         let shared = Arc::new(Shared {
             core: self.core.clone(),
             delegate: self.delegate.clone(),
             registry: self.registry.clone(),
-            gate: TabGate::new(clock),
+            gate: self.gate.clone(),
             ancestors: self
                 .hooks
                 .ancestors
@@ -443,5 +448,66 @@ async fn accept_loop(
                 }
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex as StdMutex;
+    use std::time::Instant;
+
+    use kanso_core::{CollectingEventSink, Platform};
+    use kanso_types::SessionId;
+
+    use super::gate::GateDenied;
+    use super::*;
+    use crate::McpActivity;
+
+    struct Quiet;
+    impl McpServerDelegate for Quiet {
+        fn on_status_changed(&self, _: McpServerStatus) {}
+        fn on_clients_changed(&self, _: Vec<McpClientInfo>) {}
+        fn on_session_opened(&self, _: SessionId, _: McpClientInfo) {}
+        fn on_activity(&self, _: SessionId, _: Option<McpActivity>) {}
+        fn on_session_released(&self, _: SessionId) {}
+        fn on_audit_changed(&self) {}
+    }
+
+    #[test]
+    fn takeover_cooldown_survives_stop_and_start() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = Arc::new(Core::new_mock(Platform::for_tests(Arc::new(
+            CollectingEventSink::new(),
+        ))));
+        let now = Arc::new(StdMutex::new(Instant::now()));
+        let clock: ClockFn = {
+            let now = now.clone();
+            Arc::new(move || *now.lock().unwrap())
+        };
+        let hooks = TestHooks {
+            clock: Some(clock),
+            ancestors: None,
+        };
+        let server =
+            RealServer::in_dir(core.clone(), Arc::new(Quiet), dir.path().join("mcp"), hooks);
+        let config = || McpServerConfig {
+            bundle_id: core.bundle_id().to_owned(),
+            token: SecretString::new("t"),
+        };
+        server.start(config()).unwrap();
+        let tab = SessionId::from_raw(7);
+        server.gate.took_over(tab);
+
+        // 关了再开：用户接管的冷却仍然有效，不能靠切换开关绕过。
+        server.stop();
+        server.start(config()).unwrap();
+        assert!(matches!(
+            server.gate.acquire(tab).err(),
+            Some(GateDenied::Cooldown { .. })
+        ));
+        // 冷却仍按（假）时钟到期。
+        *now.lock().unwrap() += gate::TAKEOVER_COOLDOWN;
+        assert!(server.gate.acquire(tab).is_ok());
+        server.stop();
     }
 }

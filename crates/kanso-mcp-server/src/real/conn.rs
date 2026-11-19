@@ -42,6 +42,9 @@ struct Hello {
     /// 客户端的控制终端，用于识别客户端所在标签（spec/mcp.md §2.5）。
     #[serde(default)]
     tty: Option<String>,
+    /// 控制终端的设备号（`st_rdev`），比对以它为准；旧版转发程序没有这个字段。
+    #[serde(default)]
+    tty_dev: Option<u64>,
 }
 
 /// 处理一个已接受的连接，直到它结束。
@@ -76,7 +79,7 @@ pub(super) async fn handle(stream: ipc::Stream, shared: Arc<Shared>) {
         // 超时、超长或不是合法的握手：直接断开。
         _ => return,
     };
-    tracing::debug!(pid = ?pid, tty = ?hello.tty, "mcp connection handshake");
+    tracing::debug!(pid = ?pid, tty = ?hello.tty, tty_dev = ?hello.tty_dev, "mcp connection handshake");
 
     let (id, cancel) = match shared.registry.admit(&hello.token) {
         Admission::Admitted { id, cancel } => (id, cancel),
@@ -109,21 +112,17 @@ pub(super) async fn handle(stream: ipc::Stream, shared: Arc<Shared>) {
         Admission::Closed => return,
     };
 
-    // 祖先链在连接建立时算一次并缓存：进程存活期间它不会变；与标签的比对在每次调用时做（标签会增减）。
+    // 握手时只记下对端 pid 与上报的终端，不缓存祖先链：连接可以存活很久，期间 pid 可能被复用，
+    // 缓存的链会过期。拦截写操作与 `is_client_tab` 都在每次判定时按对端 pid 重新计算（见 `ClientIdentity`）。
+    let identity = Arc::new(ClientIdentity::new(
+        hello.tty,
+        hello.tty_dev,
+        pid,
+        shared.ancestors.clone(),
+    ));
+    // `own_session` 只用于设置页展示，握手时算一次即可；它可能随标签增减而过时，
+    // 拦截写操作不依赖它，以每次调用时现算的结果为准。
     // 读进程表是同步系统调用（每层一次），放进阻塞线程池，不占 MCP 运行时的 2 个工作线程。
-    let ancestors = match pid {
-        Some(pid) => {
-            let read = shared.ancestors.clone();
-            tokio::task::spawn_blocking(move || read(pid))
-                .await
-                .unwrap_or_default()
-        }
-        None => Vec::new(),
-    };
-    let identity = Arc::new(ClientIdentity {
-        tty: hello.tty.filter(|t| !t.is_empty()),
-        ancestors,
-    });
     let own = {
         let core = shared.core.clone();
         let identity = identity.clone();

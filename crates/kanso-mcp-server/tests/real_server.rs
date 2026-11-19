@@ -166,10 +166,10 @@ struct Client {
 
 impl Client {
     fn open(socket: &str, token: &str) -> Client {
-        Client::open_with_tty(socket, token, None)
+        Client::open_with_tty(socket, token, None, None)
     }
 
-    fn open_with_tty(socket: &str, token: &str, tty: Option<&str>) -> Client {
+    fn open_with_tty(socket: &str, token: &str, tty: Option<&str>, tty_dev: Option<u64>) -> Client {
         let writer = UnixStream::connect(socket).unwrap();
         writer
             .set_read_timeout(Some(Duration::from_secs(5)))
@@ -177,7 +177,7 @@ impl Client {
         let reader = BufReader::new(writer.try_clone().unwrap());
         let mut c = Client { writer, reader };
         c.writer
-            .write_all(hello::encode(token, tty).as_bytes())
+            .write_all(hello::encode(token, tty, tty_dev).as_bytes())
             .unwrap();
         c
     }
@@ -921,6 +921,20 @@ fn argument_errors_do_not_reach_the_terminal() {
     );
     assert!(err);
     assert_eq!(error_code(&text), "INVALID_ARGUMENT");
+    // 任何 C0 控制字符与 DEL 都拒绝：制表符、回车、ESC、NUL、DEL。
+    for (n, bad) in ["a\tb", "ls\r", "\u{1b}[A", "a\u{0}b", "a\u{7f}"]
+        .into_iter()
+        .enumerate()
+    {
+        let (err, text) = c.call(
+            20 + n as u64,
+            "kanso_terminal_run",
+            json!({"tab": t, "command": bad}),
+        );
+        assert!(err);
+        assert_eq!(error_code(&text), "INVALID_ARGUMENT", "{bad:?}: {text}");
+        assert!(text.contains("kanso_terminal_send"), "{text}");
+    }
     let (_, text) = c.call(
         3,
         "kanso_terminal_send",
@@ -1015,15 +1029,44 @@ fn access_levels_and_missing_tabs_map_to_error_codes() {
 }
 
 #[test]
-fn client_tab_is_found_by_tty_and_refused_for_writes() {
+fn legacy_client_without_tty_dev_is_found_by_tty_path() {
     let f = Fixture::started();
     let own = f.tab("Local", McpAccess::Full);
     let other = f.tab("web-01", McpAccess::Full);
-    // mock 里本地标签的控制终端与标签 id 绑定。
-    let tty = format!("/dev/ttys{:03}", own.raw() % 1000);
-    let mut c = Client::open_with_tty(&f.socket(), TOKEN, Some(&tty));
+    // 旧版转发程序只上报路径、没有设备号：服务端退回路径字符串比较。
+    // 路径取自 core 实际报告的值，而不是测试里手工拼的设备名。
+    let tty = f
+        .core
+        .mcp_session_status(own)
+        .unwrap()
+        .local_tty
+        .expect("local tab has a tty");
+    let mut c = Client::open_with_tty(&f.socket(), TOKEN, Some(&tty), None);
     c.initialize("claude-code");
     assert_client_tab_behavior(&f, &mut c, own, other);
+}
+
+#[test]
+fn tty_device_number_takes_precedence_over_the_path() {
+    let f = Fixture::started();
+    let own = f.tab("Local", McpAccess::Full);
+    let tty = f
+        .core
+        .mcp_session_status(own)
+        .unwrap()
+        .local_tty
+        .expect("local tab has a tty");
+    // 设备号存在时不按路径比较：路径虽然相同，但 mock 标签的路径不是真实设备（stat 失败），不能命中。
+    // 真实 pty 的设备号命中见 `identity.rs` 的单元测试。
+    let mut c = Client::open_with_tty(&f.socket(), TOKEN, Some(&tty), Some(1));
+    c.initialize("claude-code");
+    let (err, text) = c.call(
+        2,
+        "kanso_terminal_run",
+        json!({"tab": own.raw(), "command": "ls"}),
+    );
+    assert!(!err, "{text}");
+    assert_eq!(f.server.clients()[0].own_session, None);
 }
 
 #[test]
@@ -1113,7 +1156,7 @@ fn unrelated_client_has_no_client_tab() {
     let f = Fixture::started_with_ancestors(vec![11, 22]);
     let local = f.tab("Local", McpAccess::Full);
     // tty 不匹配、祖先链里也没有这个标签的 shell。
-    let mut c = Client::open_with_tty(&f.socket(), TOKEN, Some("/dev/ttys999"));
+    let mut c = Client::open_with_tty(&f.socket(), TOKEN, Some("/dev/ttys999"), None);
     c.initialize("outside");
     let (err, text) = c.call(
         2,
@@ -1188,4 +1231,66 @@ fn switch_off_rejects_terminal_tools_with_mcp_disabled() {
         assert!(err);
         assert_eq!(error_code(&text), "MCP_DISABLED", "{text}");
     }
+}
+
+/// 取最新一条审计记录（审计按时间倒序）。
+fn latest_audit(f: &Fixture, expected_len: usize) -> McpAuditEntry {
+    wait_until("audit", || {
+        f.core.mcp_audit(McpAuditFilter::default()).unwrap().len() >= expected_len
+    });
+    f.core.mcp_audit(McpAuditFilter::default()).unwrap()[0]
+        .entry
+        .clone()
+}
+
+#[test]
+fn audit_of_switch_off_rejection_keeps_the_requested_tab_and_profile() {
+    let f = Fixture::started();
+    let tab = f.tab("web-01", McpAccess::Full);
+    let web = f.web_01();
+    let mut c = f.ready_client("tester");
+    f.core.set_mcp_enabled(false).unwrap();
+    let (err, text) = c.call(
+        2,
+        "kanso_terminal_run",
+        json!({"tab": tab.raw(), "command": "ls"}),
+    );
+    assert!(err);
+    assert_eq!(error_code(&text), "MCP_DISABLED");
+    let entry = latest_audit(&f, 1);
+    assert_eq!(entry.error_code.as_deref(), Some("MCP_DISABLED"));
+    assert_eq!(entry.session, Some(tab));
+    assert_eq!(entry.profile, Some(web));
+}
+
+#[test]
+fn audit_of_argument_errors_keeps_the_profile() {
+    let f = Fixture::started();
+    let tab = f.tab("web-01", McpAccess::Full);
+    let web = f.web_01();
+    let mut c = f.ready_client("tester");
+    let (_, text) = c.call(
+        2,
+        "kanso_terminal_run",
+        json!({"tab": tab.raw(), "command": "a\tb"}),
+    );
+    assert_eq!(error_code(&text), "INVALID_ARGUMENT");
+    let entry = latest_audit(&f, 1);
+    assert_eq!(entry.error_code.as_deref(), Some("INVALID_ARGUMENT"));
+    assert_eq!(entry.session, Some(tab));
+    assert_eq!(entry.profile, Some(web));
+
+    let inputs: Vec<Value> = (0..300).map(|_| json!({"key": "Tab"})).collect();
+    let (_, text) = c.call(
+        3,
+        "kanso_terminal_send",
+        json!({"tab": tab.raw(), "inputs": inputs}),
+    );
+    assert_eq!(error_code(&text), "TOO_LARGE");
+    let entry = latest_audit(&f, 2);
+    assert_eq!(entry.error_code.as_deref(), Some("TOO_LARGE"));
+    assert_eq!(entry.session, Some(tab));
+    assert_eq!(entry.profile, Some(web));
+    // 摘要有长度上限。
+    assert!(entry.args.chars().count() <= 512, "{}", entry.args.len());
 }
