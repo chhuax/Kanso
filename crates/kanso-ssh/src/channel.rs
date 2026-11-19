@@ -107,6 +107,38 @@ impl ChannelReader {
             }
         }
     }
+
+    /// 与 [`ChannelReader::read`] 相同，但把 stdout 与 stderr 分开返回，且不受 `merge_stderr` 影响。
+    ///
+    /// 只认 stderr 这一种扩展数据类型（RFC 4254 §5.2 只定义了它），其他类型直接忽略。
+    /// 结束信号与退出码的记录规则同 `read`：以通道关闭（返回 `None`）为准。
+    pub async fn read_split(&mut self) -> Option<ChannelChunk> {
+        loop {
+            match self.read.wait().await? {
+                ChannelMsg::Data { data } => return Some(ChannelChunk::Stdout(data)),
+                ChannelMsg::ExtendedData { data, ext: 1 } => {
+                    return Some(ChannelChunk::Stderr(data));
+                }
+                ChannelMsg::ExitStatus { exit_status } => {
+                    self.state.lock().code = Some(exit_status);
+                }
+                ChannelMsg::ExitSignal { signal_name, .. } => {
+                    self.state.lock().signal = Some(format!("{signal_name:?}"));
+                }
+                ChannelMsg::Close => return None,
+                _ => {}
+            }
+        }
+    }
+}
+
+/// [`ChannelReader::read_split`] 读到的一块输出。
+#[derive(Debug)]
+pub enum ChannelChunk {
+    /// 标准输出。
+    Stdout(Bytes),
+    /// 标准错误（`SSH_EXTENDED_DATA_STDERR`，RFC 4254 §5.2）。
+    Stderr(Bytes),
 }
 
 /// 通道的写端，可克隆（比如输入线程与 resize 各持一份）。
@@ -355,7 +387,22 @@ pub struct ExecChannel {
 
 impl ExecChannel {
     pub(crate) async fn open(conn: &Connection, command: &str) -> Result<Self, SshError> {
+        Self::open_with_env(conn, command, &[]).await
+    }
+
+    /// 与 `open` 相同，但在 exec 请求之前发送环境变量。
+    ///
+    /// 环境变量必须先于 exec 请求发出，命令一旦启动再设置对它无效；服务器经常忽略 `env` 请求
+    /// （OpenSSH 默认只放行 `AcceptEnv` 里列出的变量），所以不要回复也不检查结果（同 shell 通道，ssh.md §6）。
+    pub(crate) async fn open_with_env(
+        conn: &Connection,
+        command: &str,
+        env: &[(&str, &str)],
+    ) -> Result<Self, SshError> {
         let (mut read, write) = open_session(conn).await?;
+        for (k, v) in env {
+            let _ = write.set_env(false, *k, *v).await;
+        }
         write
             .exec(true, command)
             .await

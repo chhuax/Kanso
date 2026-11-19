@@ -42,3 +42,27 @@ pub trait SessionHost: Send + Sync + 'static {
         self.command_finished_in_background(session, None);
     }
 }
+
+/// 无界面会话（MCP 的 `mcp_connect`）使用的 host 包装：只放行传输事件，其余全部丢弃。
+///
+/// 无界面会话不出现在会话列表里，UI 不该收到它的任何会话类事件（状态、标题、通知等）；
+/// 但它发起的传输要照常出现在传输列表里（spec/mcp.md §3.5）。
+/// 即使是纯 SFTP 机制的会话，终端传输之类的路径理论上也会经过这里，所以按事件类型白名单过滤，
+/// 而不是依赖"无界面会话不会产生这些事件"。
+pub(crate) struct HeadlessHost(pub(crate) std::sync::Arc<dyn SessionHost>);
+
+impl SessionHost for HeadlessHost {
+    fn emit(&self, event: CoreEvent) {
+        if matches!(
+            event,
+            CoreEvent::TransferStarted { .. }
+                | CoreEvent::TransferProgress { .. }
+                | CoreEvent::TransferFinished { .. }
+        ) {
+            self.0.emit(event);
+        }
+    }
+
+    // 无界面会话没有"后台标签"，不发系统通知。
+    fn command_finished_in_background(&self, _session: SessionId, _exit_code: Option<i32>) {}
+}

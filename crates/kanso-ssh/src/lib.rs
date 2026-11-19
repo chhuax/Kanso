@@ -31,7 +31,9 @@ pub mod sftp;
 pub use algorithms::{NegotiatedAlgorithms, is_legacy};
 pub use auth::{AuthMethod, MAX_KBD_ROUNDS};
 pub use chain::{ChainConnected, HopParams, connect_chain};
-pub use channel::{ChannelReader, ChannelWriter, ExecChannel, PtyRequest, ShellChannel};
+pub use channel::{
+    ChannelChunk, ChannelReader, ChannelWriter, ExecChannel, PtyRequest, ShellChannel,
+};
 pub use connection::{
     CloseReason, ConnectParams, Connected, Connection, KEEPALIVE_INTERVAL, KEEPALIVE_MAX,
     RememberedCredential, connect, connect_over,
