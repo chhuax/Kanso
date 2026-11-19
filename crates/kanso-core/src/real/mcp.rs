@@ -177,6 +177,8 @@ impl RealCore {
             McpRun::TakenOver { output } => TerminalRunOutcome::TakenOver {
                 output: captured(output, max),
             },
+            // 契约里没有"中断"结果；服务侧对已开始的写调用把 NoSuchSession 统一报为 INTERRUPTED。
+            McpRun::Ended => return Err(CoreError::NoSuchSession(session)),
         })
     }
 
@@ -203,6 +205,8 @@ impl RealCore {
             McpSend::TakenOver { screen } => TerminalSendOutcome::TakenOver {
                 screen: terminal_text_of(screen, max_bytes),
             },
+            // 同 run：服务侧把写调用期间的 NoSuchSession 报为 INTERRUPTED。
+            McpSend::Ended => return Err(CoreError::NoSuchSession(session)),
         })
     }
 

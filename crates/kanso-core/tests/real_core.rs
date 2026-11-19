@@ -1389,6 +1389,50 @@ fn mcp_run_dropped_future_leaves_no_stuck_registration() {
 }
 
 #[test]
+fn mcp_run_session_closed_while_waiting_is_no_such_session() {
+    let fx = fixture_with_env(&[("PS1", PLAIN_PS1)]);
+    let id = fx.open_at_prompt();
+    let rt = mcp_rt();
+    let started = Instant::now();
+    let out = rt.block_on(async {
+        let run = fx.core.mcp_terminal_run(id, "sleep 30", limits(20_000));
+        let close = async {
+            tokio::time::sleep(Duration::from_millis(800)).await;
+            fx.core.close_session(id);
+        };
+        tokio::join!(run, close).0
+    });
+    assert_eq!(out, Err(CoreError::NoSuchSession(id)));
+    assert!(started.elapsed() < Duration::from_secs(10), "应当立即中断");
+}
+
+#[test]
+fn mcp_send_session_closed_while_settling_is_no_such_session() {
+    let fx = fixture_with_env(&[("PS1", PLAIN_PS1)]);
+    let id = fx.open_at_prompt();
+    let rt = mcp_rt();
+    let started = Instant::now();
+    let out = rt.block_on(async {
+        let send = fx.core.mcp_terminal_send(
+            id,
+            vec![
+                McpInput::Text("sleep 30".into()),
+                McpInput::Key(key(kanso_types::Key::Enter, false)),
+            ],
+            Some(Duration::from_secs(10)),
+            MCP_TEXT_LIMIT,
+        );
+        let close = async {
+            tokio::time::sleep(Duration::from_millis(800)).await;
+            fx.core.close_session(id);
+        };
+        tokio::join!(send, close).0
+    });
+    assert_eq!(out, Err(CoreError::NoSuchSession(id)));
+    assert!(started.elapsed() < Duration::from_secs(8), "应当立即中断");
+}
+
+#[test]
 fn mcp_send_text_and_enter_run_a_command_and_settle_returns_the_screen() {
     let fx = fixture_with_env(&[("PS1", PLAIN_PS1)]);
     let id = fx.open_at_prompt();

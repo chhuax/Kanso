@@ -118,7 +118,7 @@ pub enum McpRun {
         /// 有 OSC 133 D 时的退出码。
         exit_code: Option<i32>,
     },
-    /// 超时（或会话结束）仍未确认完成。
+    /// 超时仍未确认完成。
     Unconfirmed {
         /// 到那时为止的输出。
         output: McpOutput,
@@ -130,6 +130,8 @@ pub enum McpRun {
         /// 到那时为止的输出。
         output: McpOutput,
     },
+    /// 等待期间会话结束（标签关闭、断开或锁定，spec/mcp.md §4.4），命令可能已经发出。
+    Ended,
 }
 
 /// MCP 发给终端的一段输入。
@@ -156,6 +158,8 @@ pub enum McpSend {
         /// 接管时的屏幕。
         screen: McpScreen,
     },
+    /// 等待期间会话结束（标签关闭、断开或锁定，spec/mcp.md §4.4），输入可能已经发出。
+    Ended,
 }
 
 /// MCP 判断前置条件用的、来自命令跟踪的状态。
@@ -325,19 +329,20 @@ pub(crate) async fn run<H: McpHost>(host: &H, command: &str, timeout: Duration) 
                 exit_code: p.last_finish.exit_code,
             };
         }
-        if p.closed || Instant::now() >= deadline {
+        // 会话结束必须与超时区分：超时意味着命令可能仍在跑，结束意味着调用被中断。
+        if p.closed {
+            return McpRun::Ended;
+        }
+        if Instant::now() >= deadline {
             return McpRun::Unconfirmed {
                 output: read_output(host, &ticket, None),
                 osc133: p.osc133,
             };
         }
         // 到时或被唤醒都回到循环顶重新判断。发送端不会先于接收端消失（hub 由会话持有）；
-        // 万一出错就当作会话结束，避免空转。
+        // 万一出错只可能是会话没了，按结束处理，避免空转。
         if let Ok(Err(_)) = tokio::time::timeout_at(deadline, rx.changed()).await {
-            return McpRun::Unconfirmed {
-                output: read_output(host, &ticket, None),
-                osc133: p.osc133,
-            };
+            return McpRun::Ended;
         }
     }
 }
@@ -403,18 +408,19 @@ pub(crate) async fn send<H: McpHost>(
                 screen: read_screen(host, ReadScope::Screen),
             };
         }
+        if p.closed {
+            return McpSend::Ended;
+        }
         let quiet = hub.now().saturating_sub(p.last_output_ms.max(sent_ms));
         let now = Instant::now();
-        if p.closed || quiet >= settle_ms || now >= deadline {
+        if quiet >= settle_ms || now >= deadline {
             return McpSend::Sent {
                 screen: Some(read_screen(host, ReadScope::Screen)),
             };
         }
         let wait = Duration::from_millis(settle_ms - quiet).min(deadline - now);
         if let Ok(Err(_)) = tokio::time::timeout(wait, rx.changed()).await {
-            return McpSend::Sent {
-                screen: Some(read_screen(host, ReadScope::Screen)),
-            };
+            return McpSend::Ended;
         }
     }
 }
