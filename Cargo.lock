@@ -3866,7 +3866,9 @@ dependencies = [
 name = "kanso-mcp-server"
 version = "1.0.6"
 dependencies = [
+ "base64",
  "kanso-core",
+ "kanso-encoding",
  "kanso-mcp",
  "kanso-types",
  "libc",

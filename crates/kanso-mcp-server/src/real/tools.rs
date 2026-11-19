@@ -11,13 +11,16 @@ use std::future::Future;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use kanso_core::mcp::{MCP_TEXT_LIMIT, McpSessionStatus, TextScope, WaitLimits};
+use kanso_core::mcp::{
+    ConnectMode, MCP_TEXT_LIMIT, McpConnectOutcome, McpSessionStatus, TextScope, WaitLimits,
+};
 use kanso_core::{Core, CoreError};
+use kanso_encoding::TextEncoding;
 use kanso_mcp::jsonrpc::MSG_DISABLED;
 use kanso_types::event::{Activity, SessionState};
 use kanso_types::mcp::{McpAccess, McpAuditEntry};
-use kanso_types::profile::{ProfileKind, SessionKind};
-use kanso_types::{ProfileId, SessionId};
+use kanso_types::profile::{Profile, ProfileKind, SessionKind};
+use kanso_types::{GridSize, ProfileId, SessionId};
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
@@ -33,7 +36,13 @@ use tokio_util::sync::CancellationToken;
 
 use super::Shared;
 use super::gate::{ActivityGuard, GateDenied};
+use super::headless::{Acquired, Lease};
 use super::identity::{ClientIdentity, Probe};
+use super::remote::{
+    self, ContentEncoding, EXEC_TIMEOUT_DEFAULT, EXEC_TIMEOUT_MAX, LIST_PAGE_SIZE, READ_MAX_BYTES,
+    RemoveAction, WriteMode,
+};
+use super::tabs::McpTabs;
 use super::terminal::{
     self, READ_LINES_DEFAULT, READ_LINES_MAX, RUN_TIMEOUT_DEFAULT, RUN_TIMEOUT_MAX, SEND_MAX_ITEMS,
     SEND_MAX_TEXT_BYTES, SETTLE_MAX_MS,
@@ -188,6 +197,16 @@ fn resolve_tab(
         _ => return Err(Denied::NotFound),
     };
     target.set_profile(profile);
+    check_access(core, profile, need)?;
+    // 每次现算：祖先链不缓存（pid 会被复用），见 `ClientIdentity`。
+    let own = identity.probe().is_own(&status);
+    Ok(Resolved { status, own })
+}
+
+/// 按**当前**的总开关与级别判断 `profile` 是否允许 `need` 级别的操作，返回当前级别。
+/// 标签与会话两种引用方式、首次判断与中断时的复查都走这里，规则只此一份。
+/// 配置已被删除时 `mcp_access` 返回 Off，按 `NotFound` 处理。
+fn check_access(core: &Core, profile: ProfileId, need: McpAccess) -> Result<McpAccess, Denied> {
     if !core.mcp_enabled() {
         return Err(Denied::Disabled);
     }
@@ -198,9 +217,66 @@ fn resolve_tab(
     if access < need {
         return Err(Denied::Insufficient);
     }
-    // 每次现算：祖先链不缓存（pid 会被复用），见 `ClientIdentity`。
-    let own = identity.probe().is_own(&status);
-    Ok(Resolved { status, own })
+    Ok(access)
+}
+
+/// 解析出的会话（已保存的 profile）。
+struct ResolvedProfile {
+    profile: Profile,
+    access: McpAccess,
+}
+
+/// 按 id 字符串解析已保存的会话并判断级别。同步读 core，调用方放进阻塞线程池。
+/// 无法解析成 id、profile 不存在、级别为 Off 一律 `NotFound`，彼此不可区分（spec/mcp.md §2.1）。
+fn resolve_profile_sync(
+    core: &Core,
+    session: &str,
+    need: McpAccess,
+    target: &Target,
+) -> Result<ResolvedProfile, Denied> {
+    let id: ProfileId = session.parse().map_err(|_| Denied::NotFound)?;
+    let profile = core
+        .profiles()
+        .into_iter()
+        .find(|p| p.id == id)
+        .ok_or(Denied::NotFound)?;
+    // 与 `resolve_tab` 一致：先记 profile 再判断，被拒的调用也要在审计里留下目标。
+    target.set_profile(id);
+    let access = check_access(core, id, need)?;
+    Ok(ResolvedProfile { profile, access })
+}
+
+/// 中断时要复查什么：按标签（写操作）或按会话（后台执行、SFTP、打开标签）。
+#[derive(Clone, Copy)]
+enum Subject {
+    Tab(SessionId),
+    Profile(ProfileId, McpAccess),
+}
+
+/// 复查失败时给 AI 的原因，两种 [`Subject`] 共用。
+fn violation_reason(denied: Denied) -> &'static str {
+    match denied {
+        Denied::Disabled => "MCP was turned off in Kanso settings.",
+        Denied::NotFound => "The tab or session was closed, or is no longer available to MCP.",
+        Denied::Insufficient => "The session's MCP access was lowered below what this call needs.",
+    }
+}
+
+/// 把 [`Denied`] 映射成错误；`not_found` 是对应引用方式下的"不存在"说明。
+fn denied_error(denied: Denied, need: McpAccess, not_found: String) -> ToolError {
+    match denied {
+        Denied::Disabled => ToolError::new("MCP_DISABLED", MSG_DISABLED),
+        Denied::NotFound => ToolError::new("NOT_FOUND", not_found),
+        Denied::Insufficient => ToolError::new(
+            "ACCESS_DENIED",
+            if need == McpAccess::Full {
+                "This operation needs full access, but the session is read-only. Ask the user to \
+                 raise its MCP access in Kanso."
+            } else {
+                "The session's MCP access level does not allow this operation."
+            },
+        ),
+    }
 }
 
 /// `kanso_get_cwd` 与 `kanso_terminal_read` 共用的参数：标签 id。
@@ -283,6 +359,144 @@ pub(super) struct ListSessionsParams {
     name: Option<String>,
     #[schemars(description = "Only sessions in the group with exactly this name.")]
     group: Option<String>,
+}
+
+/// `kanso_exec` 的参数。
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub(super) struct ExecParams {
+    #[schemars(
+        description = "Session id, as returned by kanso_list_sessions. Must be an SSH session."
+    )]
+    session: String,
+    #[schemars(
+        description = "Command line handed to the remote login shell as is (newlines allowed). No \
+            PTY is allocated."
+    )]
+    command: String,
+    #[schemars(description = "Seconds to wait. Default 60, clamped to 1-600.")]
+    timeout_secs: Option<u64>,
+}
+
+/// `kanso_open_tab` 的参数。
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub(super) struct OpenTabParams {
+    #[schemars(description = "Session id, as returned by kanso_list_sessions.")]
+    session: String,
+}
+
+/// `kanso_sftp_list` 的参数。
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub(super) struct SftpListParams {
+    #[schemars(description = "Session id, as returned by kanso_list_sessions (SSH or SFTP).")]
+    session: String,
+    #[schemars(
+        description = "Absolute remote path, or relative to the SFTP home directory (\".\" is the \
+            home directory)."
+    )]
+    path: String,
+    #[schemars(description = "The next_cursor of a previous call, to get the next page.")]
+    cursor: Option<String>,
+}
+
+/// `kanso_sftp_stat` 的参数。
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub(super) struct SftpStatParams {
+    #[schemars(description = "Session id, as returned by kanso_list_sessions (SSH or SFTP).")]
+    session: String,
+    #[schemars(description = "Absolute remote path, or relative to the SFTP home directory.")]
+    path: String,
+    #[schemars(description = "Follow a symbolic link to its target. Default true.")]
+    follow_symlinks: Option<bool>,
+}
+
+/// `kanso_sftp_read` 的参数。
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub(super) struct SftpReadParams {
+    #[schemars(description = "Session id, as returned by kanso_list_sessions (SSH or SFTP).")]
+    session: String,
+    #[schemars(description = "Absolute remote path, or relative to the SFTP home directory.")]
+    path: String,
+    #[schemars(description = "Byte offset to start reading at. Default 0.")]
+    offset: Option<u64>,
+    #[schemars(description = "Bytes to read. Default and maximum 1048576 (1 MiB).")]
+    length: Option<u64>,
+    #[schemars(
+        description = "\"text\" (default): convert from the session encoding to UTF-8; fails for \
+            binary data. \"base64\": raw bytes."
+    )]
+    encoding: Option<ContentEncoding>,
+}
+
+/// `kanso_sftp_write` 的参数。
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub(super) struct SftpWriteParams {
+    #[schemars(description = "Session id, as returned by kanso_list_sessions (SSH or SFTP).")]
+    session: String,
+    #[schemars(description = "Absolute remote path, or relative to the SFTP home directory.")]
+    path: String,
+    #[schemars(description = "File content: text, or base64 when encoding is \"base64\".")]
+    content: String,
+    #[schemars(
+        description = "\"text\" (default): converted to the session encoding. \"base64\": raw bytes."
+    )]
+    encoding: Option<ContentEncoding>,
+    #[schemars(
+        description = "Required. \"create_new\" fails with CONFLICT if the file exists; \
+            \"overwrite\" replaces it atomically (needs the posix-rename@openssh.com extension)."
+    )]
+    mode: WriteMode,
+}
+
+/// `kanso_sftp_mkdir` 的参数。
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub(super) struct SftpMkdirParams {
+    #[schemars(description = "Session id, as returned by kanso_list_sessions (SSH or SFTP).")]
+    session: String,
+    #[schemars(description = "Absolute remote path, or relative to the SFTP home directory.")]
+    path: String,
+    #[schemars(description = "Create missing parent directories too. Default false.")]
+    parents: Option<bool>,
+}
+
+/// `kanso_sftp_remove` 的参数。
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub(super) struct SftpRemoveParams {
+    #[schemars(description = "Session id, as returned by kanso_list_sessions (SSH or SFTP).")]
+    session: String,
+    #[schemars(description = "Absolute remote path, or relative to the SFTP home directory.")]
+    path: String,
+}
+
+/// `kanso_sftp_rename` 的参数。
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub(super) struct SftpRenameParams {
+    #[schemars(description = "Session id, as returned by kanso_list_sessions (SSH or SFTP).")]
+    session: String,
+    #[schemars(description = "Existing remote path.")]
+    from: String,
+    #[schemars(description = "New remote path. Fails with CONFLICT if it already exists.")]
+    to: String,
+}
+
+/// 工具允许的会话类型。
+#[derive(Clone, Copy)]
+enum RemoteKind {
+    /// 只有 SSH（`kanso_exec`）。
+    SshOnly,
+    /// SSH 与纯 SFTP（SFTP 工具）。
+    SshOrSftp,
+}
+
+/// 一次后台执行 / SFTP 调用的上下文：已通过级别与类型检查的会话，以及授权变化订阅。
+struct RemoteCall {
+    profile: ProfileId,
+    /// 会话当前的级别，决定连接方式。
+    access: McpAccess,
+    /// 这次调用需要的最低级别，中断时按它复查。
+    need: McpAccess,
+    /// 会话编码（纯 SFTP 会话没有编码设置，按 UTF-8）。
+    encoding: TextEncoding,
+    policy: watch::Receiver<u64>,
 }
 
 /// 一个连接对应的 MCP 处理器。
@@ -407,9 +621,27 @@ impl KansoHandler {
 }
 
 impl KansoHandler {
-    /// 把标签 id 解析成可用的标签：判断总开关与级别（每次调用都判断，spec/mcp.md §8），
+    /// 把标签 id 解析成可用的终端标签：判断总开关与级别（每次调用都判断，spec/mcp.md §8），
     /// 并把目标记进审计。读 core 会访问存储，放进阻塞线程池。
     async fn resolve(
+        &self,
+        session: SessionId,
+        need: McpAccess,
+        target: &Arc<Target>,
+    ) -> Result<Resolved, ToolError> {
+        let resolved = self.resolve_any(session, need, target).await?;
+        // 纯 SFTP 会话没有终端；级别通过之后才告诉 AI 类型，避免对没权限的会话泄露信息。
+        if resolved.status.info.kind == SessionKind::Sftp {
+            return Err(ToolError::new(
+                "UNSUPPORTED",
+                "This tab is an SFTP-only session and has no terminal.",
+            ));
+        }
+        Ok(resolved)
+    }
+
+    /// 同 [`resolve`](Self::resolve)，但不要求是终端标签：`kanso_close_tab` 也要能关掉 MCP 打开的 SFTP 标签。
+    async fn resolve_any(
         &self,
         session: SessionId,
         need: McpAccess,
@@ -426,33 +658,129 @@ impl KansoHandler {
                     tracing::warn!("resolving a tab failed: {e}");
                     internal_error()
                 })?;
-        let resolved = resolved.map_err(|denied| match denied {
-            Denied::Disabled => ToolError::new("MCP_DISABLED", MSG_DISABLED),
-            Denied::NotFound => ToolError::new(
-                "NOT_FOUND",
+        resolved.map_err(|denied| {
+            denied_error(
+                denied,
+                need,
                 format!(
                     "No tab with id {}. Use kanso_list_sessions to see the tabs you can use.",
                     session.raw()
                 ),
-            ),
-            Denied::Insufficient => ToolError::new(
-                "ACCESS_DENIED",
-                if need == McpAccess::Full {
-                    "This operation needs full access, but the session is read-only. Ask the \
-                     user to raise its MCP access in Kanso."
-                } else {
-                    "The session's MCP access level does not allow this operation."
-                },
-            ),
-        })?;
-        // 纯 SFTP 会话没有终端；级别通过之后才告诉 AI 类型，避免对没权限的会话泄露信息。
-        if resolved.status.info.kind == SessionKind::Sftp {
-            return Err(ToolError::new(
-                "UNSUPPORTED",
-                "This tab is an SFTP-only session and has no terminal.",
-            ));
+            )
+        })
+    }
+
+    /// 把会话 id（`kanso_list_sessions` 返回的字符串）解析成已保存的会话并判断级别，同时把 profile 记进审计。
+    async fn resolve_profile(
+        &self,
+        session: &str,
+        need: McpAccess,
+        target: &Arc<Target>,
+    ) -> Result<ResolvedProfile, ToolError> {
+        let core = self.shared.core.clone();
+        let t = target.clone();
+        let id = session.to_owned();
+        let resolved =
+            tokio::task::spawn_blocking(move || resolve_profile_sync(&core, &id, need, &t))
+                .await
+                .map_err(|e| {
+                    tracing::warn!("resolving a session failed: {e}");
+                    internal_error()
+                })?;
+        resolved.map_err(|denied| {
+            denied_error(
+                denied,
+                need,
+                format!(
+                    "No session with id {session:?}. Use kanso_list_sessions to see the sessions \
+                     you can use."
+                ),
+            )
+        })
+    }
+
+    /// 后台执行与 SFTP 工具的第一步：订阅授权变化、判断级别与会话类型。
+    /// 先订阅、再判断，理由同 `write_op`。类型不符的错误在级别通过之后才返回，避免对没权限的会话泄露信息。
+    async fn begin_remote(
+        &self,
+        session: &str,
+        need: McpAccess,
+        kind: RemoteKind,
+        target: &Arc<Target>,
+    ) -> Result<RemoteCall, ToolError> {
+        let policy = self.shared.core.mcp_policy_watch();
+        let resolved = self.resolve_profile(session, need, target).await?;
+        let encoding = match (&resolved.profile.kind, kind) {
+            (ProfileKind::Ssh(p), _) => TextEncoding::resolve(&p.encoding),
+            (ProfileKind::Sftp(_), RemoteKind::SshOrSftp) => TextEncoding::utf8(),
+            (ProfileKind::Sftp(_), RemoteKind::SshOnly) => {
+                return Err(ToolError::new(
+                    "UNSUPPORTED",
+                    "kanso_exec only supports SSH sessions: SFTP-only sessions do not open a shell \
+                     channel, and servers often forbid running commands there.",
+                ));
+            }
+            (ProfileKind::Local(_), RemoteKind::SshOnly) => {
+                return Err(ToolError::new(
+                    "UNSUPPORTED",
+                    "kanso_exec does not support local sessions: your AI tool runs on this machine \
+                     and can run local commands directly.",
+                ));
+            }
+            (ProfileKind::Local(_), RemoteKind::SshOrSftp) => {
+                return Err(ToolError::new(
+                    "UNSUPPORTED",
+                    "SFTP tools only support SSH and SFTP sessions, not local sessions.",
+                ));
+            }
+        };
+        Ok(RemoteCall {
+            profile: resolved.profile.id,
+            access: resolved.access,
+            need,
+            encoding,
+            policy,
+        })
+    }
+
+    /// 取得无界面会话并执行 `op`，整个过程可被中断（连接取消、客户端取消、总开关、降级）。
+    /// 租约随 future 一起释放，被中断时也不会留下"进行中"的计数。
+    /// 连接方式依据会话**当前的级别**而不是工具是否只读：只读 → 只复用，完全 → 可新建但不提问（spec/mcp.md §2.4）。
+    async fn run_remote<T, Fut>(
+        &self,
+        call: &mut RemoteCall,
+        request_ct: &CancellationToken,
+        op: impl FnOnce(SessionId) -> Fut,
+    ) -> Result<T, ToolError>
+    where
+        Fut: Future<Output = Result<T, ToolError>>,
+    {
+        let (profile, access, need) = (call.profile, call.access, call.need);
+        let fut = async {
+            let lease = self.lease(profile, access).await?;
+            op(lease.session()).await
+        };
+        self.interruptible(
+            fut,
+            &mut call.policy,
+            Subject::Profile(profile, need),
+            request_ct,
+        )
+        .await?
+    }
+
+    async fn lease(&self, profile: ProfileId, access: McpAccess) -> Result<Lease, ToolError> {
+        let mode = if access == McpAccess::Full {
+            ConnectMode::NonInteractive
+        } else {
+            ConnectMode::ReuseOnly
+        };
+        match self.shared.headless.acquire(profile, mode).await {
+            Ok(Acquired::Lease(lease)) => Ok(lease),
+            Ok(Acquired::NotConnected) => Err(remote::not_connected()),
+            Ok(Acquired::NeedsUser(need)) => Err(remote::needs_user(need)),
+            Err(e) => Err(remote::connect_error(&e)),
         }
-        Ok(resolved)
     }
 
     /// 终端写操作的统一流程（spec/mcp.md §2.5、§4）：
@@ -513,7 +841,7 @@ impl KansoHandler {
             },
         );
         let outcome = self
-            .interruptible(call(), &mut policy, session, request_ct)
+            .interruptible(call(), &mut policy, Subject::Tab(session), request_ct)
             .await?
             .map_err(|e| core_error(&e, "INTERRUPTED"))?;
         if took_over(&outcome) {
@@ -530,7 +858,7 @@ impl KansoHandler {
         &self,
         fut: impl Future<Output = T>,
         policy: &mut watch::Receiver<u64>,
-        session: SessionId,
+        subject: Subject,
         request_ct: &CancellationToken,
     ) -> Result<T, ToolError> {
         tokio::pin!(fut);
@@ -553,7 +881,7 @@ impl KansoHandler {
                     }
                     // 复查期间 `fut` 暂停被轮询；复查只读本地存储，很短，且 core 的等待以截止时间计，
                     // 不会因此多等。
-                    if let Some(reason) = self.policy_violation(session).await {
+                    if let Some(reason) = self.policy_violation(subject).await {
                         return Err(ToolError::new("INTERRUPTED", reason));
                     }
                 }
@@ -561,37 +889,33 @@ impl KansoHandler {
         }
     }
 
-    /// 授权变化后，这次写调用是否已不被允许；是则返回给 AI 的原因。
+    /// 授权变化后，这次调用是否已不被允许；是则返回给 AI 的原因。
+    /// 按标签与按会话两种引用方式共用 [`check_access`]，规则不会各改各的。
     /// 复查失败（任务 panic）按"不允许"处理：宁可中断也不放行。
-    async fn policy_violation(&self, session: SessionId) -> Option<&'static str> {
+    async fn policy_violation(&self, subject: Subject) -> Option<&'static str> {
         let core = self.shared.core.clone();
         let identity = self.identity.clone();
-        let denied = tokio::task::spawn_blocking(move || {
-            resolve_tab(
+        let denied = tokio::task::spawn_blocking(move || match subject {
+            Subject::Tab(session) => resolve_tab(
                 &core,
                 &identity,
                 session,
                 McpAccess::Full,
                 &Target::default(),
             )
-            .err()
+            .err(),
+            Subject::Profile(profile, need) => check_access(&core, profile, need).err(),
         })
         .await;
         match denied {
             Ok(None) => None,
-            Ok(Some(Denied::Disabled)) => Some("MCP was turned off in Kanso settings."),
-            Ok(Some(Denied::NotFound)) => {
-                Some("The tab was closed, or its session is no longer available to MCP.")
-            }
-            Ok(Some(Denied::Insufficient)) => {
-                Some("The session's MCP access was lowered below full access.")
-            }
+            Ok(Some(denied)) => Some(violation_reason(denied)),
             Err(_) => Some("The access check failed."),
         }
     }
 }
 
-fn internal_error() -> ToolError {
+pub(super) fn internal_error() -> ToolError {
     ToolError::new(
         "INTERRUPTED",
         "The call was interrupted by an internal error.",
@@ -653,7 +977,7 @@ impl KansoHandler {
             group and access (read-only/full). Each tab has id, title, state, opened_by_mcp and \
             is_client_tab (plus activity, locked and terminal_transfer when known). \
             is_client_tab marks the tab your own client runs in: terminal writes to it are \
-            refused (TAB_SELF), reads are allowed. opened_by_mcp is always false for now.",
+            refused (TAB_SELF), reads are allowed. opened_by_mcp is true for tabs opened by a connected client with kanso_open_tab.",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -672,14 +996,21 @@ impl KansoHandler {
             .push_str(params.group.as_deref().unwrap_or(""));
         let core = self.shared.core.clone();
         let identity = self.identity.clone();
+        let shared = self.shared.clone();
         self.invoke("kanso_list_sessions", None, args, |_target| async move {
             // 同 `invoke`：整个枚举都是同步读库，放进阻塞线程池，避免占住只有 2 个线程的运行时。
-            tokio::task::spawn_blocking(move || list_sessions(&core, &params, &identity))
-                .await
-                .map_err(|e| {
-                    tracing::warn!("kanso_list_sessions task failed: {e}");
-                    internal_error()
-                })?
+            tokio::task::spawn_blocking(move || {
+                // 被用户关掉的 MCP 标签在这里顺带从登记表清掉。
+                shared
+                    .tabs
+                    .prune(|tab| core.mcp_session_status(tab).is_some());
+                list_sessions(&core, &params, &identity, &shared.tabs)
+            })
+            .await
+            .map_err(|e| {
+                tracing::warn!("kanso_list_sessions task failed: {e}");
+                internal_error()
+            })?
         })
         .await
     }
@@ -915,6 +1246,621 @@ impl KansoHandler {
         })
         .await
     }
+
+    #[tool(
+        name = "kanso_open_tab",
+        description = "Open a new terminal tab for a saved session and return its tab id once \
+            the connection is up (or failed). The tab is placed in the frontmost window without \
+            taking focus. An existing authenticated connection is reused; otherwise Kanso \
+            connects without ever prompting the user (NEEDS_USER if a person is needed). Local \
+            sessions can be opened too. Needs full access. The tab can later be closed with \
+            kanso_close_tab by this client only; after this client disconnects it becomes an \
+            ordinary tab.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn kanso_open_tab(
+        &self,
+        Parameters(params): Parameters<OpenTabParams>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        let mut args = ArgsSummary::new();
+        args.push_str("session=").push_str(&params.session);
+        self.invoke("kanso_open_tab", None, args, |target| async move {
+            let policy = self.shared.core.mcp_policy_watch();
+            let resolved = self
+                .resolve_profile(&params.session, McpAccess::Full, &target)
+                .await?;
+            let mut policy = policy;
+            let profile = resolved.profile.id;
+            let core = self.shared.core.clone();
+            let fut = core.mcp_open_session(
+                profile,
+                ConnectMode::NonInteractive,
+                // 宿主摆放标签后会按实际大小调整。
+                GridSize { cols: 80, rows: 24 },
+            );
+            let outcome = self
+                .interruptible(
+                    fut,
+                    &mut policy,
+                    Subject::Profile(profile, McpAccess::Full),
+                    &context.ct,
+                )
+                .await?
+                .map_err(|e| remote::connect_error(&e))?;
+            match outcome {
+                McpConnectOutcome::Connected { session, .. } => {
+                    target.set_session(session);
+                    let shared = &self.shared;
+                    if !shared.tabs.register(
+                        &shared.registry,
+                        &shared.delegate,
+                        session,
+                        self.client_id,
+                    ) {
+                        // 客户端在标签建好的同时断开了：标签留作普通标签，调用结果也没人接收。
+                        return Err(ToolError::new(
+                            "INTERRUPTED",
+                            "The MCP connection was closed while the tab was being opened.",
+                        ));
+                    }
+                    Ok(json!({ "tab": session.raw() }))
+                }
+                McpConnectOutcome::NotConnected => Err(remote::not_connected()),
+                McpConnectOutcome::NeedsUser(need) => Err(remote::needs_user(need)),
+            }
+        })
+        .await
+    }
+
+    #[tool(
+        name = "kanso_close_tab",
+        description = "Close a tab that this MCP client opened with kanso_open_tab. Tabs the \
+            user opened, or that another client opened, are refused (ACCESS_DENIED), as are tabs \
+            that became ordinary tabs after their opener disconnected. Needs full access.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn kanso_close_tab(&self, Parameters(params): Parameters<TabParams>) -> CallToolResult {
+        let session = SessionId::from_raw(params.tab);
+        let mut args = ArgsSummary::new();
+        args.push_str(&format!("tab={}", params.tab));
+        self.invoke(
+            "kanso_close_tab",
+            Some(params.tab),
+            args,
+            |target| async move {
+                self.resolve_any(session, McpAccess::Full, &target).await?;
+                // 检查与移除原子完成：两个并发的关闭只有一个会真正去关。
+                if !self.shared.tabs.remove_if_owner(session, self.client_id) {
+                    return Err(ToolError::new(
+                        "ACCESS_DENIED",
+                        "Only tabs opened by this MCP client with kanso_open_tab can be closed. \
+                         This tab was opened by the user, by another client, or its opener has \
+                         disconnected.",
+                    ));
+                }
+                self.shared.core.close_session(session);
+                Ok(json!({ "closed": true }))
+            },
+        )
+        .await
+    }
+
+    #[tool(
+        name = "kanso_exec",
+        description = "Run one non-interactive command on the server of an SSH session, without \
+            any terminal tab, and return stdout, stderr and the exit status. SSH sessions only \
+            (local and SFTP-only sessions: UNSUPPORTED). The command text goes to the remote \
+            login shell as is; no PTY is allocated. Timeout default 60 s (1-600). On TIMEOUT the \
+            channel is closed but the remote process may still be running; the output so far is \
+            still returned. Each of stdout and stderr is capped at 256 KiB (the tail is kept). \
+            Reuses an existing connection; with full access it may open one but never prompts \
+            the user (NEEDS_USER). Needs full access.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn kanso_exec(
+        &self,
+        Parameters(params): Parameters<ExecParams>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        let timeout_secs = terminal::clamp_or(
+            params.timeout_secs,
+            EXEC_TIMEOUT_DEFAULT,
+            1,
+            EXEC_TIMEOUT_MAX,
+        );
+        // 命令文本进审计，输出不进（spec/mcp.md §6）。
+        let mut args = ArgsSummary::new();
+        args.push_str(&format!(
+            "session={}, timeout_secs={timeout_secs}, command=",
+            params.session
+        ))
+        .push_str(&params.command);
+        self.invoke("kanso_exec", None, args, |target| async move {
+            let mut call = self
+                .begin_remote(
+                    &params.session,
+                    McpAccess::Full,
+                    RemoteKind::SshOnly,
+                    &target,
+                )
+                .await?;
+            if params.command.trim().is_empty() {
+                return Err(terminal::invalid("command must not be empty."));
+            }
+            let limits = WaitLimits {
+                timeout: Duration::from_secs(timeout_secs),
+                max_bytes: MCP_TEXT_LIMIT,
+            };
+            let core = self.shared.core.clone();
+            let command = &params.command;
+            let outcome = self
+                .run_remote(&mut call, &context.ct, |s| async move {
+                    core.mcp_exec(s, command, limits).await.map_err(|e| {
+                        remote::remote_error(&e, "This session does not support command execution.")
+                    })
+                })
+                .await?;
+            remote::exec_result(&outcome, timeout_secs)
+        })
+        .await
+    }
+
+    #[tool(
+        name = "kanso_sftp_list",
+        description = "List a remote directory (SSH or SFTP sessions). Each entry has name, path, \
+            is_dir, is_symlink, size, mtime_ms, permissions (octal string), owner and group \
+            (null when the server does not report them). At most 1000 entries per call; \
+            next_cursor is non-null when there are more: pass it as cursor for the next page. \
+            The directory is listed again for every page, so if it changes between pages \
+            entries may repeat or be missed. Needs at least read-only access; with read-only \
+            access an existing connection is required (NOT_CONNECTED otherwise).",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn kanso_sftp_list(
+        &self,
+        Parameters(params): Parameters<SftpListParams>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        let mut args = ArgsSummary::new();
+        args.push_str(&format!("session={}, path=", params.session))
+            .push_str(&params.path)
+            .push_str(", cursor=")
+            .push_str(params.cursor.as_deref().unwrap_or(""));
+        self.invoke("kanso_sftp_list", None, args, |target| async move {
+            let mut call = self
+                .begin_remote(
+                    &params.session,
+                    McpAccess::ReadOnly,
+                    RemoteKind::SshOrSftp,
+                    &target,
+                )
+                .await?;
+            remote::check_path("path", &params.path)?;
+            let skip = match &params.cursor {
+                Some(c) => remote::decode_cursor(c)?,
+                None => 0,
+            };
+            let core = self.shared.core.clone();
+            let path = &params.path;
+            let (entries, more) = self
+                .run_remote(&mut call, &context.ct, |s| async move {
+                    let map = |e: kanso_core::CoreError| {
+                        remote::remote_error(&e, "This session does not support listing.")
+                    };
+                    let mut stream = core.sftp_list(s, path).map_err(map)?;
+                    let mut seen = 0usize;
+                    let mut entries = Vec::new();
+                    let mut more = false;
+                    'outer: while let Some(batch) = stream.next_batch().await.map_err(map)? {
+                        for entry in batch {
+                            if seen < skip {
+                                seen += 1;
+                                continue;
+                            }
+                            if entries.len() == LIST_PAGE_SIZE {
+                                more = true;
+                                break 'outer;
+                            }
+                            entries.push(remote::entry_json(&entry));
+                        }
+                    }
+                    Ok((entries, more))
+                })
+                .await?;
+            let next = more.then(|| remote::encode_cursor(skip + entries.len()));
+            Ok(json!({ "entries": entries, "next_cursor": next }))
+        })
+        .await
+    }
+
+    #[tool(
+        name = "kanso_sftp_stat",
+        description = "Get the attributes of one remote path (SSH or SFTP sessions): name, path, \
+            is_dir, is_symlink, size, mtime_ms, permissions (octal string), owner, group. \
+            follow_symlinks (default true) chooses between the link target and the link itself. \
+            Needs at least read-only access; with read-only access an existing connection is \
+            required (NOT_CONNECTED otherwise).",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn kanso_sftp_stat(
+        &self,
+        Parameters(params): Parameters<SftpStatParams>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        let follow = params.follow_symlinks.unwrap_or(true);
+        let mut args = ArgsSummary::new();
+        args.push_str(&format!(
+            "session={}, follow_symlinks={follow}, path=",
+            params.session
+        ))
+        .push_str(&params.path);
+        self.invoke("kanso_sftp_stat", None, args, |target| async move {
+            let mut call = self
+                .begin_remote(
+                    &params.session,
+                    McpAccess::ReadOnly,
+                    RemoteKind::SshOrSftp,
+                    &target,
+                )
+                .await?;
+            remote::check_path("path", &params.path)?;
+            let core = self.shared.core.clone();
+            let path = &params.path;
+            let entry = self
+                .run_remote(&mut call, &context.ct, |s| async move {
+                    core.sftp_entry(s, path, follow).await.map_err(|e| {
+                        remote::remote_error(&e, "This session does not support this operation.")
+                    })
+                })
+                .await?;
+            Ok(remote::entry_json(&entry))
+        })
+        .await
+    }
+
+    #[tool(
+        name = "kanso_sftp_read",
+        description = "Read a remote file range (SSH or SFTP sessions): offset (default 0) and \
+            length (default and maximum 1048576 bytes; more is TOO_LARGE, read in several \
+            calls). encoding \"text\" (default) converts from the session encoding to UTF-8 and \
+            fails with INVALID_ARGUMENT for binary data or NUL bytes: then use \"base64\". \
+            Returns content, encoding, bytes (raw bytes read) and eof (true when fewer bytes \
+            than requested were returned, i.e. the end of the file was reached). Needs at least \
+            read-only access; with read-only access an existing connection is required \
+            (NOT_CONNECTED otherwise).",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn kanso_sftp_read(
+        &self,
+        Parameters(params): Parameters<SftpReadParams>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        let offset = params.offset.unwrap_or(0);
+        let encoding = params.encoding.unwrap_or_default();
+        let mut args = ArgsSummary::new();
+        args.push_str(&format!(
+            "session={}, offset={offset}, length={}, encoding={}, path=",
+            params.session,
+            params
+                .length
+                .map_or_else(|| "default".to_owned(), |l| l.to_string()),
+            encoding.name()
+        ))
+        .push_str(&params.path);
+        self.invoke("kanso_sftp_read", None, args, |target| async move {
+            let mut call = self
+                .begin_remote(
+                    &params.session,
+                    McpAccess::ReadOnly,
+                    RemoteKind::SshOrSftp,
+                    &target,
+                )
+                .await?;
+            remote::check_path("path", &params.path)?;
+            let length = params.length.unwrap_or(READ_MAX_BYTES);
+            if length > READ_MAX_BYTES {
+                return Err(ToolError::new(
+                    "TOO_LARGE",
+                    format!(
+                        "length is at most {READ_MAX_BYTES} bytes (1 MiB) per call; read larger \
+                         files in several calls using offset."
+                    ),
+                ));
+            }
+            if length == 0 {
+                return Err(terminal::invalid("length must be at least 1."));
+            }
+            let len = u32::try_from(length).unwrap_or(u32::MAX);
+            let enc = call.encoding;
+            let core = self.shared.core.clone();
+            let path = &params.path;
+            let data = self
+                .run_remote(&mut call, &context.ct, |s| async move {
+                    core.sftp_read(s, path, offset, len).await.map_err(|e| {
+                        remote::remote_error(&e, "This session does not support reading.")
+                    })
+                })
+                .await?;
+            let content = match encoding {
+                ContentEncoding::Text => remote::decode_text(enc, &data)?,
+                ContentEncoding::Base64 => remote::encode_base64(&data),
+            };
+            Ok(json!({
+                "content": content,
+                "encoding": encoding.name(),
+                "bytes": data.len(),
+                "eof": (data.len() as u64) < length,
+            }))
+        })
+        .await
+    }
+
+    #[tool(
+        name = "kanso_sftp_write",
+        description = "Write a remote file (SSH or SFTP sessions), at most 8 MiB per call \
+            (TOO_LARGE). content is text (converted to the session encoding) or base64 when \
+            encoding is \"base64\". mode is required: \"create_new\" fails with CONFLICT if the \
+            file exists; \"overwrite\" writes a temporary file next to the target and renames \
+            it over the target (keeps permissions, follows a symlink target) and returns \
+            UNSUPPORTED, leaving the original untouched, if the server lacks the \
+            posix-rename@openssh.com extension. On other failures (REMOTE_ERROR) the message \
+            names any leftover temporary file. Needs full access.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn kanso_sftp_write(
+        &self,
+        Parameters(params): Parameters<SftpWriteParams>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        let encoding = params.encoding.unwrap_or_default();
+        // 审计只记路径、模式和大小，不记内容（spec/mcp.md §6）。
+        let mut args = ArgsSummary::new();
+        args.push_str(&format!(
+            "session={}, mode={}, size={}, path=",
+            params.session,
+            params.mode.name(),
+            remote::estimated_size(encoding, &params.content)
+        ))
+        .push_str(&params.path);
+        self.invoke("kanso_sftp_write", None, args, |target| async move {
+            let mut call = self
+                .begin_remote(&params.session, McpAccess::Full, RemoteKind::SshOrSftp, &target)
+                .await?;
+            remote::check_path("path", &params.path)?;
+            let data = remote::decode_write_content(encoding, call.encoding, &params.content)?;
+            let mode = match params.mode {
+                WriteMode::CreateNew => kanso_core::mcp::SftpWriteMode::CreateNew,
+                WriteMode::Overwrite => kanso_core::mcp::SftpWriteMode::Overwrite,
+            };
+            let size = data.len();
+            let core = self.shared.core.clone();
+            let path = &params.path;
+            let unsupported = match params.mode {
+                WriteMode::Overwrite => "The server does not support the posix-rename@openssh.com extension, which overwriting needs. The original file was not modified. Use create_new, or ask the user to enable the extension.",
+                WriteMode::CreateNew => "This session does not support writing.",
+            };
+            self.run_remote(&mut call, &context.ct, |s| async move {
+                core.sftp_write(s, path, data, mode)
+                    .await
+                    .map_err(|e| remote::remote_error(&e, unsupported))
+            })
+            .await?;
+            Ok(json!({ "written": size, "mode": params.mode.name() }))
+        })
+        .await
+    }
+
+    #[tool(
+        name = "kanso_sftp_mkdir",
+        description = "Create a remote directory (SSH or SFTP sessions). With parents=true, \
+            missing parent directories are created from the top down and existing directories \
+            are skipped (an existing non-directory is a CONFLICT). Needs full access.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn kanso_sftp_mkdir(
+        &self,
+        Parameters(params): Parameters<SftpMkdirParams>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        let parents = params.parents.unwrap_or(false);
+        let mut args = ArgsSummary::new();
+        args.push_str(&format!(
+            "session={}, parents={parents}, path=",
+            params.session
+        ))
+        .push_str(&params.path);
+        self.invoke("kanso_sftp_mkdir", None, args, |target| async move {
+            let mut call = self
+                .begin_remote(
+                    &params.session,
+                    McpAccess::Full,
+                    RemoteKind::SshOrSftp,
+                    &target,
+                )
+                .await?;
+            remote::check_path("path", &params.path)?;
+            let core = self.shared.core.clone();
+            let path = &params.path;
+            self.run_remote(&mut call, &context.ct, |s| async move {
+                let map = |e: kanso_core::CoreError| {
+                    remote::remote_error(&e, "This session does not support creating directories.")
+                };
+                if !parents {
+                    return core.sftp_mkdir(s, path).await.map_err(map);
+                }
+                for prefix in remote::path_prefixes(path) {
+                    match core.sftp_entry(s, &prefix, true).await {
+                        Ok(entry) if entry.is_dir => {}
+                        Ok(_) => {
+                            return Err(ToolError::new(
+                                "CONFLICT",
+                                format!("{prefix} already exists and is not a directory."),
+                            ));
+                        }
+                        // 不存在才创建；其他失败（权限、连接）如实返回，不盲目 mkdir。
+                        Err(e) if remote::is_not_found(&e) => {
+                            core.sftp_mkdir(s, &prefix).await.map_err(map)?;
+                        }
+                        Err(e) => return Err(map(e)),
+                    }
+                }
+                Ok(())
+            })
+            .await?;
+            Ok(json!({ "created": params.path }))
+        })
+        .await
+    }
+
+    #[tool(
+        name = "kanso_sftp_remove",
+        description = "Delete a remote file, symbolic link or EMPTY directory (SSH or SFTP \
+            sessions). There is no recursive delete: a non-empty directory fails with \
+            REMOTE_ERROR and must be emptied step by step. A symbolic link is removed itself, \
+            never its target. Needs full access.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn kanso_sftp_remove(
+        &self,
+        Parameters(params): Parameters<SftpRemoveParams>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        let mut args = ArgsSummary::new();
+        args.push_str(&format!("session={}, path=", params.session))
+            .push_str(&params.path);
+        self.invoke("kanso_sftp_remove", None, args, |target| async move {
+            let mut call = self
+                .begin_remote(
+                    &params.session,
+                    McpAccess::Full,
+                    RemoteKind::SshOrSftp,
+                    &target,
+                )
+                .await?;
+            remote::check_path("path", &params.path)?;
+            let core = self.shared.core.clone();
+            let path = &params.path;
+            self.run_remote(&mut call, &context.ct, |s| async move {
+                let map = |e: kanso_core::CoreError| {
+                    remote::remote_error(&e, "This session does not support deleting.")
+                };
+                let entry = core.sftp_entry(s, path, false).await.map_err(map)?;
+                match remote::remove_action(&entry) {
+                    RemoveAction::Rmdir => core.sftp_rmdir(s, path).await.map_err(map),
+                    // 第三个参数必须是 false：`true` 是递归删除目录，MCP 不提供（spec/mcp.md §3.5）。
+                    // 不要为了"统一"改成 `sftp_remove(path, entry.is_dir)`。
+                    RemoveAction::RemoveFile => core.sftp_remove(s, path, false).await.map_err(map),
+                }
+            })
+            .await?;
+            Ok(json!({ "removed": params.path }))
+        })
+        .await
+    }
+
+    #[tool(
+        name = "kanso_sftp_rename",
+        description = "Rename or move a remote file or directory (SSH or SFTP sessions). Fails \
+            with CONFLICT if the target already exists. Needs full access.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn kanso_sftp_rename(
+        &self,
+        Parameters(params): Parameters<SftpRenameParams>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        let mut args = ArgsSummary::new();
+        args.push_str(&format!("session={}, from=", params.session))
+            .push_str(&params.from)
+            .push_str(", to=")
+            .push_str(&params.to);
+        self.invoke("kanso_sftp_rename", None, args, |target| async move {
+            let mut call = self
+                .begin_remote(
+                    &params.session,
+                    McpAccess::Full,
+                    RemoteKind::SshOrSftp,
+                    &target,
+                )
+                .await?;
+            remote::check_path("from", &params.from)?;
+            remote::check_path("to", &params.to)?;
+            let core = self.shared.core.clone();
+            let (from, to) = (&params.from, &params.to);
+            self.run_remote(&mut call, &context.ct, |s| async move {
+                let map = |e: kanso_core::CoreError| {
+                    remote::remote_error(&e, "This session does not support renaming.")
+                };
+                // 先检查目标是否存在。检查与改名之间别人可能刚好创建了目标（竞态），这里不做额外处理：
+                // SFTP v3 的 RENAME 在目标存在时由服务器拒绝，错误会经 `remote_error` 映射。
+                match core.sftp_entry(s, to, false).await {
+                    Ok(_) => {
+                        return Err(ToolError::new(
+                            "CONFLICT",
+                            format!("{to} already exists. Remove it first or choose another name."),
+                        ));
+                    }
+                    Err(e) if remote::is_not_found(&e) => {}
+                    Err(e) => return Err(map(e)),
+                }
+                core.sftp_rename(s, from, to).await.map_err(map)
+            })
+            .await?;
+            Ok(json!({ "renamed": { "from": params.from, "to": params.to } }))
+        })
+        .await
+    }
 }
 
 #[tool_handler(router = self.tool_router)]
@@ -953,6 +1899,7 @@ fn list_sessions(
     core: &Core,
     params: &ListSessionsParams,
     identity: &ClientIdentity,
+    mcp_tabs: &McpTabs,
 ) -> Result<Value, ToolError> {
     let accesses: HashMap<_, _> = core
         .mcp_accesses()
@@ -1012,7 +1959,7 @@ fn list_sessions(
         let tab_items: Vec<Value> = tabs
             .iter()
             .filter(|s| s.profile == Some(profile.id))
-            .map(|s| tab_json(core, s, &probe))
+            .map(|s| tab_json(core, s, &probe, mcp_tabs))
             .collect();
         item["tabs"] = Value::Array(tab_items);
         out.push(item);
@@ -1020,7 +1967,12 @@ fn list_sessions(
     Ok(json!({ "sessions": out }))
 }
 
-fn tab_json(core: &Core, info: &kanso_core::SessionInfo, probe: &Probe<'_>) -> Value {
+fn tab_json(
+    core: &Core,
+    info: &kanso_core::SessionInfo,
+    probe: &Probe<'_>,
+    tabs: &McpTabs,
+) -> Value {
     let mut tab = json!({
         "id": info.id.raw(),
         "title": info.name,
@@ -1029,8 +1981,8 @@ fn tab_json(core: &Core, info: &kanso_core::SessionInfo, probe: &Probe<'_>) -> V
             SessionState::Connected => "connected",
             SessionState::Closed(_) => "closed",
         },
-        // TODO(F9 阶段 3)：还没有 `kanso_open_tab`，不存在由 MCP 打开的标签，固定 false。
-        "opened_by_mcp": false,
+        // 登记表里有、且打开它的客户端还连着；客户端断开时条目已被移除，标签变成普通标签。
+        "opened_by_mcp": tabs.contains(info.id),
         "is_client_tab": false,
     });
     // 真实后端暂时没有这项状态（返回 None）：缺失就省略，`is_client_tab` 保持 false，不编造。
@@ -1065,6 +2017,7 @@ mod tests {
     use super::*;
     use crate::real::audit;
     use crate::real::gate::{ClockFn, TabGate};
+    use crate::real::headless::HeadlessManager;
     use crate::real::registry::Registry;
     use crate::{McpClientInfo, McpServerDelegate, McpServerStatus};
 
@@ -1128,6 +2081,12 @@ mod tests {
             gate: TabGate::new(clock),
             ancestors: Arc::new(|_| Vec::new()),
             audit,
+            headless: HeadlessManager::new(
+                core.clone(),
+                Arc::new(Instant::now),
+                crate::real::headless::IDLE_RELEASE,
+            ),
+            tabs: McpTabs::default(),
             conns: tokio_util::task::TaskTracker::new(),
         });
         let cancel = CancellationToken::new();

@@ -129,6 +129,14 @@ fn put_capture(obj: &mut Map<String, Value>, key: &str, c: &CapturedText) {
     }
 }
 
+/// 捕获文本的 JSON 对象（`text`、`original_bytes`、`truncated`，有说明时带 `note`）。
+/// `kanso_exec` 的 stdout / stderr 各用一个，字段与终端类工具的输出保持一致。
+pub(super) fn capture_object(c: &CapturedText) -> Value {
+    let mut obj = Map::new();
+    put_capture(&mut obj, "text", c);
+    Value::Object(obj)
+}
+
 /// 终端文本快照的 JSON：`text`、光标、尺寸、备用屏幕，以及截断说明。
 pub(super) fn text_json(t: &TerminalText) -> Value {
     let mut obj = Map::new();
