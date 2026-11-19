@@ -459,6 +459,24 @@ fn dropped_connect_future_leaves_no_orphan_session() {
 }
 
 #[test]
+fn dropped_open_session_future_closes_the_pending_tab() {
+    let env = Env::new(password_server());
+    env.save_password("pw");
+    env.trust_server();
+    let r = env.rt.block_on(async {
+        tokio::time::timeout(
+            Duration::from_micros(1),
+            env.core
+                .mcp_open_session(env.profile.id, ConnectMode::NonInteractive, GRID),
+        )
+        .await
+    });
+    assert!(r.is_err(), "1 微秒内不可能连上");
+    // guard 在 future 被丢弃时同步关闭标签：宿主从未摆放过它，不能留下看不见的标签。
+    assert!(env.core.sessions().is_empty());
+}
+
+#[test]
 fn open_session_reuses_connection_and_appears_in_sessions() {
     let env = Env::new(password_server());
     env.save_password("pw");
