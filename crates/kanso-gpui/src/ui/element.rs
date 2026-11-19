@@ -244,29 +244,16 @@ fn paint_grid(
                 color: Some(fg),
             }),
         };
-        let force = span
-            .simple
-            .then(|| px(if span.small { m.cell_w * 0.8 } else { m.cell_w }));
-        let font_size = if span.small {
-            m.font_size * 0.8
-        } else {
-            m.font_size
-        };
+        let force = span.simple.then(|| px(m.cell_w));
         let line = window.text_system().shape_line(
             SharedString::from(span.text.clone()),
-            px(font_size),
+            px(m.font_size),
             &[run],
             force,
         );
-        // 小字在单元格里垂直居中，避免贴着行顶。
-        let nudge = if span.small {
-            (m.cell_h - font_size) * 0.35
-        } else {
-            0.
-        };
         let at = point(
             origin.x + px((f32::from(span.col) * m.cell_w).round()),
-            origin.y + px((f32::from(span.row) * m.cell_h).round() + nudge),
+            origin.y + px((f32::from(span.row) * m.cell_h).round()),
         );
         let _ = line.paint(at, line_height, window, cx);
     }
