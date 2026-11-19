@@ -1425,6 +1425,8 @@ messages! {
     WinMcpSensitiveNotice = "win-mcp-sensitive-notice" {},
     /// 设置页写入会话授权级别失败。
     WinMcpGrantFailed = "win-mcp-grant-failed" {},
+    /// 设置页读取会话授权级别失败。
+    WinMcpGrantReadFailed = "win-mcp-grant-read-failed" {},
     /// 会话编辑器已保存会话但授权写入失败。
     WinMcpAccessSaveFailed = "win-mcp-access-save-failed" { detail: String },
     /// MCP 审计记录的卡片标题。

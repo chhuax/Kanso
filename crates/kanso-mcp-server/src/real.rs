@@ -82,6 +82,9 @@ struct Running {
     conns: TaskTracker,
     shutdown: CancellationToken,
     audit: tokio::task::JoinHandle<()>,
+    /// 置位后审计任务不再回调 `on_audit_changed`：`Drop` 拆除时宿主不应再收到任何事件。
+    /// 用锁而不是原子量：审计任务在锁内回调，置位返回即保证之后没有回调，见 `audit::notify_changed`。
+    audit_quiet: Arc<Mutex<bool>>,
     socket: PathBuf,
 }
 
@@ -261,7 +264,14 @@ impl RealServer {
         self.registry.open(token);
         let accept_stop = CancellationToken::new();
         let accept = runtime.spawn(accept_loop(listener, shared, accept_stop.clone()));
-        let audit = runtime.spawn(audit::run(self.core.clone(), rx, shutdown.clone()));
+        let audit_quiet = Arc::new(Mutex::new(false));
+        let audit = runtime.spawn(audit::run(
+            self.core.clone(),
+            self.delegate.clone(),
+            audit_quiet.clone(),
+            rx,
+            shutdown.clone(),
+        ));
         Ok(Running {
             runtime,
             accept_stop,
@@ -269,6 +279,7 @@ impl RealServer {
             conns,
             shutdown,
             audit,
+            audit_quiet,
             socket: socket.to_owned(),
         })
     }
@@ -298,6 +309,11 @@ impl RealServer {
     /// 步骤 3、4 都设上限：连接任务或数据库卡住时不拖住宿主线程。`silent` 为真（`Drop`）时断开客户端不回调。
     fn teardown(registry: &Registry, running: Running, silent: bool) {
         if silent {
+            // 要在等连接、等审计收尾之前置位：这期间的落库（含关停时最后一批）也不能回调。
+            *running
+                .audit_quiet
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = true;
             registry.close_silently();
         } else {
             registry.close();
