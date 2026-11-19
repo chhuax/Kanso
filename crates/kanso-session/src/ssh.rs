@@ -24,7 +24,7 @@
 use std::future::Future;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -45,7 +45,7 @@ use kanso_types::{
     TimestampMode, ViewportPoint,
 };
 use tokio::runtime::Handle;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio::task::AbortHandle;
 
 use crate::activity::{ActivityHost, ActivityHub};
@@ -191,6 +191,14 @@ struct Shared {
     activity: Arc<ActivityHub>,
     /// 本会话持有的连接，只给"复制标签"与 SFTP 用；会话结束即释放。
     connection: Mutex<Option<Connection>>,
+    /// 本会话用过的连接的 [`Connection::id`]；0 表示还没有连接（id 从 1 开始分配）。
+    ///
+    /// 与 `connection` 不同，会话结束、释放连接之后**仍然保留**：core 判断"刚结束的会话用的是哪条连接"
+    /// （借用连接的释放）时，那时连接引用早已放掉。
+    connection_id: AtomicU64,
+    /// 会话是否已"尘埃落定"：到过 `Connected` 或已经 `Closed`。只增不减，供 [`SshSession::wait_settled`] 异步等待。
+    /// 用 watch 而不是轮询状态：状态变化点（`set_connected`、`finish`）都在这个结构里，顺手通知即可。
+    settled: watch::Sender<bool>,
     /// 本会话的 SFTP 客户端，首次请求时才创建（见 [`SshSession::sftp_client`]）；会话结束即释放。
     sftp: Mutex<Option<SftpClient>>,
     /// 通道写端的一份克隆，只用来在用户关闭时发 close。
@@ -269,6 +277,8 @@ impl Shared {
                 session: self.id,
                 state: new_state,
             });
+            // 状态已写入后才通知：等待方被唤醒后读到的一定是 `Closed`。
+            self.settled.send_replace(true);
             true
         };
         // 必须在释放生命周期锁之后（理由见 `local.rs` 的 `Shared::finish`）：
@@ -288,6 +298,7 @@ impl Shared {
             session: self.id,
             state: SessionState::Connected,
         });
+        self.settled.send_replace(true);
         true
     }
 
@@ -379,6 +390,8 @@ pub struct SshSession {
     runtime: Handle,
     /// 连接来源，`activate` 时取走交给主任务。
     source: Mutex<Option<Source>>,
+    /// 无界面会话（MCP 的 `mcp_connect`）：不出现在会话列表，事件由管理器注入的过滤 host 处理。
+    headless: bool,
 }
 
 impl SshSession {
@@ -390,6 +403,7 @@ impl SshSession {
         size: GridSize,
         runtime: Handle,
         source: Source,
+        headless: bool,
     ) -> Arc<SshSession> {
         // 终端至少 2 列 1 行。
         let size = GridSize {
@@ -417,10 +431,17 @@ impl SshSession {
             timestamp_mode: Mutex::new(None),
             activity: ActivityHub::new(),
             connection: Mutex::new(None),
+            connection_id: AtomicU64::new(0),
+            settled: watch::Sender::new(false),
             sftp: Mutex::new(None),
             channel: Mutex::new(None),
             tasks: Mutex::new(Vec::new()),
         });
+        // 共享来源的连接在这里就已确定：同步记下 id，不等主任务被调度，
+        // 这样"开了就立刻关"的标签也能被 core 认出用的是哪条连接。
+        if let Source::Shared(Some(c)) = &source {
+            shared.connection_id.store(c.id(), Ordering::Release);
+        }
         let weak = Arc::downgrade(&shared);
         shared.transfer.set_writer(Arc::new(move |bytes| {
             let shared = weak.upgrade().ok_or("session ended")?;
@@ -436,6 +457,7 @@ impl SshSession {
             launch,
             runtime,
             source: Mutex::new(Some(source)),
+            headless,
         })
     }
 
@@ -488,6 +510,33 @@ impl SshSession {
         lock(&self.shared.lifecycle).clone()
     }
 
+    /// 是否是无界面会话。
+    pub fn is_headless(&self) -> bool {
+        self.headless
+    }
+
+    /// 本会话用过的连接的 id（[`Connection::id`]）；连接还没建立（或共享来源已断）时为 `None`。
+    ///
+    /// 连接建立后一直保留，**会话结束、释放连接之后也不清除**：借用连接的释放要靠它识别
+    /// "刚结束的标签用的是哪条连接"。
+    pub fn connection_id(&self) -> Option<u64> {
+        match self.shared.connection_id.load(Ordering::Acquire) {
+            0 => None,
+            id => Some(id),
+        }
+    }
+
+    /// 等到会话连上（`Connected`）或已经结束（`Closed`），返回此刻的状态。
+    ///
+    /// 取消安全（只是等待一个 watch）。返回 `Connected` 只代表"返回那一刻之前连上过"，
+    /// 调用方若要长期依赖，仍需自己处理之后的 `Closed`。
+    pub async fn wait_settled(&self) -> SessionState {
+        let mut rx = self.shared.settled.subscribe();
+        // 发送端在 `Shared` 里，与 `self` 同生共死，所以这里不会因发送端关闭而出错。
+        let _ = rx.wait_for(|settled| *settled).await;
+        self.state()
+    }
+
     /// 会话种类：SSH 终端或纯 SFTP。
     pub fn kind(&self) -> SessionKind {
         if self.launch.sftp_only {
@@ -523,8 +572,9 @@ impl SshSession {
 
     /// 本会话持有的已认证连接（克隆共享）；没连上或已结束为 `None`。
     ///
-    /// 只给 `Duplicate` 用：调用方拿到后必须立刻交给新会话，不得长期持有（见模块文档）。
-    pub(crate) fn connection(&self) -> Option<Connection> {
+    /// 给 `Duplicate`、core 的连接复用与 MCP 的 exec 用：调用方拿到后要么立刻交给新会话，
+    /// 要么只在一次短操作内持有，不得长期持有（见模块文档，否则关闭全部标签后连接不会断）。
+    pub fn connection(&self) -> Option<Connection> {
         lock(&self.shared.connection).clone()
     }
 
@@ -1013,6 +1063,9 @@ async fn run(shared: Arc<Shared>, launch: SshLaunch, source: Source) {
             None => return,
         },
     };
+    shared
+        .connection_id
+        .store(connection.id(), Ordering::Release);
 
     if launch.sftp_only {
         run_sftp(&shared, &launch, connection).await;

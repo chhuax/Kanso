@@ -3760,6 +3760,7 @@ name = "kanso-core"
 version = "1.0.7"
 dependencies = [
  "kanso-complete",
+ "kanso-encoding",
  "kanso-frame",
  "kanso-license",
  "kanso-secret",

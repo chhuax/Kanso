@@ -3,7 +3,8 @@
 //! 已实现：授权、总开关与审计日志的存取（schema v3）；终端的状态、读取、命令执行与输入
 //! （`mcp_session_status`、`terminal_text`、`mcp_terminal_run`、`mcp_terminal_send`，本地与 SSH 会话共用，
 //! 逻辑在 `kanso-session` 的 `mcp` 模块，这里只做契约类型的映射）。
-//! 尚未实现（**F9**）：无界面会话与连接复用、后台执行、SFTP 补充操作。
+//! 无界面会话、连接复用与后台执行在 `connect.rs` / `exec.rs`。
+//! 尚未实现（**F9**）：SFTP 补充操作。
 //! 按 `real` 模块的约定不 panic：返回 `NotSupported`。
 
 use std::time::Duration;
@@ -128,8 +129,7 @@ impl RealCore {
             terminal_transfer,
             // 由 Core 层根据 Sender 状态覆盖。
             sender_active: false,
-            // 无界面会话尚未实现（mcp_connect），目前所有会话都是有界面的。
-            headless: false,
+            headless: s.is_headless(),
             osc133,
             local_tty: s.tty_path(),
             shell_pid: s.shell_pid(),
@@ -217,7 +217,7 @@ impl RealCore {
         profile: ProfileId,
         mode: ConnectMode,
     ) -> Result<McpConnectOutcome> {
-        Err(CoreError::NotSupported)
+        self.mcp_connect_impl(profile, mode).await
     }
 
     pub(crate) async fn mcp_open_session(
@@ -226,7 +226,7 @@ impl RealCore {
         mode: ConnectMode,
         size: GridSize,
     ) -> Result<McpConnectOutcome> {
-        Err(CoreError::NotSupported)
+        self.mcp_open_session_impl(profile, mode, size).await
     }
 
     pub(crate) async fn mcp_exec(
@@ -235,7 +235,7 @@ impl RealCore {
         command: &str,
         limits: WaitLimits,
     ) -> Result<ExecOutcome> {
-        Err(CoreError::NotSupported)
+        self.mcp_exec_impl(session, command, limits).await
     }
 
     pub(crate) async fn sftp_entry(

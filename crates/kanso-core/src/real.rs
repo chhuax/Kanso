@@ -36,6 +36,8 @@
 // 尚未实现的方法的参数没有用到；工作包落地后会自然用上。
 #![allow(unused_variables)]
 
+mod connect;
+mod exec;
 mod mcp;
 
 use std::collections::HashMap;
@@ -81,7 +83,7 @@ use crate::api::{
     SearchStatus, SessionInfo, SshConfigImportReport, SshConfigScan, XmodemBlock,
 };
 use crate::platform::{EventSink, Notification, Platform};
-use crate::ssh::{ConnectSpec, CoreSshConnector, HostKeys, PromptTable, SshEnv};
+use crate::ssh::{ConnectSpec, CoreSshConnector, HostKeys, NeedSlot, PromptTable, SshEnv};
 use crate::sshconfig_import::{self, SshConfigEnv};
 use crate::validate::{MAX_JUMP_HOPS, validate_profile};
 
@@ -321,6 +323,10 @@ struct HostAdapter {
     prompts: Arc<PromptTable>,
     runtime: tokio::runtime::Handle,
     history: Arc<HistoryRecorder>,
+    /// 有会话进入 `Closed` 时通知 core 的后台任务（借用连接的释放，见 `connect.rs`）。
+    /// 在 `emit` 里只做一次无阻塞的 `send`：`emit` 是在会话的生命周期锁内被调用的，
+    /// 不得回调管理器，所以真正的检查要交给运行时上的任务去做。
+    closed_tx: tokio::sync::mpsc::UnboundedSender<SessionId>,
 }
 
 struct HistoryRecorder {
@@ -364,6 +370,14 @@ impl SessionHost for HostAdapter {
     }
 
     fn emit(&self, event: CoreEvent) {
+        if let CoreEvent::SessionStateChanged {
+            session,
+            state: kanso_types::event::SessionState::Closed(_),
+        } = &event
+        {
+            // 接收端已退出说明 core 正在关闭，忽略。
+            let _ = self.closed_tx.send(*session);
+        }
         self.platform.events.on_event(event);
     }
 
@@ -438,7 +452,8 @@ pub(crate) struct RealCore {
     /// `shutdown` 时取走并关闭，所以放在 `Option` 里。
     runtime: Mutex<Option<tokio::runtime::Runtime>>,
     handle: tokio::runtime::Handle,
-    sessions: SessionManager,
+    /// `Arc`：借用连接的释放任务要持有它的弱引用（见 `connect.rs`）。
+    sessions: Arc<SessionManager>,
     /// 数据库。`Connection` 不是 `Sync`，所以包在 `Mutex` 里；每次操作都很短，在调用线程上同步执行。
     /// 放进 `Arc` 是因为 `async` 方法要把它交给 `spawn_blocking`（需要 `'static`）。
     store: Arc<Mutex<Store>>,
@@ -456,7 +471,11 @@ pub(crate) struct RealCore {
     builtin_host_keys: Mutex<Option<Arc<KnownHostsFile>>>,
     /// 由 Profile 打开的会话 → (Profile id, Profile 名)，供 `sessions()` 填 `SessionInfo`。
     /// 会话层不认识 Profile，所以由 core 记录；`close_session` 时清除。
-    profile_sessions: Mutex<HashMap<SessionId, (ProfileId, String)>>,
+    profile_sessions: Arc<Mutex<HashMap<SessionId, (ProfileId, String)>>>,
+    /// 无界面会话 → 是否借用（`true` 为借用用户建立的连接，`false` 为 MCP 自建），见 `connect.rs`。
+    headless: Arc<Mutex<HashMap<SessionId, bool>>>,
+    /// 每条连接（按 `Connection::id`）一个 exec 并发限额，见 `exec.rs`。
+    exec_slots: Mutex<HashMap<u64, std::sync::Weak<tokio::sync::Semaphore>>>,
     /// ssh_config 求值用的本机环境（F6）。
     ssh_config_env: SshConfigEnv,
     /// 进行中的 SFTP 传输。任务结束（含取消、失败）时自己移除；会话关闭时按 `session` 批量取消。
@@ -464,6 +483,31 @@ pub(crate) struct RealCore {
     next_transfer: AtomicU64,
     /// MCP 授权变化通知器，与 `Core` 共用（见 `crate::mcp::PolicyNotifier`）。
     mcp_policy: crate::mcp::PolicyNotifier,
+}
+
+/// 会话管理器的打开错误 → core 错误。
+pub(crate) fn open_error(e: OpenError) -> CoreError {
+    match e {
+        OpenError::NoSuchSession(id) => CoreError::NoSuchSession(id),
+        OpenError::Spawn { command, detail } => {
+            tracing::warn!(%command, %detail, "failed to start local shell");
+            CoreError::User(Message::SessionSpawnFailed {
+                command,
+                reason: Reason::Other { detail },
+            })
+        }
+        OpenError::ShuttingDown => CoreError::Internal {
+            detail: "core is shutting down".to_owned(),
+        },
+    }
+}
+
+/// [`RealCore::profile_launch`] 的结果。
+pub(crate) enum ProfileLaunch {
+    /// 本地 Profile 的 shell 配置。
+    Local(kanso_types::profile::LocalProfile),
+    /// SSH 或纯 SFTP Profile 的启动参数（纯 SFTP 已标记 `sftp_only`）。
+    Ssh(SshLaunch),
 }
 
 /// 进行中的一次 SFTP 传输。
@@ -532,6 +576,7 @@ impl RealCore {
         });
 
         let prompts = PromptTable::new(Arc::clone(&events));
+        let (closed_tx, closed_rx) = tokio::sync::mpsc::unbounded_channel();
         let sessions = SessionManager::new(
             ManagerConfig {
                 data_dir: config.data_dir,
@@ -547,9 +592,24 @@ impl RealCore {
                 prompts: Arc::clone(&prompts),
                 runtime: handle.clone(),
                 history: Arc::clone(&history),
+                closed_tx,
             }),
         )
         .with_runtime(handle.clone());
+        let sessions = Arc::new(sessions);
+        let profile_sessions = Arc::new(Mutex::new(HashMap::new()));
+        let headless = Arc::new(Mutex::new(HashMap::new()));
+        let transfers = Arc::new(Mutex::new(HashMap::new()));
+        connect::spawn_release_task(
+            &handle,
+            closed_rx,
+            connect::ReleaseCtx {
+                sessions: Arc::downgrade(&sessions),
+                profile_sessions: Arc::clone(&profile_sessions),
+                headless: Arc::clone(&headless),
+                transfers: Arc::clone(&transfers),
+            },
+        );
         Ok(RealCore {
             runtime: Mutex::new(Some(runtime)),
             handle,
@@ -563,9 +623,11 @@ impl RealCore {
             ssh_env,
             platform_host_keys,
             builtin_host_keys: Mutex::new(None),
-            profile_sessions: Mutex::new(HashMap::new()),
+            profile_sessions,
+            headless,
+            exec_slots: Mutex::new(HashMap::new()),
             ssh_config_env: SshConfigEnv::from_snapshot(&env),
-            transfers: Arc::new(Mutex::new(HashMap::new())),
+            transfers,
             next_transfer: AtomicU64::new(1),
             mcp_policy,
         })
@@ -948,46 +1010,17 @@ impl RealCore {
         let mut opened_profile = None;
         let request = match target {
             OpenTarget::Profile(id) => {
-                // 查库后立刻释放锁，再启动 shell（fork 不该占着数据库锁）。
-                let profile = self
-                    .db()
-                    .profile(id)
-                    .map_err(store_err)?
-                    .ok_or(CoreError::NoSuchProfile(id))?;
-                match &profile.kind {
-                    ProfileKind::Local(local) => {
-                        opened_profile = Some((id, profile.name.clone()));
-                        OpenRequest::Local(local.clone())
-                    }
-                    ProfileKind::Ssh(ssh) => {
-                        // 链上每一跳都要重新校验：Profile 可能是导入的，或其引用在保存之后才失效；
-                        // 校验失败必须报错，不能退化成直连（store-import.md §3、ssh.md §5）。
-                        let all = self.db().profiles().map_err(store_err)?;
-                        validate_profile(&profile, &all).map_err(CoreError::User)?;
-                        opened_profile = Some((id, profile.name.clone()));
-                        OpenRequest::Ssh(self.ssh_launch(
-                            &profile,
-                            &ssh.target,
-                            &ssh.encoding,
-                            ssh.locale.clone(),
-                            &all,
-                        )?)
-                    }
-                    ProfileKind::Sftp(target) => {
-                        // 与 SSH Profile 完全相同的校验与连接器，只是会话不开 shell（ssh.md §7）。
-                        let all = self.db().profiles().map_err(store_err)?;
-                        validate_profile(&profile, &all).map_err(CoreError::User)?;
-                        opened_profile = Some((id, profile.name.clone()));
-                        OpenRequest::Ssh(
-                            self.ssh_launch(
-                                &profile,
-                                target,
-                                &EncodingLabel::default(),
-                                None,
-                                &all,
-                            )?
-                            .sftp_only(),
-                        )
+                let (profile, launch) = self.profile_launch(id, None)?;
+                opened_profile = Some((id, profile.name.clone()));
+                match launch {
+                    ProfileLaunch::Local(local) => OpenRequest::Local(local),
+                    ProfileLaunch::Ssh(launch) => {
+                        // 这个 Profile 有 MCP 自建的连接时与它共享，不再新建连接、不再认证
+                        // （spec/mcp.md §2.4）；用户自己已有的标签不触发共享，那是两条独立连接。
+                        match self.find_self_built(id) {
+                            Some(connection) => OpenRequest::SshShared { launch, connection },
+                            None => OpenRequest::Ssh(launch),
+                        }
                     }
                 }
             }
@@ -999,19 +1032,7 @@ impl RealCore {
                 OpenRequest::Duplicate(src)
             }
         };
-        let id = self.sessions.open(request, size).map_err(|e| match e {
-            OpenError::NoSuchSession(id) => CoreError::NoSuchSession(id),
-            OpenError::Spawn { command, detail } => {
-                tracing::warn!(%command, %detail, "failed to start local shell");
-                CoreError::User(Message::SessionSpawnFailed {
-                    command,
-                    reason: Reason::Other { detail },
-                })
-            }
-            OpenError::ShuttingDown => CoreError::Internal {
-                detail: "core is shutting down".to_owned(),
-            },
-        })?;
+        let id = self.sessions.open(request, size).map_err(open_error)?;
         if let Some(entry) = opened_profile {
             self.profile_sessions
                 .lock()
@@ -1019,6 +1040,58 @@ impl RealCore {
                 .insert(id, entry);
         }
         Ok(id)
+    }
+
+    /// 查出 Profile 并转成启动参数：本地 Profile 给出 shell 配置，SSH / 纯 SFTP 给出连接器已装配好的
+    /// [`SshLaunch`]（纯 SFTP 已调用 `sftp_only`）。不发起网络请求。
+    ///
+    /// `non_interactive` 为 `Some` 时连接器按非交互方式工作（MCP，见 `CoreSshConnector::non_interactive`）。
+    /// 校验失败、MAS 不支持等错误与 `open_session` 的契约一致。
+    pub(crate) fn profile_launch(
+        &self,
+        id: ProfileId,
+        non_interactive: Option<Arc<NeedSlot>>,
+    ) -> Result<(Profile, ProfileLaunch)> {
+        // 查库后立刻释放锁，再启动 shell（fork 不该占着数据库锁）。
+        let profile = self
+            .db()
+            .profile(id)
+            .map_err(store_err)?
+            .ok_or(CoreError::NoSuchProfile(id))?;
+        let launch = match &profile.kind {
+            ProfileKind::Local(local) => ProfileLaunch::Local(local.clone()),
+            ProfileKind::Ssh(ssh) => {
+                // 链上每一跳都要重新校验：Profile 可能是导入的，或其引用在保存之后才失效；
+                // 校验失败必须报错，不能退化成直连（store-import.md §3、ssh.md §5）。
+                let all = self.db().profiles().map_err(store_err)?;
+                validate_profile(&profile, &all).map_err(CoreError::User)?;
+                ProfileLaunch::Ssh(self.ssh_launch(
+                    &profile,
+                    &ssh.target,
+                    &ssh.encoding,
+                    ssh.locale.clone(),
+                    &all,
+                    non_interactive,
+                )?)
+            }
+            ProfileKind::Sftp(target) => {
+                // 与 SSH Profile 完全相同的校验与连接器，只是会话不开 shell（ssh.md §7）。
+                let all = self.db().profiles().map_err(store_err)?;
+                validate_profile(&profile, &all).map_err(CoreError::User)?;
+                ProfileLaunch::Ssh(
+                    self.ssh_launch(
+                        &profile,
+                        target,
+                        &EncodingLabel::default(),
+                        None,
+                        &all,
+                        non_interactive,
+                    )?
+                    .sftp_only(),
+                )
+            }
+        };
+        Ok((profile, launch))
     }
 
     /// 内置 known_hosts 的存储与吊销查询；宿主注入了存储时用宿主的（没有吊销查询）。
@@ -1068,6 +1141,7 @@ impl RealCore {
         encoding: &EncodingLabel,
         locale: Option<Locale>,
         all: &[Profile],
+        non_interactive: Option<Arc<NeedSlot>>,
     ) -> Result<SshLaunch> {
         // 沿 jump 引用向外走，得到从内到外的跳板 Profile，再翻转成从外到内。
         let mut jumps: Vec<(&Profile, &kanso_types::profile::SshTarget)> = Vec::new();
@@ -1130,6 +1204,7 @@ impl RealCore {
             env: self.ssh_env.clone(),
             chain,
             proxy_command,
+            non_interactive,
         };
         Ok(SshLaunch::new(
             profile.name.clone(),
@@ -1150,6 +1225,13 @@ impl RealCore {
     }
 
     pub(crate) fn close_session(&self, session: SessionId) {
+        // 关闭前先记下它用的连接：关闭后会话已从表里移除，而借用连接的释放要知道是哪条连接
+        // （无界面会话的关闭不触发释放）。
+        let visible_connection = self
+            .sessions
+            .session(session)
+            .filter(|s| !s.is_headless())
+            .and_then(|s| s.connection_id());
         self.sessions.close(session);
         // 关闭会话取消它的全部传输（ssh.md §9）；任务自己会发 `TransferFinished(Cancelled)`。
         self.cancel_transfers(Some(session));
@@ -1159,6 +1241,15 @@ impl RealCore {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(&session);
+        self.headless
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&session);
+        // 用户关闭标签后，若这是该连接上最后一个可见会话，立即释放借用它的无界面会话。
+        // 同步执行（只是登记关闭，不阻塞）：返回之后调用方再查一定看不到已释放的借用会话。
+        if let Some(connection_id) = visible_connection {
+            self.release_borrowed(connection_id);
+        }
     }
 
     pub(crate) fn sessions(&self) -> Vec<SessionInfo> {

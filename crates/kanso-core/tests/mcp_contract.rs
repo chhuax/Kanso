@@ -200,7 +200,7 @@ fn real_audit_append_query_prune_clear() {
 }
 
 #[test]
-fn real_unimplemented_mcp_methods_do_not_panic() {
+fn real_mcp_methods_on_missing_targets_do_not_panic() {
     let tmp = tempfile::tempdir().unwrap();
     let core = real_core(&tmp);
     let rt = rt();
@@ -223,15 +223,15 @@ fn real_unimplemented_mcp_methods_do_not_panic() {
     );
     assert_eq!(
         rt.block_on(core.mcp_connect(p, ConnectMode::ReuseOnly)),
-        Err(CoreError::NotSupported)
+        Err(CoreError::NoSuchProfile(p))
     );
     assert_eq!(
         rt.block_on(core.mcp_open_session(p, ConnectMode::NonInteractive, GRID)),
-        Err(CoreError::NotSupported)
+        Err(CoreError::NoSuchProfile(p))
     );
     assert_eq!(
         rt.block_on(core.mcp_exec(s, "ls", limits)),
-        Err(CoreError::NotSupported)
+        Err(CoreError::NoSuchSession(s))
     );
     assert_eq!(
         rt.block_on(core.sftp_entry(s, "/", false)),
