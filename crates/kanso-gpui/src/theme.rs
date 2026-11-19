@@ -89,8 +89,8 @@ impl Decorations {
             u16::from(background.r) + u16::from(background.g) + u16::from(background.b) < 3 * 128;
         if dark {
             Decorations {
-                chip_background: Rgb8::new(0x25, 0x28, 0x2C),
-                chip_border: Rgb8::new(0x4B, 0x51, 0x58),
+                chip_background: Rgb8::new(0x12, 0x12, 0x14),
+                chip_border: Rgb8::new(0x2A, 0x2A, 0x2C),
                 gutter_text: Rgb8::new(0x8E, 0x94, 0x9B),
                 gutter_cursor_line: Overlay {
                     rgb: Rgb8::new(0x62, 0xB0, 0xD2),
@@ -104,8 +104,8 @@ impl Decorations {
             }
         } else {
             Decorations {
-                chip_background: Rgb8::new(0xF5, 0xF5, 0xF0),
-                chip_border: Rgb8::new(0xC9, 0xCD, 0xC5),
+                chip_background: Rgb8::new(0xF1, 0xF1, 0xEC),
+                chip_border: Rgb8::new(0xD5, 0xD5, 0xCF),
                 gutter_text: Rgb8::new(0x6A, 0x6F, 0x76),
                 gutter_cursor_line: Overlay {
                     rgb: Rgb8::new(0x2A, 0x6A, 0x8A),
@@ -228,6 +228,10 @@ mod tests {
         let l = Palette::kanso_light().decorations;
         assert_eq!(d.block_selection, Rgb8::new(0x20, 0x34, 0x3E));
         assert_eq!(l.block_selection, Rgb8::new(0xDF, 0xEB, 0xEF));
+        assert_eq!(d.chip_background, Rgb8::new(0x12, 0x12, 0x14));
+        assert_eq!(d.chip_border, Rgb8::new(0x2A, 0x2A, 0x2C));
+        assert_eq!(l.chip_background, Rgb8::new(0xF1, 0xF1, 0xEC));
+        assert_eq!(l.chip_border, Rgb8::new(0xD5, 0xD5, 0xCF));
         assert_ne!(d.gutter_text, l.gutter_text);
         assert_eq!(d.command_separator.alpha, 0x26);
     }

@@ -138,7 +138,9 @@ final class UISnapshotTests: XCTestCase {
                 sidebarIndex: Int(id) - 1, selection: selection
             )
         }
-        let list = SidebarListView(frame: NSRect(x: 0, y: 0, width: 240, height: 160))
+        let listHeight = SidebarListView.verticalInset * 2
+            + 3 * (DesignTokens.Spacing.tabRowHeight + SidebarListView.rowSpacing)
+        let list = SidebarListView(frame: NSRect(x: 0, y: 0, width: 240, height: listHeight))
         list.update([
             SidebarListView.Section(
                 pane: PaneID(raw: 1), titleIndex: 1, showsHeader: false, isActivePane: true,
@@ -150,7 +152,7 @@ final class UISnapshotTests: XCTestCase {
             ),
         ])
         list.layoutSubtreeIfNeeded()
-        let size = NSSize(width: 240, height: 160)
+        let size = NSSize(width: 240, height: listHeight)
         list.frame = NSRect(origin: .zero, size: size)
         return canvas(size: NSSize(width: size.width + 80, height: size.height + 80), content: list, contentSize: size, retaining: list)
     }

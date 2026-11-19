@@ -72,6 +72,8 @@ pub(super) struct McpPage {
     grants: Vec<GrantGroup>,
     levels: HashMap<ProfileId, McpAccess>,
     grants_error: Option<String>,
+    /// 读取授权失败的原因；`Some` 时 `levels` 不可信，不得据此判断"未授权"。
+    levels_error: Option<String>,
     sensitive_notice: bool,
     audit_client: Entity<TextInput>,
     audit_session: Entity<Dropdown>,
@@ -156,6 +158,7 @@ impl McpPage {
             grants: Vec::new(),
             levels: HashMap::new(),
             grants_error: None,
+            levels_error: None,
             sensitive_notice: false,
             audit_client,
             audit_session,
@@ -225,7 +228,17 @@ impl McpPage {
         let core = self.model.read(cx).core();
         let mut profiles = core.profiles();
         let mut groups = core.groups();
-        self.levels = core.mcp_accesses().into_iter().collect();
+        // 读失败时不能当成"全部关闭"：显示错误、禁用并清空级别下拉框（见下方），审计列表也不再标"未授权"。
+        match core.mcp_accesses() {
+            Ok(levels) => {
+                self.levels = levels.into_iter().collect();
+                self.levels_error = None;
+            }
+            Err(error) => {
+                self.levels.clear();
+                self.levels_error = Some(operator_error(error, Message::WinMcpGrantReadFailed {}));
+            }
+        }
         profiles.sort_by_cached_key(|p| p.name.to_lowercase());
         groups.sort_by_cached_key(|g| g.name.to_lowercase());
         let language = lang();
@@ -236,11 +249,26 @@ impl McpPage {
             self.rebuild_grants(window, cx);
             self.update_audit_sessions(cx);
         }
-        for (id, _, dropdown) in self.grants.iter().flat_map(|group| &group.rows) {
-            let level = self.levels.get(id).copied().unwrap_or_default();
-            let selected = Some(level as usize);
-            if dropdown.read(cx).selected_index() != selected {
-                dropdown.update(cx, |d, cx| d.set_selected(selected, cx));
+        // 读失败时级别未知：所有下拉框清空选择并禁用，不能显示成"关闭"，也不能让用户基于错误的现状去改；
+        // 读成功后恢复（空分组的批量下拉框始终禁用）。
+        let unreadable = self.levels_error.is_some();
+        for group in &self.grants {
+            let batch_disabled = unreadable || group.rows.is_empty();
+            group
+                .batch
+                .update(cx, |d, cx| d.set_disabled(batch_disabled, cx));
+            for (id, _, dropdown) in &group.rows {
+                let selected = if unreadable {
+                    None
+                } else {
+                    Some(self.levels.get(id).copied().unwrap_or_default() as usize)
+                };
+                dropdown.update(cx, |d, cx| {
+                    d.set_disabled(unreadable, cx);
+                    if d.selected_index() != selected {
+                        d.set_selected(selected, cx);
+                    }
+                });
             }
         }
         self.grants_dirty = false;
@@ -393,6 +421,9 @@ impl McpPage {
         if self.sensitive_notice {
             rows.push(caption(th, label(Message::WinMcpSensitiveNotice {})));
         }
+        if let Some(error) = &self.levels_error {
+            rows.push(error_label(th, error));
+        }
         if let Some(error) = &self.grants_error {
             rows.push(error_label(th, error));
         }
@@ -515,7 +546,8 @@ impl McpPage {
         if let Some(id) = entry.profile {
             let name = match names.get(&id) {
                 None => label(Message::WinMcpAuditDeleted {}),
-                Some(_) if !self.levels.contains_key(&id) => {
+                // 授权读取失败时无法判断是否未授权，只显示会话名。
+                Some(_) if self.levels_error.is_none() && !self.levels.contains_key(&id) => {
                     label(Message::WinMcpAuditUnauthorized {})
                 }
                 Some(name) => name,

@@ -964,6 +964,7 @@ win-mcp-set-group = Set Group
 win-mcp-no-sessions = No saved sessions.
 win-mcp-sensitive-notice = Terminal contents may include sensitive information.
 win-mcp-grant-failed = Could not change the MCP access level.
+win-mcp-grant-read-failed = Could not read the MCP access levels.
 win-mcp-access-save-failed = The session was saved, but its MCP access level could not be saved: { $detail }
 win-mcp-audit = Audit Log
 win-mcp-all-sessions = All sessions

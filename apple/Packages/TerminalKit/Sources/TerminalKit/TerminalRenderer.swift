@@ -430,10 +430,17 @@ public final class TerminalRenderer {
         )
     }
 
-    private func addGlyph(_ entry: GlyphEntry, x: Int, y: Int, color: SIMD4<Float>) {
+    private func addGlyph(_ entry: GlyphEntry, x: Int, y: Int, color: SIMD4<Float>, scale: Float = 1) {
         guard !entry.isEmpty else { return }
+        let w = Float(entry.width) * scale
+        let h = Float(entry.height) * scale
         let instance = GlyphInstance(
-            rect: SIMD4(Float(x), Float(y), Float(entry.width), Float(entry.height)), uv: entry.uv, color: color
+            rect: SIMD4(
+                Float(x) + Float(entry.width) * (1 - scale) / 2,
+                Float(y) + Float(entry.height) * (1 - scale) / 2,
+                w, h
+            ),
+            uv: entry.uv, color: color
         )
         if entry.isColor {
             while colorInstances.count <= entry.page { colorInstances.append([]) }
@@ -442,6 +449,37 @@ public final class TerminalRenderer {
             while grayInstances.count <= entry.page { grayInstances.append([]) }
             grayInstances[entry.page].append(instance)
         }
+    }
+
+    /// 私有区里的 Powerline / Nerd Font 图标。历史提示符不画，避免依赖特殊字体。
+    private static func isSpecialSymbol(_ ch: UInt32) -> Bool {
+        (0xE000...0xF8FF).contains(ch) || (0xF0000...0xFFFFD).contains(ch) || (0x100000...0x10FFFD).contains(ch)
+    }
+
+    /// 已经执行过的提示符行（命令行和输出不算）。当前待输入的块除外。
+    private func historicalPrompt(frame: FrameSnapshot, row: Int) -> Bool {
+        let blocks = frame.commandBlocks
+        guard !blocks.isEmpty else { return false }
+        let line = frame.lineMeta(row: row).absLine
+        let live = blocks.first { $0.latest && !$0.running && $0.commandLine == nil }
+        return blocks.contains { block in
+            if let live, block.id == live.id { return false }
+            if let command = block.commandLine {
+                return block.startLine <= line && line < command
+            }
+            return block.startLine <= line && line <= block.endLine
+        }
+    }
+
+    /// 最新且尚未执行命令的块才是待输入提示符。没有命令块时无法区分，全部按当前提示符画。
+    private func chipEmphasized(frame: FrameSnapshot, row: Int) -> Bool {
+        let blocks = frame.commandBlocks
+        guard !blocks.isEmpty else { return true }
+        guard let live = blocks.first(where: { $0.latest && !$0.running && $0.commandLine == nil }) else {
+            return false
+        }
+        let line = frame.lineMeta(row: row).absLine
+        return live.startLine <= line && line <= live.endLine
     }
 
     private func encode(
@@ -491,6 +529,8 @@ public final class TerminalRenderer {
         for row in 0..<rows {
             let rowY = l.originY + row * m.cellHeight
             let meta = frame.lineMeta(row: row)
+            let rowEmphasized = chipEmphasized(frame: frame, row: row)
+            let rowQuiet = historicalPrompt(frame: frame, row: row)
 
             if !altScreen {
                 // 命令分隔线：提示符行上方 1 设备像素，横跨整个视图（包括栏）。同一行只画一条由 core 去重保证。
@@ -555,6 +595,7 @@ public final class TerminalRenderer {
                 // dim 在对比度保护之后应用：SGR 2 的本意就是降低强调度，不应被保护逻辑抵消。
                 var glyphFg = fg
                 if cell.flags.contains(.dim) { glyphFg = fg.mixed(with: bg, 0.4) }
+                if rowQuiet { glyphFg = glyphFg.mixed(with: palette.background, 0.55) }
 
                 // ---- 背景（行内同色合并）----
                 // 默认背景色等于清屏色，不需要实例；其余颜色按行内连续的同色段合并成一个色块。
@@ -569,9 +610,12 @@ public final class TerminalRenderer {
                 let cellWidthPx = m.cellWidth * span
 
                 // ---- 字形 ----
-                if !cell.flags.contains(.hidden) {
+                if !cell.flags.contains(.hidden), !(rowQuiet && Self.isSpecialSymbol(cell.ch)) {
                     var entry: GlyphEntry?
-                    let bold = cell.flags.contains(.bold), italic = cell.flags.contains(.italic)
+                    // 历史提示符去掉目录粗体；当前待输入的提示符保留。
+                    let bold = cell.flags.contains(.bold) && !rowQuiet
+                        && !(cell.flags.contains(.chip) && !rowEmphasized)
+                    let italic = cell.flags.contains(.italic)
                     if cell.extra != 0, let cluster = frame.grapheme(for: cell) {
                         entry = atlas.entry(cluster: cluster, bold: bold, italic: italic, wide: wide, face: .terminal)
                     } else if cell.ch > 0x20, cell.ch != 0x7F {
@@ -579,9 +623,10 @@ public final class TerminalRenderer {
                     }
                     if let entry {
                         let color = entry.isColor
-                            ? SIMD4<Float>(1, 1, 1, cell.flags.contains(.dim) ? 0.6 : 1)
+                            ? SIMD4<Float>(1, 1, 1, (cell.flags.contains(.dim) || rowQuiet) ? 0.6 : 1)
                             : Self.vec(glyphFg)
-                        addGlyph(entry, x: x + Int(entry.offsetX), y: rowY + Int(entry.offsetY), color: color)
+                        addGlyph(entry, x: x + Int(entry.offsetX), y: rowY + Int(entry.offsetY), color: color,
+                                 scale: rowQuiet ? 0.8 : 1)
                     }
                 }
 
@@ -616,11 +661,14 @@ public final class TerminalRenderer {
                 let right = l.originX + chipCol * m.cellWidth
                 let y = rowY + inset
                 let height = m.cellHeight - inset * 2
-                let radius = Float(min(height / 2, max(3, m.cellWidth / 2)))
-                bgInstances.append(rect(x, y, right - x, height, Self.vec(palette.chipBorder), style: 4,
-                                        params: SIMD4(0, radius, 0, 0)))
-                bgInstances.append(rect(x + 1, y + 1, right - x - 2, height - 2, Self.vec(palette.chipBackground), style: 4,
-                                        params: SIMD4(0, radius - 1, 0, 0)))
+                // 约 3 逻辑像素。按半个字宽会收成胶囊，在黑底上显得突兀。
+                let radius = Float(min(height / 2, max(2 * stroke, Int((3.0 * scale).rounded()))))
+                if rowEmphasized {
+                    bgInstances.append(rect(x, y, right - x, height, Self.vec(palette.chipBorder), style: 4,
+                                            params: SIMD4(0, radius, 0, 0)))
+                    bgInstances.append(rect(x + 1, y + 1, right - x - 2, height - 2, Self.vec(palette.chipBackground), style: 4,
+                                            params: SIMD4(0, max(0, radius - 1), 0, 0)))
+                }
             }
         }
 

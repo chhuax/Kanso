@@ -958,6 +958,7 @@ win-mcp-set-group = 设置分组
 win-mcp-no-sessions = 没有已保存的会话。
 win-mcp-sensitive-notice = 终端内容可能包含敏感信息。
 win-mcp-grant-failed = 无法更改 MCP 访问级别。
+win-mcp-grant-read-failed = 无法读取 MCP 访问级别。
 win-mcp-access-save-failed = 会话已保存，但无法保存它的 MCP 访问级别：{ $detail }
 win-mcp-audit = 审计日志
 win-mcp-all-sessions = 所有会话

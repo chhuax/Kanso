@@ -30,10 +30,22 @@ enum SessionColorPresets {
     ]
 }
 
-/// 会话的 MCP 访问级别。与设置页读写同一份 `mcpAccess`。
+/// 会话的 MCP 访问级别读写。会话编辑对话框和会话启动器读写同一份 `mcpAccess`，设置页只读取
+/// `mcpAccesses()` 统计数量。抽成协议是为了测试注入可失败、可记录写入的替身，不碰 core。
 protocol McpAccessStoring: AnyObject, Sendable {
     func mcpAccess(profileId: String) throws -> FfiMcpAccess
     func setMcpAccess(profileId: String, level: FfiMcpAccess) throws
+    /// 全部级别不是「关闭」的授权。一次读出，供列表批量标记，不要逐个会话调 `mcpAccess`。
+    /// 读库失败会抛错：调用方不得把失败当成「全部关闭」，应显示读取失败并禁用依赖授权状态的操作。
+    func mcpAccesses() throws -> [FfiMcpGrant]
+}
+
+extension McpAccessStoring {
+    /// 会话 id → 级别，只含不是「关闭」的会话；启动器与活动记录窗口共用。
+    /// 读失败原样抛出，由调用方决定怎么提示；id 重复时取后出现的（core 不会返回重复项，仅作防御）。
+    func mcpLevelMap() throws -> [String: FfiMcpAccess] {
+        Dictionary(try mcpAccesses().map { ($0.profileId, $0.level) }, uniquingKeysWith: { _, new in new })
+    }
 }
 
 extension KansoCore: McpAccessStoring {}

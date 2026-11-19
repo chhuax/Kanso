@@ -204,6 +204,8 @@ final class SessionLauncherViewController: NSViewController, NSTextFieldDelegate
             return view
         case .profile(let profile):
             let view = LauncherProfileRowView(profile: profile)
+            // 读失败时授权未知，不显示标记（`.off` 即不显示），免得把未知当成已关闭或已授权。
+            view.mcpLevel = model.mcpReadError == nil ? model.mcpLevel(of: profile.id) : .off
             view.isSelected = profile.id == model.selectedID
             view.onClick = { [weak self] in self?.actions.connect(profile.id) }
             view.onMenu = { [weak self] anchor in self?.showProfileMenu(profile, from: anchor) }
@@ -238,6 +240,11 @@ final class SessionLauncherViewController: NSViewController, NSTextFieldDelegate
     }
 
     private func showProfileMenu(_ profile: FfiProfile, from anchor: NSView) {
+        popUp(makeProfileMenu(profile), from: anchor)
+    }
+
+    /// 会话行「…」菜单。单独成函数是为了测试能不弹出就检查菜单内容。
+    func makeProfileMenu(_ profile: FfiProfile) -> NSMenu {
         let menu = NSMenu()
         menu.addItem(ActionMenuItem(String(localized: "Edit")) { [weak self] in self?.actions.edit(profile) })
         let moveItem = NSMenuItem(title: String(localized: "Move to Group"), action: nil, keyEquivalent: "")
@@ -252,16 +259,67 @@ final class SessionLauncherViewController: NSViewController, NSTextFieldDelegate
         }
         moveItem.submenu = moveMenu
         menu.addItem(moveItem)
+        if model.supportsMcpAccess {
+            let accessItem = NSMenuItem(title: String(localized: "MCP Access"), action: nil, keyEquivalent: "")
+            let accessMenu = NSMenu()
+            let current = model.mcpLevel(of: profile.id)
+            // 关闭自动启用：否则 AppKit 验证菜单时会因 target/action 有效而把手动禁用的项重新启用。
+            accessMenu.autoenablesItems = false
+            addMcpReadErrorItem(to: accessMenu)
+            for level in McpText.accessLevels {
+                let item = ActionMenuItem(McpText.accessTitle(level), checked: model.mcpReadError == nil && level == current) { [weak self] in
+                    self?.setMcpAccess([profile.id], to: level)
+                }
+                item.isEnabled = model.mcpReadError == nil
+                accessMenu.addItem(item)
+            }
+            accessItem.submenu = accessMenu
+            menu.addItem(accessItem)
+        }
         menu.addItem(.separator())
         menu.addItem(ActionMenuItem(String(localized: "Delete…")) { [weak self] in self?.delete(profile) })
-        popUp(menu, from: anchor)
+        return menu
     }
 
     private func showGroupMenu(_ group: FfiGroup, from anchor: NSView) {
+        popUp(makeGroupMenu(group), from: anchor)
+    }
+
+    /// 分组标题行「…」菜单；同样单独成函数供测试使用。
+    func makeGroupMenu(_ group: FfiGroup) -> NSMenu {
         let menu = NSMenu()
         menu.addItem(ActionMenuItem(String(localized: "Rename…")) { [weak self] in self?.rename(group) })
+        if model.supportsMcpAccess {
+            // 没有「当前级别」可勾：组内会话级别可以各不相同，所以只提供「整组设为…」。
+            let accessItem = NSMenuItem(title: String(localized: "MCP Access"), action: nil, keyEquivalent: "")
+            let accessMenu = NSMenu()
+            // 关闭自动启用：否则 AppKit 验证菜单时会因 target/action 有效而把手动禁用的项重新启用。
+            accessMenu.autoenablesItems = false
+            addMcpReadErrorItem(to: accessMenu)
+            for level in McpText.accessLevels {
+                let item = ActionMenuItem(String(localized: "Set Whole Group to \(McpText.accessTitle(level))")) { [weak self] in
+                    guard let self else { return }
+                    setMcpAccess(model.profileIDs(inGroup: group.id), to: level)
+                }
+                item.isEnabled = model.mcpReadError == nil
+                accessMenu.addItem(item)
+            }
+            accessItem.submenu = accessMenu
+            menu.addItem(accessItem)
+        }
+        // 破坏性的「删除…」放最后并用分隔线隔开，与会话菜单一致，避免误点。
+        menu.addItem(.separator())
         menu.addItem(ActionMenuItem(String(localized: "Delete…")) { [weak self] in self?.delete(group) })
-        popUp(menu, from: anchor)
+        return menu
+    }
+
+    /// 授权读取失败时，在「MCP 访问」子菜单顶部放一条禁用的说明项（后面的级别项也已禁用）；读取成功则什么也不加。
+    private func addMcpReadErrorItem(to menu: NSMenu) {
+        guard let reason = model.mcpReadError else { return }
+        let item = NSMenuItem(title: String(localized: "Could not read the MCP access level: \(reason)"), action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        menu.addItem(item)
+        menu.addItem(.separator())
     }
 
     private func move(_ profile: FfiProfile, to groupID: String?) {
@@ -271,6 +329,49 @@ final class SessionLauncherViewController: NSViewController, NSTextFieldDelegate
         } catch {
             showFailure(error)
         }
+    }
+
+    /// 设置一个或一组会话的 MCP 访问级别。从「关闭」调高时先确认（敏感内容提示，spec/mcp.md §2）；
+    /// 确认框是 sheet，会让浮层失焦关闭，所以走 `withDialog`（先关浮层、做完再重开）。
+    /// 不需要确认时直接写入并刷新列表，不关浮层；但写入失败要弹错误框，错误框同样是 sheet，
+    /// 所以失败时也走 `withDialog`，与确认路径一致（否则浮层失焦关闭时错误框会连带消失或错位）。
+    private func setMcpAccess(_ ids: [String], to level: FfiMcpAccess) {
+        // 读授权失败时菜单项已禁用；这里再挡一次，防止状态未知时写入。
+        guard !ids.isEmpty, model.mcpReadError == nil else { return }
+        let model = model, dialogs = dialogs
+        guard model.raisesMcpAccessFromOff(ids, to: level) else {
+            let result = model.setMcpAccess(ids, to: level)
+            // 部分成功时成功的会话已是新级别，列表必须刷新。
+            rebuild()
+            if result.firstError != nil {
+                actions.withDialog { Self.reportMcpAccessFailure(result, dialogs: dialogs) }
+            }
+            return
+        }
+        actions.withDialog {
+            guard await dialogs.confirm(
+                title: McpText.raiseConfirmTitle(plural: ids.count > 1), message: McpText.sensitiveNotice,
+                confirmTitle: String(localized: "Open"), destructive: false
+            ) else { return }
+            Self.applyMcpAccess(ids, to: level, model: model, dialogs: dialogs)
+        }
+    }
+
+    /// 写入并在有失败时汇总报错；成功的会话保持新级别。
+    private static func applyMcpAccess(_ ids: [String], to level: FfiMcpAccess, model: SessionLauncherModel, dialogs: SessionDialogs) {
+        reportMcpAccessFailure(model.setMcpAccess(ids, to: level), dialogs: dialogs)
+    }
+
+    /// 有失败时汇总弹一次错误；没有失败什么也不做。
+    private static func reportMcpAccessFailure(_ result: SessionLauncherModel.McpAccessChange, dialogs: SessionDialogs) {
+        guard let error = result.firstError else { return }
+        let reason = CoreMessageText.text(for: error)
+        dialogs.showError(
+            title: String(localized: "Could not change MCP access"),
+            message: result.total > 1
+                ? String(localized: "\(result.failed) of \(result.total) sessions could not be changed: \(reason)")
+                : reason
+        )
     }
 
     private func createGroup() {
@@ -514,6 +615,14 @@ final class LauncherHeaderView: NSView {
     }
 }
 
+/// 行尾 MCP 标记：不拦截鼠标事件，点击标记等同点击整行（行的 `mouseDown` 负责连接）。
+/// 不能直接用 `NSImageView`：它会吃掉 mouseDown，点在标记上就连不上会话。
+/// hitTest 返回 nil 后视图自带的 toolTip 不再显示，提示由行视图用 `addToolTip` 给标记区域补上。
+@MainActor
+final class PassthroughImageView: NSImageView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 /// 会话行：小方块色点、名称、`user@host:port`。启动器右侧只留「…」；命令面板可关掉按钮。
 /// 单击整行连接。右键与「…」打开同一份菜单。
 @MainActor
@@ -526,11 +635,34 @@ final class LauncherProfileRowView: LauncherHoverRow {
     private let titleLabel = PassthroughLabel(labelWithString: "")
     private let subtitleLabel = PassthroughLabel(labelWithString: "")
     private let menuButton = KButton(symbol: "ellipsis", style: .icon)
+    private let mcpBadge = PassthroughImageView()
+    /// 标记区域的悬停提示在行视图上的注册号；布局变化时要先移除再重新登记。
+    private var mcpBadgeToolTipTag: NSView.ToolTipTag?
+    private var mcpBadgeToolTipText: String?
     private let showsAccessoryButtons: Bool
+
+    /// 会话对 AI 工具开放的级别；不是「关闭」时行尾显示 MCP 标记，悬停显示级别。
+    var mcpLevel: FfiMcpAccess = .off {
+        didSet {
+            mcpBadge.isHidden = mcpLevel == .off
+            mcpBadgeToolTipText = mcpLevel == .off ? nil : McpText.badgeTooltip(mcpLevel)
+            needsLayout = true
+        }
+    }
+
+    /// MCP 标记是否显示，供测试读取。
+    var isMcpBadgeVisible: Bool { !mcpBadge.isHidden }
+    var mcpBadgeToolTip: String? { mcpBadgeToolTipText }
+    /// 标记视图本身，供测试做 hitTest。
+    var mcpBadgeViewForTesting: NSView { mcpBadge }
 
     init(title: String, subtitle: String, color: FfiRgb?, showsAccessoryButtons: Bool = true) {
         self.showsAccessoryButtons = showsAccessoryButtons
         super.init(frame: .zero)
+        mcpBadge.image = .symbol("point.3.connected.trianglepath.dotted", description: String(localized: "MCP access"))
+        mcpBadge.imageScaling = .scaleProportionallyDown
+        mcpBadge.contentTintColor = .token(DesignTokens.Color.textTertiary)
+        mcpBadge.isHidden = true
         swatch.rgb = color
         titleLabel.stringValue = title
         titleLabel.font = .systemFont(ofSize: DesignTokens.Font.uiBody)
@@ -540,7 +672,7 @@ final class LauncherProfileRowView: LauncherHoverRow {
         subtitleLabel.font = .systemFont(ofSize: DesignTokens.Font.uiCaption)
         subtitleLabel.textColor = .token(DesignTokens.Color.textSecondary)
         subtitleLabel.lineBreakMode = .byTruncatingMiddle
-        var views: [NSView] = [swatch, titleLabel, subtitleLabel]
+        var views: [NSView] = [swatch, titleLabel, subtitleLabel, mcpBadge]
         if showsAccessoryButtons {
             menuButton.toolTip = String(localized: "More")
             menuButton.onPress = { [weak self] in
@@ -570,13 +702,20 @@ final class LauncherProfileRowView: LauncherHoverRow {
         super.layout()
         let inset = Self.contentInset - 2
         let h = bounds.height
-        let textTrailing: CGFloat
+        var textTrailing: CGFloat
         if showsAccessoryButtons {
             menuButton.frame = NSRect(x: bounds.width - inset - 24, y: (h - 24) / 2, width: 24, height: 24)
             textTrailing = menuButton.frame.minX - DesignTokens.Spacing.xs
         } else {
             textTrailing = bounds.width - inset
         }
+        if !mcpBadge.isHidden {
+            // 标记贴在文字列右端、编辑按钮之前；文字让出它的位置。
+            mcpBadge.frame = NSRect(x: textTrailing - 14, y: (h - 14) / 2, width: 14, height: 14)
+            textTrailing = mcpBadge.frame.minX - DesignTokens.Spacing.xs
+        }
+        if let mcpBadgeToolTipTag { removeToolTip(mcpBadgeToolTipTag) }
+        mcpBadgeToolTipTag = mcpBadge.isHidden ? nil : addToolTip(mcpBadge.frame, owner: self, userData: nil)
         let textX = inset + 22
         let textW = max(0, textTrailing - textX)
         let titleH = ceil(titleLabel.intrinsicContentSize.height)
@@ -600,6 +739,12 @@ final class LauncherProfileRowView: LauncherHoverRow {
     override func accessibilityPerformPress() -> Bool {
         onClick?()
         return true
+    }
+}
+
+extension LauncherProfileRowView: NSViewToolTipOwner {
+    nonisolated func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
+        MainActor.assumeIsolated { mcpBadgeToolTipText ?? "" }
     }
 }
 

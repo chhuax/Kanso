@@ -1,5 +1,6 @@
 import Foundation
 import KansoBridge
+import KansoUI
 
 /// 会话启动器的视图模型：搜索、分组归类、选中项、分组与会话的增删改。不依赖 AppKit，可直接驱动测试。
 ///
@@ -13,6 +14,16 @@ final class SessionLauncherModel {
     }
 
     let store: SessionStore
+    /// MCP 访问级别的读写。nil 表示渠道不支持 MCP（MAS / Setapp）：启动器不显示 MCP 菜单与标记。
+    let mcpAccess: (any McpAccessStoring)?
+
+    /// 一次批量设置 MCP 访问级别的结果；成功的会话保持新级别，失败的不回滚。
+    struct McpAccessChange {
+        let total: Int
+        let failed: Int
+        /// 第一个失败的错误，用来给用户说明原因；全部成功为 nil。
+        let firstError: Error?
+    }
 
     private(set) var sections: [Section] = []
     private(set) var hasAnyProfile = false
@@ -20,6 +31,11 @@ final class SessionLauncherModel {
     private(set) var selectedID: String?
     private var profiles: [FfiProfile] = []
     private(set) var groups: [FfiGroup] = []
+    /// 会话 id → MCP 访问级别，只含不是「关闭」的会话；每次 `reload` 用一次 `mcpAccesses()` 刷新。
+    private var mcpLevels: [String: FfiMcpAccess] = [:]
+    /// 最近一次读取授权失败的原因；nil 表示读取成功（或渠道不支持 MCP）。
+    /// 非 nil 时授权状态未知：行尾不显示标记、MCP 菜单项禁用、不弹「从关闭调高」确认，不能当成「全部关闭」。
+    private(set) var mcpReadError: String?
     nonisolated(unsafe) private var libraryObserver: NSObjectProtocol?
 
     private(set) var collapsedGroupIDs: Set<String>
@@ -36,8 +52,9 @@ final class SessionLauncherModel {
         }
     }
 
-    init(store: SessionStore, collapsedGroupIDs: Set<String> = []) {
+    init(store: SessionStore, mcpAccess: (any McpAccessStoring)? = nil, collapsedGroupIDs: Set<String> = []) {
         self.store = store
+        self.mcpAccess = mcpAccess
         self.collapsedGroupIDs = collapsedGroupIDs
         reload()
         selectedID = visibleProfiles.first?.id
@@ -57,6 +74,14 @@ final class SessionLauncherModel {
         profiles = store.profiles().sorted(by: Self.profileByName)
         groups = store.groups().sorted(by: Self.byName)
         hasAnyProfile = !profiles.isEmpty
+        do {
+            mcpLevels = try mcpAccess?.mcpLevelMap() ?? [:]
+            mcpReadError = nil
+        } catch {
+            // 读失败时清空缓存并记下原因：留着旧值会显示过期标记，当成空表又会把未知当成「全部关闭」。
+            mcpLevels = [:]
+            mcpReadError = CoreMessageText.text(for: error)
+        }
         filterSnapshot()
     }
 
@@ -152,6 +177,48 @@ final class SessionLauncherModel {
     func deleteProfile(id: String) async throws {
         try await store.deleteProfile(id: id)
         store.notifyLibraryChanged()
+    }
+
+    // MARK: - MCP 访问
+
+    /// 渠道是否支持 MCP 访问：为假时启动器不显示 MCP 菜单与标记。
+    var supportsMcpAccess: Bool { mcpAccess != nil }
+
+    /// 会话当前的 MCP 访问级别；不在授权表里就是「关闭」。
+    func mcpLevel(of profileID: String) -> FfiMcpAccess { mcpLevels[profileID] ?? .off }
+
+    /// 分组里全部会话的 id。取自完整快照而不是 `sections`：搜索会过滤 `sections`，
+    /// 而「整组设为…」必须作用于整个分组，不能只改搜索命中的那几个。
+    func profileIDs(inGroup groupID: String) -> [String] {
+        profiles.filter { $0.group == groupID }.map(\.id)
+    }
+
+    /// 把这些会话设成 `level` 是否会让某个原来「关闭」的会话对 AI 开放：是就要先让用户确认（spec/mcp.md §2、§7.2）。
+    func raisesMcpAccessFromOff(_ ids: [String], to level: FfiMcpAccess) -> Bool {
+        // 状态未知时按「可能从关闭调高」处理（要确认）：安全上宁可多问一次，不能默认放行。
+        // 实际写入另由 `setMcpAccess` 的调用方在读失败时拒绝。
+        guard level != .off else { return false }
+        return mcpReadError != nil || ids.contains { mcpLevel(of: $0) == .off }
+    }
+
+    /// 逐个写入访问级别，成功的保留，失败的汇总进结果。写完通知会话库变化：
+    /// 启动器标记和设置页的授权数据此刷新（模型自己也通过通知重读快照）。
+    /// 只在渠道支持 MCP（`mcpAccess` 非 nil）时有意义，否则什么也不做。
+    @discardableResult
+    func setMcpAccess(_ ids: [String], to level: FfiMcpAccess) -> McpAccessChange {
+        guard let mcpAccess else { return McpAccessChange(total: 0, failed: 0, firstError: nil) }
+        var failed = 0
+        var firstError: Error?
+        for id in ids {
+            do {
+                try mcpAccess.setMcpAccess(profileId: id, level: level)
+            } catch {
+                failed += 1
+                firstError = firstError ?? error
+            }
+        }
+        store.notifyLibraryChanged()
+        return McpAccessChange(total: ids.count, failed: failed, firstError: firstError)
     }
 
     // MARK: - 分组
