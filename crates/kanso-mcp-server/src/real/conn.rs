@@ -14,6 +14,7 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWrite
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
+use super::identity::{ClientIdentity, find_own_tab};
 use super::registry::Admission;
 use super::tools::KansoHandler;
 use super::{Shared, ipc};
@@ -38,7 +39,7 @@ struct Hello {
     /// 缺失当作空串，随后按"令牌无效"处理。
     #[serde(default)]
     token: String,
-    /// 阶段 1 只记录；识别客户端所在标签（spec/mcp.md §2.5）在后续阶段使用。
+    /// 客户端的控制终端，用于识别客户端所在标签（spec/mcp.md §2.5）。
     #[serde(default)]
     tty: Option<String>,
 }
@@ -108,7 +109,34 @@ pub(super) async fn handle(stream: ipc::Stream, shared: Arc<Shared>) {
         Admission::Closed => return,
     };
 
-    serve(reader, write, shared.clone(), id, cancel).await;
+    // 祖先链在连接建立时算一次并缓存：进程存活期间它不会变；与标签的比对在每次调用时做（标签会增减）。
+    // 读进程表是同步系统调用（每层一次），放进阻塞线程池，不占 MCP 运行时的 2 个工作线程。
+    let ancestors = match pid {
+        Some(pid) => {
+            let read = shared.ancestors.clone();
+            tokio::task::spawn_blocking(move || read(pid))
+                .await
+                .unwrap_or_default()
+        }
+        None => Vec::new(),
+    };
+    let identity = Arc::new(ClientIdentity {
+        tty: hello.tty.filter(|t| !t.is_empty()),
+        ancestors,
+    });
+    let own = {
+        let core = shared.core.clone();
+        let identity = identity.clone();
+        tokio::task::spawn_blocking(move || find_own_tab(&core, &identity))
+            .await
+            .ok()
+            .flatten()
+    };
+    if own.is_some() {
+        shared.registry.set_own_session(id, own);
+    }
+
+    serve(reader, write, shared.clone(), id, cancel, identity).await;
     shared.registry.remove(id);
 }
 
@@ -119,8 +147,9 @@ async fn serve(
     shared: Arc<Shared>,
     id: u64,
     cancel: CancellationToken,
+    identity: Arc<ClientIdentity>,
 ) {
-    let handler = KansoHandler::new(shared, id);
+    let handler = KansoHandler::new(shared, id, cancel.clone(), identity);
     let running = tokio::select! {
         r = timeout(INIT_TIMEOUT, handler.serve((reader, write))) => match r {
             Ok(Ok(running)) => running,

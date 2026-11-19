@@ -16,6 +16,8 @@
 
 mod audit;
 mod conn;
+mod gate;
+mod identity;
 #[cfg(unix)]
 #[path = "real/instance.rs"]
 mod ipc;
@@ -23,6 +25,7 @@ mod ipc;
 #[path = "real/windows.rs"]
 mod ipc;
 mod registry;
+mod terminal;
 mod tools;
 
 use std::io;
@@ -37,6 +40,8 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use self::audit::AuditSink;
+pub use self::gate::ClockFn;
+use self::gate::TabGate;
 use self::registry::Registry;
 use crate::{
     McpClientInfo, McpServerConfig, McpServerDelegate, McpServerError, McpServerStatus,
@@ -50,10 +55,29 @@ const CONN_DRAIN_TIMEOUT: Duration = Duration::from_secs(1);
 /// 停止时等运行时里的任务退出的上限。
 const RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 
+/// 取进程祖先链的函数，见 `identity::ancestors`。
+pub type AncestorsFn = Arc<dyn Fn(u32) -> Vec<u32> + Send + Sync>;
+
+/// 仅供测试注入：时间来源与祖先链读取。生产代码用 [`TestHooks::default`]（真实时钟与真实进程表）。
+/// 做成注入点而不是 `cfg(test)`，是因为集成测试（`tests/`）链接的是普通构建的库。
+#[doc(hidden)]
+#[derive(Clone, Default)]
+pub struct TestHooks {
+    /// 冷却等用的单调时钟。
+    pub clock: Option<ClockFn>,
+    /// 按对端 pid 取祖先链（由近及远，含自身）。
+    pub ancestors: Option<AncestorsFn>,
+}
+
 /// 连接任务与工具共用的上下文，每次 `start` 重建（审计队列随运行时一起重建）。
 struct Shared {
     core: Arc<Core>,
+    delegate: Arc<dyn McpServerDelegate>,
     registry: Arc<Registry>,
+    /// 标签写锁与用户接管冷却，跨客户端共享。
+    gate: Arc<TabGate>,
+    /// 连接建立时取对端进程祖先链用。
+    ancestors: AncestorsFn,
     audit: AuditSink,
     /// 所有连接任务都登记在这里，停止时要等它们结束：连接任务里正在执行的工具调用，
     /// 结束时还要写审计，必须赶在审计队列关闭之前。
@@ -100,6 +124,7 @@ pub(crate) struct RealServer {
     registry: Arc<Registry>,
     /// 测试指定的目录；`None` 时按 `core.bundle_id()` 推出。
     dir: Option<PathBuf>,
+    hooks: TestHooks,
     /// 串行化 `start` / `stop`：`stop` 在释放 `inner` 之后才拆运行时，期间若放任 `start` 进来，
     /// 会出现两个运行时同时监听同一个 socket。`status()` 等只读方法不走这把锁，不会被拆除过程拖住。
     /// 加锁顺序：`lifecycle` → `inner` → `Registry`。
@@ -109,15 +134,16 @@ pub(crate) struct RealServer {
 
 impl RealServer {
     pub(crate) fn new(core: Arc<Core>, delegate: Arc<dyn McpServerDelegate>) -> RealServer {
-        RealServer::with_dir(core, delegate, None)
+        RealServer::with_dir(core, delegate, None, TestHooks::default())
     }
 
     pub(crate) fn in_dir(
         core: Arc<Core>,
         delegate: Arc<dyn McpServerDelegate>,
         dir: PathBuf,
+        hooks: TestHooks,
     ) -> RealServer {
-        RealServer::with_dir(core, delegate, Some(dir))
+        RealServer::with_dir(core, delegate, Some(dir), hooks)
     }
 
     /// 构造时就取锁：App 从启动起就要持有它，转发程序靠它区分"未运行"与"开关关闭"。
@@ -125,11 +151,13 @@ impl RealServer {
         core: Arc<Core>,
         delegate: Arc<dyn McpServerDelegate>,
         dir: Option<PathBuf>,
+        hooks: TestHooks,
     ) -> RealServer {
         let server = RealServer {
             registry: Arc::new(Registry::new(delegate.clone())),
             delegate,
             dir,
+            hooks,
             lifecycle: Mutex::new(()),
             inner: Mutex::new(Inner {
                 status: McpServerStatus::Stopped,
@@ -255,9 +283,21 @@ impl RealServer {
         let shutdown = CancellationToken::new();
         let (sink, rx) = audit::channel();
         let conns = TaskTracker::new();
+        let clock = self
+            .hooks
+            .clock
+            .clone()
+            .unwrap_or_else(|| Arc::new(std::time::Instant::now));
         let shared = Arc::new(Shared {
             core: self.core.clone(),
+            delegate: self.delegate.clone(),
             registry: self.registry.clone(),
+            gate: TabGate::new(clock),
+            ancestors: self
+                .hooks
+                .ancestors
+                .clone()
+                .unwrap_or_else(|| Arc::new(identity::ancestors)),
             audit: sink,
             conns: conns.clone(),
         });

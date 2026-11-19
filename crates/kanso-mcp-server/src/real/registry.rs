@@ -168,6 +168,21 @@ impl Registry {
         self.update(id, |c| c.name = name);
     }
 
+    /// 记录识别出的客户端所在标签（spec/mcp.md §2.5）。
+    pub(super) fn set_own_session(&self, id: u64, session: Option<kanso_types::SessionId>) {
+        self.update(id, |c| c.own_session = session);
+    }
+
+    /// 客户端当前的名称（活动标识要显示）；客户端已不存在时为空串。
+    pub(super) fn client_name(&self, id: u64) -> String {
+        self.lock()
+            .clients
+            .iter()
+            .find(|c| c.info.id == id)
+            .map(|c| c.info.name.clone())
+            .unwrap_or_default()
+    }
+
     /// 工具调用计数加一，返回客户端当前的名称（审计要用）；客户端已不存在时为空串。
     pub(super) fn add_call(&self, id: u64) -> String {
         let mut g = self.lock();
