@@ -263,8 +263,10 @@ final class DisplaySettingsTests: XCTestCase {
             try JSONSerialization.data(withJSONObject: json).write(to: file)
         }
         try writeTheme(background: "#123456")
-        XCTAssertEqual(page.darkThemePopUp.makeMenu().items.map(\.title), ["Kanso Light", "Kanso Dark", "Ocean"])
-        page.darkThemePopUp.userSelect(at: 2)
+        // 内置配色会随版本增加，只断言文件配色排在全部内置配色之后，并按名字取下标，避免新增内置配色时选错项。
+        let titles = page.darkThemePopUp.makeMenu().items.map(\.title)
+        XCTAssertEqual(titles, TerminalTheme.builtIn.map(\.name) + ["Ocean"])
+        page.darkThemePopUp.userSelect(at: try XCTUnwrap(titles.firstIndex(of: "Ocean")))
         XCTAssertEqual(settings.appearance.darkTheme, "file:ocean")
         XCTAssertEqual(page.lightThemePopUp.selectedTitle, "Kanso Light")
 
