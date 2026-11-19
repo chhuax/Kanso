@@ -33,9 +33,8 @@ use kanso_encoding::{StreamDecoder, TextEncoding, encode_text};
 use kanso_frame::Frame;
 use kanso_ssh::{ChannelWriter, Connection, PtyRequest, SftpClient, SshError};
 use kanso_term::{
-    InputKind, KeyOptions, MouseOutcome, OptionAsMeta, Platform as KeyPlatform, Registered,
-    ScrollAction, SearchQuery, SearchStatus, ShellFlavor, TermConfig, TermEvent, Terminal,
-    encode_key, encode_paste, encode_scroll, quote_paths,
+    InputKind, MouseOutcome, Registered, ScrollAction, SearchQuery, SearchStatus, ShellFlavor,
+    TermConfig, TermEvent, Terminal, encode_key, encode_paste, encode_scroll, quote_paths,
 };
 use kanso_types::agent::AgentKind;
 use kanso_types::event::{Activity, CloseReason, SessionState};
@@ -51,7 +50,7 @@ use tokio::task::AbortHandle;
 
 use crate::activity::{ActivityHost, ActivityHub};
 use crate::host::SessionHost;
-use crate::local::{DEFAULT_SCROLLBACK_LINES, lock, to_session_encoding, unix_ms};
+use crate::local::{DEFAULT_SCROLLBACK_LINES, key_options, lock, to_session_encoding, unix_ms};
 
 /// 关闭会话时等待远端通道关闭的上限；对端无响应不能卡住收尾（应用退出路径也会走这里）。
 const CHANNEL_CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
@@ -315,6 +314,36 @@ impl Shared {
     }
 }
 
+impl crate::mcp::McpHost for Shared {
+    fn hub(&self) -> &ActivityHub {
+        &self.activity
+    }
+
+    fn encoding(&self) -> TextEncoding {
+        self.encoding
+    }
+
+    fn transfer(&self) -> &crate::transfer::TerminalTransfer {
+        &self.transfer
+    }
+
+    fn connected(&self) -> bool {
+        *lock(&self.lifecycle) == SessionState::Connected
+            && !self.ended.load(Ordering::Acquire)
+            && !self.user_closing.load(Ordering::Acquire)
+    }
+
+    fn write(&self, bytes: Vec<u8>) -> bool {
+        lock(&self.write_tx)
+            .as_ref()
+            .is_some_and(|writer| writer.send(WriteCmd::Data(bytes)).is_ok())
+    }
+
+    fn scroll_to_bottom(&self) {
+        self.with_term(Terminal::scroll_to_bottom);
+    }
+}
+
 impl ActivityHost for Shared {
     fn command_submitted(&self, text: &str) {
         self.host.record_command(text, &self.history_host);
@@ -506,10 +535,7 @@ impl SshSession {
         if self.shared.input_blocked() {
             return;
         }
-        let opts = KeyOptions {
-            platform: KeyPlatform::Mac,
-            option_as_meta: OptionAsMeta::Off,
-        };
+        let opts = key_options();
         let bytes = self.shared.with_term(|t| {
             let bytes = encode_key(event, &t.modes(), &opts);
             if bytes.is_some() {
@@ -548,7 +574,12 @@ impl SshSession {
             return;
         }
         self.shared.with_term(Terminal::scroll_to_bottom);
-        for kind in InputKind::of_text(text) {
+        let kinds = InputKind::of_text(text);
+        if kinds.is_empty() {
+            // 理由同本地会话：目录选择器的私有序列仍是用户的操作。
+            self.shared.activity.note_user_input();
+        }
+        for kind in kinds {
             self.shared.activity.on_input(&*self.shared, kind);
         }
         self.shared
@@ -658,6 +689,36 @@ impl SshSession {
     /// 没有命令在运行时立即返回 `true`；会话结束会立即唤醒并返回 `true`。
     pub fn wait_command_idle(&self, timeout: Duration) -> bool {
         self.shared.activity.wait_idle(timeout)
+    }
+
+    /// 命令跟踪与终端传输的状态（MCP 判断前置条件用）。
+    pub fn mcp_track_state(&self) -> crate::mcp::McpTrackState {
+        crate::mcp::track_state(&*self.shared)
+    }
+
+    /// 会话是否已结束（含用户正在关闭）；终端此时被锁定（terminal.md §13）。
+    pub fn is_locked(&self) -> bool {
+        self.shared.ended.load(Ordering::Acquire)
+            || self.shared.user_closing.load(Ordering::Acquire)
+    }
+
+    /// 读取终端文本，规则见 `kanso_term::Terminal::read_text`。纯 SFTP 会话没有终端，调用方须先排除。
+    pub fn mcp_read(&self, scope: kanso_term::ReadScope) -> crate::mcp::McpScreen {
+        crate::mcp::read_screen(&*self.shared, scope)
+    }
+
+    /// 输入一行命令并等它返回提示符，见 `mcp` 模块文档。取消安全。
+    pub async fn mcp_run(&self, command: &str, timeout: Duration) -> crate::mcp::McpRun {
+        crate::mcp::run(&*self.shared, command, timeout).await
+    }
+
+    /// 输入文字与按键，可选等输出安静，见 `mcp` 模块文档。取消安全。
+    pub async fn mcp_send(
+        &self,
+        inputs: Vec<crate::mcp::McpWrite>,
+        settle: Option<Duration>,
+    ) -> crate::mcp::McpSend {
+        crate::mcp::send(&*self.shared, inputs, settle).await
     }
 
     /// 鼠标事件：程序开启了鼠标上报时转成上报序列写回，否则由终端处理选区。

@@ -208,17 +208,18 @@ fn real_unimplemented_mcp_methods_do_not_panic() {
     let p = ProfileId::new();
     let limits = WaitLimits::default();
     assert_eq!(core.mcp_session_status(s), None);
+    // 终端的读取、命令与输入已实现（行为见 real_core.rs）：不存在的会话是 NoSuchSession。
     assert_eq!(
         core.terminal_text(s, TextScope::Screen, 1024),
-        Err(CoreError::NotSupported)
+        Err(CoreError::NoSuchSession(s))
     );
     assert_eq!(
         rt.block_on(core.mcp_terminal_run(s, "ls", limits)),
-        Err(CoreError::NotSupported)
+        Err(CoreError::NoSuchSession(s))
     );
     assert_eq!(
         rt.block_on(core.mcp_terminal_send(s, vec![McpInput::Text("q".into())], None, 1024)),
-        Err(CoreError::NotSupported)
+        Err(CoreError::NoSuchSession(s))
     );
     assert_eq!(
         rt.block_on(core.mcp_connect(p, ConnectMode::ReuseOnly)),

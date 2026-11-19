@@ -207,6 +207,66 @@ impl Session {
         }
     }
 
+    /// 本地会话 PTY 从设备的路径；其他会话为 `None`。
+    pub fn tty_path(&self) -> Option<String> {
+        match self {
+            Session::Local(s) => s.tty_path(),
+            Session::Ssh(_) => None,
+        }
+    }
+
+    /// 本地会话 shell 进程的 pid；其他会话为 `None`。
+    pub fn shell_pid(&self) -> Option<u32> {
+        match self {
+            Session::Local(s) => s.pid(),
+            Session::Ssh(_) => None,
+        }
+    }
+
+    /// 命令跟踪与终端传输的状态。纯 SFTP 会话没有终端，调用方须先排除。
+    pub fn mcp_track_state(&self) -> crate::mcp::McpTrackState {
+        match self {
+            Session::Local(s) => s.mcp_track_state(),
+            Session::Ssh(s) => s.mcp_track_state(),
+        }
+    }
+
+    /// 终端是否已锁定（会话已结束，terminal.md §13）。
+    pub fn is_locked(&self) -> bool {
+        match self {
+            Session::Local(s) => s.is_locked(),
+            Session::Ssh(s) => s.is_locked(),
+        }
+    }
+
+    /// 读取终端文本（MCP）。纯 SFTP 会话没有终端，调用方须先排除。
+    pub fn mcp_read(&self, scope: kanso_term::ReadScope) -> crate::mcp::McpScreen {
+        match self {
+            Session::Local(s) => s.mcp_read(scope),
+            Session::Ssh(s) => s.mcp_read(scope),
+        }
+    }
+
+    /// 输入一行命令并等它返回提示符（MCP）。取消安全，见 `mcp` 模块文档。
+    pub async fn mcp_run(&self, command: &str, timeout: Duration) -> crate::mcp::McpRun {
+        match self {
+            Session::Local(s) => s.mcp_run(command, timeout).await,
+            Session::Ssh(s) => s.mcp_run(command, timeout).await,
+        }
+    }
+
+    /// 输入文字与按键，可选等输出安静（MCP）。取消安全，见 `mcp` 模块文档。
+    pub async fn mcp_send(
+        &self,
+        inputs: Vec<crate::mcp::McpWrite>,
+        settle: Option<Duration>,
+    ) -> crate::mcp::McpSend {
+        match self {
+            Session::Local(s) => s.mcp_send(inputs, settle).await,
+            Session::Ssh(s) => s.mcp_send(inputs, settle).await,
+        }
+    }
+
     fn close_by_user(&self) -> Option<JoinHandle<()>> {
         match self {
             Session::Local(s) => s.close_by_user(),

@@ -32,6 +32,11 @@ struct Fixture {
 }
 
 fn fixture() -> Fixture {
+    fixture_with_env(&[])
+}
+
+/// 同 [`fixture`]，另给子进程加几个环境变量（MCP 测试用 `PS1` 固定提示符）。
+fn fixture_with_env(extra_env: &[(&str, &str)]) -> Fixture {
     let tmp = tempfile::tempdir().unwrap();
     let home = tmp.path().join("home");
     std::fs::create_dir_all(&home).unwrap();
@@ -42,10 +47,20 @@ fn fixture() -> Fixture {
     let core = Core::new_with_base_env(
         config,
         Platform::for_tests(sink.clone()),
-        vec![
-            ("PATH".into(), "/usr/bin:/bin:/usr/sbin:/sbin".into()),
-            ("HOME".into(), home.to_string_lossy().into_owned()),
-        ],
+        [
+            (
+                "PATH".to_owned(),
+                "/usr/bin:/bin:/usr/sbin:/sbin".to_owned(),
+            ),
+            ("HOME".to_owned(), home.to_string_lossy().into_owned()),
+        ]
+        .into_iter()
+        .chain(
+            extra_env
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned())),
+        )
+        .collect::<Vec<_>>(),
     )
     .unwrap();
     Fixture {
@@ -909,5 +924,584 @@ fn unimplemented_methods_do_not_panic() {
     assert_eq!(
         rt.block_on(c.restore_purchases()),
         Err(CoreError::NotSupported)
+    );
+}
+
+// ---- MCP：终端状态、读取、命令执行与输入（F9 阶段 2，spec/mcp.md §3.2、§3.3、§4.2、§4.3、§5）----
+
+use kanso_core::mcp::{
+    MCP_TEXT_LIMIT, McpInput, TerminalBusy, TerminalRunOutcome, TerminalSendOutcome, TextScope,
+    WaitLimits,
+};
+use kanso_types::event::Activity;
+
+/// 无 OSC 133 的固定提示符。子进程从环境继承 `PS1`（交互式 sh 不会覆盖已有的 PS1）。
+const PLAIN_PS1: &str = "K> ";
+/// 带 OSC 133 A / B 的固定提示符。`\x01` / `\x02` 是 readline 的"不可见字符"标记，
+/// 不加的话 readline 会把转义序列算进提示符宽度。C / D 由测试命令自己输出。
+const OSC_PS1: &str = "\x01\x1b]133;A\x07\x02K> \x01\x1b]133;B\x07\x02";
+
+fn mcp_rt() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+}
+
+fn limits(timeout_ms: u64) -> WaitLimits {
+    WaitLimits {
+        timeout: Duration::from_millis(timeout_ms),
+        max_bytes: MCP_TEXT_LIMIT,
+    }
+}
+
+fn key(key: kanso_types::Key, ctrl: bool) -> KeyEvent {
+    KeyEvent {
+        key,
+        mods: Modifiers {
+            ctrl,
+            ..Modifiers::NONE
+        },
+        text: None,
+        kind: KeyEventKind::Press,
+    }
+}
+
+fn screen_lines(fx: &Fixture, id: SessionId) -> Vec<String> {
+    fx.core
+        .terminal_text(id, TextScope::Screen, MCP_TEXT_LIMIT)
+        .unwrap()
+        .content
+        .text
+        .lines()
+        .map(str::to_owned)
+        .collect()
+}
+
+impl Fixture {
+    /// 打开会话并等到停在提示符上（最后一行就是 `K>`，且没有命令在运行）。
+    fn open_at_prompt(&self) -> SessionId {
+        let id = self.open();
+        self.wait_prompt(id);
+        id
+    }
+
+    fn wait_prompt(&self, id: SessionId) {
+        let deadline = Instant::now() + TIMEOUT;
+        loop {
+            let at_prompt = screen_lines(self, id).last().map(String::as_str) == Some("K>");
+            let idle = self
+                .core
+                .mcp_session_status(id)
+                .is_some_and(|s| s.activity == Activity::Idle);
+            if at_prompt && idle {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "一直没有回到提示符：{:?}",
+                screen_lines(self, id)
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+}
+
+#[test]
+fn mcp_status_of_a_local_session_has_tty_and_shell_pid() {
+    let fx = fixture_with_env(&[("PS1", PLAIN_PS1)]);
+    let id = fx.open_at_prompt();
+    let status = fx.core.mcp_session_status(id).unwrap();
+    assert_eq!(status.info.id, id);
+    assert_eq!(status.activity, Activity::Idle);
+    assert!(!status.locked);
+    assert!(!status.terminal_transfer);
+    assert!(!status.headless);
+    assert!(!status.osc133, "没有 OSC 133 集成");
+    let tty = status.local_tty.expect("本地会话有 PTY 从设备路径");
+    assert!(tty.starts_with("/dev/"), "{tty}");
+    assert!(status.shell_pid.is_some_and(|pid| pid > 1));
+    assert_eq!(fx.core.mcp_session_status(SessionId::from_raw(31337)), None);
+}
+
+#[test]
+fn mcp_status_reports_osc133_and_locked_after_exit() {
+    let fx = fixture_with_env(&[("PS1", OSC_PS1)]);
+    let id = fx.open_at_prompt();
+    assert!(fx.core.mcp_session_status(id).unwrap().osc133);
+    fx.core.text_input(id, "exit\r").unwrap();
+    let deadline = Instant::now() + TIMEOUT;
+    while !fx.core.mcp_session_status(id).unwrap().locked {
+        assert!(Instant::now() < deadline, "会话没有结束");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    // 结束后锁定：写操作按未连接拒绝。
+    let rt = mcp_rt();
+    assert_eq!(
+        rt.block_on(fx.core.mcp_terminal_run(id, "echo x", limits(1000)))
+            .unwrap(),
+        TerminalRunOutcome::Rejected(TerminalBusy::NotConnected)
+    );
+    assert_eq!(
+        rt.block_on(
+            fx.core
+                .mcp_terminal_send(id, vec![McpInput::Text("x".into())], None, 100)
+        )
+        .unwrap(),
+        TerminalSendOutcome::Rejected(TerminalBusy::NotConnected)
+    );
+}
+
+#[test]
+fn terminal_text_screen_and_recent_soft_wrap_trailing_spaces_and_wide_chars() {
+    let fx = fixture_with_env(&[("PS1", PLAIN_PS1)]);
+    let id = fx.open_at_prompt();
+    fx.core
+        .text_input(
+            id,
+            "printf 'W%0100d\\n' 0; printf 'TRAILSP   \\n'; printf '中文\\n'\r",
+        )
+        .unwrap();
+    // 命令跑完、提示符回来。
+    let deadline = Instant::now() + TIMEOUT;
+    loop {
+        if screen_lines(&fx, id).iter().any(|l| l == "中文")
+            && screen_lines(&fx, id).last().map(String::as_str) == Some("K>")
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline, "{:?}", screen_lines(&fx, id));
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let text = fx
+        .core
+        .terminal_text(id, TextScope::Screen, MCP_TEXT_LIMIT)
+        .unwrap();
+    assert!(!text.content.truncated);
+    assert_eq!((text.rows, text.cols), (GRID.rows, GRID.cols));
+    assert!(!text.alternate_screen);
+    let lines: Vec<&str> = text.content.text.lines().collect();
+    // 101 个字符在 80 列上软换行，应拼回一整行。
+    let wrapped = format!("W{}", "0".repeat(100));
+    assert!(lines.iter().any(|l| *l == wrapped), "{lines:?}");
+    // 行尾空格去掉；宽字符只出现一次。
+    assert!(lines.contains(&"TRAILSP"), "{lines:?}");
+    assert!(lines.contains(&"中文"), "{lines:?}");
+    // 光标在最后一行（提示符）的 "K> " 之后。光标行是**屏幕坐标**：软换行的那一行占两个屏幕行，
+    // 所以比逻辑行数组的下标大 1。
+    assert_eq!(usize::from(text.cursor_row), lines.len());
+    assert_eq!(text.cursor_col, 3);
+}
+
+#[test]
+fn terminal_text_recent_reaches_into_scrollback_and_truncation_keeps_the_end() {
+    let fx = fixture_with_env(&[("PS1", PLAIN_PS1)]);
+    let id = fx.open_at_prompt();
+    fx.core
+        .text_input(
+            id,
+            "i=0; while [ $i -lt 60 ]; do echo ROW$i; i=$((i+1)); done\r",
+        )
+        .unwrap();
+    let deadline = Instant::now() + TIMEOUT;
+    while !screen_lines(&fx, id).iter().any(|l| l == "ROW59") {
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    fx.wait_prompt(id);
+    let screen = screen_lines(&fx, id);
+    assert!(!screen.iter().any(|l| l == "ROW0"), "屏幕只有 24 行");
+    let recent = fx
+        .core
+        .terminal_text(id, TextScope::Recent { lines: 500 }, MCP_TEXT_LIMIT)
+        .unwrap();
+    let lines: Vec<&str> = recent.content.text.lines().collect();
+    assert!(lines.contains(&"ROW0"), "回滚里应有最早的输出");
+    assert_eq!(lines.last(), Some(&"K>"));
+    // 只取最后 3 个逻辑行。
+    let last3 = fx
+        .core
+        .terminal_text(id, TextScope::Recent { lines: 3 }, MCP_TEXT_LIMIT)
+        .unwrap();
+    assert_eq!(last3.content.text, "ROW58\nROW59\nK>");
+    // 超出上限保留末尾，并如实给出原始大小。
+    let cut = fx
+        .core
+        .terminal_text(id, TextScope::Recent { lines: 500 }, 20)
+        .unwrap();
+    assert!(cut.content.truncated);
+    assert_eq!(cut.content.original_bytes, recent.content.text.len() as u64);
+    assert!(cut.content.text.ends_with("ROW59\nK>"));
+}
+
+#[test]
+fn terminal_text_unknown_session_is_no_such_session() {
+    let fx = fixture();
+    let ghost = SessionId::from_raw(31337);
+    assert_eq!(
+        fx.core.terminal_text(ghost, TextScope::Screen, 10),
+        Err(CoreError::NoSuchSession(ghost))
+    );
+}
+
+#[test]
+fn mcp_run_completes_with_output_and_unknown_exit_code_without_osc133() {
+    let fx = fixture_with_env(&[("PS1", PLAIN_PS1)]);
+    let id = fx.open_at_prompt();
+    let out = mcp_rt()
+        .block_on(
+            fx.core
+                .mcp_terminal_run(id, "echo hello; echo world", limits(15_000)),
+        )
+        .unwrap();
+    let TerminalRunOutcome::Completed { output, exit_code } = out else {
+        panic!("应当完成：{out:?}");
+    };
+    // 输出只有命令之后到新提示符之前的内容：不含命令回显，也不含提示符。
+    assert_eq!(output.text, "hello\nworld");
+    assert!(!output.cleared && !output.truncated);
+    assert_eq!(exit_code, None, "没有 OSC 133 D 时退出码未知");
+    // 命令照常进了 shell，屏幕上能看到它。
+    assert!(
+        screen_lines(&fx, id)
+            .iter()
+            .any(|l| l == "K> echo hello; echo world")
+    );
+}
+
+#[test]
+fn mcp_run_with_osc133_returns_exit_code_and_output() {
+    let fx = fixture_with_env(&[("PS1", OSC_PS1)]);
+    let id = fx.open_at_prompt();
+    // C / D 由命令自己输出，模拟 shell 集成：D 紧接着输出 A，与真实序列（D、A、提示符）一致。
+    let out = mcp_rt()
+        .block_on(fx.core.mcp_terminal_run(
+            id,
+            "printf '\\033]133;C\\007'; echo out; printf '\\033]133;D;7\\007'",
+            limits(15_000),
+        ))
+        .unwrap();
+    let TerminalRunOutcome::Completed { output, exit_code } = out else {
+        panic!("应当完成：{out:?}");
+    };
+    assert_eq!(output.text, "out");
+    assert_eq!(exit_code, Some(7));
+}
+
+#[test]
+fn mcp_run_reports_clear_and_only_returns_text_after_it() {
+    let fx = fixture_with_env(&[("PS1", PLAIN_PS1)]);
+    let id = fx.open_at_prompt();
+    // `clear` 的两种终端实现（先 2 后 3 / 先 3 后 2）都在同一批里成对出现；这里直接输出 ED 2 + ED 3。
+    let out = mcp_rt()
+        .block_on(fx.core.mcp_terminal_run(
+            id,
+            "echo before; printf '\\033[H\\033[2J\\033[3J'; echo after",
+            limits(15_000),
+        ))
+        .unwrap();
+    let TerminalRunOutcome::Completed { output, .. } = out else {
+        panic!("应当完成：{out:?}");
+    };
+    assert!(output.cleared);
+    assert_eq!(output.text, "after");
+}
+
+#[test]
+fn mcp_run_rejects_newlines_and_empty_commands() {
+    let fx = fixture_with_env(&[("PS1", PLAIN_PS1)]);
+    let id = fx.open_at_prompt();
+    let rt = mcp_rt();
+    for command in ["echo a\necho b", "echo a\r", "", "   "] {
+        assert_eq!(
+            rt.block_on(fx.core.mcp_terminal_run(id, command, limits(1000))),
+            Err(CoreError::NotSupported),
+            "{command:?}"
+        );
+    }
+    // 什么也没有发送：屏幕上还是干净的提示符。
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(screen_lines(&fx, id), vec!["K>".to_owned()]);
+}
+
+#[test]
+fn mcp_run_while_a_command_runs_is_rejected_and_timeout_does_not_interrupt_it() {
+    let fx = fixture_with_env(&[("PS1", PLAIN_PS1)]);
+    let id = fx.open_at_prompt();
+    let rt = mcp_rt();
+    // 命令要 3 秒才结束；MCP 只等 1 秒：超时返回"未确认完成"，且不发 Ctrl+C。
+    // 余量取大一些：慢机器上命令回显与输出到达的时间不确定。
+    let started = Instant::now();
+    let out = rt
+        .block_on(fx.core.mcp_terminal_run(
+            id,
+            "echo start; sleep 3; echo FINISHED_MARK",
+            limits(1000),
+        ))
+        .unwrap();
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "超时应当如期返回"
+    );
+    let TerminalRunOutcome::Unconfirmed { output, osc133 } = out else {
+        panic!("应当超时：{out:?}");
+    };
+    assert!(!osc133);
+    assert_eq!(output.text, "start");
+    // 命令仍在运行：再次 run 被拒，原因是 CommandRunning，什么也没发送。
+    assert_eq!(
+        rt.block_on(fx.core.mcp_terminal_run(id, "echo second", limits(1000)))
+            .unwrap(),
+        TerminalRunOutcome::Rejected(TerminalBusy::CommandRunning)
+    );
+    // 没有被 Ctrl+C 打断：FINISHED_MARK 照常出现，之后回到提示符。
+    fx.wait_screen(id, "FINISHED_MARK");
+    fx.wait_prompt(id);
+    assert!(!screen_lines(&fx, id).iter().any(|l| l.contains("second")));
+    assert!(!fx.core.mcp_session_status(id).unwrap().locked);
+}
+
+#[test]
+fn mcp_run_is_rejected_when_the_user_has_typed_on_the_prompt_until_ctrl_c() {
+    let fx = fixture_with_env(&[("PS1", PLAIN_PS1)]);
+    let id = fx.open_at_prompt();
+    let rt = mcp_rt();
+    fx.core.text_input(id, "abc").unwrap();
+    fx.wait_screen(id, "K> abc");
+    assert_eq!(
+        rt.block_on(fx.core.mcp_terminal_run(id, "echo x", limits(1000)))
+            .unwrap(),
+        TerminalRunOutcome::Rejected(TerminalBusy::InputNotEmpty)
+    );
+    // 用户用 Ctrl+C 放弃这一行之后，输入行为空，可以执行。
+    fx.core
+        .key(id, key(kanso_types::Key::Character("c".into()), true))
+        .unwrap();
+    let deadline = Instant::now() + TIMEOUT;
+    loop {
+        let lines = screen_lines(&fx, id);
+        if lines.last().map(String::as_str) == Some("K>") && lines.len() >= 2 {
+            break;
+        }
+        assert!(Instant::now() < deadline, "{lines:?}");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let out = rt
+        .block_on(fx.core.mcp_terminal_run(id, "echo ok", limits(15_000)))
+        .unwrap();
+    assert!(
+        matches!(&out, TerminalRunOutcome::Completed { output, .. } if output.text == "ok"),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn mcp_input_does_not_count_as_user_input_for_the_input_line_check() {
+    let fx = fixture_with_env(&[("PS1", PLAIN_PS1)]);
+    let id = fx.open_at_prompt();
+    let rt = mcp_rt();
+    // MCP 自己输入的半行文字不算用户输入：不影响随后的前置条件判断（这里它自己用 Ctrl+C 收拾）。
+    let sent = rt
+        .block_on(fx.core.mcp_terminal_send(
+            id,
+            vec![McpInput::Text("half".into())],
+            Some(Duration::from_millis(200)),
+            MCP_TEXT_LIMIT,
+        ))
+        .unwrap();
+    assert!(matches!(
+        sent,
+        TerminalSendOutcome::Sent { screen: Some(_) }
+    ));
+    rt.block_on(fx.core.mcp_terminal_send(
+        id,
+        vec![McpInput::Key(key(
+            kanso_types::Key::Character("c".into()),
+            true,
+        ))],
+        None,
+        0,
+    ))
+    .unwrap();
+    std::thread::sleep(Duration::from_millis(200));
+    fx.wait_prompt(id);
+    let out = rt
+        .block_on(fx.core.mcp_terminal_run(id, "echo fine", limits(15_000)))
+        .unwrap();
+    assert!(
+        matches!(&out, TerminalRunOutcome::Completed { output, .. } if output.text == "fine"),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn mcp_run_user_keypress_while_waiting_is_taken_over_and_still_reaches_the_terminal() {
+    let fx = fixture_with_env(&[("PS1", PLAIN_PS1)]);
+    let id = fx.open_at_prompt();
+    let rt = mcp_rt();
+    let out = rt.block_on(async {
+        let run = fx
+            .core
+            .mcp_terminal_run(id, "echo begin; sleep 3; echo end", limits(20_000));
+        let user = async {
+            tokio::time::sleep(Duration::from_millis(800)).await;
+            // 用户按键：照常发给终端（sleep 期间按键会被 tty 回显）。
+            fx.core.text_input(id, "u").unwrap();
+        };
+        let (out, ()) = tokio::join!(run, user);
+        out
+    });
+    let TerminalRunOutcome::TakenOver { output } = out.unwrap() else {
+        panic!("应当是用户接管");
+    };
+    assert_eq!(output.text, "begin");
+    // 用户的输入没有被拦截。
+    fx.wait_screen(id, "u");
+    fx.wait_screen(id, "end");
+}
+
+#[test]
+fn mcp_run_dropped_future_leaves_no_stuck_registration() {
+    let fx = fixture_with_env(&[("PS1", PLAIN_PS1)]);
+    let id = fx.open_at_prompt();
+    let rt = mcp_rt();
+    // 在命令执行期间丢弃 future（客户端取消 / 级别被调低）。
+    let dropped = rt.block_on(async {
+        tokio::time::timeout(
+            Duration::from_millis(300),
+            fx.core
+                .mcp_terminal_run(id, "echo hi; sleep 1; echo DROPPED_DONE", limits(30_000)),
+        )
+        .await
+    });
+    assert!(dropped.is_err(), "future 应被丢弃");
+    // 已经发出的命令不撤回，照常跑完。
+    fx.wait_screen(id, "DROPPED_DONE");
+    fx.wait_prompt(id);
+    // 之后不被残留登记卡住：Sender 的占用已释放（Core 层），tracker 也回到空闲。
+    let out = rt
+        .block_on(fx.core.mcp_terminal_run(id, "echo again", limits(15_000)))
+        .unwrap();
+    assert!(
+        matches!(&out, TerminalRunOutcome::Completed { output, .. } if output.text == "again"),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn mcp_send_text_and_enter_run_a_command_and_settle_returns_the_screen() {
+    let fx = fixture_with_env(&[("PS1", PLAIN_PS1)]);
+    let id = fx.open_at_prompt();
+    let rt = mcp_rt();
+    let out = rt
+        .block_on(fx.core.mcp_terminal_send(
+            id,
+            vec![
+                McpInput::Text("echo SEND_MARK".into()),
+                McpInput::Key(key(kanso_types::Key::Enter, false)),
+            ],
+            Some(Duration::from_millis(400)),
+            MCP_TEXT_LIMIT,
+        ))
+        .unwrap();
+    let TerminalSendOutcome::Sent {
+        screen: Some(screen),
+    } = out
+    else {
+        panic!("应当带屏幕返回：{out:?}");
+    };
+    let lines: Vec<&str> = screen.content.text.lines().collect();
+    // 回显的命令行、输出、新的提示符。
+    assert_eq!(lines, vec!["K> echo SEND_MARK", "SEND_MARK", "K>"]);
+    assert_eq!(screen.cursor_col, 3);
+    // 没有请求等待时不带屏幕。
+    let out = rt
+        .block_on(
+            fx.core
+                .mcp_terminal_send(id, vec![McpInput::Text("".into())], None, 100),
+        )
+        .unwrap();
+    assert_eq!(out, TerminalSendOutcome::Sent { screen: None });
+}
+
+#[test]
+fn mcp_send_text_reaches_the_terminal_verbatim() {
+    let fx = fixture_with_env(&[("PS1", PLAIN_PS1)]);
+    let id = fx.open_at_prompt();
+    let rt = mcp_rt();
+    // 文字原样输入（不加 bracketed paste 包裹，也没有按键编码）；Tab 键按终端模式编码成 \t，
+    // 交给 shell 的补全。这里只验证文字里的控制字符原样到达 tty：`cat -v` 显示 ^A。
+    let out = rt
+        .block_on(fx.core.mcp_terminal_send(
+            id,
+            vec![
+                McpInput::Text("printf 'a\\tb\\n' | cat -t".into()),
+                McpInput::Key(key(kanso_types::Key::Enter, false)),
+            ],
+            Some(Duration::from_millis(400)),
+            MCP_TEXT_LIMIT,
+        ))
+        .unwrap();
+    let TerminalSendOutcome::Sent {
+        screen: Some(screen),
+    } = out
+    else {
+        panic!("{out:?}");
+    };
+    assert!(
+        screen.content.text.contains("a^Ib"),
+        "{}",
+        screen.content.text
+    );
+}
+
+#[test]
+fn mcp_send_user_input_while_settling_is_taken_over() {
+    let fx = fixture_with_env(&[("PS1", PLAIN_PS1)]);
+    let id = fx.open_at_prompt();
+    let rt = mcp_rt();
+    let out = rt.block_on(async {
+        // 命令回显之后一直没有输出，settle 长达 3 秒；用户在 300 毫秒时按键。
+        let send = fx.core.mcp_terminal_send(
+            id,
+            vec![
+                McpInput::Text("sleep 6".into()),
+                McpInput::Key(key(kanso_types::Key::Enter, false)),
+            ],
+            Some(Duration::from_secs(3)),
+            MCP_TEXT_LIMIT,
+        );
+        let user = async {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            fx.core.text_input(id, "z").unwrap();
+        };
+        tokio::join!(send, user).0
+    });
+    let TerminalSendOutcome::TakenOver { screen } = out.unwrap() else {
+        panic!("应当是用户接管");
+    };
+    assert!(screen.content.text.contains("sleep 6"));
+    // 已发送的输入不撤回：sleep 在运行（命令是 MCP 发的，仍被跟踪为"运行中"），提示符没有回来。
+    // 状态机在回车后 100 毫秒才读到命令文本，所以轮询等它转成运行中。
+    let deadline = Instant::now() + TIMEOUT;
+    while fx.core.mcp_session_status(id).unwrap().activity != Activity::CommandRunning {
+        assert!(Instant::now() < deadline, "命令没有被跟踪为运行中");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_ne!(screen_lines(&fx, id).last().map(String::as_str), Some("K>"));
+}
+
+#[test]
+fn mcp_send_to_unknown_session_is_no_such_session() {
+    let fx = fixture();
+    let ghost = SessionId::from_raw(31337);
+    let rt = mcp_rt();
+    assert_eq!(
+        rt.block_on(fx.core.mcp_terminal_send(ghost, vec![], None, 10)),
+        Err(CoreError::NoSuchSession(ghost))
+    );
+    assert_eq!(
+        rt.block_on(fx.core.mcp_terminal_run(ghost, "ls", limits(10))),
+        Err(CoreError::NoSuchSession(ghost))
     );
 }

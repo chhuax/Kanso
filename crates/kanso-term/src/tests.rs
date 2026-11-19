@@ -1250,3 +1250,95 @@ fn ed2_keeps_side_table_in_sync_for_all_small_geometries() {
         }
     }
 }
+
+// ---- 文本读取（MCP，spec/mcp.md §5）----
+
+#[test]
+fn read_text_joins_soft_wraps_trims_trailing_spaces_and_counts_wide_chars_once() {
+    let mut t = term(10, 5, 100);
+    // 25 个字符在 10 列上软换行成 3 行，应拼回一整行；"中文" 各占两格，只应出现一次。
+    feed(&mut t, "0123456789ABCDEFGHIJabcde\r\n中文   \r\nplain  ", 1);
+    assert_eq!(
+        t.read_text(ReadScope::Screen),
+        "0123456789ABCDEFGHIJabcde\n中文\nplain"
+    );
+}
+
+#[test]
+fn read_text_keeps_spaces_at_a_soft_wrap_boundary() {
+    let mut t = term(5, 4, 10);
+    // 行尾的空格落在换行处：它是内容，不能当作"行尾多余的空格"去掉。
+    feed(&mut t, "ab   cd", 1);
+    assert_eq!(t.read_text(ReadScope::Screen), "ab   cd");
+}
+
+#[test]
+fn read_text_recent_spans_scrollback_and_counts_logical_lines() {
+    let mut t = term(20, 3, 100);
+    for i in 0..10 {
+        feed(&mut t, &format!("L{i}\r\n"), 1);
+    }
+    // 屏幕只有 3 行，更早的在回滚里。
+    let screen = t.read_text(ReadScope::Screen);
+    assert!(!screen.contains("L0"));
+    assert_eq!(
+        t.read_text(ReadScope::Recent(3)),
+        "L7\nL8\nL9",
+        "末尾的空行不占行数"
+    );
+    let all = t.read_text(ReadScope::Recent(1000));
+    assert!(all.starts_with("L0\nL1\n"));
+    assert_eq!(t.read_text(ReadScope::Recent(0)), "");
+}
+
+#[test]
+fn read_text_screen_ignores_scrolled_view_and_reports_alt_screen() {
+    let mut t = term(20, 3, 100);
+    for i in 0..10 {
+        feed(&mut t, &format!("L{i}\r\n"), 1);
+    }
+    t.scroll_display(5);
+    // 用户正在往回翻：读的仍然是当前屏幕，不是翻到的位置。
+    assert!(t.read_text(ReadScope::Screen).contains("L9"));
+    feed(&mut t, "\x1b[?1049h\x1b[Hfull", 2);
+    assert!(t.modes().alt_screen);
+    assert_eq!(t.read_text(ReadScope::Recent(50)), "full");
+    assert_eq!(t.screen_cursor(), (0, 4));
+}
+
+#[test]
+fn clear_count_counts_paired_clears_and_buffer_clear_but_not_plain_ed2() {
+    let mut t = term(20, 3, 100);
+    feed(&mut t, "a\r\n", 1);
+    // 只有 ED 2：全屏程序重绘，屏幕内容被推进回滚而不是抹掉，不算清屏。
+    feed(&mut t, "\x1b[2J", 2);
+    assert_eq!(t.clear_count(), 0);
+    // 同一批里 ED 2 与 ED 3 成对才是 `clear`。
+    feed(&mut t, "\x1b[H\x1b[2J\x1b[3J", 3);
+    assert_eq!(t.clear_count(), 1);
+    t.clear_buffer();
+    assert_eq!(t.clear_count(), 2);
+}
+
+#[test]
+fn text_between_reads_from_the_line_after_a_wrapped_logical_line() {
+    let mut t = term(10, 6, 100);
+    feed(&mut t, "$ 0123456789ABC\r\nout1\r\nout2\r\n$ ", 1);
+    let start = CellPoint {
+        line: AbsLine(0),
+        col: 2,
+    };
+    let from = CellPoint {
+        line: t.line_after_logical(start.line),
+        col: 0,
+    };
+    // 命令回显软换行成两行：输出从第三行开始。
+    assert_eq!(from.line, AbsLine(2));
+    let end = CellPoint {
+        line: t
+            .logical_line_start(t.cursor_point().unwrap().line)
+            .unwrap(),
+        col: 0,
+    };
+    assert_eq!(t.text_between(from, end), "out1\nout2");
+}

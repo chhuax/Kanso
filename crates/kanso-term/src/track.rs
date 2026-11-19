@@ -38,7 +38,7 @@
 
 use kanso_types::agent::AgentKind;
 use kanso_types::event::Activity;
-use kanso_types::geometry::CellPoint;
+use kanso_types::geometry::{AbsLine, CellPoint};
 
 use crate::agent::detect_agent;
 use crate::{TermEvent, Terminal};
@@ -147,6 +147,28 @@ pub enum Registered {
     Untracked,
 }
 
+/// [`CommandTracker::run_blocker`]：为什么这个标签现在不能由 MCP 执行命令（spec/mcp.md §4.2）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RunBlock {
+    /// 有命令在运行，没有停在提示符上。
+    CommandRunning,
+    /// 正在运行 AI CLI。
+    AgentRunning,
+    /// 输入行不为空：自提示符出现以来有过用户输入，或（有 OSC 133 B 时）光标不在输入起点。
+    InputNotEmpty,
+}
+
+/// 最近一次结束的命令的结果，见 [`CommandTracker::last_finish`]。
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Finish {
+    /// 有 OSC 133 D 且带退出码时为退出码。
+    pub exit_code: Option<i32>,
+    /// 命令输出的终点（不含）：有 OSC 133 A 时是新提示符所在行的行首；没有时是命令结束那一刻
+    /// 光标所在逻辑行的行首（推断路径）或光标位置（OSC 133 的 D 先到、A 还没到）。
+    /// 全屏期间读不到光标时为 `None`。
+    pub end: Option<CellPoint>,
+}
+
 #[derive(Clone, Debug)]
 struct Submitted {
     start: CellPoint,
@@ -182,6 +204,16 @@ pub struct CommandTracker {
     working: bool,
     /// 轮次里最后一次输出（或按键）的时刻。
     last_active: u64,
+    /// 自当前提示符出现以来，用户在提示符下输入过内容（按键、IME、粘贴；不含终端自己的回应和 MCP 的输入）。
+    /// Ctrl+C、回车与新提示符出现都会清除它。判断"输入行是否为空"用，见 [`CommandTracker::run_blocker`]。
+    user_typed: bool,
+    /// 用户来源的输入（含终端不当作命令行的那些）累计次数。MCP 的等待者记下基线，
+    /// 变大就是"用户接管"（spec/mcp.md §4.3）。
+    user_inputs: u64,
+    /// 已结束的命令累计数（含没有 OSC 133 D 的情形）。MCP 登记命令时记下基线，变大即这条命令返回了提示符。
+    finished: u64,
+    /// 最近一次结束的命令的结果。
+    last_finish: Finish,
 }
 
 impl Default for CommandTracker {
@@ -246,6 +278,10 @@ impl CommandTracker {
             agent: None,
             working: false,
             last_active: 0,
+            user_typed: false,
+            user_inputs: 0,
+            finished: 0,
+            last_finish: Finish::default(),
         }
     }
 
@@ -262,6 +298,59 @@ impl CommandTracker {
     /// 有命令在运行（含刚提交、还没读到文本的）。Sender 据此判断"上一条命令是否已经返回"。
     pub fn is_command_running(&self) -> bool {
         !matches!(self.phase, Phase::AtPrompt { .. })
+    }
+
+    /// 是否见过 OSC 133。
+    pub fn osc133(&self) -> bool {
+        self.osc133
+    }
+
+    /// 用户来源的输入累计次数，见字段说明。
+    pub fn user_inputs(&self) -> u64 {
+        self.user_inputs
+    }
+
+    /// 已结束的命令累计数，见字段说明。
+    pub fn finished(&self) -> u64 {
+        self.finished
+    }
+
+    /// 最近一次结束的命令的结果。只在 [`CommandTracker::finished`] 比基线大之后才有意义。
+    pub fn last_finish(&self) -> &Finish {
+        &self.last_finish
+    }
+
+    /// 这个标签现在能不能由 MCP 执行命令；能返回 `None`（spec/mcp.md §4.2 的三项屏幕侧条件）。
+    ///
+    /// "输入行为空"只看两件事：自提示符出现以来有没有用户来源的输入；有 OSC 133 B 时光标是否还在输入起点。
+    /// **不**读输入起点之后的文字：zsh 的自动建议灰字在那里，却不是用户输入。
+    /// 用户输入过再用退格删光也算非空（无法区分"删光"与"没动"，宁可拒绝也不把命令接在残留输入后面）。
+    pub fn run_blocker(&self, term: &Terminal) -> Option<RunBlock> {
+        if self.agent.is_some() {
+            return Some(RunBlock::AgentRunning);
+        }
+        if self.is_command_running() {
+            return Some(RunBlock::CommandRunning);
+        }
+        if self.user_typed || term.at_input_start() == Some(false) {
+            return Some(RunBlock::InputNotEmpty);
+        }
+        None
+    }
+
+    /// MCP 自己的输入（`kanso_terminal_send`）。调用时机与 [`CommandTracker::on_input`] 相同：写出之前。
+    ///
+    /// 与用户输入走同一个状态机（所以 `terminal_send` 发出的命令也会被跟踪为"运行中"、能识别 AI CLI），
+    /// 区别只有两点：**不算用户输入**——不累计 `user_inputs`（否则会把自己当成接管者），
+    /// 也不标记 `user_typed`（spec/mcp.md §4.2）；回车与 Ctrl+C 照常让行变空。
+    pub fn on_mcp_input(&mut self, kind: InputKind, term: &Terminal, now: u64) -> Vec<Effect> {
+        self.input_inner(kind, term, now, false)
+    }
+
+    /// 记一次用户来源的输入，但不经过命令行状态机（例如目录选择器的私有序列：它不是命令行输入，
+    /// 却是用户的操作，MCP 的等待者仍要据此判断接管）。
+    pub fn note_user_input(&mut self) {
+        self.user_inputs += 1;
     }
 
     /// 下一次需要被唤醒的时刻（单调毫秒）；没有待办返回 `None`。会话层的定时线程据此休眠。
@@ -325,6 +414,15 @@ impl CommandTracker {
     /// 命令结束，回到提示符。`notify` 为 `true` 时若这条命令（或当前轮次）在运行则产生 `Completed`。
     fn end_command(&mut self, exit_code: Option<i32>, notify: bool, fx: &mut Vec<Effect>) {
         let prev = self.activity;
+        if self.is_command_running() {
+            // 孤立的 D（提示符下按 Ctrl+C）不是命令结束，不能让 MCP 的等待者误以为自己的命令返回了。
+            self.finished += 1;
+            self.last_finish = Finish {
+                exit_code,
+                end: None,
+            };
+        }
+        self.user_typed = false;
         self.phase = Phase::AtPrompt { start: None };
         self.armed = true;
         self.agent = None;
@@ -398,7 +496,21 @@ impl CommandTracker {
 
     /// 用户输入。调用时机：按键 / IME 上屏 / 粘贴已经交给写通道之后（此时终端还没有这次输入的回显）。
     pub fn on_input(&mut self, kind: InputKind, term: &Terminal, now: u64) -> Vec<Effect> {
+        self.input_inner(kind, term, now, true)
+    }
+
+    /// `on_input` 与 `on_mcp_input` 的共同实现；`user` 为 `false` 表示 MCP 的输入。
+    fn input_inner(
+        &mut self,
+        kind: InputKind,
+        term: &Terminal,
+        now: u64,
+        user: bool,
+    ) -> Vec<Effect> {
         let mut fx = Vec::new();
+        if user {
+            self.user_inputs += 1;
+        }
         self.tick_inner(term, now, &mut fx);
 
         // AI 工具里的按键开启（或延续）一个轮次，不当作命令行。
@@ -415,6 +527,13 @@ impl CommandTracker {
             // 命令运行期间的输入属于这条命令（sudo 密码、REPL、top 里按 q）。
             return fx;
         };
+        // 提示符下的输入：回车提交、Ctrl+C 放弃，之后行都是空的；用户的其余输入都留下了内容。
+        // MCP 自己的输入不标记（但也不会清除用户留下的）。
+        if matches!(kind, InputKind::Enter | InputKind::Interrupt) {
+            self.user_typed = false;
+        } else if user {
+            self.user_typed = true;
+        }
         match kind {
             InputKind::Typing => {
                 if let Some(s) = *start {
@@ -484,10 +603,20 @@ impl CommandTracker {
         let mut fx = Vec::new();
         self.tick_inner(term, now, &mut fx);
 
+        // 本批里"命令结束之后出现的第一个提示符"所在行：它是命令输出的终点。
+        // 必须在逐个事件时记录：整批已经喂进终端，处理事件时光标早已越过了 D 所在的位置。
+        let finished_before = self.finished;
+        let mut prompt_after_finish: Option<AbsLine> = None;
         for event in events {
+            let finished_here = self.finished;
             match event {
                 TermEvent::PromptStart { .. } | TermEvent::InputStart { .. } => {
                     self.osc133 = true;
+                    // 只有 A 才表示新提示符；B 在提示符重绘（窗口缩放、reset-prompt）时也会重发，
+                    // 那时用户可能已经输入了内容，不能据此认为输入行变空。
+                    if matches!(event, TermEvent::PromptStart { .. }) {
+                        self.user_typed = false;
+                    }
                     // 正常序列里 D 先于 A；缺了 D 也要回到空闲，只是不算"完成"。
                     if self.is_command_running() {
                         self.end_command(None, false, &mut fx);
@@ -515,10 +644,34 @@ impl CommandTracker {
                 }
                 TermEvent::TitleChanged | TermEvent::Bell | TermEvent::ClipboardStore(_) => {}
             }
+            if self.finished != finished_here {
+                prompt_after_finish = None;
+            }
+            if let TermEvent::PromptStart { line, .. } = event {
+                prompt_after_finish = Some(*line);
+            }
         }
 
         if !self.osc133 {
             self.check_prompt_returned(term, &mut fx);
+        }
+        if self.finished != finished_before {
+            self.last_finish.end = prompt_after_finish
+                .map(|line| CellPoint { line, col: 0 })
+                .or_else(|| {
+                    let cursor = term.cursor_point()?;
+                    if self.osc133 {
+                        // D 到了、A 还没到：命令输出就停在光标处。
+                        term.cursor_text_end()
+                    } else {
+                        // 推断路径：光标在新提示符上，输出止于提示符所在逻辑行之前。
+                        let start = term.logical_line_start(cursor.line)?;
+                        Some(CellPoint {
+                            line: start,
+                            col: 0,
+                        })
+                    }
+                });
         }
         // AI 轮次靠输出续命。
         if self.agent.is_some() && self.working {
@@ -577,6 +730,29 @@ impl CommandTracker {
         term: &Terminal,
         now: u64,
     ) -> (Registered, Vec<Effect>) {
+        self.register_inner(text, term, now, false)
+    }
+
+    /// MCP 的 `kanso_terminal_run` 用的登记：与 [`CommandTracker::register_send`] 相同，
+    /// 区别是**有 OSC 133 时允许提示符特征为空**。有 OSC 133 时完成与否看 C/D 而不看特征
+    /// （本地 zsh 的两行提示符第二行常常只剩一个空格，特征为空），拒绝登记会让命令永远等不到结果。
+    /// Sender 沿用原行为不放宽：改变它会让 Sender 在这类提示符下开始等待命令返回，属于另一件事。
+    pub fn register_run(
+        &mut self,
+        text: &str,
+        term: &Terminal,
+        now: u64,
+    ) -> (Registered, Vec<Effect>) {
+        self.register_inner(text, term, now, true)
+    }
+
+    fn register_inner(
+        &mut self,
+        text: &str,
+        term: &Terminal,
+        now: u64,
+        empty_sig_with_osc133: bool,
+    ) -> (Registered, Vec<Effect>) {
         let mut fx = Vec::new();
         self.tick_inner(term, now, &mut fx);
         if let Some(agent) = self.agent {
@@ -598,10 +774,11 @@ impl CommandTracker {
             .text_before(cursor)
             .map(|p| p.trim_end().to_owned())
             .unwrap_or_default();
-        if sig.is_empty() {
+        if sig.is_empty() && !(empty_sig_with_osc133 && self.osc133) {
             return (Registered::Untracked, fx);
         }
         self.armed = false;
+        self.user_typed = false;
         self.phase = Phase::Submitted(Submitted {
             start: cursor,
             snapshot: text.to_owned(),

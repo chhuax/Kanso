@@ -189,7 +189,7 @@ fn command_duration(milliseconds: u64) -> Message {
 }
 
 impl Core {
-    fn block_point(&self) -> CellPoint {
+    pub(crate) fn block_point(&self) -> CellPoint {
         CellPoint {
             line: AbsLine(self.cursor_abs()),
             col: (self.term.grid().cursor.point.column.0
@@ -389,6 +389,22 @@ impl Core {
 }
 
 impl Terminal {
+    /// OSC 133 B 之后，光标是否仍停在输入起点上。
+    ///
+    /// 用于判断输入行是否为空（spec/mcp.md §4.2）：用户输入过任何字符，光标都会离开输入起点。
+    /// 只看光标位置，不看起点之后的文字（zsh 自动建议的灰字不会移动光标）。
+    /// 没有 OSC 133 B 的信息（没有集成、命令正在执行、屏幕刚被清空、全屏期间）时返回 `None`，由调用方按"不要求"处理。
+    pub fn at_input_start(&self) -> Option<bool> {
+        if self.core.alt {
+            return None;
+        }
+        let block = self.core.blocks.entries.back()?;
+        if block.execution.is_some() {
+            return None;
+        }
+        Some(self.core.block_point() == block.input?)
+    }
+
     /// 提取块的命令（0）、输出（1）或全部（2），规则与选区复制相同。
     pub fn command_block_text(&mut self, id: u64, part: u8) -> Option<String> {
         if self.core.alt {

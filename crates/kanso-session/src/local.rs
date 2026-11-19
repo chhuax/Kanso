@@ -112,6 +112,15 @@ pub(crate) fn to_session_encoding(enc: TextEncoding, bytes: Vec<u8>) -> Vec<u8> 
     }
 }
 
+/// 用户按键的编码选项；MCP 的按键输入（`mcp` 模块）必须用同一份，才能"与用户按键走同一套编码器"。
+/// 目前固定为 mac + Option 不作 Meta。TODO(F7)：`option_as_meta` 改为读设置项。
+pub(crate) fn key_options() -> KeyOptions {
+    KeyOptions {
+        platform: KeyPlatform::Mac,
+        option_as_meta: OptionAsMeta::Off,
+    }
+}
+
 /// 读线程与调用线程共享的会话状态。
 struct Shared {
     transfer: Arc<crate::transfer::TerminalTransfer>,
@@ -208,6 +217,11 @@ impl Shared {
             || self.transfer.active()
     }
 
+    /// 会话已结束或正在被用户关闭（与传输无关，`input_blocked` 还包含终端内传输）。
+    fn input_closed(&self) -> bool {
+        self.ended.load(Ordering::Acquire) || self.user_closing.load(Ordering::Acquire)
+    }
+
     /// 把会话状态改成 `Closed(reason)` 并发事件。**只有第一个调用者返回 `true`**，其余什么也不做：
     /// 这是"shell 自己退出"和"用户关闭"两条并发路径不重复发、也不遗漏结束事件的唯一裁决点。
     fn finish(&self, reason: CloseReason) -> bool {
@@ -240,6 +254,34 @@ impl Shared {
         if let Err(e) = lock(&self.pty).kill() {
             tracing::warn!(session = %self.id, error = %e, "failed to kill shell process");
         }
+    }
+}
+
+impl crate::mcp::McpHost for Shared {
+    fn hub(&self) -> &ActivityHub {
+        &self.activity
+    }
+
+    fn encoding(&self) -> TextEncoding {
+        self.encoding
+    }
+
+    fn transfer(&self) -> &crate::transfer::TerminalTransfer {
+        &self.transfer
+    }
+
+    fn connected(&self) -> bool {
+        *lock(&self.lifecycle) == SessionState::Connected && !self.input_closed()
+    }
+
+    fn write(&self, bytes: Vec<u8>) -> bool {
+        lock(&self.write_tx)
+            .as_ref()
+            .is_some_and(|writer| writer.send(bytes).is_ok())
+    }
+
+    fn scroll_to_bottom(&self) {
+        self.with_term(Terminal::scroll_to_bottom);
     }
 }
 
@@ -605,6 +647,40 @@ impl LocalSession {
         lock(&self.shared.pty).pid()
     }
 
+    /// PTY 从设备路径（如 `/dev/ttys003`）；系统没有给出时为 `None`。MCP 用它识别客户端所在的标签。
+    pub fn tty_path(&self) -> Option<String> {
+        lock(&self.shared.pty).tty_path().map(str::to_owned)
+    }
+
+    /// 命令跟踪与终端传输的状态（MCP 判断前置条件用）。
+    pub fn mcp_track_state(&self) -> crate::mcp::McpTrackState {
+        crate::mcp::track_state(&*self.shared)
+    }
+
+    /// 会话是否已结束（含用户正在关闭）；终端此时被锁定（terminal.md §13）。
+    pub fn is_locked(&self) -> bool {
+        self.shared.input_closed()
+    }
+
+    /// 读取终端文本，规则见 `kanso_term::Terminal::read_text`。
+    pub fn mcp_read(&self, scope: kanso_term::ReadScope) -> crate::mcp::McpScreen {
+        crate::mcp::read_screen(&*self.shared, scope)
+    }
+
+    /// 输入一行命令并等它返回提示符，见 `mcp` 模块文档。取消安全。
+    pub async fn mcp_run(&self, command: &str, timeout: Duration) -> crate::mcp::McpRun {
+        crate::mcp::run(&*self.shared, command, timeout).await
+    }
+
+    /// 输入文字与按键，可选等输出安静，见 `mcp` 模块文档。取消安全。
+    pub async fn mcp_send(
+        &self,
+        inputs: Vec<crate::mcp::McpWrite>,
+        settle: Option<Duration>,
+    ) -> crate::mcp::McpSend {
+        crate::mcp::send(&*self.shared, inputs, settle).await
+    }
+
     /// 读线程统计，见 [`ReadStats`]。
     pub fn read_stats(&self) -> ReadStats {
         ReadStats {
@@ -624,10 +700,7 @@ impl LocalSession {
         if self.shared.input_blocked() {
             return;
         }
-        let opts = KeyOptions {
-            platform: KeyPlatform::Mac,
-            option_as_meta: OptionAsMeta::Off,
-        };
+        let opts = key_options();
         // `encode_key` 是纯计算，放在锁内可以让"读 modes"与"滚回底部"是同一个临界区；
         // modes 必须取自发送这一刻（DECCKM 与 kitty 标志随程序随时变化）。
         let bytes = self.shared.with_term(|t| {
@@ -669,7 +742,12 @@ impl LocalSession {
             return;
         }
         self.shared.with_term(Terminal::scroll_to_bottom);
-        for kind in InputKind::of_text(text) {
+        let kinds = InputKind::of_text(text);
+        if kinds.is_empty() {
+            // 目录选择器的私有序列不是命令行输入，但仍是用户的操作：MCP 的等待者要据此判断接管。
+            self.shared.activity.note_user_input();
+        }
+        for kind in kinds {
             self.shared.activity.on_input(&*self.shared, kind);
         }
         self.shared
