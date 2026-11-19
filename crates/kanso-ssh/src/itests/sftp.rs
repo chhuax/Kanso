@@ -1502,7 +1502,7 @@ async fn skip_policy_upload_dir_merges_and_skips_existing_files() {
 // ---------------------------------------------------------------------------
 // MCP 的 SFTP 补充：entry / read_range / write_new / overwrite_file / rmdir
 
-use crate::sftp::{OverwriteError, WriteFailure};
+use crate::sftp::OverwriteError;
 
 /// 目录里没有 `.kanso-tmp-` 临时文件残留。
 fn no_tmp_left(dir: &Path) -> bool {
@@ -1751,7 +1751,7 @@ async fn overwrite_dangling_symlink_fails_without_writing() {
         .overwrite_file("/home/tester/dangling", b"x")
         .await
         .unwrap_err();
-    let OverwriteError::Failed(WriteFailure { error, leftover }) = err else {
+    let OverwriteError::Failed(crate::sftp::WriteFailure { error, leftover }) = err else {
         panic!("expected Failed");
     };
     assert_eq!(leftover, None);
