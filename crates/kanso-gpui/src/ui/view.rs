@@ -28,7 +28,7 @@ use kanso_gpui::ime::ImeState;
 use kanso_gpui::keys::{KeyAction, KeyInput, classify_key};
 use kanso_gpui::metrics::{cell_at, grid_size, scroll_lines};
 use kanso_gpui::render::{
-    RenderGrid, build_render_grid_with, hyperlink_at, line_texts, logical_screen_text,
+    LiveChips, RenderGrid, build_render_grid_for, hyperlink_at, line_texts, logical_screen_text,
 };
 use kanso_gpui::theme::Palette;
 
@@ -271,10 +271,12 @@ impl TerminalView {
         if let Some(frame) = &self.frame
             && let Ok(view) = frame.view()
         {
-            self.grid = Some(Arc::new(build_render_grid_with(
+            self.grid = Some(Arc::new(build_render_grid_for(
                 &view,
                 &self.palette,
                 self.contrast.as_mut(),
+                LiveChips::from_blocks(&frame.command_blocks),
+                &frame.command_blocks,
             )));
         }
     }
@@ -346,10 +348,12 @@ impl TerminalView {
         };
         match frame.view() {
             Ok(view) => {
-                self.grid = Some(Arc::new(build_render_grid_with(
+                self.grid = Some(Arc::new(build_render_grid_for(
                     &view,
                     &self.palette,
                     self.contrast.as_mut(),
+                    LiveChips::from_blocks(&frame.command_blocks),
+                    &frame.command_blocks,
                 )));
                 if self.track_screen || self.selftest.is_some() {
                     self.screen = logical_screen_text(&view);
