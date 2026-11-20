@@ -1354,7 +1354,10 @@ fn mcp_run_user_keypress_while_waiting_is_taken_over_and_still_reaches_the_termi
     let TerminalRunOutcome::TakenOver { output } = out.unwrap() else {
         panic!("应当是用户接管");
     };
-    assert_eq!(output.text, "begin");
+    // 接管时返回"当时已有的输出"：终端可能已经回显了用户按的 `u`（慢机器上回显先于等待者读输出），
+    // 所以只要求以命令的第一段输出开头、且命令还没跑完，不要求恰好等于 "begin"。
+    assert!(output.text.starts_with("begin"), "{:?}", output.text);
+    assert!(!output.text.contains("end"), "{:?}", output.text);
     // 用户的输入没有被拦截。
     fx.wait_screen(id, "u");
     fx.wait_screen(id, "end");
