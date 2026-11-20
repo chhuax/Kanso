@@ -14,6 +14,7 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWrite
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
+use super::identity::{ClientIdentity, find_own_tab};
 use super::registry::Admission;
 use super::tools::KansoHandler;
 use super::{Shared, ipc};
@@ -38,9 +39,12 @@ struct Hello {
     /// 缺失当作空串，随后按"令牌无效"处理。
     #[serde(default)]
     token: String,
-    /// 阶段 1 只记录；识别客户端所在标签（spec/mcp.md §2.5）在后续阶段使用。
+    /// 客户端的控制终端，用于识别客户端所在标签（spec/mcp.md §2.5）。
     #[serde(default)]
     tty: Option<String>,
+    /// 控制终端的设备号（`st_rdev`），比对以它为准；旧版转发程序没有这个字段。
+    #[serde(default)]
+    tty_dev: Option<u64>,
 }
 
 /// 处理一个已接受的连接，直到它结束。
@@ -75,7 +79,7 @@ pub(super) async fn handle(stream: ipc::Stream, shared: Arc<Shared>) {
         // 超时、超长或不是合法的握手：直接断开。
         _ => return,
     };
-    tracing::debug!(pid = ?pid, tty = ?hello.tty, "mcp connection handshake");
+    tracing::debug!(pid = ?pid, tty = ?hello.tty, tty_dev = ?hello.tty_dev, "mcp connection handshake");
 
     let (id, cancel) = match shared.registry.admit(&hello.token) {
         Admission::Admitted { id, cancel } => (id, cancel),
@@ -108,8 +112,37 @@ pub(super) async fn handle(stream: ipc::Stream, shared: Arc<Shared>) {
         Admission::Closed => return,
     };
 
-    serve(reader, write, shared.clone(), id, cancel).await;
+    // 握手时只记下对端 pid 与上报的终端，不缓存祖先链：连接可以存活很久，期间 pid 可能被复用，
+    // 缓存的链会过期。拦截写操作与 `is_client_tab` 都在每次判定时按对端 pid 重新计算（见 `ClientIdentity`）。
+    let identity = Arc::new(ClientIdentity::new(
+        hello.tty,
+        hello.tty_dev,
+        pid,
+        shared.ancestors.clone(),
+    ));
+    // `own_session` 只用于设置页展示，握手时算一次即可；它可能随标签增减而过时，
+    // 拦截写操作不依赖它，以每次调用时现算的结果为准。
+    // 读进程表是同步系统调用（每层一次），放进阻塞线程池，不占 MCP 运行时的 2 个工作线程。
+    let own = {
+        let core = shared.core.clone();
+        let identity = identity.clone();
+        tokio::task::spawn_blocking(move || find_own_tab(&core, &identity))
+            .await
+            .ok()
+            .flatten()
+    };
+    if own.is_some() {
+        shared.registry.set_own_session(id, own);
+    }
+
+    serve(reader, write, shared.clone(), id, cancel, identity).await;
+    // 顺序有意义：先从 Registry 移除客户端、再清理它打开的标签。`McpTabs::register` 在表锁内确认
+    // 客户端仍在 Registry 才登记，所以不会在清理之后留下孤儿条目。
     shared.registry.remove(id);
+    let core = shared.core.clone();
+    shared.tabs.release_client(&shared.delegate, id, |tab| {
+        core.mcp_session_status(tab).is_some()
+    });
 }
 
 /// 把连接交给 rmcp，直到客户端断开、出错或被取消。
@@ -119,8 +152,9 @@ async fn serve(
     shared: Arc<Shared>,
     id: u64,
     cancel: CancellationToken,
+    identity: Arc<ClientIdentity>,
 ) {
-    let handler = KansoHandler::new(shared, id);
+    let handler = KansoHandler::new(shared, id, cancel.clone(), identity);
     let running = tokio::select! {
         r = timeout(INIT_TIMEOUT, handler.serve((reader, write))) => match r {
             Ok(Ok(running)) => running,

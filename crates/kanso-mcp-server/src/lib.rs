@@ -34,6 +34,9 @@ use kanso_types::secret::SecretString;
 use kanso_types::{ProfileId, SessionId};
 
 pub use client_config::{McpClientKind, client_config, powershell_client_config};
+#[doc(hidden)]
+#[cfg(all(feature = "direct", any(unix, windows)))]
+pub use real::{AncestorsFn, ClockFn, TestHooks};
 
 /// 服务状态。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -180,7 +183,8 @@ enum Backend {
     #[cfg(all(feature = "direct", any(unix, windows)))]
     Mock(mock::MockServer),
     #[cfg(all(feature = "direct", any(unix, windows)))]
-    Real(real::RealServer),
+    /// 装箱：真实服务的状态比 mock 大得多（clippy::large_enum_variant）。
+    Real(Box<real::RealServer>),
     /// 非 Direct 渠道（或不支持的平台）：状态恒为 `Unavailable(NotSupported)`，所有操作返回 `NotSupported` 或空。
     /// 持有回调，是为了让 `start` 失败时也按契约回调一次状态。
     #[cfg_attr(all(feature = "direct", any(unix, windows)), allow(dead_code))]
@@ -204,7 +208,7 @@ impl McpServer {
     /// "App 未运行"与"开关关闭"）。拿不到锁时状态恒为 `Unavailable(AnotherInstance)`。
     pub fn new(core: Arc<Core>, delegate: Arc<dyn McpServerDelegate>) -> McpServer {
         #[cfg(all(feature = "direct", any(unix, windows)))]
-        let backend = Backend::Real(real::RealServer::new(core, delegate));
+        let backend = Backend::Real(Box::new(real::RealServer::new(core, delegate)));
         #[cfg(not(all(feature = "direct", any(unix, windows))))]
         let backend = {
             let _ = core;
@@ -222,7 +226,28 @@ impl McpServer {
         dir: std::path::PathBuf,
     ) -> McpServer {
         McpServer {
-            backend: Backend::Real(real::RealServer::in_dir(core, delegate, dir)),
+            backend: Backend::Real(Box::new(real::RealServer::in_dir(
+                core,
+                delegate,
+                dir,
+                TestHooks::default(),
+            ))),
+        }
+    }
+
+    /// 同 [`McpServer::new_in_dir`]，另外注入时钟与祖先链读取，仅供测试使用。
+    #[doc(hidden)]
+    #[cfg(all(feature = "direct", any(unix, windows)))]
+    pub fn new_in_dir_with_hooks(
+        core: Arc<Core>,
+        delegate: Arc<dyn McpServerDelegate>,
+        dir: std::path::PathBuf,
+        hooks: TestHooks,
+    ) -> McpServer {
+        McpServer {
+            backend: Backend::Real(Box::new(real::RealServer::in_dir(
+                core, delegate, dir, hooks,
+            ))),
         }
     }
 

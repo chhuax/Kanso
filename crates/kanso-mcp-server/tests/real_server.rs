@@ -14,7 +14,7 @@ use kanso_core::{CollectingEventSink, Core, OpenTarget, Platform};
 use kanso_mcp::hello;
 use kanso_mcp_server::{
     McpActivity, McpClientInfo, McpServer, McpServerConfig, McpServerDelegate, McpServerError,
-    McpServerStatus, McpUnavailable,
+    McpServerStatus, McpUnavailable, TestHooks,
 };
 use kanso_types::mcp::{McpAccess, McpAuditEntry, McpAuditFilter};
 use kanso_types::secret::SecretString;
@@ -30,8 +30,12 @@ enum Call {
 }
 
 #[derive(Default)]
-/// 第二个字段统计 `on_audit_changed` 的调用次数。
-struct Recorder(Mutex<Vec<Call>>, AtomicUsize);
+/// 第二个字段统计 `on_audit_changed` 的调用次数；第三个字段按顺序记录 `on_activity`。
+struct Recorder(
+    Mutex<Vec<Call>>,
+    AtomicUsize,
+    Mutex<Vec<(SessionId, Option<McpActivity>)>>,
+);
 
 impl Recorder {
     fn take(&self) -> Vec<Call> {
@@ -50,7 +54,9 @@ impl McpServerDelegate for Recorder {
             .push(Call::Clients(clients.into_iter().map(|c| c.name).collect()));
     }
     fn on_session_opened(&self, _: SessionId, _: McpClientInfo) {}
-    fn on_activity(&self, _: SessionId, _: Option<McpActivity>) {}
+    fn on_activity(&self, session: SessionId, activity: Option<McpActivity>) {
+        self.2.lock().unwrap().push((session, activity));
+    }
     fn on_session_released(&self, _: SessionId) {}
     fn on_audit_changed(&self) {
         self.1.fetch_add(1, Ordering::SeqCst);
@@ -97,6 +103,34 @@ impl Fixture {
         f
     }
 
+    /// 注入祖先链读取的服务：测试进程自己就是对端，所以按 pid 返回假链。
+    fn started_with_ancestors(chain: Vec<u32>) -> Fixture {
+        let dir = tempfile::tempdir().unwrap();
+        let core = new_core();
+        let rec = Arc::new(Recorder::default());
+        let hooks = TestHooks {
+            clock: None,
+            ancestors: Some(Arc::new(move |pid| {
+                let mut v = vec![pid];
+                v.extend(chain.iter().copied());
+                v
+            })),
+        };
+        let server = McpServer::new_in_dir_with_hooks(
+            core.clone(),
+            rec.clone(),
+            dir.path().join("mcp"),
+            hooks,
+        );
+        server.start(config(TOKEN)).unwrap();
+        Fixture {
+            core,
+            rec,
+            server,
+            dir,
+        }
+    }
+
     fn socket(&self) -> String {
         match self.server.status() {
             McpServerStatus::Running { socket_path } => socket_path,
@@ -132,6 +166,10 @@ struct Client {
 
 impl Client {
     fn open(socket: &str, token: &str) -> Client {
+        Client::open_with_tty(socket, token, None, None)
+    }
+
+    fn open_with_tty(socket: &str, token: &str, tty: Option<&str>, tty_dev: Option<u64>) -> Client {
         let writer = UnixStream::connect(socket).unwrap();
         writer
             .set_read_timeout(Some(Duration::from_secs(5)))
@@ -139,7 +177,7 @@ impl Client {
         let reader = BufReader::new(writer.try_clone().unwrap());
         let mut c = Client { writer, reader };
         c.writer
-            .write_all(hello::encode(token, None).as_bytes())
+            .write_all(hello::encode(token, tty, tty_dev).as_bytes())
             .unwrap();
         c
     }
@@ -318,7 +356,7 @@ fn stale_socket_file_is_replaced() {
 }
 
 #[test]
-fn lists_only_the_kanso_list_sessions_tool_and_records_client_name() {
+fn lists_the_tools_and_records_client_name() {
     let f = Fixture::started();
     let mut c = f.connect(TOKEN);
     let init = c.initialize("tester");
@@ -330,7 +368,28 @@ fn lists_only_the_kanso_list_sessions_tool_and_records_client_name() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names, ["kanso_list_sessions"]);
+    let mut names = names;
+    names.sort_unstable();
+    assert_eq!(
+        names,
+        [
+            "kanso_close_tab",
+            "kanso_exec",
+            "kanso_get_cwd",
+            "kanso_list_sessions",
+            "kanso_open_tab",
+            "kanso_sftp_list",
+            "kanso_sftp_mkdir",
+            "kanso_sftp_read",
+            "kanso_sftp_remove",
+            "kanso_sftp_rename",
+            "kanso_sftp_stat",
+            "kanso_sftp_write",
+            "kanso_terminal_read",
+            "kanso_terminal_run",
+            "kanso_terminal_send"
+        ]
+    );
     let clients = f.server.clients();
     assert_eq!(clients.len(), 1);
     assert_eq!(clients[0].name, "tester");
@@ -700,4 +759,548 @@ fn connection_without_initialize_is_released_after_timeout() {
         f.server.clients().is_empty()
     });
     wait_until("connection closed", || c.is_closed());
+}
+
+// ---- F9 阶段 2：终端工具 ----
+
+const GRID: GridSize = GridSize { cols: 80, rows: 24 };
+
+impl Fixture {
+    fn profile(&self, name: &str) -> kanso_types::ProfileId {
+        self.core
+            .profiles()
+            .into_iter()
+            .find(|p| p.name == name)
+            .unwrap()
+            .id
+    }
+
+    /// 打开开关、给指定配置授权并开一个标签，返回标签 id。
+    fn tab(&self, profile: &str, level: McpAccess) -> SessionId {
+        self.core.set_mcp_enabled(true).unwrap();
+        let id = self.profile(profile);
+        self.core.set_mcp_access(id, level).unwrap();
+        self.core
+            .open_session(OpenTarget::Profile(id), GRID)
+            .unwrap()
+    }
+}
+
+fn parse(text: &str) -> Value {
+    serde_json::from_str(text).unwrap()
+}
+
+fn error_code(text: &str) -> String {
+    parse(text)["error"]["code"].as_str().unwrap().to_owned()
+}
+
+#[test]
+fn read_and_cwd_work_with_read_only_access() {
+    let f = Fixture::started();
+    let tab = f.tab("web-01", McpAccess::ReadOnly);
+    let mut c = f.ready_client("tester");
+
+    let (err, text) = c.call(2, "kanso_get_cwd", json!({"tab": tab.raw()}));
+    assert!(!err, "{text}");
+    assert!(parse(&text)["cwd"].is_string(), "{text}");
+
+    let (err, text) = c.call(3, "kanso_terminal_read", json!({"tab": tab.raw()}));
+    assert!(!err, "{text}");
+    let v = parse(&text);
+    assert!(v["text"].as_str().unwrap().contains("mock terminal"));
+    assert_eq!(v["truncated"], false);
+    assert!(v["original_bytes"].as_u64().unwrap() > 0);
+    assert!(v["cursor"]["row"].is_number() && v["cursor"]["col"].is_number());
+    assert_eq!(v["size"]["cols"], 80);
+    assert_eq!(v["size"]["rows"], 24);
+    assert_eq!(v["alternate_screen"], false);
+
+    // 行数夹取：超大、为 0 都不报错。
+    for (id, lines) in [(4, 100_000), (5, 0)] {
+        let (err, text) = c.call(
+            id,
+            "kanso_terminal_read",
+            json!({"tab": tab.raw(), "scope": "recent", "lines": lines}),
+        );
+        assert!(!err, "{text}");
+    }
+}
+
+#[test]
+fn write_tools_run_and_send_succeed_with_full_access() {
+    let f = Fixture::started();
+    let ssh = f.tab("web-01", McpAccess::Full);
+    let local = f.tab("Local", McpAccess::Full);
+    let mut c = f.ready_client("tester");
+
+    // SSH 标签没有 OSC 133：退出码为 "unknown"。
+    let (err, text) = c.call(
+        2,
+        "kanso_terminal_run",
+        json!({"tab": ssh.raw(), "command": "ls"}),
+    );
+    assert!(!err, "{text}");
+    let v = parse(&text);
+    assert_eq!(v["status"], "completed");
+    assert_eq!(v["exit_code"], "unknown");
+    assert!(v["output"].as_str().unwrap().contains("ls"));
+
+    // 本地标签有 OSC 133：带退出码。
+    let (_, text) = c.call(
+        3,
+        "kanso_terminal_run",
+        json!({"tab": local.raw(), "command": "ls"}),
+    );
+    assert_eq!(parse(&text)["exit_code"], 0);
+
+    // send：文字与按键混合；带 settle_ms 时返回屏幕，不带则没有 screen。
+    let (err, text) = c.call(
+        4,
+        "kanso_terminal_send",
+        json!({"tab": ssh.raw(), "inputs": [{"text": "vim"}, {"key": "Enter"}, {"key": "Ctrl+C"}], "settle_ms": 50}),
+    );
+    assert!(!err, "{text}");
+    let v = parse(&text);
+    assert_eq!(v["status"], "sent");
+    assert!(v["screen"]["text"].is_string());
+    let (_, text) = c.call(
+        5,
+        "kanso_terminal_send",
+        json!({"tab": ssh.raw(), "inputs": [{"key": "Up"}]}),
+    );
+    assert!(parse(&text).get("screen").is_none(), "{text}");
+
+    // 四次写调用，活动标识成对出现：Some 在前、None 在后。
+    let log = f.rec.2.lock().unwrap();
+    assert_eq!(log.len(), 8);
+    for pair in log.chunks(2) {
+        assert!(pair[0].1.is_some() && pair[1].1.is_none());
+        assert_eq!(pair[0].0, pair[1].0);
+    }
+    let first = log[0].1.as_ref().unwrap();
+    assert_eq!(first.client_name, "tester");
+    assert_eq!(first.tool, "kanso_terminal_run");
+    assert_eq!(first.client_id, f.server.clients()[0].id);
+}
+
+#[test]
+fn run_timeout_keeps_output_and_explains_missing_osc133() {
+    let f = Fixture::started();
+    let ssh = f.tab("web-01", McpAccess::Full);
+    let local = f.tab("Local", McpAccess::Full);
+    let mut c = f.ready_client("tester");
+
+    let (err, text) = c.call(
+        2,
+        "kanso_terminal_run",
+        json!({"tab": ssh.raw(), "command": "mock-hang 1", "timeout_secs": 5}),
+    );
+    assert!(err);
+    assert_eq!(error_code(&text), "TIMEOUT");
+    let v = parse(&text);
+    assert_eq!(v["status"], "unconfirmed");
+    assert!(v["output"].is_string());
+    assert!(
+        v["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("kanso_exec")
+    );
+
+    // 有 OSC 133 的标签不附这段说明。
+    let (_, text) = c.call(
+        3,
+        "kanso_terminal_run",
+        json!({"tab": local.raw(), "command": "mock-hang 1"}),
+    );
+    assert_eq!(error_code(&text), "TIMEOUT");
+    assert!(!text.contains("kanso_exec"), "{text}");
+}
+
+#[test]
+fn argument_errors_do_not_reach_the_terminal() {
+    let f = Fixture::started();
+    let tab = f.tab("web-01", McpAccess::Full);
+    let mut c = f.ready_client("tester");
+    let t = tab.raw();
+
+    let (err, text) = c.call(
+        2,
+        "kanso_terminal_run",
+        json!({"tab": t, "command": "a\nb"}),
+    );
+    assert!(err);
+    assert_eq!(error_code(&text), "INVALID_ARGUMENT");
+    // 任何 C0 控制字符与 DEL 都拒绝：制表符、回车、ESC、NUL、DEL。
+    for (n, bad) in ["a\tb", "ls\r", "\u{1b}[A", "a\u{0}b", "a\u{7f}"]
+        .into_iter()
+        .enumerate()
+    {
+        let (err, text) = c.call(
+            20 + n as u64,
+            "kanso_terminal_run",
+            json!({"tab": t, "command": bad}),
+        );
+        assert!(err);
+        assert_eq!(error_code(&text), "INVALID_ARGUMENT", "{bad:?}: {text}");
+        assert!(text.contains("kanso_terminal_send"), "{text}");
+    }
+    let (_, text) = c.call(
+        3,
+        "kanso_terminal_send",
+        json!({"tab": t, "inputs": [{"key": "F13"}]}),
+    );
+    assert_eq!(error_code(&text), "INVALID_ARGUMENT");
+    let (_, text) = c.call(
+        4,
+        "kanso_terminal_send",
+        json!({"tab": t, "inputs": [{"text": "a", "key": "Tab"}]}),
+    );
+    assert_eq!(error_code(&text), "INVALID_ARGUMENT");
+    let (_, text) = c.call(5, "kanso_terminal_send", json!({"tab": t, "inputs": []}));
+    assert_eq!(error_code(&text), "INVALID_ARGUMENT");
+    // 没有任何输入到达终端：没有活动回调。
+    assert!(f.rec.2.lock().unwrap().is_empty());
+}
+
+#[test]
+fn access_levels_and_missing_tabs_map_to_error_codes() {
+    let f = Fixture::started();
+    let read_only = f.tab("web-01", McpAccess::ReadOnly);
+    let off = f.tab("legacy-switch", McpAccess::Off);
+    let sftp = f.tab("files", McpAccess::Full);
+    let mut c = f.ready_client("tester");
+
+    // 只读：写被拒，读允许。
+    for (id, tool, args) in [
+        (
+            2,
+            "kanso_terminal_run",
+            json!({"tab": read_only.raw(), "command": "ls"}),
+        ),
+        (
+            3,
+            "kanso_terminal_send",
+            json!({"tab": read_only.raw(), "inputs": [{"key": "Enter"}]}),
+        ),
+    ] {
+        let (err, text) = c.call(id, tool, args);
+        assert!(err);
+        assert_eq!(error_code(&text), "ACCESS_DENIED", "{text}");
+    }
+    let (err, _) = c.call(4, "kanso_terminal_read", json!({"tab": read_only.raw()}));
+    assert!(!err);
+
+    // 关闭级别与不存在的标签：全部 NOT_FOUND，且说明文字只差 id（无法区分）。
+    let mut messages = Vec::new();
+    let mut id = 10;
+    for tab in [off.raw(), 987_654] {
+        for tool in ["kanso_get_cwd", "kanso_terminal_read"] {
+            id += 1;
+            let (err, text) = c.call(id, tool, json!({"tab": tab}));
+            assert!(err);
+            assert_eq!(error_code(&text), "NOT_FOUND", "{text}");
+            messages.push(
+                parse(&text)["error"]["message"]
+                    .as_str()
+                    .unwrap()
+                    .replace(&tab.to_string(), "N"),
+            );
+        }
+        for (tool, args) in [
+            ("kanso_terminal_run", json!({"tab": tab, "command": "ls"})),
+            (
+                "kanso_terminal_send",
+                json!({"tab": tab, "inputs": [{"key": "Tab"}]}),
+            ),
+        ] {
+            id += 1;
+            let (_, text) = c.call(id, tool, args);
+            assert_eq!(error_code(&text), "NOT_FOUND", "{text}");
+        }
+    }
+    assert!(messages.windows(2).all(|w| w[0] == w[1]), "{messages:?}");
+
+    // 纯 SFTP 会话没有终端。
+    for (id, tool, args) in [
+        (40, "kanso_terminal_read", json!({"tab": sftp.raw()})),
+        (
+            41,
+            "kanso_terminal_run",
+            json!({"tab": sftp.raw(), "command": "ls"}),
+        ),
+    ] {
+        let (_, text) = c.call(id, tool, args);
+        assert_eq!(error_code(&text), "UNSUPPORTED", "{text}");
+    }
+
+    // 拒绝的调用没有产生活动标识。
+    assert!(f.rec.2.lock().unwrap().is_empty());
+}
+
+#[test]
+fn legacy_client_without_tty_dev_is_found_by_tty_path() {
+    let f = Fixture::started();
+    let own = f.tab("Local", McpAccess::Full);
+    let other = f.tab("web-01", McpAccess::Full);
+    // 旧版转发程序只上报路径、没有设备号：服务端退回路径字符串比较。
+    // 路径取自 core 实际报告的值，而不是测试里手工拼的设备名。
+    let tty = f
+        .core
+        .mcp_session_status(own)
+        .unwrap()
+        .local_tty
+        .expect("local tab has a tty");
+    let mut c = Client::open_with_tty(&f.socket(), TOKEN, Some(&tty), None);
+    c.initialize("claude-code");
+    assert_client_tab_behavior(&f, &mut c, own, other);
+}
+
+#[test]
+fn tty_device_number_takes_precedence_over_the_path() {
+    let f = Fixture::started();
+    let own = f.tab("Local", McpAccess::Full);
+    let tty = f
+        .core
+        .mcp_session_status(own)
+        .unwrap()
+        .local_tty
+        .expect("local tab has a tty");
+    // 设备号存在时不按路径比较：路径虽然相同，但 mock 标签的路径不是真实设备（stat 失败），不能命中。
+    // 真实 pty 的设备号命中见 `identity.rs` 的单元测试。
+    let mut c = Client::open_with_tty(&f.socket(), TOKEN, Some(&tty), Some(1));
+    c.initialize("claude-code");
+    let (err, text) = c.call(
+        2,
+        "kanso_terminal_run",
+        json!({"tab": own.raw(), "command": "ls"}),
+    );
+    assert!(!err, "{text}");
+    assert_eq!(f.server.clients()[0].own_session, None);
+}
+
+#[test]
+fn client_tab_is_found_by_process_ancestry() {
+    // 先开标签才知道 shell pid；假祖先链读取在连接时才调用，所以用共享槽延后填入。
+    let dir = tempfile::tempdir().unwrap();
+    let core = new_core();
+    let rec = Arc::new(Recorder::default());
+    let slot: Arc<Mutex<Vec<u32>>> = Arc::default();
+    let chain = slot.clone();
+    let hooks = TestHooks {
+        clock: None,
+        ancestors: Some(Arc::new(move |pid| {
+            let mut v = vec![pid, 4_000_000];
+            v.extend(chain.lock().unwrap().iter().copied());
+            v
+        })),
+    };
+    let server =
+        McpServer::new_in_dir_with_hooks(core.clone(), rec.clone(), dir.path().join("mcp"), hooks);
+    server.start(config(TOKEN)).unwrap();
+    let f = Fixture {
+        core,
+        rec,
+        server,
+        dir,
+    };
+    let own = f.tab("Local", McpAccess::Full);
+    let other = f.tab("web-01", McpAccess::Full);
+    let shell_pid = f.core.mcp_session_status(own).unwrap().shell_pid.unwrap();
+    slot.lock().unwrap().push(shell_pid);
+    // 没有 tty（脱离控制终端启动）：只能靠祖先链。
+    let mut c = f.ready_client("claude-code");
+    assert_client_tab_behavior(&f, &mut c, own, other);
+}
+
+fn assert_client_tab_behavior(f: &Fixture, c: &mut Client, own: SessionId, other: SessionId) {
+    // 设置页能看到识别结果。
+    wait_until("own_session", || {
+        f.server.clients()[0].own_session == Some(own)
+    });
+
+    // 写被拒，读允许。
+    let (err, text) = c.call(
+        2,
+        "kanso_terminal_run",
+        json!({"tab": own.raw(), "command": "ls"}),
+    );
+    assert!(err);
+    assert_eq!(error_code(&text), "TAB_SELF", "{text}");
+    let (_, text) = c.call(
+        3,
+        "kanso_terminal_send",
+        json!({"tab": own.raw(), "inputs": [{"key": "Enter"}]}),
+    );
+    assert_eq!(error_code(&text), "TAB_SELF", "{text}");
+    let (err, _) = c.call(4, "kanso_terminal_read", json!({"tab": own.raw()}));
+    assert!(!err);
+    let (err, _) = c.call(5, "kanso_get_cwd", json!({"tab": own.raw()}));
+    assert!(!err);
+    // 其他标签照常。
+    let (err, text) = c.call(
+        6,
+        "kanso_terminal_run",
+        json!({"tab": other.raw(), "command": "ls"}),
+    );
+    assert!(!err, "{text}");
+
+    // list_sessions 里只有自己所在的标签 is_client_tab 为真。
+    let (_, text) = c.call(7, "kanso_list_sessions", json!({}));
+    let v = parse(&text);
+    let mut flagged = Vec::new();
+    for s in v["sessions"].as_array().unwrap() {
+        for t in s["tabs"].as_array().unwrap() {
+            if t["is_client_tab"] == true {
+                flagged.push(t["id"].as_u64().unwrap());
+            }
+        }
+    }
+    assert_eq!(flagged, [own.raw()], "{text}");
+    // 被拒绝的写调用没有产生活动标识：只有对 other 的那一次（一对）。
+    assert_eq!(f.rec.2.lock().unwrap().len(), 2);
+}
+
+#[test]
+fn unrelated_client_has_no_client_tab() {
+    let f = Fixture::started_with_ancestors(vec![11, 22]);
+    let local = f.tab("Local", McpAccess::Full);
+    // tty 不匹配、祖先链里也没有这个标签的 shell。
+    let mut c = Client::open_with_tty(&f.socket(), TOKEN, Some("/dev/ttys999"), None);
+    c.initialize("outside");
+    let (err, text) = c.call(
+        2,
+        "kanso_terminal_run",
+        json!({"tab": local.raw(), "command": "ls"}),
+    );
+    assert!(!err, "{text}");
+    assert_eq!(f.server.clients()[0].own_session, None);
+    let (_, text) = c.call(3, "kanso_list_sessions", json!({}));
+    assert!(!text.contains("\"is_client_tab\":true"), "{text}");
+}
+
+#[test]
+fn audit_records_target_and_command_but_not_output() {
+    let f = Fixture::started();
+    let tab = f.tab("web-01", McpAccess::Full);
+    let web = f.web_01();
+    let off = f.tab("legacy-switch", McpAccess::Off);
+    let mut c = f.ready_client("tester");
+    let (err, text) = c.call(
+        2,
+        "kanso_terminal_run",
+        json!({"tab": tab.raw(), "command": "echo hello-audit"}),
+    );
+    assert!(!err);
+    assert!(text.contains("mock output"));
+    let (_, text) = c.call(3, "kanso_terminal_read", json!({"tab": off.raw()}));
+    assert_eq!(error_code(&text), "NOT_FOUND");
+
+    wait_until("audit", || {
+        f.core.mcp_audit(McpAuditFilter::default()).unwrap().len() == 2
+    });
+    let records = f.core.mcp_audit(McpAuditFilter::default()).unwrap();
+    let denied = &records[0].entry;
+    assert_eq!(denied.tool, "kanso_terminal_read");
+    assert_eq!(denied.error_code.as_deref(), Some("NOT_FOUND"));
+    // 被拒绝的调用也记下目标：关闭级别的会话 id，界面据此显示"未授权的会话"。
+    assert_eq!(denied.profile, Some(f.profile("legacy-switch")));
+    assert_eq!(denied.session, Some(off));
+
+    let run = &records[1].entry;
+    assert_eq!(run.tool, "kanso_terminal_run");
+    assert_eq!(run.profile, Some(web));
+    assert_eq!(run.session, Some(tab));
+    assert!(run.args.contains("echo hello-audit"), "{}", run.args);
+    // mock 的输出是 "mock output: <命令>"，审计里不应出现输出。
+    assert!(!run.args.contains("mock output"), "{}", run.args);
+    assert_eq!(run.error_code, None);
+}
+
+#[test]
+fn switch_off_rejects_terminal_tools_with_mcp_disabled() {
+    let f = Fixture::started();
+    let tab = f.tab("web-01", McpAccess::Full);
+    let mut c = f.ready_client("tester");
+    f.core.set_mcp_enabled(false).unwrap();
+    for (id, tool, args) in [
+        (2, "kanso_get_cwd", json!({"tab": tab.raw()})),
+        (3, "kanso_terminal_read", json!({"tab": tab.raw()})),
+        (
+            4,
+            "kanso_terminal_run",
+            json!({"tab": tab.raw(), "command": "ls"}),
+        ),
+        (
+            5,
+            "kanso_terminal_send",
+            json!({"tab": tab.raw(), "inputs": [{"key": "Tab"}]}),
+        ),
+    ] {
+        let (err, text) = c.call(id, tool, args);
+        assert!(err);
+        assert_eq!(error_code(&text), "MCP_DISABLED", "{text}");
+    }
+}
+
+/// 取最新一条审计记录（审计按时间倒序）。
+fn latest_audit(f: &Fixture, expected_len: usize) -> McpAuditEntry {
+    wait_until("audit", || {
+        f.core.mcp_audit(McpAuditFilter::default()).unwrap().len() >= expected_len
+    });
+    f.core.mcp_audit(McpAuditFilter::default()).unwrap()[0]
+        .entry
+        .clone()
+}
+
+#[test]
+fn audit_of_switch_off_rejection_keeps_the_requested_tab_and_profile() {
+    let f = Fixture::started();
+    let tab = f.tab("web-01", McpAccess::Full);
+    let web = f.web_01();
+    let mut c = f.ready_client("tester");
+    f.core.set_mcp_enabled(false).unwrap();
+    let (err, text) = c.call(
+        2,
+        "kanso_terminal_run",
+        json!({"tab": tab.raw(), "command": "ls"}),
+    );
+    assert!(err);
+    assert_eq!(error_code(&text), "MCP_DISABLED");
+    let entry = latest_audit(&f, 1);
+    assert_eq!(entry.error_code.as_deref(), Some("MCP_DISABLED"));
+    assert_eq!(entry.session, Some(tab));
+    assert_eq!(entry.profile, Some(web));
+}
+
+#[test]
+fn audit_of_argument_errors_keeps_the_profile() {
+    let f = Fixture::started();
+    let tab = f.tab("web-01", McpAccess::Full);
+    let web = f.web_01();
+    let mut c = f.ready_client("tester");
+    let (_, text) = c.call(
+        2,
+        "kanso_terminal_run",
+        json!({"tab": tab.raw(), "command": "a\tb"}),
+    );
+    assert_eq!(error_code(&text), "INVALID_ARGUMENT");
+    let entry = latest_audit(&f, 1);
+    assert_eq!(entry.error_code.as_deref(), Some("INVALID_ARGUMENT"));
+    assert_eq!(entry.session, Some(tab));
+    assert_eq!(entry.profile, Some(web));
+
+    let inputs: Vec<Value> = (0..300).map(|_| json!({"key": "Tab"})).collect();
+    let (_, text) = c.call(
+        3,
+        "kanso_terminal_send",
+        json!({"tab": tab.raw(), "inputs": inputs}),
+    );
+    assert_eq!(error_code(&text), "TOO_LARGE");
+    let entry = latest_audit(&f, 2);
+    assert_eq!(entry.error_code.as_deref(), Some("TOO_LARGE"));
+    assert_eq!(entry.session, Some(tab));
+    assert_eq!(entry.profile, Some(web));
+    // 摘要有长度上限。
+    assert!(entry.args.chars().count() <= 512, "{}", entry.args.len());
 }
