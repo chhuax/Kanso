@@ -430,6 +430,40 @@ impl ThemeMode {
     }
 }
 
+/// 标签栏位置（ui-shell.md §2.5）。存储值与 mac 版相同（`left` / `top`），`.kanso` 导出跨平台可读。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TabBarPosition {
+    /// 左侧竖向标签栏。
+    #[default]
+    Left,
+    /// 每个分屏顶部各一条横向标签条。
+    Top,
+}
+
+impl TabBarPosition {
+    /// 全部取值，顺序即设置页上的显示顺序。
+    pub const ALL: [TabBarPosition; 2] = [TabBarPosition::Left, TabBarPosition::Top];
+
+    pub(super) fn storage(self) -> &'static str {
+        match self {
+            TabBarPosition::Left => "left",
+            TabBarPosition::Top => "top",
+        }
+    }
+
+    pub(super) fn from_storage(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|v| v.storage() == s)
+    }
+
+    /// 显示名。
+    pub fn label(self) -> &'static str {
+        match self {
+            TabBarPosition::Left => label(Message::UiTabBarLeft {}),
+            TabBarPosition::Top => label(Message::UiTabBarTop {}),
+        }
+    }
+}
+
 /// 内置终端配色：`(id, 显示名)`。id 与 mac 版一致。
 pub const BUILTIN_THEMES: [(&str, &str); 2] =
     [("kanso-light", "Kanso Light"), ("kanso-dark", "Kanso Dark")];
@@ -445,6 +479,8 @@ pub struct AppearanceSettings {
     pub dark_theme: String,
     /// 界面语言（Windows / Linux 在设置里切换；mac 版跟随系统，忽略这个字段）。
     pub language: LanguageSetting,
+    /// 标签栏位置。
+    pub tab_bar_position: TabBarPosition,
 }
 
 impl Default for AppearanceSettings {
@@ -454,6 +490,7 @@ impl Default for AppearanceSettings {
             light_theme: "kanso-light".to_owned(),
             dark_theme: "kanso-dark".to_owned(),
             language: LanguageSetting::System,
+            tab_bar_position: TabBarPosition::Left,
         }
     }
 }
@@ -469,6 +506,9 @@ impl AppearanceSettings {
             dark_theme: get_str(&m, "darkTheme", &d.dark_theme),
             language: LanguageSetting::from_storage(&get_str(&m, "language", ""))
                 .unwrap_or(d.language),
+            // 旧数据没有这个字段；未知值（更新版本新增的位置）同样回落到左侧。
+            tab_bar_position: TabBarPosition::from_storage(&get_str(&m, "tabBarPosition", ""))
+                .unwrap_or(d.tab_bar_position),
         }
     }
 
@@ -480,6 +520,7 @@ impl AppearanceSettings {
             "lightTheme": self.light_theme,
             "darkTheme": self.dark_theme,
             "language": self.language.storage(),
+            "tabBarPosition": self.tab_bar_position.storage(),
         })
         .to_string()
     }
@@ -951,6 +992,18 @@ mod tests {
             ..AppearanceSettings::default()
         };
         assert_eq!(AppearanceSettings::decode(Some(&en.encode())), en);
+        // 标签栏位置：缺省与不认识的值都是左侧，写入的字符串与 mac 版一致。
+        assert_eq!(a.tab_bar_position, TabBarPosition::Left);
+        assert_eq!(
+            AppearanceSettings::decode(Some(r#"{"tabBarPosition":"bottom"}"#)).tab_bar_position,
+            TabBarPosition::Left
+        );
+        let top = AppearanceSettings {
+            tab_bar_position: TabBarPosition::Top,
+            ..AppearanceSettings::default()
+        };
+        assert!(top.encode().contains(r#""tabBarPosition":"top""#));
+        assert_eq!(AppearanceSettings::decode(Some(&top.encode())), top);
 
         let t = TimelineSettings::decode(Some(r#"{"mode":"timestamps","lastVisible":"off"}"#));
         assert_eq!(t.mode, GutterMode::Timestamps);

@@ -40,7 +40,7 @@ use kanso_gpui::app::layout::{LayoutDivider, PaneId, Rect, SplitAxis};
 use kanso_gpui::app::menus::{
     AppMenuState, TabMenuContext, app_menu, decode, tab_menu, terminal_menu,
 };
-use kanso_gpui::app::settings::DisplaySettings;
+use kanso_gpui::app::settings::{DisplaySettings, TabBarPosition};
 use kanso_gpui::app::shell::{DIVIDER_THICKNESS, DividerDrag, min_fraction};
 use kanso_gpui::app::shortcuts::{AppCommand, lookup};
 use kanso_gpui::app::status_bar::{clock_text, ms_until_next_minute};
@@ -103,6 +103,10 @@ pub(crate) struct ShellView {
     subs: HashMap<SessionId, Subscription>,
     _window_subs: Vec<Subscription>,
     pub(super) sidebar_visible: bool,
+    /// 标签栏位置为顶部（ui-shell.md §2.5）。跟随外观设置，设置变化时同步。
+    pub(super) tab_bar_top: bool,
+    /// 顶部模式下标签条是否显示（"显示 / 隐藏标签栏"在顶部模式下切换它）。
+    pub(super) top_tab_bar_visible: bool,
     pub(super) sidebar_preferred_width: f32,
     pub(super) sidebar_resizing: bool,
     pub(super) tab_reorder: Option<kanso_gpui::app::tab::TabReorder>,
@@ -212,6 +216,7 @@ impl ShellView {
         let filer = super::shell_filer::new_state(&core, window, cx);
         let panels = super::window_layout::PanelLayout::load(&core);
         let git = super::shell_git::new_state(panels.git_width, window, cx);
+        let tab_bar_top = settings.read(cx).appearance().tab_bar_position == TabBarPosition::Top;
         let mut this = ShellView {
             ctl: AppController::new(core.clone(), home),
             core,
@@ -219,6 +224,8 @@ impl ShellView {
             subs: HashMap::new(),
             _window_subs: Vec::new(),
             sidebar_visible: panels.sidebar_visible,
+            tab_bar_top,
+            top_tab_bar_visible: panels.top_tab_bar_visible,
             sidebar_preferred_width: panels.sidebar_width,
             sidebar_resizing: false,
             tab_reorder: None,
@@ -348,6 +355,7 @@ impl ShellView {
                     log(&format!("设置已变更：{section:?}"));
                 }
                 this.settings.read(cx).push_to_display(cx);
+                this.sync_tab_bar_position(cx);
                 this.sync_gutter_global(cx);
                 this.refresh_display(window, cx);
             },
@@ -609,7 +617,12 @@ impl ShellView {
             AppCommand::SplitRight => self.split(SplitAxis::Horizontal, window, cx),
             AppCommand::SplitDown => self.split(SplitAxis::Vertical, window, cx),
             AppCommand::ToggleSidebar => {
-                self.sidebar_visible = !self.sidebar_visible;
+                // 顶部模式下切换的是各分屏的标签条，左侧竖栏的显隐保持原样，切回左侧时照旧。
+                if self.tab_bar_top {
+                    self.top_tab_bar_visible = !self.top_tab_bar_visible;
+                } else {
+                    self.sidebar_visible = !self.sidebar_visible;
+                }
                 self.save_panels();
                 self.sync_focus(window, cx);
                 cx.notify();
@@ -982,7 +995,12 @@ impl ShellView {
 
     pub(super) fn app_menu_state(&self, cx: &gpui::App) -> AppMenuState {
         AppMenuState {
-            sidebar_visible: self.sidebar_visible,
+            // 菜单里"显示 / 隐藏标签栏"反映当前位置下的显隐。
+            sidebar_visible: if self.tab_bar_top {
+                self.top_tab_bar_visible
+            } else {
+                self.sidebar_visible
+            },
             right_click_menu: self.right_click_menu,
             sender_visible: self.sender.visible,
             command_suggestions: self.completion.enabled,
@@ -1410,9 +1428,47 @@ impl ShellView {
 
     // ---- 分隔条 ----
 
+    /// 左侧竖栏是否显示：标签栏在左侧且没被隐藏。
+    pub(super) fn sidebar_shown(&self) -> bool {
+        !self.tab_bar_top && self.sidebar_visible
+    }
+
+    /// 各分屏顶部的标签条是否显示（具体某个分屏还要看它有没有标签）。
+    pub(super) fn tab_strips_shown(&self) -> bool {
+        self.tab_bar_top && self.top_tab_bar_visible
+    }
+
+    /// 外观设置里的标签栏位置变化后同步到外壳。位置切换会改变标签的排列方向，进行中的拖拽一律作废。
+    fn sync_tab_bar_position(&mut self, cx: &mut Context<Self>) {
+        let top = self.settings.read(cx).appearance().tab_bar_position == TabBarPosition::Top;
+        if top != self.tab_bar_top {
+            self.tab_bar_top = top;
+            self.sidebar_resizing = false;
+            self.cancel_tab_reorder(cx);
+            cx.notify();
+        }
+    }
+
+    /// 每个分屏里终端（或 SFTP 面板）占用的区域：整块分屏减去顶部标签条。
+    /// 唯一分屏且没有标签时不画标签条，整块留给空状态页。
+    pub(super) fn content_frames(&self, area: Rect) -> HashMap<PaneId, Rect> {
+        let ws = self.ctl.workspace();
+        let mut frames = ws.layout().frames(area, DIVIDER_THICKNESS);
+        if self.tab_strips_shown() {
+            let strip = f64::from(super::tab_strip::HEIGHT);
+            for (pane, r) in frames.iter_mut() {
+                if !ws.tabs_in(*pane).is_empty() {
+                    r.y += strip;
+                    r.height = (r.height - strip).max(0.0);
+                }
+            }
+        }
+        frames
+    }
+
     /// 侧栏占用的宽度（隐藏时为 0；窄窗口最多占 40%）。
     pub(super) fn sidebar_width(&self, window: &Window) -> f32 {
-        if self.sidebar_visible {
+        if self.sidebar_shown() {
             self.sidebar_preferred_width
                 .min(f32::from(window.viewport_size().width) * 0.4)
         } else {
@@ -1454,9 +1510,10 @@ impl ShellView {
             return;
         }
         if let Some(drag) = self.tab_reorder.as_mut() {
+            let pointer = drag.axis_coord(ev.position.x.into(), ev.position.y.into());
             if ev.pressed_button != Some(MouseButton::Left) {
                 self.cancel_tab_reorder(cx);
-            } else if drag.update(ev.position.y.into()) {
+            } else if drag.update(pointer) {
                 cx.notify();
             }
             return;
@@ -1503,7 +1560,7 @@ impl ShellView {
 
     fn on_mouse_up(&mut self, ev: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
         if let Some(mut drag) = self.tab_reorder.take() {
-            drag.update(ev.position.y.into());
+            drag.update(drag.axis_coord(ev.position.x.into(), ev.position.y.into()));
             if let (Some(index), Some(pane)) =
                 (drag.insertion, self.ctl.workspace().pane_of(drag.session))
             {
@@ -1602,7 +1659,7 @@ impl ShellView {
 
     fn render_panes(&self, area: Rect, th: Theme, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
         let ws = self.ctl.workspace();
-        let frames = ws.layout().frames(area, DIVIDER_THICKNESS);
+        let frames = self.content_frames(area);
         let dividers = ws.layout().dividers(area, DIVIDER_THICKNESS);
         let active_pane = ws.active_pane();
         let multiple = frames.len() > 1;
@@ -1761,8 +1818,9 @@ impl Render for ShellView {
         }
         let panes = self.render_panes(area, th, cx);
         let sidebar = self
-            .sidebar_visible
+            .sidebar_shown()
             .then(|| self.render_sidebar(self.sidebar_width(window), th, cx));
+        let tab_strips = self.render_tab_strips(area, th, cx);
         let status_bar = self.render_status_bar(th, window, cx);
         if self.sender.visible {
             self.push_sender_context(cx);
@@ -1801,6 +1859,7 @@ impl Render for ShellView {
             .children(filer_panels)
             .children(git_panels)
             .children(panes)
+            .children(tab_strips)
             .child(status_bar)
             .child(self.render_toolbar(th, window, cx))
             .children(notice.map(|text| {

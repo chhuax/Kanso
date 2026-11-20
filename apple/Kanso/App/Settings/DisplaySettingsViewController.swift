@@ -66,7 +66,7 @@ class SettingsPageViewController: NSViewController {
     }
 }
 
-/// "显示"页（ui-shell.md §10、terminal.md §15）：终端字体与字号、光标、回滚行数、最低对比度保护。
+/// "显示"页（ui-shell.md §10、terminal.md §15）：终端字体与字号、光标、回滚行数、最低对比度保护、标签栏位置。
 ///
 /// 每个改动立即写入设置；设置变化再由 `WorkspaceController` 应用到所有终端视图与 core，所以这里只管读写设置，
 /// 不直接碰终端视图。界面字体 / 界面字号本版不做。
@@ -93,6 +93,10 @@ final class DisplaySettingsViewController: SettingsPageViewController, NSTextFie
     let contrastRow = KCheckRow(title: String(localized: "Minimum contrast protection"))
     let semanticRow = KCheckRow(title: String(localized: "Semantic coloring"))
     let contrastField = KNumberField(range: DisplaySettings.contrastRange, step: 0.5, fractionDigits: 1)
+    let tabBarPositionCards = KSegmentedCards(segments: [
+        .init(title: TabBarPosition.left.displayName, symbol: "sidebar.left"),
+        .init(title: TabBarPosition.top.displayName, symbol: "rectangle.topthird.inset.filled"),
+    ])
 
     /// - Parameter fontFamilies: 供"选择…"菜单列出的字体家族；默认枚举本机已安装的等宽字体，测试注入固定列表。
     init(settings: SettingsStore, fontFamilies: @escaping @MainActor () -> [String] = TerminalFontResolver.installedMonospacedFamilies) {
@@ -171,10 +175,21 @@ final class DisplaySettingsViewController: SettingsPageViewController, NSTextFie
             localized: "Text whose contrast with its background is below this ratio (1–21) is lightened or darkened automatically."
         )))
 
-        view = makePageView([fontCard, cursorCard, bufferCard, contrastCard])
+        // 标签栏位置。存在外观分区（它是界面布局，不是终端选项），但放在显示页：用户找"标签栏"会先来这里。
+        tabBarPositionCards.onSelect = { [weak self] index in
+            guard TabBarPosition.allCases.indices.contains(index) else { return }
+            self?.settings.updateAppearance { $0.tabBarPosition = TabBarPosition.allCases[index] }
+        }
+        let tabBarCard = KCard(title: String(localized: "Tab Bar"), symbol: "sidebar.left")
+        tabBarCard.addRow(LabeledField(title: String(localized: "Position"), control: tabBarPositionCards))
+        tabBarCard.addRow(Self.caption(String(
+            localized: "Top shows a tab strip above each split with only that split’s tabs."
+        )))
+
+        view = makePageView([fontCard, cursorCard, bufferCard, contrastCard, tabBarCard])
         reload()
         settings.observe(self) { [weak self] section in
-            if section == .display { self?.reload() }
+            if section == .display || section == .appearance { self?.reload() }
         }
     }
 
@@ -193,6 +208,7 @@ final class DisplaySettingsViewController: SettingsPageViewController, NSTextFie
         semanticRow.isChecked = display.semanticColoring
         contrastField.setValue(display.minimumContrastRatio)
         contrastField.isEnabled = display.minimumContrastEnabled
+        tabBarPositionCards.selectedIndex = TabBarPosition.allCases.firstIndex(of: settings.appearance.tabBarPosition) ?? 0
         refreshFontWarning()
     }
 

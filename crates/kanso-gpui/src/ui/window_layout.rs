@@ -18,6 +18,8 @@ pub(super) struct PanelLayout {
     pub right_click_menu: bool,
     /// Git 面板宽度（照 mac 版跨重启记住；旧数据没有这个字段时用默认 480）。
     pub git_width: f32,
+    /// 顶部标签条模式下标签条是否显示。与 `sidebar_visible` 分开记：两种位置各自有自己的显隐。
+    pub top_tab_bar_visible: bool,
 }
 
 impl Default for PanelLayout {
@@ -29,6 +31,7 @@ impl Default for PanelLayout {
             sender_height: PANEL_DEFAULT_HEIGHT,
             right_click_menu: true,
             git_width: GIT_DEFAULT_WIDTH,
+            top_tab_bar_visible: true,
         }
     }
 }
@@ -81,6 +84,7 @@ impl ShellView {
         let layout = PanelLayout {
             sidebar_visible: self.sidebar_visible,
             sidebar_width: self.sidebar_preferred_width,
+            top_tab_bar_visible: self.top_tab_bar_visible,
             sender_visible: self.sender.visible,
             sender_height: self.sender.height,
             right_click_menu: self.right_click_menu,

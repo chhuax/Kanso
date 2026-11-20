@@ -3,6 +3,7 @@ import KansoUI
 import TerminalKit
 
 /// 分屏区：按 `Workspace.layout` 摆放每个 pane 当前活动标签的终端视图，并提供分隔条拖动。
+/// 标签栏位置为顶部时，每个 pane 顶部还有一条只含本 pane 标签的标签条（ui-shell.md §2.5），终端在它下方。
 ///
 /// 终端视图实例由控制器持有并复用；这里只负责把它们加进 / 移出视图层级并设置 frame。
 /// 只有活动标签的视图在层级里，其余标签的视图被摘下（对应 core 侧 `setVisible(false)`）。
@@ -26,6 +27,21 @@ final class PaneContainerView: NSView {
     /// 用三个容器而不是靠 `positioned:` 排序：后加入的终端视图不会盖到遮罩上面。
     private let terminalLayer = PassthroughView()
     private let dimLayer = PassthroughView()
+    /// 标签条在遮罩之上、分隔条之下：分隔条命中区域比线宽，压到标签条边缘上时要优先响应拖动。
+    private let stripLayer = PassthroughView()
+    private var strips: [PaneID: TabStripView] = [:]
+    /// 拖拽期间因结构变化被推迟的标签条重建。
+    private var needsStripRebuild = false
+    private lazy var contextMenu = TabContextMenu(controller: controller)
+    /// 标签条上的 MCP 标记。由主窗口注入。
+    var mcpMark: (SessionID) -> McpTabMark? = { _ in nil }
+    /// 是否在每个 pane 顶部显示标签条：标签栏位置为顶部、且用户没有隐藏标签栏时为 true。由主窗口按设置切换。
+    var showsTabStrips = false {
+        didSet {
+            guard showsTabStrips != oldValue else { return }
+            reload()
+        }
+    }
     /// 上一次已把焦点交给的会话；只在活动会话变化时抢焦点，避免标题刷新打断侧栏搜索框的输入。
     private var lastFocusedSession: SessionID?
     var sftpViewProvider: ((SessionID) -> SftpDualView?)?
@@ -43,8 +59,9 @@ final class PaneContainerView: NSView {
         }
         emptyState.onNewSession = { [weak controller] in controller?.sessions.presentEditor(editing: nil) }
         emptyState.onImportSshConfig = { [weak controller] in controller?.sessions.presentSshImport() }
-        for layer in [emptyState, terminalLayer, dimLayer] { addSubview(layer) }
-        controller.paneSizeProvider = { [weak self] pane in self?.paneFrames()[pane]?.size }
+        for layer in [emptyState, terminalLayer, dimLayer, stripLayer] { addSubview(layer) }
+        // 估算网格要用终端实际能用的尺寸，顶部模式下要扣掉标签条。
+        controller.paneSizeProvider = { [weak self] pane in self?.contentFrames()[pane]?.size }
         controller.addObserver { [weak self] in self?.reload() }
         reload()
     }
@@ -65,9 +82,27 @@ final class PaneContainerView: NSView {
         workspace.layout.frames(in: bounds, dividerThickness: Self.dividerThickness)
     }
 
+    /// pane 是否显示标签条。唯一 pane 且没有标签时不显示，整块交给空状态页。
+    private func showsStrip(in pane: PaneID) -> Bool {
+        showsTabStrips && !workspace.tabs(in: pane).isEmpty
+    }
+
+    /// 每个 pane 中终端（或 SFTP 视图）占用的区域：整块 pane 减去顶部标签条。
+    private func contentFrames() -> [PaneID: CGRect] {
+        var frames = paneFrames()
+        for (pane, frame) in frames where showsStrip(in: pane) {
+            var rest = frame
+            rest.origin.y += TabStripView.height
+            rest.size.height = max(0, frame.height - TabStripView.height)
+            frames[pane] = rest
+        }
+        return frames
+    }
+
     /// 按模型重新摆放。幂等；分隔条拖动期间每次移动都会调用。
     func reload() {
-        let frames = paneFrames()
+        let paneRects = paneFrames()
+        let frames = contentFrames()
         let multiPane = workspace.allPanes.count > 1
 
         // 1. 终端视图：每个 pane 一个（活动标签）。
@@ -89,7 +124,7 @@ final class PaneContainerView: NSView {
 
         // 2. 空状态页：只有"唯一 pane 且没有标签"才会出现。
         emptyState.isHidden = !desired.isEmpty
-        for layer in [emptyState, terminalLayer, dimLayer] { layer.frame = bounds }
+        for layer in [emptyState, terminalLayer, dimLayer, stripLayer] { layer.frame = bounds }
 
         // 3. 非活动 pane 的淡遮罩（单 pane 时不需要）。
         for pane in workspace.allPanes {
@@ -106,7 +141,10 @@ final class PaneContainerView: NSView {
             dimViews.removeValue(forKey: pane)?.removeFromSuperview()
         }
 
-        // 4. 分隔条：复用 handle 对象。拖动中 handle 收着鼠标事件，重建会丢事件流。
+        // 4. 顶部标签条。
+        updateStrips(paneRects)
+
+        // 5. 分隔条：复用 handle 对象。拖动中 handle 收着鼠标事件，重建会丢事件流。
         let dividers = workspace.layout.dividers(in: bounds, dividerThickness: Self.dividerThickness)
         while handles.count < dividers.count {
             let handle = DividerHandleView()
@@ -122,6 +160,86 @@ final class PaneContainerView: NSView {
         }
 
         focusActiveTerminalIfChanged()
+    }
+
+    // MARK: - 顶部标签条
+
+    private func updateStrips(_ paneRects: [PaneID: CGRect]) {
+        let indexes = Dictionary(uniqueKeysWithValues: workspace.sidebarOrder.enumerated().map { ($0.element, $0.offset) })
+        let activePane = workspace.activePane
+        var shown = Set<PaneID>()
+        for pane in workspace.allPanes where showsStrip(in: pane) {
+            guard let rect = paneRects[pane] else { continue }
+            shown.insert(pane)
+            let strip = strips[pane] ?? makeStrip(pane)
+            let frame = NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: TabStripView.height)
+            if strip.frame != frame { strip.frame = frame }
+            let activeTab = workspace.activeTab(in: pane)
+            let models = workspace.tabs(in: pane).map { item -> TabRowView.Model in
+                let selection: TabRowSelection = item.id == activeTab ? (pane == activePane ? .windowActive : .paneActive) : .none
+                // 快捷键提示按完整侧栏顺序编号，与 ⌘1–⌘9 的实际目标一致。
+                return TabRowView.Model(item: item, sidebarIndex: indexes[item.id] ?? 0, selection: selection, mcp: mcpMark(item.id))
+            }
+            if !strip.update(models, activeTab: activeTab) { needsStripRebuild = true }
+        }
+        for (pane, strip) in strips where !shown.contains(pane) {
+            strip.cancelDrag()
+            strip.removeFromSuperview()
+            strips.removeValue(forKey: pane)
+        }
+    }
+
+    private func makeStrip(_ pane: PaneID) -> TabStripView {
+        let strip = TabStripView(pane: pane)
+        strip.onActivate = { [weak self] id in
+            self?.workspace.activate(id)
+            self?.controller.requestTerminalFocus?()
+        }
+        strip.onActivatePane = { [weak self] pane in
+            self?.workspace.activatePane(pane)
+            self?.controller.requestTerminalFocus?()
+        }
+        strip.onClose = { [weak self] ids in self?.contextMenu.close(ids) }
+        strip.onMove = { [weak self] id, index in self?.workspace.moveTab(id, toIndex: index) }
+        // ＋、双击、右键都作用于"活动 pane"：先切到这条标签条所在的 pane，新会话才会开在这里。
+        strip.onNewSession = { [weak self] pane in
+            guard let self else { return }
+            workspace.activatePane(pane)
+            controller.sessions.presentEditor(editing: nil)
+        }
+        strip.onBlankDoubleClick = { [weak self] pane in
+            guard let self else { return }
+            workspace.activatePane(pane)
+            controller.perform { try self.controller.duplicateActiveTab() }
+        }
+        strip.onBlankRightClick = { [weak self, weak strip] pane, point in
+            guard let self, let strip else { return }
+            workspace.activatePane(pane)
+            // 标签条是 flipped 视图，maxY 在下方。
+            controller.sessions.showLauncher(
+                relativeTo: NSRect(x: point.x, y: point.y, width: 1, height: 1), of: strip, preferredEdge: .maxY
+            )
+        }
+        strip.rowMenuProvider = { [weak self] id in self?.contextMenu.makeMenu(for: id, horizontal: true) }
+        strip.onDragFinished = { [weak self] in
+            guard let self, needsStripRebuild else { return }
+            needsStripRebuild = false
+            reload()
+        }
+        strips[pane] = strip
+        stripLayer.addSubview(strip)
+        return strip
+    }
+
+    /// 某个 pane 的标签条；不显示时为 nil。
+    func tabStrip(for pane: PaneID) -> TabStripView? { strips[pane] }
+
+    /// 把会话启动器锚在活动 pane 标签条的 ＋ 按钮上。没有可见的标签条时返回 false，由调用方另找锚点。
+    func showSessionLauncher() -> Bool {
+        guard let strip = strips[workspace.activePane], strip.window != nil else { return false }
+        // ＋ 是非 flipped 的按钮，下方是 minY。
+        controller.sessions.showLauncher(relativeTo: strip.plusButton.bounds, of: strip.plusButton, preferredEdge: .minY)
+        return true
     }
 
     private func makeDimView(_ pane: PaneID) -> PaneDimView {

@@ -41,7 +41,7 @@ enum SessionColor {
 /// 拖拽状态全部在这里，并以 internal 方法暴露（`dragBegan` / `dragMoved` / `dragEnded` / `cancelDrag`），
 /// 行视图的鼠标事件只是转发，测试可以直接调用。
 @MainActor
-final class SidebarListView: NSView {
+final class SidebarListView: NSView, TabRowHost {
     static let rowSpacing: CGFloat = DesignTokens.Spacing.tabRowGap
     static let headerHeight: CGFloat = 24
     static let horizontalInset: CGFloat = 8
@@ -143,7 +143,7 @@ final class SidebarListView: NSView {
             for model in section.rows {
                 let row = existingRows.removeValue(forKey: model.item.id) ?? TabRowView(model: model)
                 row.model = model
-                row.list = self
+                row.host = self
                 if row.superview == nil { addSubview(row) }
                 rowViews.append(row)
             }
@@ -348,6 +348,8 @@ final class SidebarListView: NSView {
     func rowCloseClicked(_ row: TabRowView) {
         onClose?([row.model.item.id])
     }
+
+    func rowMenu(for session: SessionID) -> NSMenu? { rowMenuProvider?(session) }
 }
 
 /// 分组标题："分屏 N"，点击切换到该 pane。

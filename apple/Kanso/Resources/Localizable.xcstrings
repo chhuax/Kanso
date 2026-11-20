@@ -859,6 +859,48 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "关闭下方标签" } }
       }
     },
+    "Close Tabs to the Left" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Close Tabs to the Left" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "关闭左侧标签" } }
+      }
+    },
+    "Close Tabs to the Right" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Close Tabs to the Right" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "关闭右侧标签" } }
+      }
+    },
+    "Tab Bar" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Tab Bar" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "标签栏" } }
+      }
+    },
+    "Position" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Position" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "位置" } }
+      }
+    },
+    "Left" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Left" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "左侧" } }
+      }
+    },
+    "Top" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Top" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "顶部" } }
+      }
+    },
+    "Top shows a tab strip above each split with only that split’s tabs." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Top shows a tab strip above each split with only that split’s tabs." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "选“顶部”时，每个分屏上方各有一条标签条，只显示本分屏的标签。" } }
+      }
+    },
     "Close sessions that are still running?" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Close sessions that are still running?" } },
