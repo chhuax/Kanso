@@ -339,6 +339,7 @@ pub(crate) fn open_sftp_session(
             private_key_path: key,
             jump: None,
             proxy_command: None,
+            keepalive: kanso_types::profile::KeepaliveConfig::default(),
         }),
     };
     core.save_profile(profile).map_err(|e| e.to_string())?;

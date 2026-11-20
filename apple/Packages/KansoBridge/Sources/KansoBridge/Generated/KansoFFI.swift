@@ -6051,6 +6051,115 @@ public func FfiConverterTypeFfiKbdQuestion_lower(_ value: FfiKbdQuestion) -> Rus
 
 
 /**
+ * SSH 保活配置（ssh.md §2.4）。
+ */
+public struct FfiKeepaliveConfig: Equatable, Hashable {
+    /**
+     * 是否启用协议层 keepalive。
+     */
+    public var enabled: Bool
+    /**
+     * 协议层 keepalive 间隔秒数。
+     */
+    public var intervalSecs: UInt16
+    /**
+     * 连续多少次无回应判定断线。
+     */
+    public var maxMisses: UInt16
+    /**
+     * 是否在空闲时向 shell 发送保活字符串。
+     */
+    public var idleEnabled: Bool
+    /**
+     * 网络空闲多少秒后发送一次。
+     */
+    public var idleIntervalSecs: UInt16
+    /**
+     * 空闲时发送的字符串（支持 \r \n \t \\ 转义）。
+     */
+    public var idleString: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * 是否启用协议层 keepalive。
+         */enabled: Bool, 
+        /**
+         * 协议层 keepalive 间隔秒数。
+         */intervalSecs: UInt16, 
+        /**
+         * 连续多少次无回应判定断线。
+         */maxMisses: UInt16, 
+        /**
+         * 是否在空闲时向 shell 发送保活字符串。
+         */idleEnabled: Bool, 
+        /**
+         * 网络空闲多少秒后发送一次。
+         */idleIntervalSecs: UInt16, 
+        /**
+         * 空闲时发送的字符串（支持 \r \n \t \\ 转义）。
+         */idleString: String) {
+        self.enabled = enabled
+        self.intervalSecs = intervalSecs
+        self.maxMisses = maxMisses
+        self.idleEnabled = idleEnabled
+        self.idleIntervalSecs = idleIntervalSecs
+        self.idleString = idleString
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiKeepaliveConfig: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiKeepaliveConfig: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiKeepaliveConfig {
+        return
+            try FfiKeepaliveConfig(
+                enabled: FfiConverterBool.read(from: &buf), 
+                intervalSecs: FfiConverterUInt16.read(from: &buf), 
+                maxMisses: FfiConverterUInt16.read(from: &buf), 
+                idleEnabled: FfiConverterBool.read(from: &buf), 
+                idleIntervalSecs: FfiConverterUInt16.read(from: &buf), 
+                idleString: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiKeepaliveConfig, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.enabled, into: &buf)
+        FfiConverterUInt16.write(value.intervalSecs, into: &buf)
+        FfiConverterUInt16.write(value.maxMisses, into: &buf)
+        FfiConverterBool.write(value.idleEnabled, into: &buf)
+        FfiConverterUInt16.write(value.idleIntervalSecs, into: &buf)
+        FfiConverterString.write(value.idleString, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiKeepaliveConfig_lift(_ buf: RustBuffer) throws -> FfiKeepaliveConfig {
+    return try FfiConverterTypeFfiKeepaliveConfig.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiKeepaliveConfig_lower(_ value: FfiKeepaliveConfig) -> RustBuffer {
+    return FfiConverterTypeFfiKeepaliveConfig.lower(value)
+}
+
+
+/**
  * 一次按键。IME 组字期间的按键不要发；IME 上屏文字走 `text_input`。
  */
 public struct FfiKeyEvent: Equatable, Hashable {
@@ -8318,6 +8427,10 @@ public struct FfiSshTarget: Equatable, Hashable {
      * ProxyCommand；与 `jump` 互斥。
      */
     public var proxyCommand: String?
+    /**
+     * 保活配置。
+     */
+    public var keepalive: FfiKeepaliveConfig
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -8342,7 +8455,10 @@ public struct FfiSshTarget: Equatable, Hashable {
          */jump: String?, 
         /**
          * ProxyCommand；与 `jump` 互斥。
-         */proxyCommand: String?) {
+         */proxyCommand: String?, 
+        /**
+         * 保活配置。
+         */keepalive: FfiKeepaliveConfig) {
         self.host = host
         self.port = port
         self.user = user
@@ -8350,6 +8466,7 @@ public struct FfiSshTarget: Equatable, Hashable {
         self.privateKeyPath = privateKeyPath
         self.jump = jump
         self.proxyCommand = proxyCommand
+        self.keepalive = keepalive
     }
 
     
@@ -8374,7 +8491,8 @@ public struct FfiConverterTypeFfiSshTarget: FfiConverterRustBuffer {
                 auth: FfiConverterTypeFfiAuthMethod.read(from: &buf), 
                 privateKeyPath: FfiConverterOptionString.read(from: &buf), 
                 jump: FfiConverterOptionString.read(from: &buf), 
-                proxyCommand: FfiConverterOptionString.read(from: &buf)
+                proxyCommand: FfiConverterOptionString.read(from: &buf), 
+                keepalive: FfiConverterTypeFfiKeepaliveConfig.read(from: &buf)
         )
     }
 
@@ -8386,6 +8504,7 @@ public struct FfiConverterTypeFfiSshTarget: FfiConverterRustBuffer {
         FfiConverterOptionString.write(value.privateKeyPath, into: &buf)
         FfiConverterOptionString.write(value.jump, into: &buf)
         FfiConverterOptionString.write(value.proxyCommand, into: &buf)
+        FfiConverterTypeFfiKeepaliveConfig.write(value.keepalive, into: &buf)
     }
 }
 
