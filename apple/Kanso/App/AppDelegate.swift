@@ -90,7 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showSettings(tab: .display)
     }
 
-    /// 视图 → 键盘快捷键…
+    /// 视图 → 键盘与鼠标…
     @objc func kansoShowKeyboardSettings(_ sender: Any?) {
         showSettings(tab: .keyboard)
     }
@@ -214,6 +214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         addCommand(editMenu, .paste)
         addCommand(editMenu, .selectAll)
         add(editMenu, String(localized: "Copy on Select"), #selector(MainWindowController.kansoCopyOnSelect(_:)))
+        add(editMenu, String(localized: "Right Click Shows Menu"), #selector(MainWindowController.kansoRightClickShowsMenu(_:)))
         editMenu.addItem(.separator())
         addCommand(editMenu, .clearBuffer)
         addCommand(editMenu, .previousCommandBlock)
@@ -246,7 +247,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appearanceItem.submenu = appearance.makeMenu()
         viewMenu.addItem(.separator())
         add(viewMenu, String(localized: "Display Settings…"), #selector(AppDelegate.kansoShowDisplaySettings(_:))).target = NSApp.delegate
-        add(viewMenu, String(localized: "Keyboard Shortcuts…"), #selector(AppDelegate.kansoShowKeyboardSettings(_:))).target = NSApp.delegate
+        add(viewMenu, String(localized: "Keyboard & Mouse…"), #selector(AppDelegate.kansoShowKeyboardSettings(_:))).target = NSApp.delegate
 
         // 窗口
         let windowMenu = submenu(String(localized: "Window"))

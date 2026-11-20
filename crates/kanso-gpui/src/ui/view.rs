@@ -22,7 +22,10 @@ use kanso_types::{CellSide, GridSize, SessionId, ViewportPoint};
 use kanso_gpui::app::blocks::{BlockMenu, BlockPart, BlockSelection, has_command, menu_for};
 use kanso_gpui::app::find::{FindResult, FindState, Throttle, TimerAction};
 use kanso_gpui::app::links::{LinkHit, is_openable, url_at};
-use kanso_gpui::app::settings::GutterMode;
+use kanso_gpui::app::settings::{
+    ClickAction, GutterMode, MouseSettings, middle_click_action, right_click_action,
+    should_copy_on_select,
+};
 use kanso_gpui::contrast::ContrastGuard;
 use kanso_gpui::ime::ImeState;
 use kanso_gpui::keys::{KeyAction, KeyInput, classify_key};
@@ -134,8 +137,11 @@ pub(crate) struct TerminalView {
     /// 是否维护整屏文本 `screen`（自检用）。
     pub track_screen: bool,
     left_down: bool,
-    /// 右键行为：`true` 弹出菜单，`false` 为“复制或粘贴”（terminal.md §8.1）。由外壳统一设置。
-    pub right_click_menu: bool,
+    /// 中键 / 右键行为与选中即复制（terminal.md §8.1、§8.2）。由外壳统一下发。
+    pub mouse: MouseSettings,
+    /// 当前这次左键按下是否由终端自己处理选择（按下时没有被鼠标上报接管）。
+    /// 在按下时记录而不是松开时再判断：拖动途中程序可能切换鼠标上报，松开时的状态不代表这次选择的归属。
+    local_select: bool,
     /// 时间戳 / 行号栏模式（由外壳按全局设置与 AI 会话的临时设置下发）。
     pub gutter_mode: GutterMode,
     /// 最低对比度保护（关闭为 `None`）。
@@ -216,7 +222,8 @@ impl TerminalView {
             selftest: st,
             track_screen,
             left_down: false,
-            right_click_menu: true,
+            mouse: MouseSettings::default(),
+            local_select: false,
             gutter_mode: GutterMode::Off,
             contrast: super::display::min_contrast().map(ContrastGuard::new),
             find: FindState::default(),
@@ -449,6 +456,18 @@ impl TerminalView {
             let _ = self.core.clear_selection(self.session);
         } else if let Some(id) = self.block_sel.selected() {
             self.copy_block_part(id, BlockPart::All, cx);
+        }
+    }
+
+    /// 选中即复制：只复制文本选区并保留高亮，不回落命令块。
+    /// 不能复用 `copy`：它复制后清掉选区，用户刚拖完选区就消失，看不出选了什么，也没法接着扩选。
+    fn copy_selection_keep(&mut self, cx: &mut Context<Self>) {
+        if let Some(text) = self
+            .core
+            .selection_text(self.session)
+            .filter(|t| !t.is_empty())
+        {
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
         }
     }
 
@@ -910,6 +929,7 @@ impl TerminalView {
                 let p = self.grid_point(ev.position);
                 self.down_cell = Some((p.row, p.col));
                 self.left_down = true;
+                self.local_select = !reporting;
                 self.send_mouse(
                     MouseEventKind::Down,
                     KButton::Left,
@@ -919,7 +939,13 @@ impl TerminalView {
                 );
             }
             MouseButton::Right => {
-                if self.mouse_reporting() && !ev.modifiers.shift {
+                let action = right_click_action(
+                    self.mouse.right_click,
+                    self.mouse_reporting(),
+                    ev.modifiers.shift,
+                    self.has_selection(),
+                );
+                if action == ClickAction::Report {
                     self.send_mouse(
                         MouseEventKind::Down,
                         KButton::Right,
@@ -927,7 +953,7 @@ impl TerminalView {
                         &ev.modifiers,
                         ev.click_count,
                     );
-                } else if self.right_click_menu {
+                } else if action == ClickAction::Menu {
                     // 右键点在有命令的块内时，菜单里多“复制命令 / 复制输出”。
                     let row = self.grid_point(ev.position).row;
                     let hit = self.block_at_row(row).cloned();
@@ -942,7 +968,7 @@ impl TerminalView {
                         session: self.session,
                         position: ev.position,
                     });
-                } else if self.has_selection() {
+                } else if action == ClickAction::Copy {
                     // “复制或粘贴”模式（terminal.md §8.1）：有选区就复制，没有就粘贴。
                     self.copy(cx);
                 } else {
@@ -950,23 +976,27 @@ impl TerminalView {
                 }
             }
             MouseButton::Middle => {
-                if self.mouse_reporting() && !ev.modifiers.shift {
-                    self.send_mouse(
+                match middle_click_action(
+                    self.mouse.middle_click,
+                    self.mouse_reporting(),
+                    ev.modifiers.shift,
+                ) {
+                    ClickAction::Report => self.send_mouse(
                         MouseEventKind::Down,
                         KButton::Middle,
                         ev.position,
                         &ev.modifiers,
                         ev.click_count,
-                    );
-                } else {
-                    self.paste(cx);
+                    ),
+                    ClickAction::Paste => self.paste(cx),
+                    _ => {}
                 }
             }
             _ => {}
         }
     }
 
-    fn on_mouse_up(&mut self, ev: &MouseUpEvent, _window: &mut Window, _cx: &mut Context<Self>) {
+    fn on_mouse_up(&mut self, ev: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
         match ev.button {
             MouseButton::Left => {
                 if self.left_down {
@@ -978,6 +1008,12 @@ impl TerminalView {
                         &ev.modifiers,
                         ev.click_count,
                     );
+                    // 选区由 core 维护，必须在 Up 送达之后再查（Up 才会结束这次拖动选择）。
+                    let local = std::mem::take(&mut self.local_select);
+                    if should_copy_on_select(self.mouse.copy_on_select, local, self.has_selection())
+                    {
+                        self.copy_selection_keep(cx);
+                    }
                 }
             }
             MouseButton::Right | MouseButton::Middle

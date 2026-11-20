@@ -54,7 +54,7 @@ Mac 对照 `apple/Packages/TerminalKit/Sources/TerminalKit/`、`docs/spec/termin
 | 命令分隔线、成功/失败标记、单击选块、跳上/下块，右键复制命令或输出 | `app/blocks.rs`、`ui/view.rs`、`app/menus.rs`。**单测** 块命中、滚动裁剪、失败条、选择状态与右键条件。终端自检里的 block-jump 仅记探测信息 | 具备 OSC 133 提示符的实际 shell 完成成功/失败命令，确认点击、跳转和两种复制内容 |
 | 文本选区、双击选词、三击选行、全选，菜单/快捷键复制粘贴 | `ui/view.rs`、`ui/clipboard.rs`。Ctrl+Shift+C/V/A，可改绑，Shift+Insert 为粘贴别名。选区优先于选中的命令块。**单测** `clipboard_actions_drop_old_aliases_and_keep_menu_labels_in_sync` | 在专用测试桌面完整验证多行、换行、组合字符和前台 TUI。自动测试不用用户剪贴板 |
 | Windows 粘贴多文件路径、文本和纯图片。把资源管理器的文件拖入终端 | 新的 Win32 剪贴板入口按文件列表/文本/图像识别，路径和 AI 模式交给 core。`ui/filer_drag.rs` 将外部拖入文件送至指针下的终端。**代码/单测** 路径插入与本地拖入状态 | 专用桌面的文件名含空格、多文件、纯图像、bracketed paste 及 AI CLI 对照 |
-| 右键菜单或复制/粘贴模式、中键粘贴、TUI 鼠标上报、Shift 临时绕过 | 编辑菜单切换右键模式，`ui/view.rs` 决定何时将鼠标事件送程序。右键菜单支持复制、粘贴、全选、清屏、在 Filer 显示目录，有命令块时多两个复制项。**代码** | 真实鼠标中键、tmux/vim 的 SGR 鼠标上报、Shift 绕过与每个设置组合 |
+| 右键菜单或复制/粘贴模式、中键粘贴、TUI 鼠标上报、Shift 临时绕过 | "键盘与鼠标"设置页或编辑菜单切换右键 / 中键模式，`ui/view.rs` 决定何时将鼠标事件送程序。右键菜单支持复制、粘贴、全选、清屏、在 Filer 显示目录，有命令块时多两个复制项。**代码** | 真实鼠标中键、tmux/vim 的 SGR 鼠标上报、Shift 绕过与每个设置组合 |
 | Ctrl+单击链接并交给系统打开 | `app/links.rs`、`ui/view.rs`，支持文本 URL/OSC 8，允许 http/https/ftp/ftps/mailto。**VM 自检** `link-detect`，**单测** 允许协议和边界 | Windows 系统关联实际开启、尾随标点与 Ctrl+悬停光标 |
 | IME、宽字符、方向/功能键、Ctrl 组合键、焦点切换 | `ui/view.rs` 实现 GPUI 输入法接口，`keys.rs` 处理键码，组字时抑制建议与全局快捷键。**单测** 码点/修饰键路径 | 微软拼音/日文输入法候选位置，选中文字时 Ctrl+C 与运行程序时 Ctrl+C，拆分后焦点 |
 | 跟踪 CWD、命令活动、退出/重连、AI CLI 轮次 | 终端 OSC/输入跟踪由 `kanso-term/src/track/` 与 core 提供。标签状态、Sender 和目录定位消费同一状态。**单测/代码** | 本地 CMD/PowerShell、SSH 的 OSC 7 与主机名，AI 多轮、后台完成提示、SSH 断线重连分别验证 |
@@ -117,7 +117,7 @@ Mac 基准为 `apple/Kanso/App/Settings/`。Windows 设置为独立窗口。`ui/
 
 ## 规格中另列的入口
 
-`ui-shell.md` §2、§6 中还提到类型/活动筛选按钮、编辑菜单“选中即复制”、Direct 版检查更新与帮助教程。当前 `AppDelegate.makeMainMenu` 的 Mac 菜单没有后三个条目。对照 Mac 操作时，应用内“关于”和“开源许可”有实在入口，需要分别检查。Windows 特有的右键模式在编辑菜单切换并随面板设置保存。
+`ui-shell.md` §2、§6 中还提到类型/活动筛选按钮、编辑菜单“选中即复制”、Direct 版检查更新与帮助教程。当前 `AppDelegate.makeMainMenu` 的 Mac 菜单没有后三个条目。对照 Mac 操作时，应用内“关于”和“开源许可”有实在入口，需要分别检查。右键模式、中键行为与选中即复制在设置的"键盘与鼠标"页和编辑菜单两处切换，存于 `mouse` 设置分区（ui-shell.md §7.1），两个平台一致。
 
 ## 验证入口与复查材料
 

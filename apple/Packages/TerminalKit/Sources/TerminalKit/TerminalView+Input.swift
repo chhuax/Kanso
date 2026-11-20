@@ -156,34 +156,67 @@ extension TerminalView {
     public override func mouseDragged(with event: NSEvent) { pointerDragged(event, button: .left) }
     public override func mouseUp(with event: NSEvent) { pointerUp(event, button: .left) }
 
-    // 右键：程序开启鼠标上报且未按 Shift 时交给程序；否则先选中指针下的单词再弹菜单（terminal.md §8.1）。
+    // 右键：程序开启鼠标上报且未按 Shift 时交给程序（点击不看设置）；否则按 `rightClickShowsMenu` 二选一（terminal.md §8.1）：
+    // 弹菜单（先选中指针下的单词），或"复制或粘贴"（有选区复制、没有就粘贴，不选词、不弹菜单）。
     // 这里不调用 super，避免触发 NSView 的 menu(for:)。
     public override func rightMouseDown(with event: NSEvent) {
-        let reporting = currentFrame?.flags.contains(.mouseReporting) == true
-        let bypass = KeyModifiers(event.modifierFlags).contains(.shift)
-        if (!reporting || bypass), let menu = contextMenuProvider?() {
-            if let point = viewportPoint(for: event) {
-                editActions?.selectWord(at: point)
+        if !isMouseCaptured(by: event) {
+            if !rightClickShowsMenu {
+                // 不发给 core：drag / up 由下面的 activeButtons 判断一并屏蔽。
+                // 先抢焦点：点的是别的分屏时，内容进了这个会话，接下来的键盘输入也应该跟过来。
+                window?.makeFirstResponder(self)
+                if editActions?.hasSelection == true {
+                    copySelectionIfPresent()
+                    // 复制后清掉选区，下一次右键才能粘贴（与 Windows 控制台一致）。
+                    // 只在这条路径清：⌘C 与选中即复制都保留选区。
+                    editActions?.clearSelection()
+                } else {
+                    paste(nil)
+                }
+                return
             }
-            addCommandBlockMenuItems(to: menu, event: event)
-            window?.makeFirstResponder(self)
-            NSMenu.popUpContextMenu(menu, with: event, for: self)
-            return
+            if let menu = contextMenuProvider?() {
+                if let point = viewportPoint(for: event) {
+                    editActions?.selectWord(at: point)
+                }
+                addCommandBlockMenuItems(to: menu, event: event)
+                window?.makeFirstResponder(self)
+                NSMenu.popUpContextMenu(menu, with: event, for: self)
+                return
+            }
         }
         pointerDown(event, button: .right)
     }
-    public override func rightMouseDragged(with event: NSEvent) { pointerDragged(event, button: .right) }
-    public override func rightMouseUp(with event: NSEvent) { pointerUp(event, button: .right) }
+    // drag / up 只在 down 确实交给了 core（activeButtons 有记录）时才转发：被终端自己消费的点击
+    // （复制或粘贴、中键粘贴 / 无动作）不能给 core 留下孤立的 drag / up。
+    public override func rightMouseDragged(with event: NSEvent) {
+        if activeButtons[.right] != nil { pointerDragged(event, button: .right) }
+    }
+    public override func rightMouseUp(with event: NSEvent) {
+        if activeButtons[.right] != nil { pointerUp(event, button: .right) }
+    }
 
     // 只处理中键（buttonNumber == 2）；其他附加键没有定义，忽略。
+    // 非上报模式（或按住 Shift）下由终端处理：粘贴或无动作，都不发给 core（terminal.md §8.1）。
     public override func otherMouseDown(with event: NSEvent) {
-        if event.buttonNumber == 2 { pointerDown(event, button: .middle) }
+        guard event.buttonNumber == 2 else { return }
+        if isMouseCaptured(by: event) {
+            pointerDown(event, button: .middle)
+        } else if middleClickPastes {
+            window?.makeFirstResponder(self)
+            paste(nil)
+        }
     }
     public override func otherMouseDragged(with event: NSEvent) {
-        if event.buttonNumber == 2 { pointerDragged(event, button: .middle) }
+        if event.buttonNumber == 2, activeButtons[.middle] != nil { pointerDragged(event, button: .middle) }
     }
     public override func otherMouseUp(with event: NSEvent) {
-        if event.buttonNumber == 2 { pointerUp(event, button: .middle) }
+        if event.buttonNumber == 2, activeButtons[.middle] != nil { pointerUp(event, button: .middle) }
+    }
+
+    /// 程序开启了鼠标上报且没有按住 Shift：点击交给程序，不看右键 / 中键设置。
+    private func isMouseCaptured(by event: NSEvent) -> Bool {
+        currentFrame?.flags.contains(.mouseReporting) == true && !KeyModifiers(event.modifierFlags).contains(.shift)
     }
 
     public override func mouseMoved(with event: NSEvent) {

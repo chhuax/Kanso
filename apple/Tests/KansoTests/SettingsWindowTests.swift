@@ -66,7 +66,7 @@ final class SettingsWindowTests: XCTestCase {
         withController { controller, _, _, _ in
             XCTAssertEqual(controller.tabsInWindow.map(\.title), [
                 String(localized: "General"), String(localized: "Display"),
-                String(localized: "Keyboard Shortcuts"),
+                String(localized: "Keyboard & Mouse"),
             ])
             for tab in controller.tabsInWindow {
                 controller.select(tab)

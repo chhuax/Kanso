@@ -766,7 +766,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     @objc func kansoCopyOnSelect(_ sender: Any?) {
-        controller.settings.updateDisplay { $0.copyOnSelect.toggle() }
+        controller.settings.updateMouse { $0.copyOnSelect.toggle() }
+    }
+
+    @objc func kansoRightClickShowsMenu(_ sender: Any?) {
+        controller.settings.updateMouse { $0.rightClick = $0.rightClick == .menu ? .copyOrPaste : .menu }
     }
 
     @objc func kansoClearCommandHistory(_ sender: Any?) {
@@ -830,7 +834,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             menuItem.state = controller.settings.completion.enabled ? .on : .off
             return true
         case #selector(kansoCopyOnSelect(_:)):
-            menuItem.state = controller.settings.display.copyOnSelect ? .on : .off
+            menuItem.state = controller.settings.mouse.copyOnSelect ? .on : .off
+            return true
+        case #selector(kansoRightClickShowsMenu(_:)):
+            menuItem.state = controller.settings.mouse.rightClick == .menu ? .on : .off
             return true
         case #selector(kansoToggleSender(_:)):
             menuItem.title = senderItem.isCollapsed ? String(localized: "Show Sender") : String(localized: "Hide Sender")

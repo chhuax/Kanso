@@ -76,6 +76,10 @@ extension CoreInputSink: TerminalEditActions {
     public func selectWord(at point: ViewportPointValue) {
         try? core.selectWordAt(sessionId: session, at: Self.map(point))
     }
+
+    public func clearSelection() {
+        try? core.clearSelection(sessionId: session)
+    }
 }
 
 extension CoreInputSink {

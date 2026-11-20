@@ -39,6 +39,7 @@ pub fn encode(command: AppCommand) -> String {
         }
         AppCommand::EditSession(s) => format!("edit-session:{}", s.raw()),
         AppCommand::ToggleRightClickMenu => "toggle-right-click-menu".into(),
+        AppCommand::ToggleCopyOnSelect => "toggle-copy-on-select".into(),
         AppCommand::Quit => "quit".into(),
         AppCommand::OpenPalette => "open-palette".into(),
         AppCommand::OpenLauncher => "open-launcher".into(),
@@ -134,6 +135,7 @@ pub fn decode(id: &str) -> Option<AppCommand> {
         "select-all" => AppCommand::SelectAll,
         "clear-buffer" => AppCommand::ClearBuffer,
         "toggle-right-click-menu" => AppCommand::ToggleRightClickMenu,
+        "toggle-copy-on-select" => AppCommand::ToggleCopyOnSelect,
         "quit" => AppCommand::Quit,
         "open-palette" => AppCommand::OpenPalette,
         "open-launcher" => AppCommand::OpenLauncher,
@@ -279,6 +281,8 @@ pub struct AppMenuState {
     pub sidebar_visible: bool,
     /// 右键是否弹菜单（否则为“复制或粘贴”）。
     pub right_click_menu: bool,
+    /// “选中即复制”是否开启。
+    pub copy_on_select: bool,
     /// Sender 面板是否显示。
     pub sender_visible: bool,
     /// “命令建议”是否开启。
@@ -400,6 +404,11 @@ pub fn app_menu(state: AppMenuState) -> Vec<MenuItem> {
                     AppCommand::ToggleRightClickMenu,
                 )
                 .checked(state.right_click_menu),
+                item(
+                    label(Message::UiCopyOnSelect {}),
+                    AppCommand::ToggleCopyOnSelect,
+                )
+                .checked(state.copy_on_select),
             ],
         ),
         MenuItem::submenu(
@@ -521,6 +530,7 @@ mod tests {
             AppCommand::CloseGroup(CloseScope::All, sid(10)),
             AppCommand::EditSession(sid(3)),
             AppCommand::ToggleRightClickMenu,
+            AppCommand::ToggleCopyOnSelect,
             AppCommand::Quit,
             AppCommand::OpenLauncher,
             AppCommand::OpenSettings,
@@ -573,6 +583,7 @@ mod tests {
         let state = AppMenuState {
             sidebar_visible: true,
             right_click_menu: true,
+            copy_on_select: false,
             sender_visible: true,
             command_suggestions: true,
             filer_visible: false,
@@ -671,6 +682,7 @@ mod tests {
         let items = app_menu(AppMenuState {
             sidebar_visible: false,
             right_click_menu: true,
+            copy_on_select: false,
             sender_visible: false,
             command_suggestions: true,
             filer_visible: true,

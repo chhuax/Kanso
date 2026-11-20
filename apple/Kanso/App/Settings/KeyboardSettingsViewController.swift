@@ -29,10 +29,10 @@ final class AlertKeybindingConflictPrompter: KeybindingConflictPrompter {
     }
 }
 
-/// "键盘快捷键"页（ui-shell.md §7）：列出全部可改绑的命令。
+/// "键盘与鼠标"页（ui-shell.md §7、§7.1）：顶部是鼠标与选择设置，下面列出全部可改绑的命令。
 ///
 /// 点击某行的按键框进入录制，按下新组合即绑定；Esc 取消，Delete 清空；与别的命令冲突时询问替换或取消；
-/// "恢复默认"恢复整张表。⌘1–⌘9 显示但不可改。命令的绑定读写与生效都在 `KeybindingController`，这里只管界面。
+/// "恢复默认快捷键"只恢复快捷键表，不动鼠标设置。⌘1–⌘9 显示但不可改。命令的绑定读写与生效都在 `KeybindingController`，这里只管界面。
 @MainActor
 final class KeyboardSettingsViewController: SettingsPageViewController {
     private let keybindings: KeybindingController
@@ -41,7 +41,10 @@ final class KeyboardSettingsViewController: SettingsPageViewController {
     private(set) var fields: [KeyCommand: KeyChordField] = [:]
     /// 固定的 ⌘1–⌘9 行（不可录制）。
     let fixedTabsField = KeyChordField()
-    let restoreButton = KButton(title: String(localized: "Restore Defaults"), style: .secondary)
+    let restoreButton = KButton(title: String(localized: "Restore Default Shortcuts"), style: .secondary)
+    let middleClickPopUp = KPopUpField()
+    let rightClickPopUp = KPopUpField()
+    let copyOnSelectRow = KCheckRow(title: String(localized: "Copy on Select"))
     private let messageLabel = NSTextField(wrappingLabelWithString: "")
     /// 最近一次录制事件的处理任务；只为让测试能等待结果（冲突询问是异步的）。
     private(set) var pendingTask: Task<Void, Never>?
@@ -65,6 +68,11 @@ final class KeyboardSettingsViewController: SettingsPageViewController {
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = DesignTokens.Spacing.lg
+        for card in makeMouseCards() {
+            stack.addArrangedSubview(card)
+            card.translatesAutoresizingMaskIntoConstraints = false
+            card.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        }
         for section in KeyCommandSection.allCases {
             let card = KCard(title: section.title, symbol: section.symbol)
             for command in KeyCommand.allCases where command.section == section {
@@ -122,12 +130,42 @@ final class KeyboardSettingsViewController: SettingsPageViewController {
         view = root
         showHint()
         reload()
+        // 编辑菜单的"选中即复制"、"右键弹出菜单"改的是同一份 mouse 设置，这里要同步控件。
         keybindings.settings.observe(self) { [weak self] section in
             if section == .keybindings { self?.reload() }
+            if section == .mouse { self?.reloadMouse() }
         }
     }
 
     // MARK: 构建
+
+    private func makeMouseCards() -> [KCard] {
+        let settings = keybindings.settings
+        middleClickPopUp.setItems([String(localized: "Paste Clipboard Contents"), String(localized: "No Action")])
+        middleClickPopUp.setAccessibilityLabel(String(localized: "Middle Button"))
+        middleClickPopUp.onChange = { index in
+            settings.updateMouse { $0.middleClick = MiddleClickAction.allCases[index] }
+        }
+        rightClickPopUp.setItems([String(localized: "Show Menu"), String(localized: "Copy or Paste")])
+        rightClickPopUp.setAccessibilityLabel(String(localized: "Right Button"))
+        rightClickPopUp.onChange = { index in
+            settings.updateMouse { $0.rightClick = RightClickAction.allCases[index] }
+        }
+        let mouseCard = KCard(title: String(localized: "Mouse"), symbol: "computermouse")
+        mouseCard.addRow(LabeledField(title: String(localized: "Middle Button"), control: middleClickPopUp))
+        mouseCard.addRow(LabeledField(title: String(localized: "Right Button"), control: rightClickPopUp))
+        mouseCard.addRow(Self.caption(String(
+            localized: "When a program enables mouse reporting (vim, tmux), hold Shift to let the terminal handle clicks."
+        )))
+
+        copyOnSelectRow.onToggle = { on in settings.updateMouse { $0.copyOnSelect = on } }
+        let selectionCard = KCard(title: String(localized: "Selection"), symbol: "selection.pin.in.out")
+        selectionCard.addRow(copyOnSelectRow)
+        selectionCard.addRow(Self.caption(String(
+            localized: "Copies the selection to the clipboard when you release the mouse."
+        )))
+        return [mouseCard, selectionCard]
+    }
 
     private func makeRow(for command: KeyCommand) -> NSView {
         let field = KeyChordField()
@@ -166,7 +204,16 @@ final class KeyboardSettingsViewController: SettingsPageViewController {
         return row
     }
 
+    /// 弹出菜单项顺序与 `MiddleClickAction` / `RightClickAction` 的 `allCases` 顺序一致。
+    private func reloadMouse() {
+        let mouse = keybindings.settings.mouse
+        middleClickPopUp.selectItem(at: MiddleClickAction.allCases.firstIndex(of: mouse.middleClick) ?? 0)
+        rightClickPopUp.selectItem(at: RightClickAction.allCases.firstIndex(of: mouse.rightClick) ?? 0)
+        copyOnSelectRow.isChecked = mouse.copyOnSelect
+    }
+
     private func reload() {
+        reloadMouse()
         for (command, field) in fields { field.chord = keybindings.chord(for: command) }
     }
 
@@ -203,7 +250,7 @@ final class KeyboardSettingsViewController: SettingsPageViewController {
         reload()
     }
 
-    /// "恢复默认"：恢复整张表（ui-shell.md §7）。
+    /// "恢复默认快捷键"：恢复整张快捷键表（ui-shell.md §7），不动鼠标设置。
     func restoreDefaults() {
         keybindings.restoreDefaults()
         showHint()
