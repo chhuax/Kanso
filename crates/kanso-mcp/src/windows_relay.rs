@@ -80,7 +80,7 @@ fn connect(path: &Path) -> io::Result<File> {
 }
 
 fn relay(pipe: File) -> ExitCode {
-    let hello = hello::encode(&std::env::var(TOKEN_ENV).unwrap_or_default(), None);
+    let hello = hello::encode(&std::env::var(TOKEN_ENV).unwrap_or_default(), None, None);
     let streams = open_streams(pipe, hello.as_bytes());
     let Ok((mut reader, mut writer)) = streams else {
         return reply_error(CODE_NOT_RUNNING, NOT_RUNNING);

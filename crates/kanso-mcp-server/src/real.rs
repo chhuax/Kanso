@@ -7,7 +7,7 @@
 //!
 //! 与 mock 一样，所有 delegate 回调都在持有对应状态锁时发出（状态回调持 `inner`，客户端列表回调持
 //! `Registry` 的锁），回调顺序与状态变化严格一致。回调契约禁止重入，所以持锁回调是安全的。
-//! 加锁顺序固定为 `lifecycle` → `inner` → `Registry`，连接任务只会拿 `Registry` 的锁。
+//! 加锁顺序固定为 `lifecycle` → `inner` → `McpTabs` → `Registry`，连接任务只会拿 `McpTabs` 与 `Registry` 的锁。
 //!
 //! # 线程
 //!
@@ -16,6 +16,9 @@
 
 mod audit;
 mod conn;
+mod gate;
+mod headless;
+mod identity;
 #[cfg(unix)]
 #[path = "real/instance.rs"]
 mod ipc;
@@ -23,6 +26,9 @@ mod ipc;
 #[path = "real/windows.rs"]
 mod ipc;
 mod registry;
+mod remote;
+mod tabs;
+mod terminal;
 mod tools;
 
 use std::io;
@@ -37,7 +43,11 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use self::audit::AuditSink;
+pub use self::gate::ClockFn;
+use self::gate::TabGate;
+use self::headless::HeadlessManager;
 use self::registry::Registry;
+use self::tabs::McpTabs;
 use crate::{
     McpClientInfo, McpServerConfig, McpServerDelegate, McpServerError, McpServerStatus,
     McpUnavailable, Result,
@@ -50,11 +60,34 @@ const CONN_DRAIN_TIMEOUT: Duration = Duration::from_secs(1);
 /// 停止时等运行时里的任务退出的上限。
 const RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 
+/// 取进程祖先链的函数，见 `identity::ancestors`。
+pub type AncestorsFn = Arc<dyn Fn(u32) -> Vec<u32> + Send + Sync>;
+
+/// 仅供测试注入：时间来源与祖先链读取。生产代码用 [`TestHooks::default`]（真实时钟与真实进程表）。
+/// 做成注入点而不是 `cfg(test)`，是因为集成测试（`tests/`）链接的是普通构建的库。
+#[doc(hidden)]
+#[derive(Clone, Default)]
+pub struct TestHooks {
+    /// 冷却等用的单调时钟。
+    pub clock: Option<ClockFn>,
+    /// 按对端 pid 取祖先链（由近及远，含自身）。
+    pub ancestors: Option<AncestorsFn>,
+}
+
 /// 连接任务与工具共用的上下文，每次 `start` 重建（审计队列随运行时一起重建）。
 struct Shared {
     core: Arc<Core>,
+    delegate: Arc<dyn McpServerDelegate>,
     registry: Arc<Registry>,
+    /// 标签写锁与用户接管冷却，跨客户端共享；属于 `RealServer`，跨 stop/start 保留。
+    gate: Arc<TabGate>,
+    /// 每次判定客户端所在标签时按对端 pid 现取进程祖先链用。
+    ancestors: AncestorsFn,
     audit: AuditSink,
+    /// 无界面连接管理器，跨客户端共享；每次 `start` 重建，`stop` 时全部关闭（见 `teardown`）。
+    headless: Arc<HeadlessManager>,
+    /// MCP 打开的标签登记表，同样每次 `start` 重建。
+    tabs: McpTabs,
     /// 所有连接任务都登记在这里，停止时要等它们结束：连接任务里正在执行的工具调用，
     /// 结束时还要写审计，必须赶在审计队列关闭之前。
     conns: TaskTracker,
@@ -82,6 +115,8 @@ struct Running {
     conns: TaskTracker,
     shutdown: CancellationToken,
     audit: tokio::task::JoinHandle<()>,
+    /// 停止时在连接任务结束之后关闭全部无界面会话。
+    headless: Arc<HeadlessManager>,
     /// 置位后审计任务不再回调 `on_audit_changed`：`Drop` 拆除时宿主不应再收到任何事件。
     /// 用锁而不是原子量：审计任务在锁内回调，置位返回即保证之后没有回调，见 `audit::notify_changed`。
     audit_quiet: Arc<Mutex<bool>>,
@@ -98,8 +133,14 @@ pub(crate) struct RealServer {
     core: Arc<Core>,
     delegate: Arc<dyn McpServerDelegate>,
     registry: Arc<Registry>,
+    /// 标签写锁与用户接管冷却。属于服务本身而不是某次 `start`：冷却记录的是"用户刚在这个标签里操作过"，
+    /// 与 MCP 开关无关；若每次 `start` 重建，用户接管后立刻关再开开关就能绕过 10 秒冷却。
+    /// 标签 id 在一次 App 运行期间不复用（见 `gate.rs`），所以保留不会误伤新标签。
+    /// 租约随调用的 future 释放，停止时连接任务被取消，租约一并释放。
+    gate: Arc<TabGate>,
     /// 测试指定的目录；`None` 时按 `core.bundle_id()` 推出。
     dir: Option<PathBuf>,
+    hooks: TestHooks,
     /// 串行化 `start` / `stop`：`stop` 在释放 `inner` 之后才拆运行时，期间若放任 `start` 进来，
     /// 会出现两个运行时同时监听同一个 socket。`status()` 等只读方法不走这把锁，不会被拆除过程拖住。
     /// 加锁顺序：`lifecycle` → `inner` → `Registry`。
@@ -109,15 +150,16 @@ pub(crate) struct RealServer {
 
 impl RealServer {
     pub(crate) fn new(core: Arc<Core>, delegate: Arc<dyn McpServerDelegate>) -> RealServer {
-        RealServer::with_dir(core, delegate, None)
+        RealServer::with_dir(core, delegate, None, TestHooks::default())
     }
 
     pub(crate) fn in_dir(
         core: Arc<Core>,
         delegate: Arc<dyn McpServerDelegate>,
         dir: PathBuf,
+        hooks: TestHooks,
     ) -> RealServer {
-        RealServer::with_dir(core, delegate, Some(dir))
+        RealServer::with_dir(core, delegate, Some(dir), hooks)
     }
 
     /// 构造时就取锁：App 从启动起就要持有它，转发程序靠它区分"未运行"与"开关关闭"。
@@ -125,11 +167,18 @@ impl RealServer {
         core: Arc<Core>,
         delegate: Arc<dyn McpServerDelegate>,
         dir: Option<PathBuf>,
+        hooks: TestHooks,
     ) -> RealServer {
+        let clock = hooks
+            .clock
+            .clone()
+            .unwrap_or_else(|| Arc::new(std::time::Instant::now));
         let server = RealServer {
             registry: Arc::new(Registry::new(delegate.clone())),
+            gate: TabGate::new(clock),
             delegate,
             dir,
+            hooks,
             lifecycle: Mutex::new(()),
             inner: Mutex::new(Inner {
                 status: McpServerStatus::Stopped,
@@ -255,15 +304,34 @@ impl RealServer {
         let shutdown = CancellationToken::new();
         let (sink, rx) = audit::channel();
         let conns = TaskTracker::new();
+        let headless = HeadlessManager::new(
+            self.core.clone(),
+            self.hooks
+                .clock
+                .clone()
+                .unwrap_or_else(|| Arc::new(std::time::Instant::now)),
+            headless::IDLE_RELEASE,
+        );
         let shared = Arc::new(Shared {
             core: self.core.clone(),
+            delegate: self.delegate.clone(),
             registry: self.registry.clone(),
+            gate: self.gate.clone(),
+            ancestors: self
+                .hooks
+                .ancestors
+                .clone()
+                .unwrap_or_else(|| Arc::new(identity::ancestors)),
             audit: sink,
+            headless: headless.clone(),
+            tabs: McpTabs::default(),
             conns: conns.clone(),
         });
         self.registry.open(token);
         let accept_stop = CancellationToken::new();
         let accept = runtime.spawn(accept_loop(listener, shared, accept_stop.clone()));
+        // reaper 跟随 `shutdown`（在连接任务结束之后才取消），与审计任务同生命周期。
+        runtime.spawn(headless.clone().run_reaper(shutdown.clone()));
         let audit_quiet = Arc::new(Mutex::new(false));
         let audit = runtime.spawn(audit::run(
             self.core.clone(),
@@ -279,6 +347,7 @@ impl RealServer {
             conns,
             shutdown,
             audit,
+            headless,
             audit_quiet,
             socket: socket.to_owned(),
         })
@@ -325,6 +394,7 @@ impl RealServer {
             conns,
             shutdown,
             audit,
+            headless,
             socket,
             ..
         } = running;
@@ -335,6 +405,8 @@ impl RealServer {
                 conns.wait().await;
             })
             .await;
+            // 连接任务（含持有租约的调用）已结束或已超时放弃，再关无界面会话。
+            headless.close_all();
             shutdown.cancel();
             let _ = tokio::time::timeout(AUDIT_FLUSH_TIMEOUT, audit).await;
         });
@@ -403,5 +475,66 @@ async fn accept_loop(
                 }
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex as StdMutex;
+    use std::time::Instant;
+
+    use kanso_core::{CollectingEventSink, Platform};
+    use kanso_types::SessionId;
+
+    use super::gate::GateDenied;
+    use super::*;
+    use crate::McpActivity;
+
+    struct Quiet;
+    impl McpServerDelegate for Quiet {
+        fn on_status_changed(&self, _: McpServerStatus) {}
+        fn on_clients_changed(&self, _: Vec<McpClientInfo>) {}
+        fn on_session_opened(&self, _: SessionId, _: McpClientInfo) {}
+        fn on_activity(&self, _: SessionId, _: Option<McpActivity>) {}
+        fn on_session_released(&self, _: SessionId) {}
+        fn on_audit_changed(&self) {}
+    }
+
+    #[test]
+    fn takeover_cooldown_survives_stop_and_start() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = Arc::new(Core::new_mock(Platform::for_tests(Arc::new(
+            CollectingEventSink::new(),
+        ))));
+        let now = Arc::new(StdMutex::new(Instant::now()));
+        let clock: ClockFn = {
+            let now = now.clone();
+            Arc::new(move || *now.lock().unwrap())
+        };
+        let hooks = TestHooks {
+            clock: Some(clock),
+            ancestors: None,
+        };
+        let server =
+            RealServer::in_dir(core.clone(), Arc::new(Quiet), dir.path().join("mcp"), hooks);
+        let config = || McpServerConfig {
+            bundle_id: core.bundle_id().to_owned(),
+            token: SecretString::new("t"),
+        };
+        server.start(config()).unwrap();
+        let tab = SessionId::from_raw(7);
+        server.gate.took_over(tab);
+
+        // 关了再开：用户接管的冷却仍然有效，不能靠切换开关绕过。
+        server.stop();
+        server.start(config()).unwrap();
+        assert!(matches!(
+            server.gate.acquire(tab).err(),
+            Some(GateDenied::Cooldown { .. })
+        ));
+        // 冷却仍按（假）时钟到期。
+        *now.lock().unwrap() += gate::TAKEOVER_COOLDOWN;
+        assert!(server.gate.acquire(tab).is_ok());
+        server.stop();
     }
 }
