@@ -524,9 +524,9 @@ impl ShellView {
         );
         // 终端窗格的矩形：活动会话所在分屏。
         let ws = self.ctl.workspace();
-        let pane = ws
-            .layout()
-            .frames(area, kanso_gpui::app::shell::DIVIDER_THICKNESS)
+        // 顶部标签条模式下扣掉标签条：弹窗不能盖到标签上。
+        let pane = self
+            .content_frames(area)
             .into_iter()
             .find(|(p, _)| ws.active_tab_in(*p) == Some(sid))
             .map(|(_, r)| r)?;

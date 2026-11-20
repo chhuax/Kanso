@@ -3,9 +3,10 @@ import KansoUI
 
 /// 竖向标签栏：顶部固定工具条（搜索框 + ＋ 按钮）+ 可滚动的标签列表。
 @MainActor
-final class TabSidebarViewController: NSViewController, NSTextFieldDelegate, NSMenuItemValidation {
+final class TabSidebarViewController: NSViewController, NSTextFieldDelegate {
     private let controller: WorkspaceController
     private var workspace: Workspace { controller.workspace }
+    private lazy var contextMenu = TabContextMenu(controller: controller)
     /// 标签上的 MCP 标记。由主窗口注入。
     var mcpMark: (SessionID) -> McpTabMark? = { _ in nil }
 
@@ -179,68 +180,12 @@ final class TabSidebarViewController: NSViewController, NSTextFieldDelegate, NSM
         return true
     }
 
-    private func close(_ ids: [SessionID]) {
-        Task { @MainActor [controller] in await controller.requestClose(ids) }
-    }
+    private func close(_ ids: [SessionID]) { contextMenu.close(ids) }
 
     // MARK: - 右键菜单
 
-    /// 菜单项载体：关闭动作的作用域与参照会话。
-    private final class CloseAction: NSObject {
-        let scope: CloseScope?
-        let session: SessionID
-        init(scope: CloseScope?, session: SessionID) {
-            self.scope = scope
-            self.session = session
-        }
-    }
-
     func makeRowMenu(for session: SessionID) -> NSMenu {
-        let menu = NSMenu()
-        // 只有由已保存会话打开的标签才能回到它的配置。
-        if let profileID = workspace.item(session)?.profileID {
-            let edit = NSMenuItem(title: String(localized: "Edit Saved Session…"), action: #selector(editSavedSession(_:)), keyEquivalent: "")
-            edit.target = self
-            edit.representedObject = profileID
-            menu.addItem(edit)
-            menu.addItem(.separator())
-        }
-        let entries: [(String, CloseScope?)] = [
-            (String(localized: "Close"), nil),
-            (String(localized: "Close Others"), .others),
-            (String(localized: "Close Tabs Above"), .above),
-            (String(localized: "Close Tabs Below"), .below),
-            (String(localized: "Close All"), .all),
-        ]
-        for (title, scope) in entries {
-            let item = NSMenuItem(title: title, action: #selector(closeFromMenu(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = CloseAction(scope: scope, session: session)
-            // 目标为空时该项禁用，见 validateMenuItem。
-            menu.addItem(item)
-            if scope == nil { menu.addItem(.separator()) }
-        }
-        return menu
-    }
-
-    private func targets(for action: CloseAction) -> [SessionID] {
-        guard let scope = action.scope else { return [action.session] }
-        return workspace.closeTargets(scope, relativeTo: action.session)
-    }
-
-    @objc private func editSavedSession(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? String else { return }
-        controller.sessions.editProfile(id: id)
-    }
-
-    @objc private func closeFromMenu(_ sender: NSMenuItem) {
-        guard let action = sender.representedObject as? CloseAction else { return }
-        close(targets(for: action))
-    }
-
-    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        guard let action = menuItem.representedObject as? CloseAction else { return true }
-        return !targets(for: action).isEmpty
+        contextMenu.makeMenu(for: session, horizontal: false)
     }
 }
 

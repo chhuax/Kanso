@@ -490,6 +490,14 @@ ui-right-click-shows-menu = Right-click Shows Menu
 
 ui-tab-bar = Tab Bar
 
+ui-tab-bar-position = Position
+
+ui-tab-bar-left = Left
+
+ui-tab-bar-top = Top
+
+ui-tab-bar-top-hint = Top shows a tab strip above each split with only that split’s tabs.
+
 ui-view = View
 
 ui-settings-2 = Settings

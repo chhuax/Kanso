@@ -24,7 +24,7 @@ const SESSION_COLORS: [u32; 8] = [
 ];
 
 /// 平均一个字符约占的像素宽（13px 界面字体，中英混排的经验值），用来估算主标题能放几个字符。
-const CELL_PX: f32 = 7.4;
+pub(super) const CELL_PX: f32 = 7.4;
 
 fn session_color(item: &TabItem) -> Hsla {
     let rgb_hex = match item.color {
@@ -70,18 +70,7 @@ impl ShellView {
                 cx.listener(|this, ev: &MouseDownEvent, window, cx| {
                     this.cancel_tab_reorder(cx);
                     if ev.click_count == 2 {
-                        match this
-                            .ctl
-                            .duplicate_active_tab(kanso_gpui::app::controller::FALLBACK_GRID)
-                        {
-                            Ok(id) => {
-                                this.attach_session(id, window, cx);
-                                this.after_change(window, cx);
-                            }
-                            Err(e) => {
-                                this.show_notice(kanso_gpui::app::launcher::core_error_text(&e), cx)
-                            }
-                        }
+                        this.duplicate_active_tab_clicked(window, cx);
                     }
                 }),
             )
@@ -156,6 +145,7 @@ impl ShellView {
                     selected,
                     in_active_pane,
                     ws.active_tab_in(pane) == Some(item.id),
+                    None,
                     th,
                     cx,
                 ));
@@ -244,8 +234,12 @@ impl ShellView {
             .into_any_element()
     }
 
+    /// 一个标签。竖向侧栏与顶部标签条共用，保证两种位置的内容与状态样式一致。
+    ///
+    /// `chip` 为 `Some(宽度)` 时画成顶部标签条里的一枚标签（ui-shell.md §2.5）：定宽、单行，
+    /// 副标题（状态或 Git 分支）放不下第二行，改进悬停提示；拖拽排序按横向计算。
     #[allow(clippy::too_many_arguments)]
-    fn render_row(
+    pub(super) fn render_row(
         &self,
         item: &TabItem,
         index: usize,
@@ -253,6 +247,7 @@ impl ShellView {
         selected: bool,
         in_active_pane: bool,
         pane_current: bool,
+        chip: Option<f32>,
         th: Theme,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
@@ -262,6 +257,12 @@ impl ShellView {
             .as_ref()
             .map(state_text)
             .or_else(|| TabPresentation::subtitle(item).map(str::to_owned));
+        let chip_tooltip = chip.map(|_| {
+            let mut lines = vec![title.clone()];
+            lines.extend(subtitle.clone());
+            lines
+        });
+        let subtitle = if chip.is_some() { None } else { subtitle };
         let closed = matches!(item.connection, TabConnection::Closed(_));
         let busy = item.activity.is_busy();
         let mcp_mark = self.mcp.read(cx).tab_mark(sid).map(|(active, lines)| {
@@ -310,20 +311,30 @@ impl ShellView {
                     .as_ref()
                     .is_some_and(|drag| drag.session == sid && drag.insertion.is_some()),
                 |row| {
-                    row.child(
-                        div()
-                            .absolute()
-                            .top_0()
-                            .left_0()
-                            .right_0()
-                            .h(px(2.))
-                            .bg(th.c("accent")),
-                    )
+                    // 插入指示线：竖向画在行的上沿，横向画在标签的左沿。
+                    let line = div().absolute().top_0().left_0().bg(th.c("accent"));
+                    row.child(if chip.is_some() {
+                        line.bottom_0().w(px(2.))
+                    } else {
+                        line.right_0().h(px(2.))
+                    })
                 },
             )
             .group(gpui::SharedString::from(format!("tab-{}", sid.raw())))
             .relative()
-            .h(px(number("spacing", "tabRow.height")))
+            .h(px(if chip.is_some() {
+                super::tab_strip::CHIP_HEIGHT
+            } else {
+                number("spacing", "tabRow.height")
+            }))
+            .when_some(chip, |row, w| row.w(px(w)))
+            .when_some(chip_tooltip, |row, lines| {
+                row.tooltip(move |_, cx| {
+                    let lines = lines.clone();
+                    cx.new(|_| super::status_bar::LinesTooltip { lines, th })
+                        .into()
+                })
+            })
             .flex_none()
             .flex()
             .items_center()
@@ -338,7 +349,8 @@ impl ShellView {
                     cx.stop_propagation();
                     this.cancel_tab_reorder(cx);
                     this.activate_session(sid, window, cx);
-                    if this.path_filter.read(cx).text().trim().is_empty()
+                    // 竖栏筛选中只显示子集，插入位置对不上完整列表，不允许排序；标签条没有筛选。
+                    if (chip.is_some() || this.path_filter.read(cx).text().trim().is_empty())
                         && let Some(pane) = this.ctl.workspace().pane_of(sid)
                     {
                         let order: Vec<_> = this
@@ -350,13 +362,26 @@ impl ShellView {
                             .collect();
                         if order.len() > 1 {
                             let row = measured.get();
-                            this.tab_reorder = Some(kanso_gpui::app::tab::TabReorder::start(
-                                sid,
-                                order,
-                                ev.position.y.into(),
-                                (row.origin.y + row.size.height / 2.).into(),
-                                f32::from(row.size.height) + number("spacing", "tabRow.gap"),
-                            ));
+                            use kanso_gpui::app::tab::TabReorder;
+                            this.tab_reorder = Some(if chip.is_some() {
+                                // 标签条里的标签等宽，相邻中点的间距就是宽度加间隔。
+                                TabReorder::start(
+                                    sid,
+                                    order,
+                                    ev.position.x.into(),
+                                    (row.origin.x + row.size.width / 2.).into(),
+                                    f32::from(row.size.width) + super::tab_strip::CHIP_GAP,
+                                )
+                                .horizontal()
+                            } else {
+                                TabReorder::start(
+                                    sid,
+                                    order,
+                                    ev.position.y.into(),
+                                    (row.origin.y + row.size.height / 2.).into(),
+                                    f32::from(row.size.height) + number("spacing", "tabRow.gap"),
+                                )
+                            });
                         }
                     }
                 }),
@@ -377,12 +402,14 @@ impl ShellView {
             row = row.border_1().border_color(th.ca("border.strong", 0x80));
         }
         if show_bar {
+            // 标签条里的标签比侧栏行矮，色条上下留白相应收窄。
+            let bar_inset = if chip.is_some() { 6.0 } else { 9.0 };
             row = row.child(
                 div()
                     .absolute()
                     .left(px(4.0))
-                    .top(px(9.0))
-                    .bottom(px(9.0))
+                    .top(px(bar_inset))
+                    .bottom(px(bar_inset))
                     .w(px(3.0))
                     .rounded(px(2.0))
                     .bg(accent),

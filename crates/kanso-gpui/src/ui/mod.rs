@@ -53,6 +53,7 @@ mod shell_sender;
 mod sidebar;
 mod ssh_import;
 mod status_bar;
+mod tab_strip;
 mod term_selftest;
 mod toolbar;
 mod tz;

@@ -23,7 +23,8 @@ use kanso_gpui::app::keybindings::{self, KeybindingSettings};
 use kanso_gpui::app::settings::NumericSetting;
 use kanso_gpui::app::settings::{
     AppearanceSettings, BUILTIN_THEMES, CursorShapeSetting, DisplaySettings, Section,
-    SettingsStore, ThemeMode, TimelineSettings, clean_font_names, is_monospace, pick_nerd_fallback,
+    SettingsStore, TabBarPosition, ThemeMode, TimelineSettings, clean_font_names, is_monospace,
+    pick_nerd_fallback,
 };
 use kanso_gpui::widgets::dropdown::Item;
 use kanso_gpui::widgets::style::{Appearance, color, number};
@@ -1134,6 +1135,38 @@ impl Render for SettingsView {
                 caption(&th, &render_message(&Message::UiContrastHint {})),
             ],
         );
+        // 标签栏位置。存在外观分区（它是界面布局，不是终端选项），但放在显示页，与 mac 版一致。
+        let position = self.model.read(cx).appearance().tab_bar_position;
+        let position_idx = TabBarPosition::ALL
+            .iter()
+            .position(|p| *p == position)
+            .unwrap_or(0);
+        let tab_bar_card = card(
+            &th,
+            &render_message(&Message::UiTabBar {}),
+            "panel-left",
+            vec![
+                row(
+                    &th,
+                    &render_message(&Message::UiTabBarPosition {}),
+                    segmented(
+                        &th,
+                        cx,
+                        "tab-bar-position",
+                        &TabBarPosition::ALL.map(TabBarPosition::label),
+                        position_idx,
+                        |this, i, cx| {
+                            this.model.update(cx, |m, cx| {
+                                m.update_appearance(cx, |a| {
+                                    a.tab_bar_position = TabBarPosition::ALL[i]
+                                })
+                            })
+                        },
+                    ),
+                ),
+                caption(&th, &render_message(&Message::UiTabBarTopHint {})),
+            ],
+        );
         let mut toolbar = div()
             .flex_none()
             .h(px(68.0))
@@ -1184,7 +1217,14 @@ impl Render for SettingsView {
         }
         let cards = match self.page {
             0 => vec![appearance_card, language_card],
-            1 => vec![font_card, cursor_card, scroll_card, contrast_card, ui_card],
+            1 => vec![
+                font_card,
+                cursor_card,
+                scroll_card,
+                contrast_card,
+                ui_card,
+                tab_bar_card,
+            ],
             MCP_PAGE => vec![self.mcp.clone().into_any_element()],
             _ => self.keys_cards(&th, cx),
         };

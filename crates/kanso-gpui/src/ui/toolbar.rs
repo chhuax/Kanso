@@ -505,12 +505,15 @@ impl ShellView {
                     .flex_none()
                     .items_center()
                     .gap(px(4.))
-                    .child(button("sidebar-toggle", "panel-left").on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, _: &MouseDownEvent, w, cx| {
-                            this.run_command(AppCommand::ToggleSidebar, w, cx)
-                        }),
-                    ))
+                    // 顶部标签条模式下没有左侧竖栏，这个开关的图标会误导，隐藏；菜单与快捷键仍可切换标签条。
+                    .when(!self.tab_bar_top, |bar| {
+                        bar.child(button("sidebar-toggle", "panel-left").on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _: &MouseDownEvent, w, cx| {
+                                this.run_command(AppCommand::ToggleSidebar, w, cx)
+                            }),
+                        ))
+                    })
                     .child(menu_bar),
             )
             .child(
