@@ -857,7 +857,18 @@ ui-git-menu-view = Git 改动
 ui-git-branch-tooltip = { $repo } · { $branch }
 
 ## 键盘设置页与恢复默认设置（GPUI）
-ui-keys-page = 键盘
+ui-keys-page = 键盘与鼠标
+ui-mouse = 鼠标
+ui-middle-click = 中键
+ui-right-click = 右键
+ui-middle-click-paste = 粘贴剪贴板内容
+ui-middle-click-none = 无动作
+ui-right-click-menu = 弹出菜单
+ui-right-click-copy-or-paste = 复制或粘贴
+ui-mouse-shift-hint = 程序开启鼠标上报时（vim、tmux），按住 Shift 由终端处理点击。
+ui-selection = 选择
+ui-copy-on-select = 选中即复制
+ui-copy-on-select-hint = 松开鼠标完成选择时自动复制到剪贴板。
 ui-keys-group-other = 其他
 ui-keys-hint = 点击快捷键，再按下新的组合。Esc 取消，Backspace 清空。
 ui-keys-recording = 按下快捷键…
@@ -870,7 +881,7 @@ ui-keys-conflict-title = { $chord } 已被使用
 ui-keys-conflict-body = 它已指定给“{ $holder }”。替换后“{ $new }”使用 { $chord }，“{ $holder }”不再使用这个键。
 ui-keys-replace = 替换
 ui-keys-restore-item = 恢复默认
-ui-keys-restore-all = 全部恢复默认
+ui-keys-restore-all = 恢复默认快捷键
 ui-keys-customized = 已自定义
 ui-help-menu = 帮助
 ui-about-kanso = 关于 Kanso
@@ -927,7 +938,7 @@ ui-filer-drag-not-ready = 远端文件还在准备，已取消；请按住鼠标
 ui-filer-drag-cancelled = 已取消拖出准备
 
 ui-display-settings-menu = 显示设置…
-ui-keyboard-settings-menu = 键盘快捷键…
+ui-keyboard-settings-menu = 键盘与鼠标…
 
 # ---- Windows MCP ----
 win-mcp-page = MCP

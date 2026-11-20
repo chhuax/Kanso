@@ -23,6 +23,8 @@ enum SettingsSection: String, CaseIterable {
     case keybindings
     /// 命令建议及历史采集。
     case completion
+    /// 鼠标：中键、右键行为与选中即复制。
+    case mouse
 }
 
 struct CompletionSettings: Codable, Equatable {
@@ -33,6 +35,48 @@ struct CompletionSettings: Codable, Equatable {
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         enabled = (try? values.decode(Bool.self, forKey: .enabled)) ?? false
+    }
+}
+
+/// 中键行为（terminal.md §8.1）。raw 值写入设置文件，发布后不得改名。
+enum MiddleClickAction: String, CaseIterable {
+    case paste
+    // 不叫 `none`：会和 `Optional.none` 撞名，`optional == .none` 会被悄悄当成判空。
+    case nothing = "none"
+}
+
+/// 右键行为（terminal.md §8.1）。raw 值写入设置文件，发布后不得改名。
+enum RightClickAction: String, CaseIterable {
+    case menu
+    case copyOrPaste
+}
+
+/// 鼠标设置。未知枚举值回落默认，与其他分区的宽松解码规则一致。
+struct MouseSettings: Equatable, Codable {
+    var middleClick: MiddleClickAction = .paste
+    var rightClick: RightClickAction = .menu
+    var copyOnSelect = false
+
+    init() {}
+
+    private enum CodingKeys: String, CodingKey {
+        case v, middleClick, rightClick, copyOnSelect
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = MouseSettings()
+        middleClick = MiddleClickAction(rawValue: c.lenient(.middleClick, default: "")) ?? defaults.middleClick
+        rightClick = RightClickAction(rawValue: c.lenient(.rightClick, default: "")) ?? defaults.rightClick
+        copyOnSelect = c.lenient(.copyOnSelect, default: defaults.copyOnSelect)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(SettingsCodec.version, forKey: .v)
+        try c.encode(middleClick.rawValue, forKey: .middleClick)
+        try c.encode(rightClick.rawValue, forKey: .rightClick)
+        try c.encode(copyOnSelect, forKey: .copyOnSelect)
     }
 }
 

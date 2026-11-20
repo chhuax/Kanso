@@ -142,21 +142,40 @@ final class EditActionsTests: XCTestCase {
         XCTAssertEqual(notices, 2)
     }
 
+    /// 1.0.7 把选中即复制存在 display.copyOnSelect：没有 mouse 分区时迁移一次并写回，之后以 mouse 为准。
+    func testCopyOnSelectMigratesFromDisplaySection() {
+        let backend = MemorySettingsBackend()
+        backend.values["display"] = #"{"v":1,"copyOnSelect":true}"#
+        XCTAssertTrue(SettingsStore.attached(to: backend).mouse.copyOnSelect)
+        XCTAssertNotNil(backend.values["mouse"])
+
+        // 写回后再改 mouse，旧字段不会把值翻回去。
+        let settings = SettingsStore.attached(to: backend)
+        settings.updateMouse { $0.copyOnSelect = false }
+        XCTAssertFalse(SettingsStore.attached(to: backend).mouse.copyOnSelect)
+
+        // 没有旧字段：保持默认，也不凭空写 mouse 分区。
+        let fresh = MemorySettingsBackend()
+        fresh.values["display"] = #"{"v":1}"#
+        XCTAssertFalse(SettingsStore.attached(to: fresh).mouse.copyOnSelect)
+        XCTAssertNil(fresh.values["mouse"])
+    }
+
     func testCopyOnSelectSettingsAndEditMenuItem() {
         let backend = MemorySettingsBackend()
         let settings = SettingsStore.attached(to: backend)
         let view = TerminalView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
 
-        XCTAssertFalse(settings.display.copyOnSelect)
+        XCTAssertFalse(settings.mouse.copyOnSelect)
         TerminalSettingsApplier.apply(settings, to: view)
         XCTAssertFalse(view.copyOnSelect)
 
-        settings.updateDisplay { $0.copyOnSelect = true }
+        settings.updateMouse { $0.copyOnSelect = true }
         TerminalSettingsApplier.apply(settings, to: view)
         XCTAssertTrue(view.copyOnSelect)
 
         let reloaded = SettingsStore.attached(to: backend)
-        XCTAssertTrue(reloaded.display.copyOnSelect)
+        XCTAssertTrue(reloaded.mouse.copyOnSelect)
 
         let main = AppDelegate.makeMainMenu(
             appearance: AppearanceController(settings: settings, apply: { _ in }),
@@ -164,6 +183,157 @@ final class EditActionsTests: XCTestCase {
         )
         let items = main.items.flatMap { $0.submenu?.items ?? [] }
         XCTAssertTrue(items.contains { $0.action == #selector(MainWindowController.kansoCopyOnSelect(_:)) })
+    }
+
+    func testRightClickCopyOrPasteCopiesSelectionElsePastes() throws {
+        let (view, window) = try InputFixtures.makeView()
+        defer { withExtendedLifetime(window) {} }
+        let scratch = NSPasteboard(name: NSPasteboard.Name("com.chhuax.kanso.tests.\(UUID().uuidString)"))
+        defer { scratch.releaseGlobally() }
+        scratch.clearContents()
+        scratch.setString("clip", forType: .string)
+        view.pasteboard = scratch
+        let sink = RecordingSink()
+        let actions = FakeEditActions()
+        view.inputSink = sink
+        view.editActions = actions
+        var copied: [String] = []
+        view.writeCopiedText = { copied.append($0); return true }
+        var menuRequested = 0
+        view.contextMenuProvider = { menuRequested += 1; return NSMenu() }
+        view.rightClickShowsMenu = false
+        let point = NSPoint(x: 300, y: 200)
+
+        actions.hasSelection = true
+        view.rightMouseDown(with: InputFixtures.mouse(.rightMouseDown, at: point))
+        view.rightMouseDragged(with: InputFixtures.mouse(.rightMouseDragged, at: point))
+        view.rightMouseUp(with: InputFixtures.mouse(.rightMouseUp, at: point))
+        XCTAssertEqual(copied, ["selected"])
+        XCTAssertTrue(actions.pasted.isEmpty)
+        // 复制后选区被清掉，下一次右键才会粘贴（不再手动清选区，验证的就是这一点）。
+        XCTAssertFalse(actions.hasSelection)
+
+        view.rightMouseDown(with: InputFixtures.mouse(.rightMouseDown, at: point))
+        view.rightMouseUp(with: InputFixtures.mouse(.rightMouseUp, at: point))
+        XCTAssertEqual(actions.pasted, [.text("clip")])
+        XCTAssertEqual(copied.count, 1)
+
+        // 不弹菜单、不预选词，也不给 core 发任何鼠标事件（含孤立的 drag / up）。
+        XCTAssertEqual(menuRequested, 0)
+        XCTAssertTrue(actions.selectedWordPoints.isEmpty)
+        XCTAssertTrue(sink.mice.isEmpty)
+    }
+
+    func testMiddleClickPasteOrNoAction() throws {
+        let (view, window) = try InputFixtures.makeView()
+        defer { withExtendedLifetime(window) {} }
+        let scratch = NSPasteboard(name: NSPasteboard.Name("com.chhuax.kanso.tests.\(UUID().uuidString)"))
+        defer { scratch.releaseGlobally() }
+        scratch.clearContents()
+        scratch.setString("clip", forType: .string)
+        view.pasteboard = scratch
+        let sink = RecordingSink()
+        let actions = FakeEditActions()
+        view.inputSink = sink
+        view.editActions = actions
+        let point = NSPoint(x: 300, y: 200)
+
+        func click() {
+            view.otherMouseDown(with: Self.middleEvent(.otherMouseDown, at: point))
+            view.otherMouseDragged(with: Self.middleEvent(.otherMouseDragged, at: point))
+            view.otherMouseUp(with: Self.middleEvent(.otherMouseUp, at: point))
+        }
+
+        XCTAssertTrue(view.middleClickPastes)
+        click()
+        XCTAssertEqual(actions.pasted, [.text("clip")])
+
+        view.middleClickPastes = false
+        click()
+        XCTAssertEqual(actions.pasted.count, 1)
+        XCTAssertTrue(sink.mice.isEmpty)
+    }
+
+    func testMouseReportingHandsClicksToProgramUnlessShift() throws {
+        let (view, window) = try InputFixtures.makeView()
+        defer { withExtendedLifetime(window) {} }
+        let scratch = NSPasteboard(name: NSPasteboard.Name("com.chhuax.kanso.tests.\(UUID().uuidString)"))
+        defer { scratch.releaseGlobally() }
+        scratch.clearContents()
+        scratch.setString("clip", forType: .string)
+        view.pasteboard = scratch
+        let sink = RecordingSink()
+        let actions = FakeEditActions()
+        view.inputSink = sink
+        view.editActions = actions
+        view.rightClickShowsMenu = false
+        view.currentFrame = try frame(flags: .mouseReporting)
+        let point = NSPoint(x: 300, y: 200)
+
+        // 未按 Shift：右键和中键都交给程序，终端不复制也不粘贴。
+        view.rightMouseDown(with: InputFixtures.mouse(.rightMouseDown, at: point))
+        view.rightMouseUp(with: InputFixtures.mouse(.rightMouseUp, at: point))
+        view.otherMouseDown(with: Self.middleEvent(.otherMouseDown, at: point))
+        view.otherMouseUp(with: Self.middleEvent(.otherMouseUp, at: point))
+        XCTAssertEqual(sink.mice.map(\.button), [.right, .right, .middle, .middle])
+        XCTAssertTrue(actions.pasted.isEmpty)
+
+        // 按住 Shift：由终端处理，设置重新生效，且不再发给程序。
+        sink.events.removeAll()
+        view.rightMouseDown(with: InputFixtures.mouse(.rightMouseDown, at: point, flags: .shift))
+        view.otherMouseDown(with: Self.middleEvent(.otherMouseDown, at: point, flags: .shift))
+        XCTAssertEqual(actions.pasted, [.text("clip"), .text("clip")])
+        XCTAssertTrue(sink.mice.isEmpty)
+    }
+
+    func testMouseSettingsDecodingAndRoundTrip() throws {
+        func decode(_ json: String) throws -> MouseSettings {
+            try XCTUnwrap(SettingsCodec.decode(MouseSettings.self, from: json))
+        }
+        XCTAssertEqual(try decode("{}"), MouseSettings())
+        XCTAssertEqual(try decode(#"{"copyOnSelect":true}"#).middleClick, .paste)
+        XCTAssertEqual(try decode(#"{"copyOnSelect":true}"#).rightClick, .menu)
+        let unknown = try decode(#"{"middleClick":"scroll","rightClick":7,"copyOnSelect":"yes"}"#)
+        XCTAssertEqual(unknown, MouseSettings())
+
+        var custom = MouseSettings()
+        custom.middleClick = .nothing
+        custom.rightClick = .copyOrPaste
+        custom.copyOnSelect = true
+        let text = SettingsCodec.encode(custom)
+        XCTAssertEqual(text, #"{"copyOnSelect":true,"middleClick":"none","rightClick":"copyOrPaste","v":1}"#)
+        XCTAssertEqual(try decode(text), custom)
+    }
+
+    func testRightClickShowsMenuEditMenuItemToggles() throws {
+        let backend = MemorySettingsBackend()
+        let settings = SettingsStore.attached(to: backend)
+        let main = AppDelegate.makeMainMenu(
+            appearance: AppearanceController(settings: settings, apply: { _ in }),
+            gutter: GutterModeController(settings: settings)
+        )
+        let items = main.items.flatMap { $0.submenu?.items ?? [] }
+        XCTAssertTrue(items.contains { $0.action == #selector(MainWindowController.kansoRightClickShowsMenu(_:)) })
+        XCTAssertEqual(settings.mouse.rightClick, .menu)
+
+        settings.updateMouse { $0.rightClick = .copyOrPaste }
+        let view = TerminalView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        TerminalSettingsApplier.apply(settings, to: view)
+        XCTAssertFalse(view.rightClickShowsMenu)
+        XCTAssertTrue(view.middleClickPastes)
+
+        settings.updateMouse { $0.middleClick = .nothing }
+        TerminalSettingsApplier.apply(settings, to: view)
+        XCTAssertFalse(view.middleClickPastes)
+        XCTAssertEqual(SettingsStore.attached(to: backend).mouse.rightClick, .copyOrPaste)
+    }
+
+    /// `NSEvent.mouseEvent` 造不出 buttonNumber == 2 的事件，这里借 CGEvent 构造中键事件。
+    private static func middleEvent(_ type: NSEvent.EventType, at point: NSPoint, flags: NSEvent.ModifierFlags = []) -> NSEvent {
+        let cgType: CGEventType = type == .otherMouseDown ? .otherMouseDown : type == .otherMouseUp ? .otherMouseUp : .otherMouseDragged
+        let cg = CGEvent(mouseEventSource: nil, mouseType: cgType, mouseCursorPosition: point, mouseButton: .center)!
+        cg.flags = CGEventFlags(rawValue: UInt64(flags.rawValue))
+        return NSEvent(cgEvent: cg)!
     }
 
     func testContextMenuHasIconsShortcutsAndBlockAnchor() throws {
@@ -236,4 +406,5 @@ private final class FakeEditActions: TerminalEditActions {
     func paste(_ content: TerminalPasteContent) { pasted.append(content) }
     func selectAll() { selectAllCount += 1 }
     func selectWord(at point: ViewportPointValue) { selectedWordPoints.append(point) }
+    func clearSelection() { hasSelection = false }
 }

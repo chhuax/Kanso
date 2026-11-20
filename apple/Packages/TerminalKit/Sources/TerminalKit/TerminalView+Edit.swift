@@ -32,12 +32,15 @@ public protocol TerminalEditActions: AnyObject {
     func selectAll()
     /// 选中视口里 `point` 处的单词（右键弹菜单前调用，terminal.md §8.1）。
     func selectWord(at point: ViewportPointValue)
+    /// 清除文本选区（右键"复制或粘贴"复制后调用，terminal.md §8.1）。
+    func clearSelection()
     func commandBlockText(id: UInt64, part: FfiBlockText) -> String?
     func jumpCommandBlock(forward: Bool) -> UInt64?
 }
 
 extension TerminalEditActions {
     public func selectWord(at point: ViewportPointValue) {}
+    public func clearSelection() {}
     public func commandBlockText(id: UInt64, part: FfiBlockText) -> String? { nil }
     public func jumpCommandBlock(forward: Bool) -> UInt64? { nil }
 }
@@ -66,7 +69,7 @@ extension TerminalView: NSMenuItemValidation {
     /// 编辑菜单的"粘贴"（⌘V）。按 terminal.md §8.3 的顺序归类：文件 → 只有图片 → 文本。
     @objc public func paste(_ sender: Any?) {
         guard let actions = editActions else { return }
-        let pasteboard = NSPasteboard.general
+        let pasteboard = self.pasteboard
         if let content = Self.classify(pasteboard) {
             actions.paste(content)
         } else if pasteboard.types?.isEmpty == false {

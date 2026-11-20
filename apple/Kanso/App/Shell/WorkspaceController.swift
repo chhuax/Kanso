@@ -76,7 +76,7 @@ final class WorkspaceController {
         gutter.observe(self) { [weak self] mode in self?.applyGutterMode(mode) }
         // 显示 / 外观设置：新会话与已有会话都要用上，且不需要重启。
         settings.observe(self) { [weak self] section in
-            if section == .display || section == .appearance { self?.applyTerminalSettings() }
+            if section == .display || section == .appearance || section == .mouse { self?.applyTerminalSettings() }
             if section == .completion, let self {
                 for host in hosts.values { host.completion.enabled = settings.completion.enabled }
             }

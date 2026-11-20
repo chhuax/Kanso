@@ -12,7 +12,7 @@ enum SettingsTab: Int, CaseIterable {
         switch self {
         case .general: String(localized: "General")
         case .display: String(localized: "Display")
-        case .keyboard: String(localized: "Keyboard Shortcuts")
+        case .keyboard: String(localized: "Keyboard & Mouse")
         case .mcp: String(localized: "MCP")
         }
     }

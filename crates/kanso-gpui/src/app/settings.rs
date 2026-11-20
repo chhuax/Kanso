@@ -4,7 +4,8 @@
 //! 每个分区一个 key，值是 JSON 对象：
 //! - `display`：终端显示（字体、字号、行距、光标、回滚、语义着色、最低对比度）+ 界面字体与字号；
 //! - `appearance`：外观模式与浅色 / 深色各自的终端配色 id；
-//! - `timeline`：时间戳 / 行号栏模式。
+//! - `timeline`：时间戳 / 行号栏模式；
+//! - `mouse`：中键 / 右键行为与选中即复制（两个平台同一格式）。
 //!
 //! 兼容规则与 mac 一致：写入带 `"v"`；未知字段忽略；缺字段或类型不对用默认值；数值夹进范围。
 //! 因此 mac 与 Windows 读写同一份数据互不破坏（Windows 多出的 `uiFontFamily` / `uiFontSize`
@@ -33,16 +34,19 @@ pub enum Section {
     Appearance,
     /// 时间戳 / 行号栏。
     Timeline,
+    /// 鼠标：中键、右键、选中即复制。
+    Mouse,
     /// 快捷键改绑（Windows / Linux 专用 key，见 [`crate::app::keybindings`]）。
     Keybindings,
 }
 
 impl Section {
     /// 全部分区。
-    pub const ALL: [Section; 4] = [
+    pub const ALL: [Section; 5] = [
         Section::Display,
         Section::Appearance,
         Section::Timeline,
+        Section::Mouse,
         Section::Keybindings,
     ];
 
@@ -52,6 +56,7 @@ impl Section {
             Section::Display => "display",
             Section::Appearance => "appearance",
             Section::Timeline => "timeline",
+            Section::Mouse => "mouse",
             Section::Keybindings => crate::app::keybindings::SETTING_KEY,
         }
     }
@@ -649,6 +654,193 @@ impl TimelineSettings {
     }
 }
 
+// ---- 鼠标 ----
+
+/// 中键行为（terminal.md §8.1）。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MiddleClick {
+    /// 粘贴剪贴板内容（默认）。
+    #[default]
+    Paste,
+    /// 无动作（给滚轮容易误按中键的用户）。
+    None,
+}
+
+impl MiddleClick {
+    /// 全部取值，界面按此顺序排列。
+    pub const ALL: [MiddleClick; 2] = [MiddleClick::Paste, MiddleClick::None];
+
+    fn storage(self) -> &'static str {
+        match self {
+            MiddleClick::Paste => "paste",
+            MiddleClick::None => "none",
+        }
+    }
+
+    fn from_storage(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|v| v.storage() == s)
+    }
+
+    /// 显示名。
+    pub fn label(self) -> &'static str {
+        match self {
+            MiddleClick::Paste => label(Message::UiMiddleClickPaste {}),
+            MiddleClick::None => label(Message::UiMiddleClickNone {}),
+        }
+    }
+}
+
+/// 右键行为（terminal.md §8.1）。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RightClick {
+    /// 弹出菜单（默认）。
+    #[default]
+    Menu,
+    /// 有选区就复制，没有就粘贴。
+    CopyOrPaste,
+}
+
+impl RightClick {
+    /// 全部取值，界面按此顺序排列。
+    pub const ALL: [RightClick; 2] = [RightClick::Menu, RightClick::CopyOrPaste];
+
+    fn storage(self) -> &'static str {
+        match self {
+            RightClick::Menu => "menu",
+            RightClick::CopyOrPaste => "copyOrPaste",
+        }
+    }
+
+    fn from_storage(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|v| v.storage() == s)
+    }
+
+    /// 显示名。
+    pub fn label(self) -> &'static str {
+        match self {
+            RightClick::Menu => label(Message::UiRightClickMenu {}),
+            RightClick::CopyOrPaste => label(Message::UiRightClickCopyOrPaste {}),
+        }
+    }
+}
+
+/// 鼠标设置：存放在设置表的 `mouse` 分区，与 mac 版同一格式
+/// `{"v":1,"middleClick":"paste","rightClick":"menu","copyOnSelect":false}`。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MouseSettings {
+    /// 中键行为。
+    pub middle_click: MiddleClick,
+    /// 右键行为。
+    pub right_click: RightClick,
+    /// 选中即复制。
+    pub copy_on_select: bool,
+}
+
+impl MouseSettings {
+    /// 解码（宽松）：缺字段、未知取值、类型不对都用默认值。
+    pub fn decode(json: Option<&str>) -> MouseSettings {
+        let m = parse_object(json);
+        let d = MouseSettings::default();
+        MouseSettings {
+            middle_click: MiddleClick::from_storage(&get_str(&m, "middleClick", ""))
+                .unwrap_or(d.middle_click),
+            right_click: RightClick::from_storage(&get_str(&m, "rightClick", ""))
+                .unwrap_or(d.right_click),
+            copy_on_select: get_bool(&m, "copyOnSelect", d.copy_on_select),
+        }
+    }
+
+    /// 编码。
+    pub fn encode(&self) -> String {
+        json!({
+            "v": VERSION,
+            "middleClick": self.middle_click.storage(),
+            "rightClick": self.right_click.storage(),
+            "copyOnSelect": self.copy_on_select,
+        })
+        .to_string()
+    }
+
+    /// 迁移旧版散落在别处的两个字段，只在 `mouse` 分区不存在时由 [`SettingsStore::load`] 调用：
+    /// - Windows 旧版把右键模式存在 `windows.panels` 的 `right_click_menu` 里；
+    /// - 1.0.7 把选中即复制存在 `display` 分区的 `copyOnSelect` 里（两个平台都写过）。
+    ///
+    /// 返回需要写回的设置；两个旧字段都不存在（或不是布尔）时返回 `None`，保持默认、不写。
+    fn migrate_legacy(
+        panels_json: Option<&str>,
+        display_json: Option<&str>,
+    ) -> Option<MouseSettings> {
+        let right_menu = parse_object(panels_json)
+            .get("right_click_menu")
+            .and_then(Value::as_bool);
+        let copy_on_select = parse_object(display_json)
+            .get("copyOnSelect")
+            .and_then(Value::as_bool);
+        if right_menu.is_none() && copy_on_select.is_none() {
+            return None;
+        }
+        let d = MouseSettings::default();
+        Some(MouseSettings {
+            right_click: match right_menu {
+                Some(false) => RightClick::CopyOrPaste,
+                Some(true) => RightClick::Menu,
+                None => d.right_click,
+            },
+            copy_on_select: copy_on_select.unwrap_or(d.copy_on_select),
+            ..d
+        })
+    }
+}
+
+/// 一次点击该由终端做什么（右键 / 中键共用）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClickAction {
+    /// 交给程序（鼠标上报）。
+    Report,
+    /// 弹出右键菜单。
+    Menu,
+    /// 复制选区。
+    Copy,
+    /// 粘贴。
+    Paste,
+    /// 什么都不做。
+    Nothing,
+}
+
+/// 右键决策。程序开启了鼠标上报且没按 Shift 时交给程序；Shift 绕过上报，由终端按设置处理。
+pub fn right_click_action(
+    mode: RightClick,
+    reporting: bool,
+    shift: bool,
+    has_selection: bool,
+) -> ClickAction {
+    if reporting && !shift {
+        return ClickAction::Report;
+    }
+    match mode {
+        RightClick::Menu => ClickAction::Menu,
+        RightClick::CopyOrPaste if has_selection => ClickAction::Copy,
+        RightClick::CopyOrPaste => ClickAction::Paste,
+    }
+}
+
+/// 中键决策，上报规则同 [`right_click_action`]。
+pub fn middle_click_action(mode: MiddleClick, reporting: bool, shift: bool) -> ClickAction {
+    if reporting && !shift {
+        return ClickAction::Report;
+    }
+    match mode {
+        MiddleClick::Paste => ClickAction::Paste,
+        MiddleClick::None => ClickAction::Nothing,
+    }
+}
+
+/// 左键松开时是否触发“选中即复制”：开关开启、这次按下由终端自己处理选择
+/// （按下时没有被鼠标上报接管），并且确实有非空选区（单击不产生选区时不复制）。
+pub fn should_copy_on_select(enabled: bool, local_selection: bool, has_selection: bool) -> bool {
+    enabled && local_selection && has_selection
+}
+
 // ---- 持久化后端与存储 ----
 
 /// 设置的持久化后端（`Core` 实现它；测试用内存实现）。
@@ -699,6 +891,7 @@ pub struct SettingsStore<B> {
     display: DisplaySettings,
     appearance: AppearanceSettings,
     timeline: TimelineSettings,
+    mouse: MouseSettings,
     keybindings: KeybindingSettings,
 }
 
@@ -712,12 +905,33 @@ impl<B: SettingsBackend> SettingsStore<B> {
             TimelineSettings::decode(backend.setting(Section::Timeline.key()).as_deref());
         let keybindings =
             KeybindingSettings::decode(backend.setting(Section::Keybindings.key()).as_deref());
+        let mouse = match backend.setting(Section::Mouse.key()) {
+            Some(json) => MouseSettings::decode(Some(&json)),
+            // 没有 mouse 分区：从旧的 windows.panels.right_click_menu 与 display.copyOnSelect
+            // 迁移一次并写回；写回之后该分区存在，旧字段就不再被读取。
+            None => {
+                match MouseSettings::migrate_legacy(
+                    backend.setting("windows.panels").as_deref(),
+                    backend.setting(Section::Display.key()).as_deref(),
+                ) {
+                    Some(migrated) => {
+                        if let Err(e) = backend.set_setting(Section::Mouse.key(), migrated.encode())
+                        {
+                            eprintln!("迁移鼠标设置失败：{e}");
+                        }
+                        migrated
+                    }
+                    None => MouseSettings::default(),
+                }
+            }
+        };
         backend.set_terminal_options(display.terminal_options());
         SettingsStore {
             backend,
             display,
             appearance,
             timeline,
+            mouse,
             keybindings,
         }
     }
@@ -749,6 +963,7 @@ impl<B: SettingsBackend> SettingsStore<B> {
         self.display = DisplaySettings::default();
         self.appearance = AppearanceSettings::default();
         self.timeline = TimelineSettings::default();
+        self.mouse = MouseSettings::default();
         self.keybindings = KeybindingSettings::default();
         self.backend
             .set_terminal_options(self.display.terminal_options());
@@ -768,6 +983,23 @@ impl<B: SettingsBackend> SettingsStore<B> {
     /// 时间轴设置。
     pub fn timeline(&self) -> &TimelineSettings {
         &self.timeline
+    }
+
+    /// 鼠标设置。
+    pub fn mouse(&self) -> &MouseSettings {
+        &self.mouse
+    }
+
+    /// 修改鼠标设置。
+    pub fn update_mouse(&mut self, change: impl FnOnce(&mut MouseSettings)) -> Option<Section> {
+        let mut new = self.mouse;
+        change(&mut new);
+        if new == self.mouse {
+            return None;
+        }
+        self.mouse = new;
+        self.persist(Section::Mouse, self.mouse.encode());
+        Some(Section::Mouse)
     }
 
     /// 修改显示设置。变化时写回、下发终端选项。
@@ -1123,5 +1355,149 @@ mod tests {
             store.display().font_size,
             DisplaySettings::default().font_size
         );
+    }
+
+    #[test]
+    fn mouse_decode_is_lenient_and_round_trips() {
+        assert_eq!(MouseSettings::decode(None), MouseSettings::default());
+        assert_eq!(MouseSettings::decode(Some("{}")), MouseSettings::default());
+        // 未知枚举值回落默认；类型不对的字段回落默认，其余字段照常读。
+        let m = MouseSettings::decode(Some(
+            r#"{"v":3,"middleClick":"scroll","rightClick":7,"copyOnSelect":true,"future":1}"#,
+        ));
+        assert_eq!(m.middle_click, MiddleClick::Paste);
+        assert_eq!(m.right_click, RightClick::Menu);
+        assert!(m.copy_on_select);
+        let m = MouseSettings {
+            middle_click: MiddleClick::None,
+            right_click: RightClick::CopyOrPaste,
+            copy_on_select: true,
+        };
+        assert_eq!(MouseSettings::decode(Some(&m.encode())), m);
+        let v: Value = serde_json::from_str(&m.encode()).unwrap();
+        assert_eq!(
+            v,
+            json!({"v":1,"middleClick":"none","rightClick":"copyOrPaste","copyOnSelect":true})
+        );
+    }
+
+    #[test]
+    fn mouse_migrates_legacy_right_click_once() {
+        // 无 mouse + 旧字段 false -> 复制或粘贴，并写回。
+        let mem = Mem::default();
+        mem.map.borrow_mut().insert(
+            "windows.panels".into(),
+            r#"{"right_click_menu":false}"#.into(),
+        );
+        let s = SettingsStore::load(&mem);
+        assert_eq!(s.mouse().right_click, RightClick::CopyOrPaste);
+        assert!(mem.map.borrow()["mouse"].contains("copyOrPaste"));
+
+        // 无 mouse + 无旧字段 -> 默认 Menu。
+        let mem = Mem::default();
+        mem.map.borrow_mut().insert(
+            "windows.panels".into(),
+            r#"{"sidebar_visible":true}"#.into(),
+        );
+        let s = SettingsStore::load(&mem);
+        assert_eq!(s.mouse().right_click, RightClick::Menu);
+        let mem = Mem::default();
+        assert_eq!(
+            SettingsStore::load(&mem).mouse().right_click,
+            RightClick::Menu
+        );
+
+        // 已有 mouse：忽略旧字段。
+        let mem = Mem::default();
+        mem.map.borrow_mut().insert(
+            "windows.panels".into(),
+            r#"{"right_click_menu":false}"#.into(),
+        );
+        mem.map.borrow_mut().insert(
+            "mouse".into(),
+            r#"{"v":1,"middleClick":"none","rightClick":"menu","copyOnSelect":false}"#.into(),
+        );
+        let s = SettingsStore::load(&mem);
+        assert_eq!(s.mouse().right_click, RightClick::Menu);
+        assert_eq!(s.mouse().middle_click, MiddleClick::None);
+    }
+
+    #[test]
+    fn mouse_migrates_copy_on_select_from_display() {
+        // 1.0.7 存在 display.copyOnSelect 里的开关要带过来，右键保持默认。
+        let mem = Mem::default();
+        mem.map
+            .borrow_mut()
+            .insert("display".into(), r#"{"v":1,"copyOnSelect":true}"#.into());
+        let s = SettingsStore::load(&mem);
+        assert!(s.mouse().copy_on_select);
+        assert_eq!(s.mouse().right_click, RightClick::Menu);
+        assert!(mem.map.borrow()["mouse"].contains(r#""copyOnSelect":true"#));
+
+        // 两个旧字段同时存在：都迁移。
+        let mem = Mem::default();
+        mem.map
+            .borrow_mut()
+            .insert("display".into(), r#"{"copyOnSelect":true}"#.into());
+        mem.map.borrow_mut().insert(
+            "windows.panels".into(),
+            r#"{"right_click_menu":false}"#.into(),
+        );
+        let s = SettingsStore::load(&mem);
+        assert!(s.mouse().copy_on_select);
+        assert_eq!(s.mouse().right_click, RightClick::CopyOrPaste);
+    }
+
+    #[test]
+    fn mouse_update_persists_and_reset_restores() {
+        let mem = Mem::default();
+        let mut s = SettingsStore::load(&mem);
+        assert_eq!(
+            s.update_mouse(|m| m.copy_on_select = true),
+            Some(Section::Mouse)
+        );
+        assert_eq!(s.update_mouse(|m| m.copy_on_select = true), None);
+        assert!(SettingsStore::load(&mem).mouse().copy_on_select);
+        s.reset_to_defaults().unwrap();
+        assert_eq!(*s.mouse(), MouseSettings::default());
+    }
+
+    #[test]
+    fn click_actions_follow_spec() {
+        use ClickAction::*;
+        // 上报且没按 Shift：交给程序，不看设置。
+        assert_eq!(
+            right_click_action(RightClick::Menu, true, false, true),
+            Report
+        );
+        assert_eq!(middle_click_action(MiddleClick::None, true, false), Report);
+        // Shift 绕过上报。
+        assert_eq!(
+            right_click_action(RightClick::Menu, true, true, false),
+            Menu
+        );
+        assert_eq!(middle_click_action(MiddleClick::Paste, true, true), Paste);
+        assert_eq!(middle_click_action(MiddleClick::None, true, true), Nothing);
+        // 非上报。
+        let cp = RightClick::CopyOrPaste;
+        assert_eq!(right_click_action(cp, false, false, true), Copy);
+        assert_eq!(right_click_action(cp, false, false, false), Paste);
+        assert_eq!(
+            right_click_action(RightClick::Menu, false, false, true),
+            Menu
+        );
+        assert_eq!(middle_click_action(MiddleClick::Paste, false, false), Paste);
+        assert_eq!(
+            middle_click_action(MiddleClick::None, false, false),
+            Nothing
+        );
+    }
+
+    #[test]
+    fn copy_on_select_needs_local_nonempty_selection() {
+        assert!(should_copy_on_select(true, true, true));
+        assert!(!should_copy_on_select(false, true, true));
+        assert!(!should_copy_on_select(true, false, true)); // 按下时被上报接管
+        assert!(!should_copy_on_select(true, true, false)); // 单击没有产生选区
     }
 }

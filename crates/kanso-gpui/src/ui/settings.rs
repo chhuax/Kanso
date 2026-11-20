@@ -22,9 +22,9 @@ use kanso_gpui::app::i18n::{Lang, LanguageSetting, label, lang};
 use kanso_gpui::app::keybindings::{self, KeybindingSettings};
 use kanso_gpui::app::settings::NumericSetting;
 use kanso_gpui::app::settings::{
-    AppearanceSettings, BUILTIN_THEMES, CursorShapeSetting, DisplaySettings, Section,
-    SettingsStore, TabBarPosition, ThemeMode, TimelineSettings, clean_font_names, is_monospace,
-    pick_nerd_fallback,
+    AppearanceSettings, BUILTIN_THEMES, CursorShapeSetting, DisplaySettings, MiddleClick,
+    MouseSettings, RightClick, Section, SettingsStore, TabBarPosition, ThemeMode, TimelineSettings,
+    clean_font_names, is_monospace, pick_nerd_fallback,
 };
 use kanso_gpui::widgets::dropdown::Item;
 use kanso_gpui::widgets::style::{Appearance, color, number};
@@ -162,6 +162,22 @@ impl SettingsModel {
         }
     }
 
+    pub(crate) fn mouse(&self) -> &MouseSettings {
+        self.store.mouse()
+    }
+
+    /// 修改鼠标设置（设置页与编辑菜单共用这一个入口）。
+    pub(crate) fn update_mouse(
+        &mut self,
+        cx: &mut Context<Self>,
+        change: impl FnOnce(&mut MouseSettings),
+    ) {
+        if let Some(s) = self.store.update_mouse(change) {
+            cx.emit(SettingsEvent::Changed(s));
+            cx.notify();
+        }
+    }
+
     /// 修改时间轴设置。
     pub(crate) fn update_timeline(
         &mut self,
@@ -264,6 +280,9 @@ pub(crate) struct SettingsView {
     /// 键盘页的录制 / 冲突状态。
     keys: keys::KeysState,
     mode: Entity<Dropdown>,
+    /// 键盘与鼠标页的中键 / 右键下拉。
+    middle_click: Entity<Dropdown>,
+    right_click: Entity<Dropdown>,
     theme_choices: Vec<(String, String)>,
     light_theme: Entity<Dropdown>,
     dark_theme: Entity<Dropdown>,
@@ -301,6 +320,20 @@ fn font_labels(names: &[String]) -> Vec<Item> {
                 n.clone()
             })
         })
+        .collect()
+}
+
+fn middle_click_items() -> Vec<Item> {
+    MiddleClick::ALL
+        .iter()
+        .map(|m| Item::option(m.label()))
+        .collect()
+}
+
+fn right_click_items() -> Vec<Item> {
+    RightClick::ALL
+        .iter()
+        .map(|m| Item::option(m.label()))
         .collect()
 }
 
@@ -392,6 +425,27 @@ impl SettingsView {
                         .unwrap_or(0),
                 )
         });
+        let mouse = *model.read(cx).mouse();
+        let middle_click = cx.new(|cx| {
+            Dropdown::new(window, cx)
+                .items(middle_click_items())
+                .selected(
+                    MiddleClick::ALL
+                        .iter()
+                        .position(|m| *m == mouse.middle_click)
+                        .unwrap_or(0),
+                )
+        });
+        let right_click = cx.new(|cx| {
+            Dropdown::new(window, cx)
+                .items(right_click_items())
+                .selected(
+                    RightClick::ALL
+                        .iter()
+                        .position(|m| *m == mouse.right_click)
+                        .unwrap_or(0),
+                )
+        });
         let theme_choices = model.read(cx).theme_choices();
         let light_theme = cx.new(|cx| {
             Dropdown::new(window, cx)
@@ -412,6 +466,24 @@ impl SettingsView {
                 });
             }
         }));
+        subs.push(
+            cx.subscribe(&middle_click, |this, _, ev: &DropdownEvent, cx| {
+                if let DropdownEvent::Change(i) = ev {
+                    this.model.update(cx, |m, cx| {
+                        m.update_mouse(cx, |s| s.middle_click = MiddleClick::ALL[*i])
+                    });
+                }
+            }),
+        );
+        subs.push(
+            cx.subscribe(&right_click, |this, _, ev: &DropdownEvent, cx| {
+                if let DropdownEvent::Change(i) = ev {
+                    this.model.update(cx, |m, cx| {
+                        m.update_mouse(cx, |s| s.right_click = RightClick::ALL[*i])
+                    });
+                }
+            }),
+        );
         // 模型变化（含快捷键缩放）→ 重绘并同步控件。
         subs.push(cx.observe_in(&model, window, |this, _, w, cx| this.sync_widgets(w, cx)));
         // 窗口外观变化（跟随系统时）→ 重绘。
@@ -501,6 +573,8 @@ impl SettingsView {
             numbers,
             keys: keys::KeysState::default(),
             mode,
+            middle_click,
+            right_click,
             theme_choices,
             light_theme,
             dark_theme,
@@ -584,6 +658,54 @@ impl SettingsView {
         });
     }
 
+    /// 键盘与鼠标页顶部的“鼠标”“选择”两张卡（ui-shell.md §7.1）。
+    fn mouse_cards(&self, th: &Th, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let mouse = *self.model.read(cx).mouse();
+        vec![
+            card(
+                th,
+                &render_message(&Message::UiMouse {}),
+                "sliders-horizontal",
+                vec![
+                    row(
+                        th,
+                        &render_message(&Message::UiMiddleClick {}),
+                        boxed(self.middle_click.clone(), 220.0),
+                    ),
+                    row(
+                        th,
+                        &render_message(&Message::UiRightClick {}),
+                        boxed(self.right_click.clone(), 220.0),
+                    ),
+                    caption(th, &render_message(&Message::UiMouseShiftHint {})),
+                ],
+            ),
+            card(
+                th,
+                &render_message(&Message::UiSelection {}),
+                "copy",
+                vec![
+                    check_row(
+                        th,
+                        render_message(&Message::UiCopyOnSelect {}),
+                        checkbox(
+                            th,
+                            cx,
+                            "copy-on-select",
+                            mouse.copy_on_select,
+                            |this, on, cx| {
+                                this.model.update(cx, |m, cx| {
+                                    m.update_mouse(cx, |s| s.copy_on_select = on)
+                                })
+                            },
+                        ),
+                    ),
+                    caption(th, &render_message(&Message::UiCopyOnSelectHint {})),
+                ],
+            ),
+        ]
+    }
+
     /// 模型变化后，把文本框 / 下拉的显示值对齐到模型（快捷键缩放、恢复默认等来源）。
     fn sync_widgets(&mut self, window: &Window, cx: &mut Context<Self>) {
         let (d, a) = {
@@ -614,6 +736,22 @@ impl SettingsView {
         });
         self.mode.update(cx, |dd, cx| {
             dd.set_selected(ThemeMode::ALL.iter().position(|m| *m == a.mode), cx)
+        });
+        // 编辑菜单也能改鼠标设置：两处入口显示同一个值。
+        let mouse = *self.model.read(cx).mouse();
+        self.middle_click.update(cx, |dd, cx| {
+            dd.set_selected(
+                MiddleClick::ALL
+                    .iter()
+                    .position(|m| *m == mouse.middle_click),
+                cx,
+            )
+        });
+        self.right_click.update(cx, |dd, cx| {
+            dd.set_selected(
+                RightClick::ALL.iter().position(|m| *m == mouse.right_click),
+                cx,
+            )
         });
         let choices = self.model.read(cx).theme_choices();
         let changed = choices != self.theme_choices;
@@ -893,6 +1031,10 @@ impl Render for SettingsView {
                     cx,
                 );
             });
+            self.middle_click
+                .update(cx, |picker, cx| picker.set_items(middle_click_items(), cx));
+            self.right_click
+                .update(cx, |picker, cx| picker.set_items(right_click_items(), cx));
             for (picker, names) in [
                 (&self.ui_font, &self.ui_names),
                 (&self.term_font, &self.term_names),
@@ -1226,7 +1368,11 @@ impl Render for SettingsView {
                 tab_bar_card,
             ],
             MCP_PAGE => vec![self.mcp.clone().into_any_element()],
-            _ => self.keys_cards(&th, cx),
+            _ => {
+                let mut cards = self.mouse_cards(&th, cx);
+                cards.extend(self.keys_cards(&th, cx));
+                cards
+            }
         };
         div()
             .size_full()
