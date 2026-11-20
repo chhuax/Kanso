@@ -440,10 +440,14 @@ impl TabDescriptions {
 }
 
 /// 标签拖拽使用按下瞬间的行中点。预览重新排版时仍以同一组中点判定插入位置。
+///
+/// 坐标是一维的：竖向侧栏传 y，顶部标签条传 x（见 `horizontal`）。字段名里的 `y` 是竖向时期的命名。
 #[derive(Clone, Debug)]
 pub struct TabReorder {
     /// 当前拖动的会话。
     pub session: SessionId,
+    /// 横向排列（顶部标签条）：调用方应把指针的 x 传给 `update`。
+    pub horizontal: bool,
     /// 按下时该分屏的标签顺序；期间有标签增删则放弃提交。
     pub order: Vec<SessionId>,
     start_y: f32,
@@ -471,11 +475,23 @@ impl TabReorder {
             .collect();
         Self {
             session,
+            horizontal: false,
             order,
             start_y: pointer_y,
             other_midpoints,
             insertion: None,
         }
+    }
+
+    /// 改为横向：之后 `start` 时传入的坐标、`update` 的参数都按 x 理解。
+    pub fn horizontal(mut self) -> Self {
+        self.horizontal = true;
+        self
+    }
+
+    /// 按拖动方向取指针坐标：横向取 x，竖向取 y。
+    pub fn axis_coord(&self, x: f32, y: f32) -> f32 {
+        if self.horizontal { x } else { y }
     }
 
     /// 根据窗口坐标更新插入位置，有新预览需要绘制时返回 `true`。

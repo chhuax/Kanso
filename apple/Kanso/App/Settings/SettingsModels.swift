@@ -15,7 +15,7 @@ import TerminalKit
 enum SettingsSection: String, CaseIterable {
     /// 终端显示：字体、字号、光标、回滚、最低对比度。
     case display
-    /// 外观：外观模式与浅色 / 深色各自的终端配色。
+    /// 外观：外观模式、浅色 / 深色各自的终端配色、标签栏位置。
     case appearance
     /// 时间戳 / 行号栏模式。
     case timeline
@@ -165,18 +165,34 @@ struct DisplaySettings: Equatable, Codable {
 
 // MARK: - 外观
 
-/// 外观设置：外观模式与浅色 / 深色外观各自使用的终端配色。
+/// 标签栏位置（ui-shell.md §2.5）。存储值是 rawValue，GPUI 端用同样的字符串，`.kanso` 导出跨平台可读。
+enum TabBarPosition: String, CaseIterable {
+    /// 左侧竖向标签栏（默认）。
+    case left
+    /// 每个分屏顶部各一条横向标签条。
+    case top
+
+    var displayName: String {
+        switch self {
+        case .left: String(localized: "Left")
+        case .top: String(localized: "Top")
+        }
+    }
+}
+
+/// 外观设置：外观模式、浅色 / 深色外观各自使用的终端配色、标签栏位置。
 struct AppearanceSettings: Equatable, Codable {
     var mode: AppearanceMode = .system
     /// 终端配色 id（`TerminalTheme.id`）。未知 id 在使用处回落到该外观的默认配色，这里原样保留，
     /// 这样新版本写入的配色 id 经旧版本读写一轮也不会丢。
     var lightTheme = TerminalTheme.kansoLight.id
     var darkTheme = TerminalTheme.kansoDark.id
+    var tabBarPosition: TabBarPosition = .left
 
     init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case v, mode, lightTheme, darkTheme
+        case v, mode, lightTheme, darkTheme, tabBarPosition
     }
 
     init(from decoder: Decoder) throws {
@@ -185,6 +201,8 @@ struct AppearanceSettings: Equatable, Codable {
         mode = AppearanceMode(rawValue: c.lenient(.mode, default: "")) ?? defaults.mode
         lightTheme = c.lenient(.lightTheme, default: defaults.lightTheme)
         darkTheme = c.lenient(.darkTheme, default: defaults.darkTheme)
+        // 旧版本写入的设置没有这个字段，未知值（更新版本新增的位置）同样回落到左侧。
+        tabBarPosition = TabBarPosition(rawValue: c.lenient(.tabBarPosition, default: "")) ?? defaults.tabBarPosition
     }
 
     func encode(to encoder: Encoder) throws {
@@ -193,6 +211,7 @@ struct AppearanceSettings: Equatable, Codable {
         try c.encode(mode.rawValue, forKey: .mode)
         try c.encode(lightTheme, forKey: .lightTheme)
         try c.encode(darkTheme, forKey: .darkTheme)
+        try c.encode(tabBarPosition.rawValue, forKey: .tabBarPosition)
     }
 
     /// 浅色外观的实际配色（未知 id 回落默认）。

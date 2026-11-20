@@ -18,7 +18,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private let stateStore: WindowStateStore
     private let confirmer: AlertCloseConfirmer
     private let promptHost = WindowPromptSheetHost()
-    private let splitController = NSSplitViewController()
+    private let splitController = MainSplitViewController()
+    private let paneContainer: PaneContainerView
+    private var sidebarAccessory: NSTitlebarAccessoryViewController?
+    /// 当前生效的标签栏位置；与设置不同时由 `applyTabBarPosition` 切换。
+    private(set) var tabBarPosition: TabBarPosition = .left
+    /// 顶部模式下标签条是否显示（⌘⌥← 切换）。与左侧竖栏的收起状态分开记：两种位置各自有自己的显隐。
+    private var topTabBarVisible: Bool
+    static let topTabBarVisibleKey = "kanso.topTabBar.visible"
     private let senderSplit = NSSplitViewController()
     private let senderItem: NSSplitViewItem
     let senderModel: SenderModel
@@ -122,6 +129,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         self.controller = controller
 
         let paneContainer = PaneContainerView(controller: controller)
+        self.paneContainer = paneContainer
+        topTabBarVisible = defaults.object(forKey: Self.topTabBarVisibleKey) as? Bool ?? true
         senderModel = SenderModel(core: core)
         PerformanceProbe.mark("sender-panel")
         senderHeight = min(400, max(80, defaults.object(forKey: "kanso.sender.height") as? Double ?? 160))
@@ -210,6 +219,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         if !useMockCore && PerformanceProbe.root == nil { window.setFrameAutosaveName("MainWindow") }
         super.init(window: window)
         sidebarController.mcpMark = { [weak self] id in self?.mcp.mark(for: id) }
+        paneContainer.mcpMark = { [weak self] id in self?.mcp.mark(for: id) }
         // 点指示器看的是 AI 工具做了什么，所以打开活动记录；开关与接入命令在设置页，菜单里有入口。
         statusBar.onOpenMcp = { [weak self] in self?.showMcpActivity() }
         mcp.onShowActivity = { [weak self] in self?.showMcpActivity() }
@@ -222,7 +232,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         mcp.addChangeHandler { [weak self, weak sidebarController] change in
             guard !change.isDisjoint(with: [.clients, .status, .marks]) else { return }
             self?.updateMcpIndicator()
-            if !change.isDisjoint(with: [.marks, .status]) { sidebarController?.refresh() }
+            if !change.isDisjoint(with: [.marks, .status]) {
+                sidebarController?.refresh()
+                if self?.tabBarPosition == .top { self?.paneContainer.reload() }
+            }
         }
         mcp.startIfEnabled()
         senderModel.isVisible = !senderItem.isCollapsed
@@ -269,6 +282,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         sidebarButton.frame = NSRect(x: 8, y: 2, width: 28, height: 24)
         sidebarAccessory.view.addSubview(sidebarButton)
         window.addTitlebarAccessoryViewController(sidebarAccessory)
+        self.sidebarAccessory = sidebarAccessory
         gitButton.onPress = { [weak self] in
             guard let self else { return }
             self.setGitCollapsed(!self.gitItem.isCollapsed)
@@ -300,6 +314,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
         if stateStore.wasZoomed, !window.isZoomed { window.zoom(nil) }
         applyDefaultSidebarWidthIfNeeded()
+        // 在 autosave 恢复侧栏状态之后：顶部模式要压过上次记住的"侧栏展开"。
+        applyTabBarPosition(settings.appearance.tabBarPosition)
+        settings.observe(self) { [weak self, weak settings] section in
+            guard section == .appearance, let self, let settings else { return }
+            self.applyTabBarPosition(settings.appearance.tabBarPosition)
+        }
         // 产品决定（2026-11-16）：Filer 每次启动都收起，用户需要时再打开；宽度仍由 autosave 记住。
         // 必须在 autosave 恢复之后、loadVisiblePanels 之前：否则上次展开的状态会被恢复并提前构建面板。
         filerItem.isCollapsed = true
@@ -379,6 +399,24 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         guard defaults.object(forKey: key) == nil else { return }
         splitController.splitView.setPosition(DesignTokens.Spacing.sidebarDefaultWidth, ofDividerAt: 0)
         gitItem.isCollapsed = true
+    }
+
+    // MARK: - 标签栏位置
+
+    /// 切换标签栏位置（ui-shell.md §2.5）。位置不变时什么都不做，所以每次外观设置变化都可以放心调用。
+    ///
+    /// 顶部模式下竖栏保持收起并锁住分隔条，不能被拖出来；切回左侧时总是展开竖栏，
+    /// 否则用户切回后看到的是一个收起的竖栏，会以为标签栏不见了。
+    func applyTabBarPosition(_ position: TabBarPosition) {
+        guard position != tabBarPosition else { return }
+        tabBarPosition = position
+        let top = position == .top
+        splitController.locksFirstDivider = top
+        sidebarItem.isCollapsed = top
+        sidebarAccessory?.isHidden = top
+        paneContainer.showsTabStrips = top && topTabBarVisible
+        splitController.splitView.adjustSubviews()
+        if !top { sidebarButton.toolTip = String(localized: "Hide Tab Bar") }
     }
 
     // MARK: - Filer 显隐
@@ -635,7 +673,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     @objc func kansoOpenLauncher(_ sender: Any?) {
-        (sidebarItem.viewController as? TabSidebarViewController)?.showSessionLauncher()
+        guard tabBarPosition == .top else {
+            (sidebarItem.viewController as? TabSidebarViewController)?.showSessionLauncher()
+            return
+        }
+        // 顶部模式：竖栏收起，它的 ＋ 不在屏幕上，锚到活动分屏的标签条；标签条也隐藏时锚在分屏区顶部中间。
+        if !paneContainer.showSessionLauncher() {
+            controller.sessions.showLauncher(
+                relativeTo: NSRect(x: paneContainer.bounds.midX, y: 0, width: 1, height: 1), of: paneContainer, preferredEdge: .maxY
+            )
+        }
     }
 
     @objc func kansoNewSession(_ sender: Any?) {
@@ -743,6 +790,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     @objc func kansoSplitDown(_ sender: Any?) { controller.perform { try controller.split(axis: .vertical) } }
 
     @objc func kansoToggleTabBar(_ sender: Any?) {
+        if tabBarPosition == .top {
+            topTabBarVisible.toggle()
+            defaults.set(topTabBarVisible, forKey: Self.topTabBarVisibleKey)
+            paneContainer.showsTabStrips = topTabBarVisible
+            return
+        }
         // 收起动画结束前 isCollapsed 还是旧值，提示文字按切换后的状态预先算好。
         let willCollapse = !sidebarItem.isCollapsed
         if usesPlainSidebar {
@@ -798,7 +851,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             guard let session = workspace.activeSession, let item = workspace.item(session) else { return false }
             return item.kind != .sftp
         case #selector(kansoToggleTabBar(_:)):
-            menuItem.title = sidebarItem.isCollapsed ? String(localized: "Show Tab Bar") : String(localized: "Hide Tab Bar")
+            let hidden = tabBarPosition == .top ? !topTabBarVisible : sidebarItem.isCollapsed
+            menuItem.title = hidden ? String(localized: "Show Tab Bar") : String(localized: "Hide Tab Bar")
             return true
         default:
             return true
@@ -830,5 +884,28 @@ final class ShellContentView: NSView {
         let h = DesignTokens.Spacing.statusBarHeight
         statusBar.frame = NSRect(x: 0, y: bounds.height - h, width: bounds.width, height: h)
         panes.frame = NSRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - h))
+    }
+}
+
+/// 主窗口的横向分栏。顶部标签条模式下锁住第一条分隔条（竖栏与 Filer 之间），
+/// 收起的竖栏就不会被用户从窗口左边缘拖出来。
+@MainActor
+final class MainSplitViewController: NSSplitViewController {
+    var locksFirstDivider = false {
+        didSet {
+            guard locksFirstDivider != oldValue else { return }
+            splitView.needsDisplay = true
+            splitView.window?.invalidateCursorRects(for: splitView)
+        }
+    }
+
+    override func splitView(_ splitView: NSSplitView, effectiveRect proposedEffectiveRect: NSRect, forDrawnRect drawnRect: NSRect, ofDividerAt dividerIndex: Int) -> NSRect {
+        if locksFirstDivider, dividerIndex == 0 { return .zero }
+        return super.splitView(splitView, effectiveRect: proposedEffectiveRect, forDrawnRect: drawnRect, ofDividerAt: dividerIndex)
+    }
+
+    override func splitView(_ splitView: NSSplitView, shouldHideDividerAt dividerIndex: Int) -> Bool {
+        if locksFirstDivider, dividerIndex == 0 { return true }
+        return super.splitView(splitView, shouldHideDividerAt: dividerIndex)
     }
 }

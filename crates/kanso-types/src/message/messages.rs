@@ -448,6 +448,14 @@ messages! {
     UiRightClickShowsMenu = "ui-right-click-shows-menu" {},
     /// GPUI 界面文字：标签栏
     UiTabBar = "ui-tab-bar" {},
+    /// GPUI 设置页面：标签栏位置。
+    UiTabBarPosition = "ui-tab-bar-position" {},
+    /// GPUI 设置页面：标签栏位置选项“左侧”。
+    UiTabBarLeft = "ui-tab-bar-left" {},
+    /// GPUI 设置页面：标签栏位置选项“顶部”。
+    UiTabBarTop = "ui-tab-bar-top" {},
+    /// GPUI 设置页面：标签栏位置的说明。
+    UiTabBarTopHint = "ui-tab-bar-top-hint" {},
     /// GPUI 界面文字：视图
     UiView = "ui-view" {},
     /// GPUI 界面文字：设置…

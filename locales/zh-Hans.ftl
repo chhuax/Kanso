@@ -484,6 +484,14 @@ ui-right-click-shows-menu = 右键弹出菜单
 
 ui-tab-bar = 标签栏
 
+ui-tab-bar-position = 位置
+
+ui-tab-bar-left = 左侧
+
+ui-tab-bar-top = 顶部
+
+ui-tab-bar-top-hint = 选“顶部”时，每个分屏上方各有一条标签条，只显示本分屏的标签。
+
 ui-view = 视图
 
 ui-settings-2 = 设置

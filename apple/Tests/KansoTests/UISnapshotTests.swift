@@ -82,6 +82,9 @@ final class UISnapshotTests: XCTestCase {
     func testSettingsKeyboardDark() throws { try verify(settingsKeyboardCanvas(), .darkAqua, "settings-keyboard-dark") }
     func testSettingsKeyboardLight() throws { try verify(settingsKeyboardCanvas(), .aqua, "settings-keyboard-light") }
 
+    func testTopTabStripDark() throws { try verify(topTabStripCanvas(), .darkAqua, "top-tab-strip-dark") }
+    func testTopTabStripLight() throws { try verify(topTabStripCanvas(), .aqua, "top-tab-strip-light") }
+
     func testFilerPanelDark() async throws { try verify(await filerCanvas(transfer: false), .darkAqua, "filer-panel-dark") }
     func testFilerPanelLight() async throws { try verify(await filerCanvas(transfer: false), .aqua, "filer-panel-light") }
     func testGitPanelDark() async throws { try verify(await gitCanvas(), .darkAqua, "git-panel-dark") }
@@ -238,6 +241,41 @@ final class UISnapshotTests: XCTestCase {
         }
         panel.layoutSubtreeIfNeeded()
         return canvas(size: NSSize(width: 400, height: 640), content: panel, contentSize: panel.frame.size, retaining: model)
+    }
+
+    /// 两条顶部标签条（ui-shell.md §2.5）：上面是活动分屏（宽松、等宽取最大宽度），下面是非活动分屏（拥挤、缩到最小宽度）。
+    private func topTabStripCanvas() -> NSView {
+        func item(_ id: SessionID, _ kind: TabKind, _ name: String, cwd: String? = nil, branch: String? = nil) -> TabItem {
+            var item = TabItem(id: id, kind: kind, name: name, connection: .connected)
+            item.cwd = cwd
+            item.gitBranch = branch
+            return item
+        }
+        var running = item(3, .ssh, "Production")
+        running.activity = .commandRunning
+        var unread = item(4, .local, "zsh", cwd: "/Users/demo/Downloads")
+        unread.unreadDone = true
+        let activeRows: [TabRowView.Model] = [
+            .init(item: item(1, .local, "zsh", cwd: "/Users/demo/workspace/kanso", branch: "main"), sidebarIndex: 0, selection: .windowActive),
+            .init(item: item(2, .sftp, "Backup Server"), sidebarIndex: 1, selection: .none),
+            .init(item: running, sidebarIndex: 2, selection: .none),
+            .init(item: unread, sidebarIndex: 3, selection: .none),
+        ]
+        let crowdedRows: [TabRowView.Model] = (5...12).map { id in
+            .init(item: item(SessionID(id), .local, "zsh", cwd: "/srv/app/service-\(id)"), sidebarIndex: id - 1, selection: id == 6 ? .paneActive : .none)
+        }
+        let width: CGFloat = 900
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: width, height: TabStripView.height * 2 + 12))
+        let top = TabStripView(pane: PaneID(raw: 1))
+        let bottom = TabStripView(pane: PaneID(raw: 2))
+        // 容器不是 flipped：先放的在上方。
+        top.frame = NSRect(x: 0, y: TabStripView.height + 12, width: width, height: TabStripView.height)
+        bottom.frame = NSRect(x: 0, y: 0, width: width, height: TabStripView.height)
+        for strip in [top, bottom] { container.addSubview(strip) }
+        top.update(activeRows, activeTab: 1)
+        bottom.update(crowdedRows, activeTab: 6)
+        container.layoutSubtreeIfNeeded()
+        return canvas(size: NSSize(width: width + 80, height: container.frame.height + 80), content: container, contentSize: container.frame.size, retaining: top)
     }
 
     private func gitCanvas() async -> NSView {

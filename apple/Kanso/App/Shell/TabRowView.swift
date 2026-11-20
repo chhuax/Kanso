@@ -1,9 +1,29 @@
 import AppKit
 import KansoUI
 
-/// 竖向标签栏的一行（自绘，不用 SwiftUI）。
+/// 承载标签行的容器：竖向侧栏列表（`SidebarListView`）或顶部标签条（`TabStripView`）。
 ///
-/// 鼠标事件只转发给 `SidebarListView`，拖拽状态不放在行里：列表刷新会重建行，状态放在行里会跟着丢。
+/// 行只把鼠标事件原样转发过来，拖拽状态由容器持有：容器刷新会重建行，状态放在行里会跟着丢。
+@MainActor
+protocol TabRowHost: AnyObject {
+    func rowMouseDown(_ row: TabRowView, event: NSEvent)
+    func rowMouseDragged(_ row: TabRowView, event: NSEvent)
+    func rowMouseUp(_ row: TabRowView, event: NSEvent)
+    /// 右键按下：容器先取消进行中的拖拽，菜单由 AppKit 随后通过 `rowMenu(for:)` 弹出。
+    func rowRightMouseDown()
+    func rowCloseClicked(_ row: TabRowView)
+    func rowMenu(for session: SessionID) -> NSMenu?
+}
+
+/// 标签行的外观。
+enum TabRowStyle {
+    /// 竖向侧栏的一行：主标题下可以有副标题。
+    case row
+    /// 顶部标签条里的一枚标签：单行，副标题（Git 分支）只进悬停提示，横向空间放不下第二行（ui-shell.md §2.5）。
+    case chip
+}
+
+/// 一个标签的视图（自绘，不用 SwiftUI），竖向侧栏与顶部标签条共用，保证两种位置的内容与状态样式一致。
 @MainActor
 final class TabRowView: NSView {
     /// 行的展示数据。
@@ -16,7 +36,8 @@ final class TabRowView: NSView {
         var mcp: McpTabMark? = nil
     }
 
-    weak var list: SidebarListView?
+    weak var host: TabRowHost?
+    let style: TabRowStyle
     var model: Model { didSet { if model != oldValue { applyModel() } } }
     var isHovered = false { didSet { if isHovered != oldValue { updateHoverState() } } }
 
@@ -30,8 +51,9 @@ final class TabRowView: NSView {
 
     override var isFlipped: Bool { true }
 
-    init(model: Model) {
+    init(model: Model, style: TabRowStyle = .row) {
         self.model = model
+        self.style = style
         super.init(frame: .zero)
         iconView.imageScaling = .scaleProportionallyDown
         titleLabel.lineBreakMode = .byTruncatingHead // 路径最有辨识度的是末尾几段，截断要保留末尾。
@@ -76,7 +98,7 @@ final class TabRowView: NSView {
         titleLabel.textColor = .token(dim ? DesignTokens.Color.textTertiary : DesignTokens.Color.textPrimary)
         let subtitle = TabPresentation.subtitle(item)
         subtitleLabel.stringValue = subtitle ?? ""
-        subtitleLabel.isHidden = subtitle == nil
+        subtitleLabel.isHidden = subtitle == nil || style == .chip
         shortcutLabel.stringValue = TabPresentation.shortcutLabel(sidebarIndex: model.sidebarIndex)
         var tip = TabDescriptions.tooltip(for: item)
         if let extra = model.mcp?.tooltipLines, !extra.isEmpty {
@@ -196,9 +218,12 @@ final class TabRowView: NSView {
                 path.fill()
             }
         }
-        // 左侧会话颜色细条。
+        // 左侧会话颜色细条。标签条里的标签比侧栏行矮，上下留白相应收窄，否则色条只剩一个点。
+        let barInset: CGFloat = style == .chip ? 6 : 9
         SessionColor.color(for: item).setFill()
-        NSBezierPath(roundedRect: NSRect(x: 4, y: 9, width: 3, height: bounds.height - 18), xRadius: 1.5, yRadius: 1.5).fill()
+        NSBezierPath(
+            roundedRect: NSRect(x: 4, y: barInset, width: 3, height: max(0, bounds.height - barInset * 2)), xRadius: 1.5, yRadius: 1.5
+        ).fill()
         // 状态标记。
         if !isHovered, let marker = statusMarker {
             let rect = NSRect(
@@ -245,18 +270,18 @@ final class TabRowView: NSView {
     }
 
     // 按下即切换标签（不是松开）。
-    override func mouseDown(with event: NSEvent) { list?.rowMouseDown(self, event: event) }
-    override func mouseDragged(with event: NSEvent) { list?.rowMouseDragged(self, event: event) }
-    override func mouseUp(with event: NSEvent) { list?.rowMouseUp(self, event: event) }
+    override func mouseDown(with event: NSEvent) { host?.rowMouseDown(self, event: event) }
+    override func mouseDragged(with event: NSEvent) { host?.rowMouseDragged(self, event: event) }
+    override func mouseUp(with event: NSEvent) { host?.rowMouseUp(self, event: event) }
 
     override func rightMouseDown(with event: NSEvent) {
-        list?.rowRightMouseDown()
+        host?.rowRightMouseDown()
         super.rightMouseDown(with: event) // 交给 AppKit 弹出 menu(for:)
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        list?.rowMenuProvider?(item.id)
+        host?.rowMenu(for: item.id)
     }
 
-    @objc private func closeClicked() { list?.rowCloseClicked(self) }
+    @objc private func closeClicked() { host?.rowCloseClicked(self) }
 }
