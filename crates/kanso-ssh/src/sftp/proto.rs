@@ -32,11 +32,17 @@ pub const FXP_RMDIR: u8 = 15;
 pub const FXP_REALPATH: u8 = 16;
 pub const FXP_STAT: u8 = 17;
 pub const FXP_RENAME: u8 = 18;
+pub const FXP_SETSTAT: u8 = 9;
+/// 扩展请求（`posix-rename@openssh.com` 等），请求体是扩展名 + 扩展自己的数据。
+pub const FXP_EXTENDED: u8 = 200;
 pub const FXP_STATUS: u8 = 101;
 pub const FXP_HANDLE: u8 = 102;
 pub const FXP_DATA: u8 = 103;
 pub const FXP_NAME: u8 = 104;
 pub const FXP_ATTRS: u8 = 105;
+
+/// OpenSSH 的原子覆盖式改名扩展（OpenSSH `PROTOCOL` 文档）：与 POSIX `rename(2)` 语义一致，目标已存在时直接替换。
+pub const EXT_POSIX_RENAME: &str = "posix-rename@openssh.com";
 
 // STATUS 码。
 pub const FX_OK: u32 = 0;
