@@ -173,6 +173,9 @@ pub struct Observed {
     pub kbd_answers: Vec<Vec<String>>,
     pub execs: Vec<String>,
     pub shells: usize,
+    /// 正在运行的脚本化 exec（见 `run_exec_script`）数量及其历史峰值，用来断言并发上限。
+    pub exec_running: usize,
+    pub exec_peak: usize,
     pub stdin_seen: Vec<u8>,
 }
 
@@ -633,6 +636,13 @@ impl Handler for TestHandler {
             self.sh_channels.insert(channel);
         }
         session.channel_success(channel)?;
+        // 脚本化命令（MCP exec 测试用），见 `run_exec_script`。
+        if is_exec_script(&cmd) {
+            let handle = session.handle();
+            let stats = self.stats.clone();
+            tokio::spawn(run_exec_script(handle, channel, cmd, stats));
+            return Ok(());
+        }
         // "late-status"：先 eof 再发退出码再 close，模拟 eof/close 之后才发退出码的服务器。
         if cmd == "late-status" {
             session.data(channel, b"out\n".to_vec())?;
@@ -744,6 +754,61 @@ impl Handler for TestHandler {
         }
         Ok(Some(russh::kex::dh::groups::DH_GROUP14.clone()))
     }
+}
+
+/// 命令是否是脚本化 exec：以 `echo ` / `sleep ` / `exit ` 开头，或就是 `hang`。
+fn is_exec_script(cmd: &str) -> bool {
+    cmd.starts_with("echo ")
+        || cmd.starts_with("sleep ")
+        || cmd.starts_with("exit ")
+        || cmd == "hang"
+}
+
+/// 执行脚本化 exec。语法：用 `;` 分隔的语句——
+/// - `echo <文本>`：写 stdout；末尾加 ` 1>&2` 写 stderr；文本里的 `\e` 换成 ESC（造 ANSI 序列）；
+/// - `sleep <秒>`：等待（可带小数）；
+/// - `exit <n>`：设置退出码（默认 0）；
+/// - `hang`：永不结束（测超时与通道关闭）。
+///
+/// 全部语句执行完后发 eof、退出码并 close。运行期间计入 `exec_running` / `exec_peak`。
+async fn run_exec_script(
+    handle: russh::server::Handle,
+    channel: ChannelId,
+    cmd: String,
+    stats: Arc<Stats>,
+) {
+    stats.with(|o| {
+        o.exec_running += 1;
+        o.exec_peak = o.exec_peak.max(o.exec_running);
+    });
+    let mut status = 0u32;
+    for stmt in cmd.split(';').map(str::trim) {
+        if let Some(rest) = stmt.strip_prefix("echo ") {
+            let (text, to_stderr) = match rest.strip_suffix(" 1>&2") {
+                Some(t) => (t, true),
+                None => (rest, false),
+            };
+            let bytes = format!("{}\n", text.replace("\\e", "\x1b")).into_bytes();
+            let _ = if to_stderr {
+                handle
+                    .extended_data(channel, 1, bytes)
+                    .await
+                    .map_err(|_| ())
+            } else {
+                handle.data(channel, bytes).await.map_err(|_| ())
+            };
+        } else if let Some(secs) = stmt.strip_prefix("sleep ") {
+            tokio::time::sleep(Duration::from_secs_f64(secs.parse().unwrap_or(0.0))).await;
+        } else if let Some(n) = stmt.strip_prefix("exit ") {
+            status = n.parse().unwrap_or(0);
+        } else if stmt == "hang" {
+            std::future::pending::<()>().await;
+        }
+    }
+    let _ = handle.eof(channel).await;
+    let _ = handle.exit_status_request(channel, status).await;
+    let _ = handle.close(channel).await;
+    stats.with(|o| o.exec_running -= 1);
 }
 
 /// 只支持旧算法（DH group14-sha1 / ssh-rsa / aes128-cbc / hmac-sha1）、认证全放行的服务器配置，

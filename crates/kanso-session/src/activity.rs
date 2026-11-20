@@ -19,12 +19,12 @@
 //! 状态机的时间是相对会话创建时刻的单调毫秒数（`Instant`），不受系统时间回拨影响；
 //! 状态机本身的测试用手动推进的数字，不依赖这里的时钟。
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use kanso_term::{CommandTracker, Effect, InputKind, Registered, TermEvent, Terminal};
+use kanso_term::{CommandTracker, Effect, Finish, InputKind, Registered, TermEvent, Terminal};
 use kanso_types::agent::AgentKind;
 use kanso_types::event::Activity;
 
@@ -51,6 +51,30 @@ pub(crate) struct ActivityHub {
     cond: Condvar,
     epoch: Instant,
     closed: AtomicBool,
+    /// 与 `cond` 同步递增的版本号，给 async 的等待者（MCP）用：`Condvar` 只能阻塞线程，
+    /// 而 MCP 的等待在 tokio 任务里，不能占着工作线程。版本号只用来唤醒，值本身没有含义。
+    tick: tokio::sync::watch::Sender<u64>,
+    /// 最近一批输出到达的时刻（`now()` 的毫秒数）。`kanso_terminal_send` 的"等输出安静"据此判断。
+    last_output_ms: AtomicU64,
+}
+
+/// [`ActivityHub::progress`] 的结果：MCP 的等待者每次被唤醒后据此重新判断。
+#[derive(Clone, Debug)]
+pub(crate) struct Progress {
+    /// 会话已结束（跟踪状态已被重置，其余字段不再有意义）。
+    pub closed: bool,
+    /// 用户来源的输入累计次数。
+    pub user_inputs: u64,
+    /// 已结束的命令累计数。
+    pub finished: u64,
+    /// 最近一次结束的命令的结果。
+    pub last_finish: Finish,
+    /// 是否见过 OSC 133。
+    pub osc133: bool,
+    /// 当前活动。
+    pub activity: Activity,
+    /// 最近一批输出到达的时刻。
+    pub last_output_ms: u64,
 }
 
 impl ActivityHub {
@@ -60,15 +84,18 @@ impl ActivityHub {
             cond: Condvar::new(),
             epoch: Instant::now(),
             closed: AtomicBool::new(false),
+            tick: tokio::sync::watch::Sender::new(0),
+            last_output_ms: AtomicU64::new(0),
         })
     }
 
-    fn now(&self) -> u64 {
+    /// 会话创建以来的单调毫秒数。
+    pub(crate) fn now(&self) -> u64 {
         u64::try_from(self.epoch.elapsed().as_millis()).unwrap_or(u64::MAX)
     }
 
     /// 取终端锁与 tracker 锁，执行 `f`，然后（释放终端锁之后、仍持有 tracker 锁）应用效果。
-    fn with_tracker<H: ActivityHost, R>(
+    pub(crate) fn with_tracker<H: ActivityHost, R>(
         &self,
         host: &H,
         f: impl FnOnce(&mut CommandTracker, &Terminal, u64) -> (R, Vec<Effect>),
@@ -90,8 +117,45 @@ impl ActivityHub {
         }
         drop(tracker);
         // 状态可能变了（命令返回、待办时刻变化）：叫醒等待者与定时线程。
-        self.cond.notify_all();
+        self.wake();
         result
+    }
+
+    /// 唤醒线程里等待的（`Condvar`）与 async 里等待的（`watch`）。
+    fn wake(&self) {
+        self.cond.notify_all();
+        self.tick.send_modify(|v| *v = v.wrapping_add(1));
+    }
+
+    /// 订阅状态变化。**必须先订阅、再读状态**：订阅之后发生的变化 `changed()` 一定能看到，
+    /// 反过来会在"读到旧状态"与"开始等待"之间漏掉一次唤醒。
+    pub(crate) fn subscribe(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.tick.subscribe()
+    }
+
+    /// 取 MCP 等待者关心的状态快照。只取 tracker 锁（不取终端锁），可以在任何不持有它们的地方调用。
+    pub(crate) fn progress(&self) -> Progress {
+        let t = lock(&self.tracker);
+        Progress {
+            closed: self.closed.load(Ordering::Acquire),
+            user_inputs: t.user_inputs(),
+            finished: t.finished(),
+            last_finish: t.last_finish().clone(),
+            osc133: t.osc133(),
+            activity: t.activity(),
+            last_output_ms: self.last_output_ms.load(Ordering::Acquire),
+        }
+    }
+
+    /// MCP 自己的输入（不算用户输入），见 `CommandTracker::on_mcp_input`。**必须在写出之前调用**，理由同 `on_input`。
+    pub(crate) fn on_mcp_input<H: ActivityHost>(&self, host: &H, kind: InputKind) {
+        self.with_tracker(host, |t, term, now| ((), t.on_mcp_input(kind, term, now)));
+    }
+
+    /// 记一次不经过命令行状态机的用户输入，见 `CommandTracker::note_user_input`。
+    pub(crate) fn note_user_input(&self) {
+        lock(&self.tracker).note_user_input();
+        self.wake();
     }
 
     /// 用户输入（按键、IME 上屏、粘贴）。**必须在输入字节写出去之前调用**：
@@ -104,6 +168,7 @@ impl ActivityHub {
 
     /// 一批输出已经喂进终端。`events` 是这一批的 `take_events`；没有事件也要调用（轮次靠输出续命）。
     pub(crate) fn on_output<H: ActivityHost>(&self, host: &H, events: &[TermEvent]) {
+        self.last_output_ms.store(self.now(), Ordering::Release);
         self.with_tracker(host, |t, term, now| ((), t.on_output(events, term, now)));
     }
 
@@ -148,7 +213,7 @@ impl ActivityHub {
     pub(crate) fn close(&self) {
         self.closed.store(true, Ordering::Release);
         lock(&self.tracker).reset();
-        self.cond.notify_all();
+        self.wake();
     }
 
     /// 启动定时线程：到点后调用 `on_tick`。线程只持有会话的弱引用，会话被丢弃后自行退出。

@@ -851,3 +851,240 @@ fn register_send_to_agent_counts_as_a_turn() {
     h.advance(AGENT_IDLE_MS);
     assert_eq!(h.take(), vec![agent_idle(k), agent_done(k)]);
 }
+
+// ---- MCP：输入行是否为空、用户接管计数、完成结果（spec/mcp.md §4.2、§4.3）----
+
+#[test]
+fn run_blocker_input_line_is_empty_until_the_user_types() {
+    let mut h = H::new();
+    h.out(PROMPT);
+    assert_eq!(h.tr.run_blocker(&h.t), None);
+
+    h.input(InputKind::Typing);
+    h.out("l");
+    assert_eq!(h.tr.run_blocker(&h.t), Some(RunBlock::InputNotEmpty));
+}
+
+#[test]
+fn run_blocker_ctrl_c_and_enter_make_the_line_empty_again() {
+    let mut h = H::new();
+    h.out(PROMPT);
+    h.type_text("foo");
+    h.input(InputKind::Interrupt);
+    h.out("^C\r\n");
+    h.out(PROMPT);
+    assert_eq!(h.tr.run_blocker(&h.t), None);
+
+    // 空回车：用户按过回车，行是空的；新提示符到来前也不该被判为"有输入"。
+    h.type_text("x");
+    h.enter();
+    h.advance(READ_DELAY_MS);
+    h.out("\r\n");
+    h.out(PROMPT);
+    assert_eq!(h.tr.run_blocker(&h.t), None);
+}
+
+#[test]
+fn run_blocker_multiline_paste_counts_as_user_input() {
+    let mut h = H::new();
+    h.out(PROMPT);
+    h.input(InputKind::PasteMultiline);
+    assert_eq!(h.tr.run_blocker(&h.t), Some(RunBlock::InputNotEmpty));
+}
+
+#[test]
+fn run_blocker_reports_running_command_and_agent_before_input() {
+    let mut h = H::new();
+    h.out(PROMPT);
+    h.run("sleep 9");
+    assert_eq!(h.tr.run_blocker(&h.t), Some(RunBlock::CommandRunning));
+
+    let mut h = H::new();
+    h.out(PROMPT);
+    h.run("claude");
+    assert_eq!(h.tr.run_blocker(&h.t), Some(RunBlock::AgentRunning));
+}
+
+#[test]
+fn run_blocker_mcp_input_is_not_user_input() {
+    let mut h = H::new();
+    h.out(PROMPT);
+    // MCP 输入的文字：不标记用户输入，也不累计接管计数。
+    let fx = h.tr.on_mcp_input(InputKind::Typing, &h.t, h.now);
+    h.fx.extend(fx);
+    h.out("abc");
+    assert_eq!(h.tr.user_inputs(), 0);
+    // 没有 OSC 133 B，不看屏幕上输入起点之后的文字：不拒绝。
+    assert_eq!(h.tr.run_blocker(&h.t), None);
+
+    // MCP 的 Ctrl+C 放弃了用户留下的半行，之后行为空。
+    let mut h = H::new();
+    h.out(PROMPT);
+    h.type_text("foo");
+    assert_eq!(h.tr.run_blocker(&h.t), Some(RunBlock::InputNotEmpty));
+    let fx = h.tr.on_mcp_input(InputKind::Interrupt, &h.t, h.now);
+    h.fx.extend(fx);
+    h.out("^C\r\n");
+    h.out(PROMPT);
+    assert_eq!(h.tr.run_blocker(&h.t), None);
+    assert_eq!(h.tr.user_inputs(), 3);
+}
+
+#[test]
+fn run_blocker_terminal_replies_do_not_count() {
+    let mut h = H::new();
+    h.out(PROMPT);
+    // 终端自己的回应绕过 on_input（见 InputKind 文档），状态机根本看不到它们：
+    // 这里模拟的就是"什么都没调用"，计数不变、行仍为空。
+    h.out("\x1b[c");
+    let replies = h.t.take_replies();
+    assert!(!replies.is_empty());
+    assert_eq!(h.tr.user_inputs(), 0);
+    assert_eq!(h.tr.run_blocker(&h.t), None);
+}
+
+#[test]
+fn run_blocker_with_osc133_requires_cursor_at_input_start() {
+    let mut h = H::new();
+    h.out(&format!("\x1b]133;A\x07{PROMPT}\x1b]133;B\x07"));
+    assert_eq!(h.tr.run_blocker(&h.t), None);
+
+    // zsh 自动建议的灰字：写在输入起点之后，光标留在起点。不是用户输入。
+    h.out("\x1b[90mls -la\x1b[0m\x1b[6D");
+    assert_eq!(h.t.at_input_start(), Some(true));
+    assert_eq!(h.tr.run_blocker(&h.t), None);
+
+    // 光标离开起点（别的程序、readline 的操作改了输入行）：非空，即使 tracker 没见过用户按键。
+    h.out("\x1b[3C");
+    assert_eq!(h.t.at_input_start(), Some(false));
+    assert_eq!(h.tr.run_blocker(&h.t), Some(RunBlock::InputNotEmpty));
+}
+
+#[test]
+fn run_blocker_osc133_prompt_redraw_does_not_forget_typed_input() {
+    let mut h = H::new();
+    h.out(&format!("\x1b]133;A\x07{PROMPT}\x1b]133;B\x07"));
+    h.type_text("ab");
+    // 提示符重绘只重发 B（同一行的 A 不产生事件）：用户已经输入的内容不能被当成没发生。
+    h.out("\r\x1b[K");
+    h.out(&format!("{PROMPT}\x1b]133;B\x07ab"));
+    assert_eq!(h.tr.run_blocker(&h.t), Some(RunBlock::InputNotEmpty));
+    // 新提示符（A）才算重新开始。
+    h.out("\r\n\x1b]133;A\x07");
+    h.out(&format!("{PROMPT}\x1b]133;B\x07"));
+    assert_eq!(h.tr.run_blocker(&h.t), None);
+}
+
+#[test]
+fn register_run_then_prompt_returns_gives_finish_with_end_before_new_prompt() {
+    let mut h = H::new();
+    h.out(PROMPT);
+    let finished = h.tr.finished();
+    let (r, _) = h.tr.register_run("ls", &h.t, h.now);
+    assert_eq!(r, Registered::Command);
+    h.out("ls\r\n");
+    h.out("a b\r\n");
+    h.out(PROMPT);
+    assert_eq!(h.tr.finished(), finished + 1);
+    // 推断路径：输出止于新提示符所在行的行首。
+    let end = h.tr.last_finish().end.unwrap();
+    assert_eq!(end.col, 0);
+    assert_eq!(h.t.cursor_point().unwrap().line, end.line);
+    assert_eq!(h.tr.last_finish().exit_code, None);
+}
+
+#[test]
+fn register_run_with_osc133_gives_exit_code_and_end_at_next_prompt_line() {
+    let mut h = H::new();
+    h.out(&format!("\x1b]133;A\x07{PROMPT}\x1b]133;B\x07"));
+    let finished = h.tr.finished();
+    let (r, _) = h.tr.register_run("false", &h.t, h.now);
+    assert_eq!(r, Registered::Command);
+    h.out("false\r\n\x1b]133;C\x07");
+    h.out("out\r\n\x1b]133;D;1\x07\x1b]133;A\x07");
+    h.out(&format!("{PROMPT}\x1b]133;B\x07"));
+    assert_eq!(h.tr.finished(), finished + 1);
+    let finish = h.tr.last_finish().clone();
+    assert_eq!(finish.exit_code, Some(1));
+    // 终点是 A 所在行（"out" 之后的那一行）的行首，而不是新提示符之后的光标。
+    let end = finish.end.unwrap();
+    assert_eq!(end.col, 0);
+    assert_eq!(
+        h.t.text_between(
+            CellPoint {
+                line: end.line,
+                col: 0
+            },
+            h.t.cursor_text_end().unwrap()
+        ),
+        PROMPT.trim_end()
+    );
+}
+
+#[test]
+fn register_run_allows_empty_signature_only_with_osc133() {
+    // 本地 zsh 两行提示符：输入行前面只有一个空格，特征为空。
+    let mut h = H::new();
+    h.out("\x1b]133;A\x07 \x1b]133;B\x07");
+    assert_eq!(h.tr.register_run("ls", &h.t, h.now).0, Registered::Command);
+
+    // Sender 的登记沿用原行为。
+    let mut h = H::new();
+    h.out("\x1b]133;A\x07 \x1b]133;B\x07");
+    assert_eq!(
+        h.tr.register_send("ls", &h.t, h.now).0,
+        Registered::Untracked
+    );
+
+    // 没有 OSC 133：特征为空没法判断返回。
+    let mut h = H::new();
+    h.out(" ");
+    assert_eq!(
+        h.tr.register_run("ls", &h.t, h.now).0,
+        Registered::Untracked
+    );
+}
+
+#[test]
+fn orphan_d_does_not_count_as_a_finished_command() {
+    let mut h = H::new();
+    h.out("\x1b]133;A\x07");
+    let finished = h.tr.finished();
+    h.out("\x1b]133;D\x07");
+    assert_eq!(h.tr.finished(), finished);
+}
+
+#[test]
+fn user_input_counter_counts_every_user_origin_input() {
+    let mut h = H::new();
+    h.out(PROMPT);
+    h.run("sleep 9");
+    let before = h.tr.user_inputs();
+    // 命令运行期间的输入同样累计：MCP 据此判断接管。
+    h.input(InputKind::Typing);
+    assert_eq!(h.tr.user_inputs(), before + 1);
+    h.tr.note_user_input();
+    assert_eq!(h.tr.user_inputs(), before + 2);
+}
+
+#[test]
+fn mcp_typed_command_is_tracked_like_a_user_command_without_counting_as_user_input() {
+    let mut h = H::new();
+    h.out(PROMPT);
+    // 与 `type_text` / `enter` 相同的时序，但来源是 MCP。
+    for c in "sleep 9".chars() {
+        let fx = h.tr.on_mcp_input(InputKind::Typing, &h.t, h.now);
+        h.fx.extend(fx);
+        h.out(&c.to_string());
+    }
+    let fx = h.tr.on_mcp_input(InputKind::Enter, &h.t, h.now);
+    h.fx.extend(fx);
+    h.out("\r\n");
+    h.advance(READ_DELAY_MS);
+    assert_eq!(h.take(), vec![submitted("sleep 9", true), RUNNING]);
+    assert_eq!(h.tr.run_blocker(&h.t), Some(RunBlock::CommandRunning));
+    assert_eq!(h.tr.user_inputs(), 0);
+    h.out(PROMPT);
+    assert_eq!(h.take(), vec![IDLE, DONE]);
+    assert_eq!(h.tr.run_blocker(&h.t), None);
+}

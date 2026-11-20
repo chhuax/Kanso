@@ -95,14 +95,16 @@ mod git;
 mod host;
 mod local;
 mod manager;
+mod mcp;
 mod ssh;
 mod transfer;
 
 pub use git::git_branch;
 pub use host::SessionHost;
 pub use kanso_pty::EnvSnapshot;
-pub use kanso_term::{Registered, SearchQuery, SearchStatus};
+pub use kanso_term::{ReadScope, Registered, SearchQuery, SearchStatus};
 pub use local::ReadStats;
 pub use local::{LocalLaunch, LocalSession};
 pub use manager::{ManagerConfig, OpenError, OpenRequest, Session, SessionManager, SessionSummary};
+pub use mcp::{McpBusy, McpOutput, McpRun, McpScreen, McpSend, McpTrackState, McpWrite};
 pub use ssh::{BoxFuture, SshConnector, SshLaunch, SshSession};

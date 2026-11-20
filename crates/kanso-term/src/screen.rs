@@ -138,7 +138,125 @@ impl Core {
     }
 }
 
+impl Core {
+    /// 读取网格文本，规则见 [`Terminal::read_text`]。
+    pub(crate) fn read_text(&self, scope: ReadScope) -> String {
+        let top = match scope {
+            ReadScope::Screen => 0,
+            ReadScope::Recent(_) => -(self.term.grid().history_size() as i64),
+        };
+        let limit = match scope {
+            ReadScope::Screen => usize::MAX,
+            ReadScope::Recent(n) => n,
+        };
+        // 从最后一行向上逐个逻辑行收集：`Recent` 的行数上限很小时不必遍历整个回滚。
+        let mut lines: Vec<String> = Vec::new();
+        let mut end = self.rows as i64 - 1;
+        while end >= top && lines.len() < limit {
+            let mut start = end;
+            let mut rows = 1;
+            while start > top && rows < MAX_LOGICAL_ROWS && self.row_wraps(Line((start - 1) as i32))
+            {
+                start -= 1;
+                rows += 1;
+            }
+            let mut text = String::new();
+            for r in start..=end {
+                // 软换行处的行尾空格是内容，所以整行取，只在逻辑行末尾去空格。
+                self.push_cells(Line(r as i32), 0, self.cols, &mut text);
+            }
+            text.truncate(text.trim_end_matches(' ').len());
+            // 屏幕下方没写过的空行不算内容，也不占 `Recent` 的行数。
+            if !(lines.is_empty() && text.is_empty()) {
+                lines.push(text);
+            }
+            end = start - 1;
+        }
+        lines.reverse();
+        lines.join("\n")
+    }
+
+    /// 包含 `abs` 的逻辑行**之后**的第一行；`abs` 已被回滚裁掉时取现存的第一行。
+    pub(crate) fn line_after_logical(&self, abs: AbsLine) -> AbsLine {
+        let first = self.table.first_abs();
+        if abs.0 < first {
+            return AbsLine(first);
+        }
+        let mut a = abs.0;
+        for _ in 0..MAX_LOGICAL_ROWS {
+            let Some(line) = self.grid_line_of(AbsLine(a)) else {
+                break;
+            };
+            if !self.row_wraps(line) {
+                break;
+            }
+            a += 1;
+        }
+        AbsLine(a + 1)
+    }
+}
+
+/// [`Terminal::read_text`] 的范围。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReadScope {
+    /// 当前屏幕（不受滚动查看的影响）。
+    Screen,
+    /// 回滚加屏幕的最后若干个逻辑行。
+    Recent(usize),
+}
+
 impl Terminal {
+    /// 读取网格里的文本（MCP 的 `kanso_terminal_read` 与命令输出共用同一套规则，spec/mcp.md §5）。
+    ///
+    /// - 取自网格而不是原始字节流：已按会话编码解码，不含控制序列；宽字符只算一次（跳过占位格）。
+    /// - 软换行的行拼回一个逻辑行；行尾的空格去掉（只在逻辑行末尾去，换行处的空格是内容）。
+    /// - 屏幕底部没有内容的空行忽略：它们既没有信息，也不应占 `Recent` 的行数。
+    /// - `Recent(n)` 计数的是**逻辑行**；`n` 为 0 返回空串。
+    /// - 全屏（alternate screen）期间读的是全屏程序的画面，没有回滚，`Recent` 与 `Screen` 等价。
+    pub fn read_text(&self, scope: ReadScope) -> String {
+        self.core.read_text(scope)
+    }
+
+    /// 光标在屏幕里的位置（行、列，从 0 开始），全屏期间也有效。
+    pub fn screen_cursor(&self) -> (u16, u16) {
+        let cursor = self.core.term.grid().cursor.point;
+        (cursor.line.0.max(0) as u16, cursor.column.0 as u16)
+    }
+
+    /// 整屏清除（`clear`、⌘K、RIS）发生的累计次数。调用方记下命令开始时的值，之后比较即可知道期间是否清过屏。
+    pub fn clear_count(&self) -> u64 {
+        self.core.clears
+    }
+
+    /// 现存的第一行（回滚最老的一行）的绝对行号。
+    pub fn first_line(&self) -> AbsLine {
+        AbsLine(self.core.table.first_abs())
+    }
+
+    /// 包含 `abs` 的逻辑行**之后**的第一行（命令回显之后就是输出的开始）；`abs` 已被裁掉时取 [`Terminal::first_line`]。
+    pub fn line_after_logical(&self, abs: AbsLine) -> AbsLine {
+        self.core.line_after_logical(abs)
+    }
+
+    /// 包含 `abs` 的逻辑行的第一行；行已不在网格里或处于全屏期间为 `None`。
+    pub fn logical_line_start(&self, abs: AbsLine) -> Option<AbsLine> {
+        self.core.logical_start(abs).map(|(line, _)| line)
+    }
+
+    /// 光标处作为"文本终点"的位置（光标之前的字符都算，含写满一行后待换行的状态）；全屏期间为 `None`。
+    pub fn cursor_text_end(&self) -> Option<CellPoint> {
+        if self.core.alt {
+            return None;
+        }
+        Some(self.core.block_point())
+    }
+
+    /// 读取 `[start, end)` 之间的文本，规则同选区复制：软换行拼成整行、行尾空格去掉、末尾空行去掉。
+    /// `start` 早于现存第一行时从第一行开始。需要 `&mut` 只因为实现借用了选区机制，不会改变选区。
+    pub fn text_between(&mut self, start: CellPoint, end: CellPoint) -> String {
+        self.core.range_text(start, end)
+    }
+
     /// 光标位置（绝对行号 + 列）；全屏期间为 `None`。
     ///
     /// 命令跟踪用它记下"输入起点"：新提示符出现后、用户第一次按键时光标正好停在提示符末尾。

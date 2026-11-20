@@ -77,9 +77,11 @@ pub use crate::input::{
     encode_paste, encode_scroll, quote_paths,
 };
 use crate::osc::OscScanner;
+pub use crate::screen::ReadScope;
 pub use crate::search::MAX_MATCHES;
 pub use crate::track::{
-    AGENT_IDLE_MS, CommandTracker, Effect, InputKind, MAX_COMMAND_CHARS, READ_DELAY_MS, Registered,
+    AGENT_IDLE_MS, CommandTracker, Effect, Finish, InputKind, MAX_COMMAND_CHARS, READ_DELAY_MS,
+    Registered, RunBlock,
 };
 pub use crate::types::{
     CellRange, CwdReport, MouseMode, MouseOutcome, Overlays, SearchQuery, SearchStatus, TermConfig,

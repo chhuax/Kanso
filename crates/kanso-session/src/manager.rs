@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use kanso_encoding::TextEncoding;
 use kanso_frame::Frame;
 use kanso_pty::EnvSnapshot;
+use kanso_ssh::Connection;
 use kanso_term::{SearchQuery, SearchStatus};
 use kanso_types::event::SessionState;
 use kanso_types::profile::{LocalProfile, SessionKind};
@@ -18,7 +19,7 @@ use kanso_types::{
     TimestampMode, ViewportPoint,
 };
 
-use crate::host::SessionHost;
+use crate::host::{HeadlessHost, SessionHost};
 use crate::local::{LocalLaunch, LocalSession, StartError, join_with_timeout};
 use crate::ssh::{Source, SshLaunch, SshSession};
 
@@ -61,6 +62,25 @@ pub enum OpenRequest {
     /// 复制一个会话：本地会话用同一份启动参数重新启动；
     /// SSH 会话在**同一个已认证连接**上再开一个 shell 通道，不重新握手认证（ssh.md §6）。
     Duplicate(SessionId),
+    /// 新建**可见**的 SSH / 纯 SFTP 会话，但连接用调用方给的这一条（不新建、不认证），
+    /// 相当于"在别处已认证的连接上再开一个标签"（core 用它做按 Profile 的连接复用）。
+    /// `launch` 里的连接器此时不会被调用；连接已断时新会话以 `SshSharedConnectionClosed` 关闭。
+    SshShared {
+        /// 启动参数（决定开 shell 还是纯 SFTP）。
+        launch: SshLaunch,
+        /// 要共享的连接。
+        connection: Connection,
+    },
+    /// 新建**无界面**会话（MCP 的 `mcp_connect`）：机制同纯 SFTP 会话（不开 shell、不产生终端帧），
+    /// 不出现在 [`SessionManager::sessions`] 里，也不向 UI 发会话类事件，只放行传输事件。
+    /// `launch` 会被强制改成纯 SFTP；`connection` 为 `Some` 时共享它，否则用 `launch` 的连接器新建。
+    /// 无界面会话不重连：连接断了就以 `Closed` 结束。
+    Headless {
+        /// 启动参数。
+        launch: SshLaunch,
+        /// 共享的连接；`None` 表示新建。
+        connection: Option<Connection>,
+    },
 }
 
 /// 打开会话失败。
@@ -199,11 +219,96 @@ impl Session {
         }
     }
 
+    /// 是否是无界面会话（MCP 的 `mcp_connect`）。本地会话恒为 `false`。
+    pub fn is_headless(&self) -> bool {
+        match self {
+            Session::Local(_) => false,
+            Session::Ssh(s) => s.is_headless(),
+        }
+    }
+
+    /// 会话用过的 SSH 连接的 id（[`Connection::id`]），会话结束后仍保留；本地会话与尚无连接的会话为 `None`。
+    pub fn connection_id(&self) -> Option<u64> {
+        match self {
+            Session::Local(_) => None,
+            Session::Ssh(s) => s.connection_id(),
+        }
+    }
+
+    /// 会话**当前**持有的 SSH 连接（克隆共享）；本地会话、没连上或已结束为 `None`。
+    /// 调用方只能在一次短操作内持有，理由见 [`SshSession::connection`]。
+    pub fn connection(&self) -> Option<Connection> {
+        match self {
+            Session::Local(_) => None,
+            Session::Ssh(s) => s.connection(),
+        }
+    }
+
     /// 会话种类。纯 SFTP 会话没有终端：core 据此拒绝终端类操作。
     pub fn kind(&self) -> SessionKind {
         match self {
             Session::Local(_) => SessionKind::Local,
             Session::Ssh(s) => s.kind(),
+        }
+    }
+
+    /// 本地会话 PTY 从设备的路径；其他会话为 `None`。
+    pub fn tty_path(&self) -> Option<String> {
+        match self {
+            Session::Local(s) => s.tty_path(),
+            Session::Ssh(_) => None,
+        }
+    }
+
+    /// 本地会话 shell 进程的 pid；其他会话为 `None`。
+    pub fn shell_pid(&self) -> Option<u32> {
+        match self {
+            Session::Local(s) => s.pid(),
+            Session::Ssh(_) => None,
+        }
+    }
+
+    /// 命令跟踪与终端传输的状态。纯 SFTP 会话没有终端，调用方须先排除。
+    pub fn mcp_track_state(&self) -> crate::mcp::McpTrackState {
+        match self {
+            Session::Local(s) => s.mcp_track_state(),
+            Session::Ssh(s) => s.mcp_track_state(),
+        }
+    }
+
+    /// 终端是否已锁定（会话已结束，terminal.md §13）。
+    pub fn is_locked(&self) -> bool {
+        match self {
+            Session::Local(s) => s.is_locked(),
+            Session::Ssh(s) => s.is_locked(),
+        }
+    }
+
+    /// 读取终端文本（MCP）。纯 SFTP 会话没有终端，调用方须先排除。
+    pub fn mcp_read(&self, scope: kanso_term::ReadScope) -> crate::mcp::McpScreen {
+        match self {
+            Session::Local(s) => s.mcp_read(scope),
+            Session::Ssh(s) => s.mcp_read(scope),
+        }
+    }
+
+    /// 输入一行命令并等它返回提示符（MCP）。取消安全，见 `mcp` 模块文档。
+    pub async fn mcp_run(&self, command: &str, timeout: Duration) -> crate::mcp::McpRun {
+        match self {
+            Session::Local(s) => s.mcp_run(command, timeout).await,
+            Session::Ssh(s) => s.mcp_run(command, timeout).await,
+        }
+    }
+
+    /// 输入文字与按键，可选等输出安静（MCP）。取消安全，见 `mcp` 模块文档。
+    pub async fn mcp_send(
+        &self,
+        inputs: Vec<crate::mcp::McpWrite>,
+        settle: Option<Duration>,
+    ) -> crate::mcp::McpSend {
+        match self {
+            Session::Local(s) => s.mcp_send(inputs, settle).await,
+            Session::Ssh(s) => s.mcp_send(inputs, settle).await,
         }
     }
 
@@ -266,7 +371,16 @@ impl SessionManager {
             return Err(OpenError::ShuttingDown);
         }
         let launch = match request {
-            OpenRequest::Ssh(launch) => return self.open_ssh(launch, Source::Connect, size),
+            OpenRequest::Ssh(launch) => {
+                return self.open_ssh(launch, Source::Connect, size, false);
+            }
+            OpenRequest::SshShared { launch, connection } => {
+                return self.open_ssh(launch, Source::Shared(Some(connection)), size, false);
+            }
+            OpenRequest::Headless { launch, connection } => {
+                let source = connection.map_or(Source::Connect, |c| Source::Shared(Some(c)));
+                return self.open_ssh(launch.sftp_only(), source, size, true);
+            }
             OpenRequest::DefaultLocalShell => LocalLaunch {
                 command_line: self.cfg.default_shell.clone().unwrap_or_default(),
                 ..LocalLaunch::default()
@@ -291,6 +405,11 @@ impl SessionManager {
                         }
                         launch
                     }
+                    // 无界面会话对外不存在：UI 拿不到它的 id，这里防御性地按"不存在"处理，
+                    // 否则会把它的非交互连接器与纯 SFTP 设置复制成一个可见标签。
+                    Session::Ssh(source) if source.is_headless() => {
+                        return Err(OpenError::NoSuchSession(src));
+                    }
                     Session::Ssh(source) => {
                         // 只在这里短暂取一份连接引用，立刻交给新会话；源会话已结束则没有连接。
                         let connection = source.connection();
@@ -298,6 +417,7 @@ impl SessionManager {
                             source.launch().clone(),
                             Source::Shared(connection),
                             size,
+                            false,
                         );
                     }
                 }
@@ -327,6 +447,7 @@ impl SessionManager {
         launch: SshLaunch,
         source: Source,
         size: GridSize,
+        headless: bool,
     ) -> Result<SessionId, OpenError> {
         let Some(runtime) = self.runtime.clone() else {
             return Err(OpenError::Spawn {
@@ -335,7 +456,12 @@ impl SessionManager {
             });
         };
         let id = SessionId::from_raw(self.next_id.fetch_add(1, Ordering::Relaxed));
-        let session = SshSession::new(id, Arc::clone(&self.host), launch, size, runtime, source);
+        let host: Arc<dyn SessionHost> = if headless {
+            Arc::new(HeadlessHost(Arc::clone(&self.host)))
+        } else {
+            Arc::clone(&self.host)
+        };
+        let session = SshSession::new(id, host, launch, size, runtime, source, headless);
         // 先登记再启动任务：任务发出的第一个事件一到 UI，UI 就会调用 core，会话必须已经查得到。
         lock(&self.sessions).insert(id, Session::Ssh(Arc::clone(&session)));
         session.init_terminal_options(self.terminal_options());
@@ -369,10 +495,19 @@ impl SessionManager {
         lock(&self.sessions).get(&id).cloned()
     }
 
-    /// 当前全部会话，按打开顺序。
+    /// 当前全部**有界面**会话，按打开顺序。无界面会话不在其中（UI 不该看到它们）；
+    /// 需要包含无界面会话时用 [`SessionManager::all_sessions`]。
     pub fn sessions(&self) -> Vec<SessionSummary> {
         let all: Vec<_> = lock(&self.sessions).values().cloned().collect();
-        all.iter().map(summarize).collect()
+        all.iter()
+            .filter(|s| !s.is_headless())
+            .map(summarize)
+            .collect()
+    }
+
+    /// 全部会话（含无界面会话），按打开顺序。core 内部做连接查找用。
+    pub fn all_sessions(&self) -> Vec<Session> {
+        lock(&self.sessions).values().cloned().collect()
     }
 
     /// 单个会话的摘要。

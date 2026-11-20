@@ -1381,12 +1381,13 @@ impl Core {
     // 用户接管后的 10 秒冷却都由 `kanso-mcp-server` 负责；这里只提供能力和 core 才知道的状态。
     //
     // async 方法都是**取消安全**的：调用方丢弃 future 即停止等待（级别下调、客户端断开时就这么做），
-    // 已经写入终端或发到远端的内容不撤回，core 内部的登记（如等待提示符）随之撤销。
+    // 已经写入终端或发到远端的内容不撤回；`kanso_terminal_run` 的命令登记也不撤销（命令已经发给
+    // shell，提示符返回时与用户亲手输入的命令一样被清除），Sender 占用（`McpClaim`）随 `Drop` 释放。
 
     /// MCP 用的会话状态；会话不存在为 `None`。无界面会话也能查到（`headless` 为真）。
     ///
     /// - 线程：任意。阻塞：同步，极短。
-    /// - 实现：F9（真实后端尚未实现时返回 `None`）。
+    /// - 真实后端：本地与 SSH 会话已实现；纯 SFTP 会话没有终端，终端相关字段取空值。
     pub fn mcp_session_status(&self, session: SessionId) -> Option<McpSessionStatus> {
         let mut status = dispatch!(self, mcp_session_status(session))?;
         // Sender 的任务状态在 Core 层，不在后端。
@@ -1402,7 +1403,7 @@ impl Core {
     ///
     /// - 线程：任意。阻塞：同步，持终端锁的时间与范围成正比，`Recent` 的行数由调用方限制在 2000 以内。
     /// - 出错：会话不存在返回 `NoSuchSession`；纯 SFTP 与无界面会话返回 `NotSupported`。
-    /// - 规格：spec/mcp.md §3.2、§5。实现：F9。
+    /// - 规格：spec/mcp.md §3.2、§5。
     pub fn terminal_text(
         &self,
         session: SessionId,
@@ -1420,8 +1421,8 @@ impl Core {
     /// - 完成判断复用 Sender 的"登记即将发送 + 等待提示符"（terminal.md §5.3）。
     /// - 超时返回 `Unconfirmed`，不发送 Ctrl+C；用户在等待期间输入返回 `TakenOver`。
     /// - 线程：任意。阻塞：异步，最长 `limits.timeout`。
-    /// - 出错：会话不存在返回 `NoSuchSession`；纯 SFTP 与无界面会话返回 `NotSupported`。
-    /// - 实现：F9。
+    /// - 出错：会话不存在返回 `NoSuchSession`；等待期间会话结束（标签关闭、断开、锁定）同样返回
+    ///   `NoSuchSession`；纯 SFTP 与无界面会话返回 `NotSupported`。
     pub async fn mcp_terminal_run(
         &self,
         session: SessionId,
@@ -1462,7 +1463,7 @@ impl Core {
     ///
     /// - 只检查未连接（含会话结束后的锁定）与终端内传输两项（见 [`TerminalSendOutcome::Rejected`]）。
     /// - 线程：任意。阻塞：异步，最长约 `settle`。
-    /// - 出错：同 [`Core::mcp_terminal_run`]。实现：F9。
+    /// - 出错：同 [`Core::mcp_terminal_run`]；等待安静期间会话结束同样返回 `NoSuchSession`。
     pub async fn mcp_terminal_send(
         &self,
         session: SessionId,

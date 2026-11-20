@@ -200,7 +200,7 @@ fn real_audit_append_query_prune_clear() {
 }
 
 #[test]
-fn real_unimplemented_mcp_methods_do_not_panic() {
+fn real_mcp_methods_on_missing_targets_do_not_panic() {
     let tmp = tempfile::tempdir().unwrap();
     let core = real_core(&tmp);
     let rt = rt();
@@ -208,29 +208,30 @@ fn real_unimplemented_mcp_methods_do_not_panic() {
     let p = ProfileId::new();
     let limits = WaitLimits::default();
     assert_eq!(core.mcp_session_status(s), None);
+    // 终端的读取、命令与输入已实现（行为见 real_core.rs）：不存在的会话是 NoSuchSession。
     assert_eq!(
         core.terminal_text(s, TextScope::Screen, 1024),
-        Err(CoreError::NotSupported)
+        Err(CoreError::NoSuchSession(s))
     );
     assert_eq!(
         rt.block_on(core.mcp_terminal_run(s, "ls", limits)),
-        Err(CoreError::NotSupported)
+        Err(CoreError::NoSuchSession(s))
     );
     assert_eq!(
         rt.block_on(core.mcp_terminal_send(s, vec![McpInput::Text("q".into())], None, 1024)),
-        Err(CoreError::NotSupported)
+        Err(CoreError::NoSuchSession(s))
     );
     assert_eq!(
         rt.block_on(core.mcp_connect(p, ConnectMode::ReuseOnly)),
-        Err(CoreError::NotSupported)
+        Err(CoreError::NoSuchProfile(p))
     );
     assert_eq!(
         rt.block_on(core.mcp_open_session(p, ConnectMode::NonInteractive, GRID)),
-        Err(CoreError::NotSupported)
+        Err(CoreError::NoSuchProfile(p))
     );
     assert_eq!(
         rt.block_on(core.mcp_exec(s, "ls", limits)),
-        Err(CoreError::NotSupported)
+        Err(CoreError::NoSuchSession(s))
     );
     assert_eq!(
         rt.block_on(core.sftp_entry(s, "/", false)),

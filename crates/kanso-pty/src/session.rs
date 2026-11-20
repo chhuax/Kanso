@@ -79,6 +79,9 @@ pub struct PtySession {
     /// `take_writer` 已经把真正的写入端交走（`writer` 此后是丢弃一切的占位）。
     writer_taken: bool,
     pid: Option<u32>,
+    /// PTY 从设备的路径（如 `/dev/ttys003`）。在 spawn 时取一次：之后主端可能被取走（Windows），
+    /// 而且它不会变。只有 Unix 有这个概念，其余平台为 `None`。
+    tty_path: Option<String>,
 }
 
 impl std::fmt::Debug for PtySession {
@@ -140,12 +143,20 @@ impl PtySession {
 
         let writer = pair.master.take_writer().map_err(spawn_err)?;
         let pid = child.process_id();
+        #[cfg(unix)]
+        let tty_path = pair
+            .master
+            .tty_name()
+            .map(|p| p.to_string_lossy().into_owned());
+        #[cfg(not(unix))]
+        let tty_path = None;
         Ok(PtySession {
             master: Some(pair.master),
             child,
             writer,
             writer_taken: false,
             pid,
+            tty_path,
         })
     }
 
@@ -222,6 +233,12 @@ impl PtySession {
     /// shell 进程的 pid。
     pub fn pid(&self) -> Option<u32> {
         self.pid
+    }
+
+    /// PTY 从设备的路径；非 Unix 平台或系统没有给出时为 `None`。
+    /// MCP 用它按控制终端识别客户端所在的标签（spec/mcp.md §2.5）。
+    pub fn tty_path(&self) -> Option<&str> {
+        self.tty_path.as_deref()
     }
 
     /// 结束 shell 进程并回收（避免僵尸进程）。

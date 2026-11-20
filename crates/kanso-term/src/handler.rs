@@ -418,6 +418,10 @@ pub(crate) struct Core {
     /// 历史内容被“非追加方式”改动的计数（ED 3、⌘K、RIS、重排、调回滚上限）。
     /// 搜索靠它判断已搜索过的回滚行是否还可信：追加新行不会改变它，只需重搜屏幕附近的行。
     pub epoch: u64,
+    /// 整屏清除（`clear` 的 ED 2 + ED 3 成对、⌘K、RIS）发生的次数，只增不减。
+    /// 与 `epoch` 不同：单独的 ED 3 或调回滚上限不算，因为那时屏幕上的内容还在；
+    /// MCP 的 `kanso_terminal_run` 据此判断"命令执行期间是否清过屏"（spec/mcp.md §4.2）。
+    pub clears: u64,
 }
 
 impl Core {
@@ -468,6 +472,7 @@ impl Core {
             separators: DEFAULT_WORD_SEPARATORS.to_owned(),
             default_cursor: CursorStyle::default(),
             epoch: 0,
+            clears: 0,
         }
     }
 
@@ -762,6 +767,7 @@ impl Core {
 
     /// `clear` 完成：显示行号从光标所在行重新从 1 开始。AbsLine 本身不回退，只移动基准。
     fn finish_clear(&mut self) {
+        self.clears += 1;
         self.blocks.clear();
         self.line_number_base = self.cursor_abs();
         self.batch_ed2 = false;
@@ -836,6 +842,7 @@ impl Core {
 
     /// ⌘K：清空屏幕、回滚和行元数据，光标回到左上角。
     pub fn clear_buffer(&mut self) {
+        self.clears += 1;
         self.blocks.clear();
         self.drain_events();
         // 先清回滚：primary 即使被全屏盖住，`set_options` 也会对它生效（`grid_mut` 则只能碰到当前屏幕）。
@@ -1254,6 +1261,7 @@ impl Handler for Core {
 
     fn reset_state(&mut self) {
         self.end_chip();
+        self.clears += 1;
         self.blocks.clear();
         Handler::reset_state(&mut self.term);
         self.epoch += 1;

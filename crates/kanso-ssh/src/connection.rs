@@ -5,7 +5,7 @@
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -474,6 +474,8 @@ where
     let legacy = legacy_algorithms_used(&negotiated);
     let connection = Connection {
         inner: Arc::new(ConnectionInner {
+            // 认证成功、连接对象成形时才分配：失败的握手不消耗 id，id 的大小顺序即"建立成功"的顺序。
+            id: NEXT_CONNECTION_ID.fetch_add(1, Ordering::Relaxed),
             handle: Some(handle),
             endpoint,
             user,
@@ -500,7 +502,12 @@ pub struct Connection {
     inner: Arc<ConnectionInner>,
 }
 
+/// 连接 id 的分配器，进程内全局递增（从 1 开始）。
+static NEXT_CONNECTION_ID: AtomicU64 = AtomicU64::new(1);
+
 struct ConnectionInner {
+    /// 进程内唯一、按建立顺序递增的 id，见 [`Connection::id`]。
+    id: u64,
     /// `Drop` 里需要把它搬进异步任务发 disconnect，所以包在 `Option` 里。
     handle: Option<Handle<ClientHandler>>,
     endpoint: Endpoint,
@@ -566,6 +573,13 @@ impl Drop for ConnectionInner {
 }
 
 impl Connection {
+    /// 进程内唯一的连接 id，按建立（认证成功）的先后递增；克隆共享同一条连接，返回同一个 id。
+    ///
+    /// 调用方据此识别"哪些会话用的是同一条连接"，以及在同一个 Profile 的多条连接里挑出最近建立的那条。
+    pub fn id(&self) -> u64 {
+        self.inner.id
+    }
+
     /// 连接对象。
     pub fn endpoint(&self) -> &Endpoint {
         &self.inner.endpoint
@@ -663,6 +677,16 @@ impl Connection {
     /// 与 shell 通道互不影响；调用方把脚本写进 stdin，读 stdout，直到通道关闭。
     pub async fn open_exec(&self, command: &str) -> Result<ExecChannel, SshError> {
         ExecChannel::open(self, command).await
+    }
+
+    /// 与 [`Connection::open_exec`] 相同，但在 exec 请求之前发送环境变量（尽力而为，服务器可能忽略）。
+    /// 不请求 PTY。
+    pub async fn open_exec_with_env(
+        &self,
+        command: &str,
+        env: &[(&str, &str)],
+    ) -> Result<ExecChannel, SshError> {
+        ExecChannel::open_with_env(self, command, env).await
     }
 }
 
