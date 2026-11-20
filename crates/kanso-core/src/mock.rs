@@ -275,15 +275,28 @@ fn is_closed(s: &MockSession) -> bool {
 }
 
 /// 后台线程：模拟一次传输。每步先睡眠再检查取消，所以取消最多延迟一步。
-fn run_mock_transfer(events: Arc<dyn EventSink>, id: TransferId, cancel: Arc<AtomicBool>) {
+fn run_mock_transfer(
+    events: Arc<dyn EventSink>,
+    id: TransferId,
+    cancel: Arc<AtomicBool>,
+    waiter: Option<tokio::sync::oneshot::Sender<TransferOutcome>>,
+) {
+    // 结果同时交给等待者；等待者已放弃（future 被丢弃）时忽略。与真实后端一致：先发事件再交结果，
+    // 等待者被唤醒时 `TransferFinished` 一定已经发出。
+    let finish = |outcome: TransferOutcome| {
+        events.on_event(CoreEvent::TransferFinished {
+            transfer: id,
+            outcome: outcome.clone(),
+        });
+        if let Some(tx) = waiter {
+            let _ = tx.send(outcome);
+        }
+    };
     let step_bytes = MOCK_TRANSFER_BYTES / MOCK_TRANSFER_STEPS;
     for step in 1..=MOCK_TRANSFER_STEPS {
         thread::sleep(MOCK_TRANSFER_TICK);
         if cancel.load(Ordering::SeqCst) {
-            events.on_event(CoreEvent::TransferFinished {
-                transfer: id,
-                outcome: TransferOutcome::Cancelled,
-            });
+            finish(TransferOutcome::Cancelled);
             return;
         }
         events.on_event(CoreEvent::TransferProgress {
@@ -292,10 +305,7 @@ fn run_mock_transfer(events: Arc<dyn EventSink>, id: TransferId, cancel: Arc<Ato
             total_bytes: Some(MOCK_TRANSFER_BYTES),
         });
     }
-    events.on_event(CoreEvent::TransferFinished {
-        transfer: id,
-        outcome: TransferOutcome::Completed { skipped: 0 },
-    });
+    finish(TransferOutcome::Completed { skipped: 0 });
 }
 
 fn file_name(path: &str) -> String {
@@ -389,7 +399,9 @@ impl MockCore {
         }
     }
 
-    /// 启动一次 mock 传输：先发 `TransferStarted`，再起线程推进度。
+    /// 启动一次 mock 传输：先发 `TransferStarted`，再起线程推进度。`waiter` 非空时结果同时交给它。
+    // 参数都是独立的传输属性，打包成结构体只是把同样的字段换个地方写。
+    #[allow(clippy::too_many_arguments)]
     fn start_transfer(
         &self,
         st: &mut MockState,
@@ -398,6 +410,7 @@ impl MockCore {
         direction: TransferDirection,
         path: &str,
         terminal: bool,
+        waiter: Option<tokio::sync::oneshot::Sender<TransferOutcome>>,
     ) -> Result<TransferId> {
         let id = TransferId::from_raw(self.next_transfer.fetch_add(1, Ordering::SeqCst));
         let cancel = Arc::new(AtomicBool::new(false));
@@ -420,7 +433,7 @@ impl MockCore {
         let events = self.events.clone();
         let spawned = thread::Builder::new()
             .name("mock-transfer".into())
-            .spawn(move || run_mock_transfer(events, id, cancel));
+            .spawn(move || run_mock_transfer(events, id, cancel, waiter));
         if let Err(e) = spawned {
             st.transfers.remove(&id);
             let detail = format!("failed to spawn mock transfer thread: {e}");
@@ -1119,7 +1132,36 @@ impl MockCore {
             TransferDirection::Download,
             remote_path,
             false,
+            None,
         )
+    }
+
+    /// 与 `download` 相同的模拟传输，额外把结果交给调用方；丢弃 future 不影响传输。
+    pub(crate) async fn download_and_wait(
+        &self,
+        session: SessionId,
+        remote_path: &str,
+        _local_dir: &str,
+        // 同 `download`：mock 不模拟"目标已存在"。
+        _conflict: ConflictPolicy,
+    ) -> Result<TransferOutcome> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        {
+            let mut st = self.lock();
+            remote(&st, session)?;
+            self.start_transfer(
+                &mut st,
+                session,
+                XferProtocol::Sftp,
+                TransferDirection::Download,
+                remote_path,
+                false,
+                Some(tx),
+            )?;
+        }
+        rx.await.map_err(|_| CoreError::Internal {
+            detail: "mock transfer ended without a result".to_owned(),
+        })
     }
 
     pub(crate) fn upload(
@@ -1139,7 +1181,35 @@ impl MockCore {
             TransferDirection::Upload,
             local_path,
             false,
+            None,
         )
+    }
+
+    /// 上传版的 `download_and_wait`。
+    pub(crate) async fn upload_and_wait(
+        &self,
+        session: SessionId,
+        local_path: &str,
+        _remote_dir: &str,
+        _conflict: ConflictPolicy,
+    ) -> Result<TransferOutcome> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        {
+            let mut st = self.lock();
+            remote(&st, session)?;
+            self.start_transfer(
+                &mut st,
+                session,
+                XferProtocol::Sftp,
+                TransferDirection::Upload,
+                local_path,
+                false,
+                Some(tx),
+            )?;
+        }
+        rx.await.map_err(|_| CoreError::Internal {
+            detail: "mock transfer ended without a result".to_owned(),
+        })
     }
 
     pub(crate) fn cancel_transfer(&self, transfer: TransferId) {
@@ -1165,6 +1235,7 @@ impl MockCore {
             TransferDirection::Upload,
             path,
             true,
+            None,
         )
     }
 
@@ -1178,6 +1249,7 @@ impl MockCore {
             TransferDirection::Download,
             path,
             true,
+            None,
         )
     }
 
