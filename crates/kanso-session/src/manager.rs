@@ -367,6 +367,16 @@ impl SessionManager {
     /// 本地启动失败返回 [`OpenError`]，此时没有发出任何事件；SSH 的连接失败不在这里返回，而是
     /// 通过 `Closed(Error(..))` 事件通知（契约：`Core::open_session`）。
     pub fn open(&self, request: OpenRequest, size: GridSize) -> Result<SessionId, OpenError> {
+        self.open_with_powershell_prompt(request, size, true)
+    }
+
+    /// 打开会话，并为新启动的 Windows PowerShell 指定提示符样式。
+    pub fn open_with_powershell_prompt(
+        &self,
+        request: OpenRequest,
+        size: GridSize,
+        color_prompt: bool,
+    ) -> Result<SessionId, OpenError> {
         if self.shutting_down.load(Ordering::Acquire) {
             return Err(OpenError::ShuttingDown);
         }
@@ -425,15 +435,22 @@ impl SessionManager {
         };
         let command_line = launch.command_line.clone();
         let id = SessionId::from_raw(self.next_id.fetch_add(1, Ordering::Relaxed));
-        let session = LocalSession::start(id, Arc::clone(&self.host), launch, size, &self.cfg)
-            .map_err(|e| {
-                let (command, detail) = match e {
-                    StartError::Spawn { command, error } => (command, error.to_string()),
-                    StartError::Command(error) => (command_line, error.to_string()),
-                    StartError::Thread(error) => (command_line, error.to_string()),
-                };
-                OpenError::Spawn { command, detail }
-            })?;
+        let session = LocalSession::start(
+            id,
+            Arc::clone(&self.host),
+            launch,
+            size,
+            &self.cfg,
+            color_prompt,
+        )
+        .map_err(|e| {
+            let (command, detail) = match e {
+                StartError::Spawn { command, error } => (command, error.to_string()),
+                StartError::Command(error) => (command_line, error.to_string()),
+                StartError::Thread(error) => (command_line, error.to_string()),
+            };
+            OpenError::Spawn { command, detail }
+        })?;
         // 先登记再发事件：UI 收到 `Connected` 后立刻调用 core 的任何方法都要找得到会话。
         lock(&self.sessions).insert(id, Session::Local(Arc::clone(&session)));
         // 在 activate 之前应用：读线程尚未开始处理输出，新会话从第一帧起就是当前的显示设置。

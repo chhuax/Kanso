@@ -36,3 +36,6 @@ pub use platform::{
     NoopNotifier, Notification, Notifier, Platform,
 };
 pub use validate::validate_profile;
+
+/// Windows 彩色 PowerShell 提示符的设置键。
+pub const POWERSHELL_COLOR_PROMPT: &str = "powershell-color-prompt";

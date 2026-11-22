@@ -7,6 +7,7 @@ mod common;
 use std::time::Duration;
 
 use common::*;
+use kanso_session::OpenRequest;
 use kanso_types::CoreEvent;
 use kanso_types::event::{CloseReason, SessionState};
 use kanso_types::input::PasteContent;
@@ -54,20 +55,51 @@ fn cmd_exit_0_closes_session_with_code() {
 }
 
 #[test]
-fn powershell_reports_directory_changes_through_conpty() {
+fn powershell_reports_directory_and_git_branch_through_conpty() {
+    check_powershell_prompt(true);
+}
+
+#[test]
+fn powershell_can_show_a_plain_prompt_without_losing_git_branch() {
+    check_powershell_prompt(false);
+}
+
+fn check_powershell_prompt(color_prompt: bool) {
     let fx = fixture("powershell.exe -NoLogo -NoProfile", true);
     let dir = fx.home.join("project with spaces");
-    std::fs::create_dir(&dir).unwrap();
-    let (id, session) = fx.open();
-    let sees = |path: &std::path::Path| {
+    let git_dir = dir.join(".git");
+    std::fs::create_dir_all(&git_dir).unwrap();
+    std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/feature/example\n").unwrap();
+    let id = fx
+        .mgr
+        .open_with_powershell_prompt(OpenRequest::DefaultLocalShell, GRID, color_prompt)
+        .unwrap();
+    let session = fx.mgr.get(id).unwrap();
+    let sees = |path: &std::path::Path, branch: Option<&str>| {
         fx.rec.wait_for(POWERSHELL_TIMEOUT, |event| {
-            matches!(event, CoreEvent::LocationChanged { session, cwd: Some(cwd), .. }
-            if *session == id && std::path::Path::new(cwd) == path)
+            matches!(event, CoreEvent::LocationChanged { session, cwd: Some(cwd), git_branch, .. }
+            if *session == id && std::path::Path::new(cwd) == path && git_branch.as_deref() == branch)
         })
     };
-    assert!(sees(&fx.home), "PowerShell 应上报初始工作目录");
+    assert!(sees(&fx.home, None), "PowerShell 应上报初始工作目录");
     session.text_input("Set-Location -LiteralPath 'project with spaces'\r");
-    assert!(sees(&dir), "切换目录后应上报带空格的路径");
+    assert!(
+        sees(&dir, Some("feature/example")),
+        "切换目录后应上报路径和分支"
+    );
+    let mut screen = Screen::new(&session);
+    let branch = if color_prompt {
+        "\u{e0a0} feature/example"
+    } else {
+        "[feature/example]>"
+    };
+    let shows_branch = |text: &str| text.contains(branch);
+    assert!(
+        screen.wait_for(POWERSHELL_TIMEOUT, shows_branch),
+        "默认提示符应显示分支：{}",
+        screen.text
+    );
+    assert_eq!(screen.text.contains('\u{e0b0}'), color_prompt);
     fx.mgr.close(id);
 }
 
