@@ -356,6 +356,10 @@ messages! {
     UiFollowSystem = "ui-follow-system" {},
     /// GPUI 界面文字：语言
     UiLanguage = "ui-language" {},
+    /// 彩色 PowerShell 提示符开关。
+    UiPowerShellColorPrompt = "ui-powershell-color-prompt" {},
+    /// 提示符样式对新会话生效的说明。
+    UiPowerShellColorPromptHint = "ui-powershell-color-prompt-hint" {},
     /// GPUI 界面文字：界面语言
     UiInterfaceLanguage = "ui-interface-language" {},
     /// GPUI 界面文字：切换后立即生效；“跟随系统”按系统界面语言选择，不支持的语言显示英文。

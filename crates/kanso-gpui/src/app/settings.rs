@@ -896,6 +896,20 @@ pub struct SettingsStore<B> {
 }
 
 impl<B: SettingsBackend> SettingsStore<B> {
+    /// 是否为新开的 Windows PowerShell 会话启用彩色提示符。
+    pub fn powershell_color_prompt(&self) -> bool {
+        self.backend
+            .setting(kanso_core::POWERSHELL_COLOR_PROMPT)
+            .as_deref()
+            != Some("false")
+    }
+
+    /// 保存新开的 Windows PowerShell 会话使用的提示符样式。
+    pub fn set_powershell_color_prompt(&self, enabled: bool) -> Result<(), String> {
+        self.backend
+            .set_setting(kanso_core::POWERSHELL_COLOR_PROMPT, enabled.to_string())
+    }
+
     /// 从后端载入，并把终端选项下发给核心（核心的默认值未必与用户保存的一致）。
     pub fn load(backend: B) -> Self {
         let display = DisplaySettings::decode(backend.setting(Section::Display.key()).as_deref());
@@ -1327,6 +1341,19 @@ mod tests {
             Some("Symbols Nerd Font Mono")
         );
         assert_eq!(pick_nerd_fallback(&["Arial".to_owned()]), None);
+    }
+
+    #[test]
+    fn powershell_prompt_preference_survives_reload_and_resets_to_color() {
+        let mem = Mem::default();
+        let store = SettingsStore::load(&mem);
+        assert!(store.powershell_color_prompt());
+        store.set_powershell_color_prompt(false).unwrap();
+
+        let mut reloaded = SettingsStore::load(&mem);
+        assert!(!reloaded.powershell_color_prompt());
+        reloaded.reset_to_defaults().unwrap();
+        assert!(reloaded.powershell_color_prompt());
     }
 
     #[test]

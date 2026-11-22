@@ -2,9 +2,9 @@
 
 use gpui::{
     App, BorderStyle, Bounds, Element, ElementId, ElementInputHandler, Entity, Font, FontStyle,
-    FontWeight, GlobalElementId, Hsla, InspectorElementId, IntoElement, LayoutId, Pixels, Point,
-    SharedString, StrikethroughStyle, Style, TextRun, UnderlineStyle, Window, fill, outline, point,
-    px, relative, rgb, size,
+    FontWeight, GlobalElementId, Hsla, InspectorElementId, IntoElement, LayoutId, PathBuilder,
+    Pixels, Point, SharedString, StrikethroughStyle, Style, TextRun, TransformationMatrix,
+    UnderlineStyle, Window, fill, outline, point, px, relative, rgb, size,
 };
 use kanso_frame::UNDERLINE_CURLY;
 use kanso_gpui::ime::layout_preedit;
@@ -229,6 +229,34 @@ fn paint_grid(
     }
     for span in &grid.spans {
         let fg = hsla(span.fg);
+        if span.text == "\u{e0b0}" {
+            let cell = cell_rect(origin, m, span.row, span.col, span.cells);
+            let mut path = PathBuilder::fill();
+            path.move_to(cell.origin);
+            path.line_to(point(cell.right(), cell.center().y));
+            path.line_to(cell.bottom_left());
+            path.close();
+            if let Ok(path) = path.build() {
+                window.paint_path(path, fg);
+            }
+            continue;
+        }
+        let icon = match span.text.as_str() {
+            "\u{e0a0}" => Some("icons/git-branch.svg"),
+            "\u{f07b}" => Some("icons/folder.svg"),
+            _ => None,
+        };
+        if let Some(icon) = icon {
+            let cell = cell_rect(origin, m, span.row, span.col, span.cells);
+            let edge = cell.size.width.min(cell.size.height);
+            let center = cell.center();
+            let bounds = Bounds::new(
+                point(center.x - edge / 2., center.y - edge / 2.),
+                size(edge, edge),
+            );
+            let _ = window.paint_svg(bounds, icon.into(), TransformationMatrix::unit(), fg, cx);
+            continue;
+        }
         let run = TextRun {
             len: span.text.len(),
             font: font_for(span.bold, span.italic),

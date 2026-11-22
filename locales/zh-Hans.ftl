@@ -390,6 +390,8 @@ ui-history-clear-failed = 清除命令历史失败：{ $detail }
 ui-follow-system = 跟随系统
 
 ui-language = 语言
+ui-powershell-color-prompt = 彩色 PowerShell 提示符
+ui-powershell-color-prompt-hint = 对新开的 PowerShell 会话生效。
 
 ui-interface-language = 界面语言
 
