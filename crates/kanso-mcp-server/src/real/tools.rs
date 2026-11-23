@@ -37,7 +37,7 @@ use tokio_util::sync::CancellationToken;
 use super::Shared;
 use super::gate::{ActivityGuard, GateDenied};
 use super::headless::{Acquired, Lease};
-use super::identity::{ClientIdentity, Probe};
+use super::identity::ClientIdentity;
 use super::remote::{
     self, ContentEncoding, EXEC_TIMEOUT_DEFAULT, EXEC_TIMEOUT_MAX, LIST_PAGE_SIZE, READ_MAX_BYTES,
     RemoveAction, WriteMode,
@@ -1066,6 +1066,40 @@ impl KansoHandler {
     }
 
     #[tool(
+        name = "kanso_get_session_status",
+        description = "Get an authorized tab's connection, activity, lock, terminal transfer, +            Sender and OSC 133 integration status. Needs at least read-only access.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn kanso_get_session_status(
+        &self,
+        Parameters(params): Parameters<TabParams>,
+    ) -> CallToolResult {
+        let session = SessionId::from_raw(params.tab);
+        let mut args = ArgsSummary::new();
+        args.push_str(&format!("tab={}", params.tab));
+        self.invoke(
+            "kanso_get_session_status",
+            Some(params.tab),
+            args,
+            |target| async move {
+                let Resolved { status, own } = self
+                    .resolve_any(session, McpAccess::ReadOnly, &target)
+                    .await?;
+                let mut result = tab_json(&status.info, Some(&status), own, &self.shared.tabs);
+                result["sender_active"] = json!(status.sender_active);
+                result["osc133"] = json!(status.osc133);
+                Ok(result)
+            },
+        )
+        .await
+    }
+
+    #[tool(
         name = "kanso_terminal_read",
         description = "Read a tab's terminal text: the visible screen, or the last N lines \
             including scrollback. Returns text, cursor position, screen size and whether the \
@@ -1963,7 +1997,11 @@ fn list_sessions(
         let tab_items: Vec<Value> = tabs
             .iter()
             .filter(|s| s.profile == Some(profile.id))
-            .map(|s| tab_json(core, s, &probe, mcp_tabs))
+            .map(|info| {
+                let status = core.mcp_session_status(info.id);
+                let own = status.as_ref().is_some_and(|status| probe.is_own(status));
+                tab_json(info, status.as_ref(), own, mcp_tabs)
+            })
             .collect();
         item["tabs"] = Value::Array(tab_items);
         out.push(item);
@@ -1972,9 +2010,9 @@ fn list_sessions(
 }
 
 fn tab_json(
-    core: &Core,
     info: &kanso_core::SessionInfo,
-    probe: &Probe<'_>,
+    status: Option<&McpSessionStatus>,
+    own: bool,
     tabs: &McpTabs,
 ) -> Value {
     let mut tab = json!({
@@ -1987,11 +2025,9 @@ fn tab_json(
         },
         // 登记表里有、且打开它的客户端还连着；客户端断开时条目已被移除，标签变成普通标签。
         "opened_by_mcp": tabs.contains(info.id),
-        "is_client_tab": false,
+        "is_client_tab": own,
     });
-    // 真实后端暂时没有这项状态（返回 None）：缺失就省略，`is_client_tab` 保持 false，不编造。
-    if let Some(status) = core.mcp_session_status(info.id) {
-        tab["is_client_tab"] = json!(probe.is_own(&status));
+    if let Some(status) = status {
         tab["activity"] = json!(match status.activity {
             Activity::Idle => "idle",
             Activity::CommandRunning => "command-running",

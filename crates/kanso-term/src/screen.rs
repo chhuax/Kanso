@@ -141,17 +141,18 @@ impl Core {
 impl Core {
     /// 读取网格文本，规则见 [`Terminal::read_text`]。
     pub(crate) fn read_text(&self, scope: ReadScope) -> String {
-        let top = match scope {
-            ReadScope::Screen => 0,
-            ReadScope::Recent(_) => -(self.term.grid().history_size() as i64),
-        };
-        let limit = match scope {
-            ReadScope::Screen => usize::MAX,
-            ReadScope::Recent(n) => n,
+        let grid = self.term.grid();
+        let bottom = self.rows as i64 - 1;
+        let (top, mut end, limit) = match scope {
+            ReadScope::Screen => (0, bottom, usize::MAX),
+            ReadScope::Viewport => {
+                let offset = grid.display_offset() as i64;
+                (-offset, bottom - offset, usize::MAX)
+            }
+            ReadScope::Recent(n) => (-(grid.history_size() as i64), bottom, n),
         };
         // 从最后一行向上逐个逻辑行收集：`Recent` 的行数上限很小时不必遍历整个回滚。
         let mut lines: Vec<String> = Vec::new();
-        let mut end = self.rows as i64 - 1;
         while end >= top && lines.len() < limit {
             let mut start = end;
             let mut rows = 1;
@@ -201,6 +202,8 @@ impl Core {
 pub enum ReadScope {
     /// 当前屏幕（不受滚动查看的影响）。
     Screen,
+    /// 用户当前看到的区域，包含滚动查看造成的偏移。
+    Viewport,
     /// 回滚加屏幕的最后若干个逻辑行。
     Recent(usize),
 }

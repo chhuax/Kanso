@@ -145,7 +145,7 @@ impl RealCore {
         max_bytes: usize,
     ) -> Result<TerminalText> {
         let scope = match scope {
-            TextScope::Screen => ReadScope::Screen,
+            TextScope::Screen => ReadScope::Viewport,
             TextScope::Recent { lines } => ReadScope::Recent(lines as usize),
         };
         let screen = self.terminal_session(session)?.mcp_read(scope);

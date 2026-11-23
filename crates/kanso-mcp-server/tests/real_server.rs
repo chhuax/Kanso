@@ -376,6 +376,7 @@ fn lists_the_tools_and_records_client_name() {
             "kanso_close_tab",
             "kanso_exec",
             "kanso_get_cwd",
+            "kanso_get_session_status",
             "kanso_list_sessions",
             "kanso_open_tab",
             "kanso_sftp_list",
@@ -814,6 +815,21 @@ fn read_and_cwd_work_with_read_only_access() {
     assert_eq!(v["size"]["cols"], 80);
     assert_eq!(v["size"]["rows"], 24);
     assert_eq!(v["alternate_screen"], false);
+
+    let (err, text) = c.call(6, "kanso_get_session_status", json!({"tab": tab.raw()}));
+    assert!(!err, "{text}");
+    let status = parse(&text);
+    assert_eq!(status["id"], tab.raw());
+    assert_eq!(status["state"], "connected");
+    assert_eq!(status["sender_active"], false);
+    assert!(status["osc133"].is_boolean());
+    f.core.set_mcp_access(f.web_01(), McpAccess::Off).unwrap();
+    let (err, text) = c.call(7, "kanso_get_session_status", json!({"tab": tab.raw()}));
+    assert!(err, "{text}");
+    assert_eq!(error_code(&text), "NOT_FOUND");
+    f.core
+        .set_mcp_access(f.web_01(), McpAccess::ReadOnly)
+        .unwrap();
 
     // 行数夹取：超大、为 0 都不报错。
     for (id, lines) in [(4, 100_000), (5, 0)] {
