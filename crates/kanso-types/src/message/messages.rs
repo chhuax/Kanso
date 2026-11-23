@@ -1281,6 +1281,28 @@ messages! {
     // ---- 键盘设置页与恢复默认设置（GPUI） ----
     /// GPUI 界面文字：ui-keys-page
     UiKeysPage = "ui-keys-page" {},
+    /// 键盘与鼠标页：鼠标分组标题。
+    UiMouse = "ui-mouse" {},
+    /// 键盘与鼠标页：中键下拉的标签。
+    UiMiddleClick = "ui-middle-click" {},
+    /// 键盘与鼠标页：右键下拉的标签。
+    UiRightClick = "ui-right-click" {},
+    /// 中键取值：粘贴剪贴板内容。
+    UiMiddleClickPaste = "ui-middle-click-paste" {},
+    /// 中键取值：无动作。
+    UiMiddleClickNone = "ui-middle-click-none" {},
+    /// 右键取值：弹出菜单。
+    UiRightClickMenu = "ui-right-click-menu" {},
+    /// 右键取值：复制或粘贴。
+    UiRightClickCopyOrPaste = "ui-right-click-copy-or-paste" {},
+    /// 鼠标分组下方的 Shift 绕过说明。
+    UiMouseShiftHint = "ui-mouse-shift-hint" {},
+    /// 键盘与鼠标页：选择分组标题。
+    UiSelection = "ui-selection" {},
+    /// 选中即复制（设置页勾选框与编辑菜单项共用）。
+    UiCopyOnSelect = "ui-copy-on-select" {},
+    /// 选中即复制的说明。
+    UiCopyOnSelectHint = "ui-copy-on-select-hint" {},
     /// 视图菜单的显示设置入口。
     UiDisplaySettingsMenu = "ui-display-settings-menu" {},
     /// 视图菜单的键盘快捷键入口。

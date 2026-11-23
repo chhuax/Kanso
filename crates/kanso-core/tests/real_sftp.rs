@@ -1107,3 +1107,397 @@ fn parameter_errors_are_returned_without_events() {
     std::thread::sleep(Duration::from_millis(100));
     assert!(!env.events().iter().any(|(_, e)| is_transfer_event(e)));
 }
+
+// ---- MCP 的 SFTP 补充：entry / read / write / rmdir ----
+
+use kanso_core::mcp::SftpWriteMode;
+
+#[test]
+fn mcp_sftp_entry_read_write_rmdir_roundtrip() {
+    let mut env = Env::new();
+    let s = env.start_sftp(|c| c.max_read = Some(777));
+    let id = env.open_sftp(s);
+    let data = pattern(70_000);
+    std::fs::write(env.remote(s, "/home/tester/f.bin"), &data).unwrap();
+
+    let e = env
+        .block(env.core.sftp_entry(id, "/home/tester/f.bin", true))
+        .unwrap();
+    assert_eq!(
+        (e.name.as_str(), e.is_dir, e.size),
+        ("f.bin", false, 70_000)
+    );
+    assert_eq!(e.path, "/home/tester/f.bin");
+    assert_eq!(
+        env.block(env.core.sftp_read(id, "/home/tester/f.bin", 1_000, 60_000))
+            .unwrap(),
+        data[1_000..61_000]
+    );
+    // 超出文件末尾：空；读不存在的文件：错误。
+    assert!(
+        env.block(env.core.sftp_read(id, "/home/tester/f.bin", 1 << 30, 10))
+            .unwrap()
+            .is_empty()
+    );
+    assert!(matches!(
+        env.block(env.core.sftp_read(id, "/home/tester/none", 0, 10)),
+        Err(CoreError::User(m)) if m.key() == "sftp-op-failed"
+    ));
+
+    // CreateNew：已存在报 SftpFileExists 且原文件不变。
+    let exists = env.block(env.core.sftp_write(
+        id,
+        "/home/tester/f.bin",
+        b"x".to_vec(),
+        SftpWriteMode::CreateNew,
+    ));
+    assert_eq!(
+        exists,
+        Err(CoreError::User(Message::SftpFileExists {
+            path: "/home/tester/f.bin".into()
+        }))
+    );
+    assert_eq!(read(&env.remote(s, "/home/tester/f.bin")), data);
+    env.block(env.core.sftp_write(
+        id,
+        "/home/tester/new.txt",
+        b"hello".to_vec(),
+        SftpWriteMode::CreateNew,
+    ))
+    .unwrap();
+    assert_eq!(read(&env.remote(s, "/home/tester/new.txt")), b"hello");
+
+    // Overwrite：替换内容。
+    env.block(env.core.sftp_write(
+        id,
+        "/home/tester/new.txt",
+        b"replaced".to_vec(),
+        SftpWriteMode::Overwrite,
+    ))
+    .unwrap();
+    assert_eq!(read(&env.remote(s, "/home/tester/new.txt")), b"replaced");
+
+    // rmdir：空目录删除，非空报错。
+    std::fs::create_dir(env.remote(s, "/home/tester/empty")).unwrap();
+    std::fs::create_dir(env.remote(s, "/home/tester/full")).unwrap();
+    std::fs::write(env.remote(s, "/home/tester/full/f"), b"x").unwrap();
+    env.block(env.core.sftp_rmdir(id, "/home/tester/empty"))
+        .unwrap();
+    assert!(!env.remote(s, "/home/tester/empty").exists());
+    assert!(matches!(
+        env.block(env.core.sftp_rmdir(id, "/home/tester/full")),
+        Err(CoreError::User(m)) if m.key() == "sftp-op-failed"
+    ));
+    assert!(env.remote(s, "/home/tester/full/f").exists());
+}
+
+#[test]
+fn mcp_sftp_overwrite_without_posix_rename_is_not_supported() {
+    let mut env = Env::new();
+    let s = env.start_sftp(|c| c.posix_rename = false);
+    let id = env.open_sftp(s);
+    std::fs::write(env.remote(s, "/home/tester/f"), b"original").unwrap();
+    assert_eq!(
+        env.block(env.core.sftp_write(
+            id,
+            "/home/tester/f",
+            b"new".to_vec(),
+            SftpWriteMode::Overwrite
+        )),
+        Err(CoreError::NotSupported)
+    );
+    assert_eq!(read(&env.remote(s, "/home/tester/f")), b"original");
+}
+
+#[test]
+fn mcp_sftp_overwrite_failure_reports_leftover_temp_path_in_detail() {
+    let mut env = Env::new();
+    // 写第 1 个块之后连接断开：临时文件删不掉。
+    let s = env.start_sftp(|c| c.disconnect_after_writes = Some(1));
+    let id = env.open_sftp(s);
+    std::fs::write(env.remote(s, "/home/tester/f"), b"original").unwrap();
+    let err = env
+        .block(env.core.sftp_write(
+            id,
+            "/home/tester/f",
+            pattern(200_000),
+            SftpWriteMode::Overwrite,
+        ))
+        .unwrap_err();
+    let CoreError::User(Message::SftpOpFailed {
+        reason: Reason::Other { detail },
+        ..
+    }) = err
+    else {
+        panic!("{err:?}");
+    };
+    assert!(detail.contains("/home/tester/.f.kanso-tmp-"), "{detail}");
+    assert_eq!(read(&env.remote(s, "/home/tester/f")), b"original");
+}
+
+#[test]
+fn mcp_sftp_create_new_failure_reports_partially_written_file() {
+    let mut env = Env::new();
+    // 写第 1 个块之后连接断开：已创建的目标文件删不掉，只写了一半。
+    let s = env.start_sftp(|c| c.disconnect_after_writes = Some(1));
+    let id = env.open_sftp(s);
+    let err = env
+        .block(env.core.sftp_write(
+            id,
+            "/home/tester/new",
+            pattern(200_000),
+            SftpWriteMode::CreateNew,
+        ))
+        .unwrap_err();
+    let CoreError::User(Message::SftpOpFailed {
+        reason: Reason::Other { detail },
+        ..
+    }) = err
+    else {
+        panic!("{err:?}");
+    };
+    assert!(
+        detail.contains("partially written file left at /home/tester/new"),
+        "{detail}"
+    );
+    assert!(env.remote(s, "/home/tester/new").exists());
+}
+
+#[test]
+fn mcp_sftp_ops_on_local_and_missing_sessions() {
+    let mut env = Env::new();
+    env.start_sftp(|_| {});
+    let local = env
+        .core
+        .open_session(OpenTarget::DefaultLocalShell, GRID)
+        .unwrap();
+    let ghost = SessionId::from_raw(9999);
+    for s in [local, ghost] {
+        let want = if s == local {
+            CoreError::NotSupported
+        } else {
+            CoreError::NoSuchSession(s)
+        };
+        assert_eq!(
+            env.block(env.core.sftp_entry(s, "/", true)).map(|_| ()),
+            Err(want.clone())
+        );
+        assert_eq!(
+            env.block(env.core.sftp_read(s, "/x", 0, 1)).map(|_| ()),
+            Err(want.clone())
+        );
+        assert_eq!(
+            env.block(
+                env.core
+                    .sftp_write(s, "/x", vec![], SftpWriteMode::CreateNew)
+            ),
+            Err(want.clone())
+        );
+        assert_eq!(env.block(env.core.sftp_rmdir(s, "/x")), Err(want.clone()));
+        assert_eq!(
+            env.block(
+                env.core
+                    .download_and_wait(s, "/a", "/tmp", ConflictPolicy::Fail)
+            )
+            .map(|_| ()),
+            Err(want.clone())
+        );
+        assert_eq!(
+            env.block(
+                env.core
+                    .upload_and_wait(s, "/a", "/b", ConflictPolicy::Fail)
+            )
+            .map(|_| ()),
+            Err(want)
+        );
+    }
+    env.core.close_session(local);
+}
+
+// ---- download_and_wait / upload_and_wait ----
+
+impl Env {
+    /// 等到出现 `TransferStarted` 且名字为 `name` 的传输，返回它的 id。
+    fn started_transfer(&self, name: &str) -> TransferId {
+        self.wait_until("TransferStarted", |ev| {
+            ev.iter().any(|(_, e)| started_named(e, name).is_some())
+        });
+        self.events()
+            .iter()
+            .find_map(|(_, e)| started_named(e, name))
+            .unwrap()
+    }
+}
+
+fn started_named(e: &CoreEvent, want: &str) -> Option<TransferId> {
+    match e {
+        CoreEvent::TransferStarted { transfer, name, .. } if name == want => Some(*transfer),
+        _ => None,
+    }
+}
+
+#[test]
+fn download_and_upload_and_wait_return_the_outcome_and_still_emit_events() {
+    let mut env = Env::new();
+    let s = env.start_sftp(|_| {});
+    let id = env.open_sftp(s);
+    let local_dir = env.local.path().to_str().unwrap().to_owned();
+    let data = pattern(300_000);
+    std::fs::write(env.remote(s, "/home/tester/d.bin"), &data).unwrap();
+
+    let out = env
+        .block(env.core.download_and_wait(
+            id,
+            "/home/tester/d.bin",
+            &local_dir,
+            ConflictPolicy::Fail,
+        ))
+        .unwrap();
+    assert_eq!(out, TransferOutcome::Completed { skipped: 0 });
+    assert_eq!(read(&env.local("d.bin")), data);
+    // 传输照常发事件：返回时 Finished 事件已经发出。
+    let t = env.started_transfer("d.bin");
+    assert!(
+        env.transfer_events(t).iter().any(
+            |(_, e)| matches!(e, CoreEvent::TransferFinished { outcome, .. } if *outcome == out)
+        )
+    );
+
+    std::fs::write(env.local("u.bin"), &data).unwrap();
+    let out = env
+        .block(env.core.upload_and_wait(
+            id,
+            env.local("u.bin").to_str().unwrap(),
+            HOME,
+            ConflictPolicy::Fail,
+        ))
+        .unwrap();
+    assert_eq!(out, TransferOutcome::Completed { skipped: 0 });
+    assert_eq!(read(&env.remote(s, "/home/tester/u.bin")), data);
+}
+
+#[test]
+fn and_wait_reports_already_exists_under_fail_policy() {
+    let mut env = Env::new();
+    let s = env.start_sftp(|_| {});
+    let id = env.open_sftp(s);
+    let local_dir = env.local.path().to_str().unwrap().to_owned();
+    std::fs::write(env.remote(s, "/home/tester/f.txt"), b"remote").unwrap();
+    std::fs::write(env.local("f.txt"), b"local-old").unwrap();
+    let out = env
+        .block(env.core.download_and_wait(
+            id,
+            "/home/tester/f.txt",
+            &local_dir,
+            ConflictPolicy::Fail,
+        ))
+        .unwrap();
+    assert!(
+        matches!(
+            out,
+            TransferOutcome::Failed {
+                already_exists: true,
+                ..
+            }
+        ),
+        "{out:?}"
+    );
+    assert_eq!(read(&env.local("f.txt")), b"local-old");
+
+    std::fs::write(env.local("u.txt"), b"local-new").unwrap();
+    std::fs::write(env.remote(s, "/home/tester/u.txt"), b"remote-old").unwrap();
+    let out = env
+        .block(env.core.upload_and_wait(
+            id,
+            env.local("u.txt").to_str().unwrap(),
+            HOME,
+            ConflictPolicy::Fail,
+        ))
+        .unwrap();
+    assert!(
+        matches!(
+            out,
+            TransferOutcome::Failed {
+                already_exists: true,
+                ..
+            }
+        ),
+        "{out:?}"
+    );
+    assert_eq!(read(&env.remote(s, "/home/tester/u.txt")), b"remote-old");
+}
+
+#[test]
+fn and_wait_returns_cancelled_when_cancelled_while_waiting() {
+    let mut env = Env::new();
+    let s = env.start_sftp(slow);
+    let id = env.open_sftp(s);
+    let local_dir = env.local.path().to_str().unwrap().to_owned();
+    std::fs::write(env.remote(s, "/home/tester/big.bin"), pattern(12 << 20)).unwrap();
+    std::fs::write(env.local("up.bin"), pattern(12 << 20)).unwrap();
+    let up_path = env.local("up.bin").to_str().unwrap().to_owned();
+
+    let core = &env.core;
+    let (down, up) = std::thread::scope(|sc| {
+        let d = sc.spawn(|| {
+            block_on(core.download_and_wait(
+                id,
+                "/home/tester/big.bin",
+                &local_dir,
+                ConflictPolicy::Fail,
+            ))
+        });
+        let u =
+            sc.spawn(|| block_on(core.upload_and_wait(id, &up_path, HOME, ConflictPolicy::Fail)));
+        core.cancel_transfer(env.started_transfer("big.bin"));
+        core.cancel_transfer(env.started_transfer("up.bin"));
+        (d.join().unwrap(), u.join().unwrap())
+    });
+    assert_eq!(down, Ok(TransferOutcome::Cancelled));
+    assert_eq!(up, Ok(TransferOutcome::Cancelled));
+    assert!(!env.local("big.bin").exists());
+}
+
+fn block_on<T>(fut: impl Future<Output = T>) -> T {
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(fut)
+}
+
+#[test]
+fn dropping_the_and_wait_future_does_not_cancel_the_transfer() {
+    let mut env = Env::new();
+    let s = env.start_sftp(slow);
+    let id = env.open_sftp(s);
+    let local_dir = env.local.path().to_str().unwrap().to_owned();
+    let data = pattern(600_000);
+    std::fs::write(env.remote(s, "/home/tester/keep.bin"), &data).unwrap();
+
+    // 带时间驱动的运行时：超时到期后 future 被丢弃。传输每个请求延迟 40 ms，远长于 1 ms。
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .unwrap();
+    // timeout() 必须在运行时上下文里创建，所以包进 async 块。
+    let r = rt.block_on(async {
+        tokio::time::timeout(
+            Duration::from_millis(1),
+            env.core.download_and_wait(
+                id,
+                "/home/tester/keep.bin",
+                &local_dir,
+                ConflictPolicy::Fail,
+            ),
+        )
+        .await
+    });
+    assert!(r.is_err(), "应当超时而不是已经完成");
+
+    let t = env.started_transfer("keep.bin");
+    assert_eq!(
+        env.wait_finished(t),
+        TransferOutcome::Completed { skipped: 0 }
+    );
+    assert_eq!(read(&env.local("keep.bin")), data);
+}

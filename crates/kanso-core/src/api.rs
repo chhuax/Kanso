@@ -39,7 +39,7 @@ use std::path::PathBuf;
 use kanso_frame::Frame;
 use kanso_license::{Entitlement, PurchaseOutcome};
 use kanso_secret::SecretKind;
-use kanso_types::event::SessionState;
+use kanso_types::event::{SessionState, TransferOutcome};
 use kanso_types::mcp::{McpAccess, McpAuditEntry, McpAuditFilter, McpAuditRecord};
 use kanso_types::profile::{Group, LocalProfile, Profile, SessionKind, Snippet};
 use kanso_types::secret::SecretString;
@@ -1189,6 +1189,39 @@ impl Core {
         conflict: ConflictPolicy,
     ) -> Result<TransferId> {
         dispatch!(self, upload(session, local_path, remote_dir, conflict))
+    }
+
+    /// 发起下载并等它结束（MCP 用）。规则与事件同 [`Core::download`]：传输照常出现在传输列表里、照常发事件。
+    ///
+    /// - 参数类错误与 `download` 一样立即返回 `Err`；传输本身的结果（含失败、取消）在 `Ok(TransferOutcome)` 里。
+    /// - 丢弃返回的 future **不会**取消传输（spec/mcp.md §4.4：客户端断开时传输继续完成，由用户决定是否取消）。
+    /// - 等待期间可以用 [`Core::cancel_transfer`] 取消，此时返回 `Cancelled`。
+    /// - 线程：任意。阻塞：异步，耗时同传输本身。出错：运行时关闭导致传输任务被销毁时返回 `Internal`。
+    pub async fn download_and_wait(
+        &self,
+        session: SessionId,
+        remote_path: &str,
+        local_dir: &str,
+        conflict: ConflictPolicy,
+    ) -> Result<TransferOutcome> {
+        dispatch_async!(
+            self,
+            download_and_wait(session, remote_path, local_dir, conflict)
+        )
+    }
+
+    /// 发起上传并等它结束（MCP 用）。约定同 [`Core::download_and_wait`]。
+    pub async fn upload_and_wait(
+        &self,
+        session: SessionId,
+        local_path: &str,
+        remote_dir: &str,
+        conflict: ConflictPolicy,
+    ) -> Result<TransferOutcome> {
+        dispatch_async!(
+            self,
+            upload_and_wait(session, local_path, remote_dir, conflict)
+        )
     }
 
     /// 取消传输（SFTP 传输）；结束时发 `TransferFinished(Cancelled)`，并清理残缺文件。

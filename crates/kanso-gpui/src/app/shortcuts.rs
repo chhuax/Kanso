@@ -57,6 +57,8 @@ pub enum AppCommand {
     EditSession(SessionId),
     /// 切换右键行为：弹出菜单 / 复制或粘贴（terminal.md §8.1）。
     ToggleRightClickMenu,
+    /// 切换“选中即复制”（terminal.md §8.2）。
+    ToggleCopyOnSelect,
     /// 退出应用（有仍在连接的会话时先确认）。
     Quit,
     /// 打开设置（显示设置）。

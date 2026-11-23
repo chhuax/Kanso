@@ -40,7 +40,7 @@ use kanso_gpui::app::layout::{LayoutDivider, PaneId, Rect, SplitAxis};
 use kanso_gpui::app::menus::{
     AppMenuState, TabMenuContext, app_menu, decode, tab_menu, terminal_menu,
 };
-use kanso_gpui::app::settings::{DisplaySettings, TabBarPosition};
+use kanso_gpui::app::settings::{DisplaySettings, RightClick, TabBarPosition};
 use kanso_gpui::app::shell::{DIVIDER_THICKNESS, DividerDrag, min_fraction};
 use kanso_gpui::app::shortcuts::{AppCommand, lookup};
 use kanso_gpui::app::status_bar::{clock_text, ms_until_next_minute};
@@ -122,8 +122,6 @@ pub(crate) struct ShellView {
     pending_close: Option<CloseRequest>,
     /// “恢复默认设置”的确认框正在显示。
     pub(super) pending_reset: bool,
-    /// 右键行为：弹菜单 / 复制或粘贴（terminal.md §8.1）。
-    pub(super) right_click_menu: bool,
     /// 状态栏时钟文字（整分钟刷新）。
     pub(super) clock: String,
     /// 底部的临时提示（文字、到期时刻）。
@@ -238,7 +236,6 @@ impl ShellView {
             dialog_sub: None,
             pending_close: None,
             pending_reset: false,
-            right_click_menu: panels.right_click_menu,
             clock: clock_text(unix_ms(), tz::local_offset_minutes()),
             notice: None,
             dark,
@@ -356,6 +353,11 @@ impl ShellView {
                 }
                 this.settings.read(cx).push_to_display(cx);
                 this.sync_tab_bar_position(cx);
+                // 鼠标设置由设置页与编辑菜单共同修改，统一在这里下发给全部终端。
+                let mouse = *this.settings.read(cx).mouse();
+                for t in this.terminals.values() {
+                    t.update(cx, |t, _| t.mouse = mouse);
+                }
                 this.sync_gutter_global(cx);
                 this.refresh_display(window, cx);
             },
@@ -435,10 +437,10 @@ impl ShellView {
         let selftest = self.pending_terminal_selftest.take();
         let track = self.selftest_timeout.is_some();
         let dark = self.dark;
-        let right_click_menu = self.right_click_menu;
+        let mouse = *self.settings.read(cx).mouse();
         let term = cx.new(|cx| {
             let mut t = TerminalView::new(core, id, selftest, track, dark, window, cx);
-            t.right_click_menu = right_click_menu;
+            t.mouse = mouse;
             t
         });
         let palette = self.terminal_palette(cx);
@@ -659,15 +661,17 @@ impl ShellView {
             }
             AppCommand::CloseTab(id) => self.request_close(id, window, cx),
             AppCommand::CloseGroup(scope, id) => self.close_group(scope, id, window, cx),
-            AppCommand::ToggleRightClickMenu => {
-                self.right_click_menu = !self.right_click_menu;
-                self.save_panels();
-                let on = self.right_click_menu;
-                for t in self.terminals.values() {
-                    t.update(cx, |t, _| t.right_click_menu = on);
-                }
-                cx.notify();
-            }
+            AppCommand::ToggleRightClickMenu => self.settings.update(cx, |m, cx| {
+                m.update_mouse(cx, |s| {
+                    s.right_click = match s.right_click {
+                        RightClick::Menu => RightClick::CopyOrPaste,
+                        RightClick::CopyOrPaste => RightClick::Menu,
+                    }
+                })
+            }),
+            AppCommand::ToggleCopyOnSelect => self.settings.update(cx, |m, cx| {
+                m.update_mouse(cx, |s| s.copy_on_select = !s.copy_on_select)
+            }),
             AppCommand::Quit => self.request_quit(window, cx),
             AppCommand::EditSession(id) => {
                 let profile = self.ctl.workspace().item(id).and_then(|i| i.profile);
@@ -1001,7 +1005,8 @@ impl ShellView {
             } else {
                 self.sidebar_visible
             },
-            right_click_menu: self.right_click_menu,
+            right_click_menu: self.settings.read(cx).mouse().right_click == RightClick::Menu,
+            copy_on_select: self.settings.read(cx).mouse().copy_on_select,
             sender_visible: self.sender.visible,
             command_suggestions: self.completion.enabled,
             filer_visible: self.filer.visible(),

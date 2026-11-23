@@ -727,6 +727,90 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "拷贝" } }
       }
     },
+    "Keyboard & Mouse" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Keyboard & Mouse" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "键盘与鼠标" } }
+      }
+    },
+    "Keyboard & Mouse…" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Keyboard & Mouse…" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "键盘与鼠标…" } }
+      }
+    },
+    "Restore Default Shortcuts" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Restore Default Shortcuts" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "恢复默认快捷键" } }
+      }
+    },
+    "Right Click Shows Menu" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Right Click Shows Menu" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "右键弹出菜单" } }
+      }
+    },
+    "Mouse" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Mouse" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "鼠标" } }
+      }
+    },
+    "Selection" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Selection" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "选择" } }
+      }
+    },
+    "Middle Button" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Middle Button" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "中键" } }
+      }
+    },
+    "Right Button" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Right Button" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "右键" } }
+      }
+    },
+    "Paste Clipboard Contents" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Paste Clipboard Contents" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "粘贴剪贴板内容" } }
+      }
+    },
+    "No Action" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No Action" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "无动作" } }
+      }
+    },
+    "Show Menu" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Show Menu" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "弹出菜单" } }
+      }
+    },
+    "Copy or Paste" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Copy or Paste" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "复制或粘贴" } }
+      }
+    },
+    "When a program enables mouse reporting (vim, tmux), hold Shift to let the terminal handle clicks." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "When a program enables mouse reporting (vim, tmux), hold Shift to let the terminal handle clicks." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "程序开启鼠标上报时（vim、tmux），按住 Shift 由终端处理点击。" } }
+      }
+    },
+    "Copies the selection to the clipboard when you release the mouse." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Copies the selection to the clipboard when you release the mouse." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "松开鼠标完成选择时自动复制到剪贴板。" } }
+      }
+    },
     "Copy on Select" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Copy on Select" } },
@@ -1978,12 +2062,6 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "显示" } }
       }
     },
-    "Keyboard Shortcuts" : {
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Keyboard Shortcuts" } },
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "键盘快捷键" } }
-      }
-    },
     "Language" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Language" } },
@@ -2146,12 +2224,6 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "未设置" } }
       }
     },
-    "Restore Defaults" : {
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Restore Defaults" } },
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "恢复默认" } }
-      }
-    },
     "Go to Tab 1–9" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Go to Tab 1–9" } },
@@ -2204,12 +2276,6 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Display Settings…" } },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "显示设置…" } }
-      }
-    },
-    "Keyboard Shortcuts…" : {
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Keyboard Shortcuts…" } },
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "键盘快捷键…" } }
       }
     },
     "Help" : {

@@ -135,6 +135,12 @@ public final class TerminalView: NSView {
     public weak var editActions: TerminalEditActions?
     /// 选中即复制（terminal.md §8.2）：开启后松开鼠标完成选择时自动复制选区，默认关闭。
     public var copyOnSelect = false
+    /// 中键是否粘贴（terminal.md §8.1）；false 表示无动作。程序开启鼠标上报且未按 Shift 时不生效。
+    public var middleClickPastes = true
+    /// 右键是否弹出菜单；false 表示"复制或粘贴"（有选区复制、没有就粘贴）。程序开启鼠标上报且未按 Shift 时不生效。
+    public var rightClickShowsMenu = true
+    /// 粘贴读取的剪贴板；仅测试替换成临时剪贴板，避免读写用户的系统剪贴板。
+    var pasteboard: NSPasteboard = .general
     public var onCopied: (() -> Void)?
     public var writeCopiedText: (String) -> Bool = { text in
         NSPasteboard.general.clearContents()
