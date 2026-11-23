@@ -61,6 +61,8 @@ pub(crate) struct Session {
     pending: std::sync::Arc<Mutex<Pending>>,
     dead: std::sync::Arc<AtomicBool>,
     reader: JoinHandle<()>,
+    /// 服务器在 VERSION 回复里声明的扩展名（只保存名字，数据对我们没有用）。
+    extensions: Vec<String>,
     /// 持有连接，保证子系统通道存活期间连接不会因最后一个使用者释放而断开（与 shell 通道一致）。
     _conn: Option<Connection>,
 }
@@ -128,6 +130,18 @@ impl Session {
         }
         // 服务器回更高版本时按 v3 通信：协议要求取双方较小值，服务器不会发 v3 之外的内容。
 
+        // VERSION 之后跟着若干 (扩展名, 扩展数据) 对。尾部畸形时只保留已解析出的部分：
+        // 扩展只是可选能力，解析不全最坏结果是"当作不支持"，不应因此让整个会话失败。
+        let mut extensions = Vec::new();
+        let mut ext_rd = Reader::new(&buf[1..]);
+        let _ = ext_rd.u32();
+        while ext_rd.remaining() > 0 {
+            match (ext_rd.string(), ext_rd.string()) {
+                (Ok(name), Ok(_)) => extensions.push(name),
+                _ => break,
+            }
+        }
+
         let pending = std::sync::Arc::new(Mutex::new(Pending {
             next_id: 1,
             map: Some(HashMap::new()),
@@ -139,8 +153,14 @@ impl Session {
             pending,
             dead,
             reader,
+            extensions,
             _conn: conn,
         })
+    }
+
+    /// 服务器是否声明了名为 `name` 的扩展。
+    pub fn has_extension(&self, name: &str) -> bool {
+        self.extensions.iter().any(|e| e == name)
     }
 
     /// 会话是否已结束（通道关闭 / 协议错误）。结束后不可复用，需要重新打开子系统。

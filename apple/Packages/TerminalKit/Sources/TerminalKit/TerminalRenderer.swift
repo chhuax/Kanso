@@ -525,6 +525,9 @@ public final class TerminalRenderer {
             let meta = frame.lineMeta(row: row)
             let rowEmphasized = chipEmphasized(frame: frame, row: row)
             let rowQuiet = historicalPrompt(frame: frame, row: row)
+            // 历史提示符改用 0.85x 的紧凑字面（与时间戳栏同字号、同色），字距同步收紧。
+            let cellStep = rowQuiet ? l.gutterMetrics.cellWidth : m.cellWidth
+            let quietTop = rowY + (m.cellHeight - l.gutterMetrics.cellHeight) / 2
 
             if !altScreen {
                 // 命令分隔线：提示符行上方 1 设备像素，横跨整个视图（包括栏）。同一行只画一条由 core 去重保证。
@@ -541,7 +544,7 @@ public final class TerminalRenderer {
             func flushRun(upTo end: Int) {
                 guard runColor != background, end > runStart else { return }
                 bgInstances.append(rect(
-                    l.originX + runStart * m.cellWidth, rowY, (end - runStart) * m.cellWidth, m.cellHeight,
+                    l.originX + runStart * cellStep, rowY, (end - runStart) * cellStep, m.cellHeight,
                     Self.vec(RGB8(hex: runColor))
                 ))
             }
@@ -590,7 +593,12 @@ public final class TerminalRenderer {
                 // dim 在对比度保护之后应用：SGR 2 的本意就是降低强调度，不应被保护逻辑抵消。
                 var glyphFg = fg
                 if cell.flags.contains(.dim) { glyphFg = fg.mixed(with: bg, 0.4) }
-                if rowQuiet { glyphFg = glyphFg.mixed(with: palette.background, 0.55) }
+                let hasHighlight = cell.flags.contains(.selected)
+                    || cell.flags.contains(.matchCurrent)
+                    || cell.flags.contains(.match)
+                if rowQuiet, !isBlockCursor, !hasHighlight {
+                    glyphFg = RGB8(palette.gutterText.r, palette.gutterText.g, palette.gutterText.b)
+                }
 
                 // ---- 背景（行内同色合并）----
                 // 默认背景色等于清屏色，不需要实例；其余颜色按行内连续的同色段合并成一个色块。
@@ -601,8 +609,8 @@ public final class TerminalRenderer {
                     runStart = col
                 }
 
-                let x = l.originX + col * m.cellWidth
-                let cellWidthPx = m.cellWidth * span
+                let x = l.originX + col * cellStep
+                let cellWidthPx = cellStep * span
 
                 // ---- 字形 ----
                 if !cell.flags.contains(.hidden), !(rowQuiet && Self.isSpecialSymbol(cell.ch)) {
@@ -611,18 +619,18 @@ public final class TerminalRenderer {
                     let glyphBold = cell.flags.contains(.bold) && !rowQuiet
                         && !(cell.flags.contains(.chip) && !rowEmphasized)
                     let italic = cell.flags.contains(.italic)
+                    let face: GlyphFace = rowQuiet ? .gutter : .terminal
                     if cell.extra != 0, let cluster = frame.grapheme(for: cell) {
-                        entry = atlas.entry(cluster: cluster, bold: glyphBold, italic: italic, wide: wide, face: .terminal)
+                        entry = atlas.entry(cluster: cluster, bold: glyphBold, italic: italic, wide: wide, face: face)
                     } else if cell.ch > 0x20, cell.ch != 0x7F {
-                        entry = atlas.entry(scalar: cell.ch, bold: glyphBold, italic: italic, wide: wide, face: .terminal)
+                        entry = atlas.entry(scalar: cell.ch, bold: glyphBold, italic: italic, wide: wide, face: face)
                     }
                     if let entry {
                         let color = entry.isColor
                             ? SIMD4<Float>(1, 1, 1, (cell.flags.contains(.dim) || rowQuiet) ? 0.6 : 1)
                             : Self.vec(glyphFg)
-                        // 历史提示符只靠颜色变淡弱化，不缩小字形：等宽网格里格宽不变，
-                        // 缩小的字居中放回原格会在字与字之间留出空隙，看起来像拉开了字距。
-                        addGlyph(entry, x: x + Int(entry.offsetX), y: rowY + Int(entry.offsetY), color: color)
+                        let glyphY = (rowQuiet ? quietTop : rowY) + Int(entry.offsetY)
+                        addGlyph(entry, x: x + Int(entry.offsetX), y: glyphY, color: color)
                     }
                 }
 

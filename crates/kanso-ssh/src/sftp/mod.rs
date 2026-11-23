@@ -10,6 +10,7 @@
 
 mod client;
 mod error;
+mod fileio;
 pub(crate) mod proto;
 mod session;
 mod transfer;
@@ -17,6 +18,7 @@ mod tree;
 
 pub use client::{DirListing, SftpClient};
 pub use error::{SftpError, StatusKind};
+pub use fileio::{OverwriteError, WriteFailure};
 pub use proto::FileAttrs;
 pub use transfer::{
     BufferGauge, CancelToken, DEFAULT_CHUNK, DEFAULT_WINDOW, MAX_CHUNK, PROGRESS_INTERVAL,

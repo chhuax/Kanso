@@ -863,7 +863,18 @@ ui-git-menu-view = Git Changes
 ui-git-branch-tooltip = { $repo } · { $branch }
 
 ## 键盘设置页与恢复默认设置（GPUI）
-ui-keys-page = Keyboard
+ui-keys-page = Keyboard & Mouse
+ui-mouse = Mouse
+ui-middle-click = Middle click
+ui-right-click = Right click
+ui-middle-click-paste = Paste clipboard
+ui-middle-click-none = Do nothing
+ui-right-click-menu = Show menu
+ui-right-click-copy-or-paste = Copy or paste
+ui-mouse-shift-hint = When a program turns on mouse reporting (vim, tmux), hold Shift to let the terminal handle clicks.
+ui-selection = Selection
+ui-copy-on-select = Copy on Select
+ui-copy-on-select-hint = Automatically copy to the clipboard when you release the mouse after selecting.
 ui-keys-group-other = Other
 ui-keys-hint = Click a shortcut, then press the new keys. Esc cancels, Backspace clears.
 ui-keys-recording = Press keys…
@@ -876,7 +887,7 @@ ui-keys-conflict-title = { $chord } is already in use
 ui-keys-conflict-body = It is assigned to “{ $holder }”. Replace it to use { $chord } for “{ $new }” instead.
 ui-keys-replace = Replace
 ui-keys-restore-item = Restore default
-ui-keys-restore-all = Restore All Defaults
+ui-keys-restore-all = Restore Default Shortcuts
 ui-keys-customized = Customized
 ui-help-menu = Help
 ui-about-kanso = About Kanso
@@ -933,7 +944,7 @@ ui-filer-drag-not-ready = The remote file wasn't ready and was cancelled; keep t
 ui-filer-drag-cancelled = Drag preparation cancelled
 
 ui-display-settings-menu = Display Settings…
-ui-keyboard-settings-menu = Keyboard Shortcuts…
+ui-keyboard-settings-menu = Keyboard & Mouse…
 
 # ---- Windows MCP ----
 win-mcp-page = MCP

@@ -62,6 +62,7 @@ final class SettingsStore {
     private(set) var timeline = TimelineSettings()
     private(set) var keybindings = KeybindingSettings()
     private(set) var completion = CompletionSettings()
+    private(set) var mouse = MouseSettings()
 
     private struct Observer {
         weak var owner: AnyObject?
@@ -102,6 +103,27 @@ final class SettingsStore {
             ?? KeybindingSettings()
         completion = SettingsCodec.decode(CompletionSettings.self, from: backend.setting(key: SettingsSection.completion.rawValue))
             ?? CompletionSettings()
+        if let json = backend.setting(key: SettingsSection.mouse.rawValue) {
+            mouse = SettingsCodec.decode(MouseSettings.self, from: json) ?? MouseSettings()
+        } else {
+            // 没有 mouse 分区：1.0.7 把选中即复制存在 display.copyOnSelect 里，迁移一次并写回。
+            // 写回后分区存在，旧字段不再被读取；"恢复默认设置"会连 display 一起清空，不会把旧值迁回来。
+            mouse = MouseSettings()
+            if let legacy = Self.legacyCopyOnSelect(displayJSON: backend.setting(key: SettingsSection.display.rawValue)) {
+                mouse.copyOnSelect = legacy
+                persist(mouse, as: .mouse, to: backend)
+            }
+        }
+    }
+
+    /// 读取 display 分区里遗留的 `copyOnSelect`；没有该字段或不是布尔时返回 nil。
+    /// `DisplaySettings` 已不解码这个字段，只能读原始 JSON。
+    private static func legacyCopyOnSelect(displayJSON: String?) -> Bool? {
+        guard let data = displayJSON?.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let number = object["copyOnSelect"] as? NSNumber,
+              CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
+        return number.boolValue
     }
 
     /// 一次性迁移：后端里没有 `appearance` / `timeline` 分区、而 `UserDefaults` 里有旧值时，写进后端。
@@ -143,6 +165,7 @@ final class SettingsStore {
         timeline = TimelineSettings()
         keybindings = KeybindingSettings()
         completion = CompletionSettings()
+        mouse = MouseSettings()
         notifyAll()
     }
 
@@ -193,6 +216,15 @@ final class SettingsStore {
         completion = new
         persist(new, as: .completion)
         notify(.completion)
+    }
+
+    func updateMouse(_ change: (inout MouseSettings) -> Void) {
+        var new = mouse
+        change(&new)
+        guard new != mouse else { return }
+        mouse = new
+        persist(new, as: .mouse)
+        notify(.mouse)
     }
 
     // MARK: 持久化

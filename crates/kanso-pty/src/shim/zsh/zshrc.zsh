@@ -22,7 +22,7 @@ if [[ ${KANSO_SHELL_INTEGRATION:-1} != 0 ]]; then
   # __kanso_have：是否已经捕获过用户 PS1；__kanso_last_ps1：我们上次写入的 PS1，
   # 用来判断 PS1 是否被用户或主题改写过；__kanso_ins_chips：上次插入的标签行，
   # 用来在别的脚本基于我们的 PS1 二次改写时把我们的部分准确摘掉，避免叠加。
-  typeset -g __kanso_have=0 __kanso_last_ps1= __kanso_ins_chips=
+  typeset -g __kanso_have=0 __kanso_last_ps1= __kanso_ins_chips= __kanso_transient_ps1=
   # 对用户 PS1 的分析结果：__kanso_core 是去掉目录转义 / 用户名后的正文，
   # __kanso_trail 表示原提示符末尾有空格。
   typeset -g __kanso_core= __kanso_trail=0
@@ -199,7 +199,7 @@ if [[ ${KANSO_SHELL_INTEGRATION:-1} != 0 ]]; then
   __kanso_build_ps1() {
     emulate -L zsh
     setopt extended_glob
-    local dir_txt branch_txt node_txt dir_ins branch_ins node_ins pre= core=$__kanso_core out
+    local dir_txt branch_txt node_txt dir_ins branch_ins node_ins pre= quiet_line line2 core=$__kanso_core out
     __kanso_git_branch
     branch_txt=${REPLY//\%/%%}
     __kanso_fmt_dir
@@ -229,18 +229,27 @@ if [[ ${KANSO_SHELL_INTEGRATION:-1} != 0 ]]; then
       pre+=" $__kanso_chip_start %F{10}"$'\ue0a0'" ${branch_ins}%f $__kanso_chip_end"
     fi
     __kanso_ins_chips=$pre$'\n'
+    quiet_line=$dir_ins
+    if [[ -n $branch_txt ]]; then
+      quiet_line+=" git:(${branch_ins})"
+    fi
+    if [[ -n $node_txt ]]; then
+      quiet_line+=" node:${node_ins}"
+    fi
     if [[ ${core//[[:space:]]/} == '%#' ]]; then
       # 去掉目录 / 用户名后只剩 `%#`（zsh 默认提示符就是这样）：目录已在标签行，普通用户的 `%` 没有信息量，
       # 输入行留空让光标顶格；root 仍显示红色 `#` 提醒权限。用户自己写了别的内容时走下面的分支原样保留。
-      out=$__kanso_ins_chips'%(!.%F{1}#%f .)'
+      line2='%(!.%F{1}#%f .)'
     else
       # 只给第一个 `%#` 上色；替换文本放进变量，避免 `${…/…/…}` 里的花括号被当成参数展开的边界。
       local red_mark='%F{1}%#%f'
       core=${core/\%\#/$red_mark}
-      out=$__kanso_ins_chips$core
+      line2=$core
       # 原提示符末尾的空格是光标与提示符的间距，保留；正文被全部去掉时不补，光标顶格。
-      (( __kanso_trail )) && [[ -n $core ]] && out+=' '
+      (( __kanso_trail )) && [[ -n $core ]] && line2+=' '
     fi
+    out=$__kanso_ins_chips$line2
+    __kanso_transient_ps1=$quiet_line$'\n'$line2
     REPLY=$out$__kanso_bmark
   }
 
@@ -297,6 +306,17 @@ if [[ ${KANSO_SHELL_INTEGRATION:-1} != 0 ]]; then
   __kanso_preexec() {
     __kanso_cmd_ran=1
     print -rn -- $'\e]133;C\a'
+  }
+
+  # 提交命令行时把标签行重绘成顶格纯文本（不带 chip 框、图标与内边距空格），
+  # 重绘后立即恢复 PS1，避免影响命令体内读取或改写 PS1。
+  # 注意：这里不能加 `emulate -L zsh`，否则会临时关掉用户的 promptsubst，导致变量引用原样输出。
+  __kanso_line_finish() {
+    [[ $PS1 == "$__kanso_last_ps1" && -n $__kanso_transient_ps1 ]] || return 0
+    PS1=$__kanso_transient_ps1
+    zle reset-prompt
+    zle -R
+    PS1=$__kanso_last_ps1
   }
 
   __kanso_change_directory() {
@@ -360,9 +380,10 @@ ZDOTDIR=$__kanso_shim_dir
 if [[ ${KANSO_SHELL_INTEGRATION:-1} != 0 ]]; then
   # 在用户 .zshrc 加载完之后注册，使我们的 hook 排在用户已有 hook 之后：precmd 里才能看到
   # 用户 / 主题最终设置的 PS1。add-zsh-hook 只追加、不覆盖用户已有的 hook，重复注册也会去重。
-  autoload -Uz add-zsh-hook
+  autoload -Uz add-zsh-hook add-zle-hook-widget
   add-zsh-hook precmd __kanso_precmd
   add-zsh-hook preexec __kanso_preexec
+  add-zle-hook-widget line-finish __kanso_line_finish
   zle -N __kanso_change_directory
   bindkey -M emacs $'\e[9001~' __kanso_change_directory
   bindkey -M viins $'\e[9001~' __kanso_change_directory

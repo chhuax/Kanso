@@ -15,7 +15,8 @@ pub(super) struct PanelLayout {
     pub sidebar_width: f32,
     pub sender_visible: bool,
     pub sender_height: f32,
-    pub right_click_menu: bool,
+    // 旧版在这里还存过 `right_click_menu`；现已迁移到设置表的 `mouse` 分区（见
+    // `MouseSettings::migrate_legacy`）。结构体不加 deny_unknown_fields，旧数据里残留的字段会被忽略。
     /// Git 面板宽度（照 mac 版跨重启记住；旧数据没有这个字段时用默认 480）。
     pub git_width: f32,
     /// 顶部标签条模式下标签条是否显示。与 `sidebar_visible` 分开记：两种位置各自有自己的显隐。
@@ -29,7 +30,6 @@ impl Default for PanelLayout {
             sidebar_width: number("spacing", "sidebar.defaultWidth"),
             sender_visible: false,
             sender_height: PANEL_DEFAULT_HEIGHT,
-            right_click_menu: true,
             git_width: GIT_DEFAULT_WIDTH,
             top_tab_bar_visible: true,
         }
@@ -87,7 +87,6 @@ impl ShellView {
             top_tab_bar_visible: self.top_tab_bar_visible,
             sender_visible: self.sender.visible,
             sender_height: self.sender.height,
-            right_click_menu: self.right_click_menu,
             git_width: self.git.width(),
         };
         if let Err(e) = self.core.set_setting(
