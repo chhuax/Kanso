@@ -33,6 +33,8 @@ pub struct BgRect {
     pub cols: u16,
     /// 颜色。
     pub color: Rgb8,
+    /// 历史提示符行：绘制时按 0.85 倍列宽对齐紧凑小字。
+    pub small: bool,
 }
 
 /// 文字片段。
@@ -60,6 +62,8 @@ pub struct TextSpan {
     pub underline_color: Option<Rgb8>,
     /// 删除线。
     pub strike: bool,
+    /// 历史提示符：按 0.85 倍字号与紧凑步距绘制。
+    pub small: bool,
 }
 
 /// 光标形状。
@@ -232,6 +236,7 @@ struct SpanStyle {
     underline: u16,
     underline_color: Option<Rgb8>,
     strike: bool,
+    small: bool,
 }
 
 struct ResolvedCell {
@@ -301,9 +306,11 @@ fn resolve(
     if flags & CELL_DIM != 0 {
         fg = fg.mixed(bg, 0.4);
     }
-    // 历史提示符在对比度保护之后再压一层，绿字红字一并变淡。
-    if quiet {
-        fg = fg.mixed(palette.background, 0.55);
+    // 历史提示符统一收成次要灰（与时间戳栏同档），避免彩色字混背景后发脏；
+    // 处于选区或搜索高亮的单元格保留对比度保护后的前景色。
+    let highlighted = flags & (CELL_SELECTED | CELL_MATCH | CELL_MATCH_CURRENT) != 0;
+    if quiet && !block_cursor && !highlighted {
+        fg = palette.decorations.gutter_text;
     }
     let underline = (flags & CELL_UNDERLINE_MASK) >> CELL_UNDERLINE_SHIFT;
     let underline_color = (underline != 0 && underline_color_raw != 0)
@@ -317,6 +324,7 @@ fn resolve(
             underline,
             underline_color,
             strike: flags & CELL_STRIKE != 0,
+            small: quiet,
         },
         bg,
     }
@@ -441,7 +449,8 @@ pub fn build_render_grid_for(
                     Some(last)
                         if last.row == row
                             && last.col + last.cols == col
-                            && last.color == resolved.bg =>
+                            && last.color == resolved.bg
+                            && last.small == quiet =>
                     {
                         last.cols += width;
                     }
@@ -450,6 +459,7 @@ pub fn build_render_grid_for(
                         col,
                         cols: width,
                         color: resolved.bg,
+                        small: quiet,
                     }),
                 }
             }
@@ -574,6 +584,7 @@ fn new_span(row: u16, col: u16, cells: u16, text: String, simple: bool, s: SpanS
         underline: s.underline,
         underline_color: s.underline_color,
         strike: s.strike,
+        small: s.small,
     }
 }
 
@@ -584,6 +595,7 @@ fn same_style(span: &TextSpan, s: &SpanStyle) -> bool {
         && span.underline == s.underline
         && span.underline_color == s.underline_color
         && span.strike == s.strike
+        && span.small == s.small
 }
 
 /// 取一行的纯文本（宽字符占位格跳过，空单元格当空格），去掉行尾空白。自检与测试用。
@@ -828,13 +840,15 @@ mod tests {
                     row: 0,
                     col: 0,
                     cols: 3,
-                    color: pal().ansi[4]
+                    color: pal().ansi[4],
+                    small: false,
                 },
                 BgRect {
                     row: 0,
                     col: 3,
                     cols: 1,
-                    color: pal().ansi[2]
+                    color: pal().ansi[2],
+                    small: false,
                 },
             ]
         );
@@ -1207,7 +1221,7 @@ mod tests {
     #[test]
     fn historical_prompt_drops_special_symbols_and_shrinks() {
         let mut b = FrameBuilder::new(4, 2);
-        // 提示符行：目录字 + 私有区图标。命令在下一行。
+        // 提示符行：目录字 + 私有区图标 + 选中的分支字。命令在下一行。
         b.set_cell(0, 0, Cell { ..plain('~') });
         b.set_cell(
             0,
@@ -1216,6 +1230,14 @@ mod tests {
                 ch: 0xF07B,
                 fg: Color::encode(TermColor::Indexed(10)),
                 ..plain('\0')
+            },
+        );
+        b.set_cell(
+            0,
+            2,
+            Cell {
+                flags: CELL_SELECTED,
+                ..plain('m')
             },
         );
         b.set_cell(1, 0, Cell { ..plain('l') });
@@ -1234,20 +1256,34 @@ mod tests {
             can_copy_output: true,
         };
         let f = frame(b);
+        let dark = Palette::kanso_dark();
         let g = build_render_grid_for(
             &f.view().unwrap(),
-            &Palette::kanso_dark(),
+            &dark,
             None,
             LiveChips::Only { start: 1, end: 0 },
             &[block],
         );
-        let prompt = g.spans.iter().find(|s| s.row == 0).unwrap();
-        assert_eq!(prompt.text, "~");
+        let prompt = g.spans.iter().find(|s| s.text == "~").unwrap();
+        assert!(prompt.small);
         assert!(!prompt.bold);
-        let full = Palette::kanso_dark().foreground;
-        assert_ne!(prompt.fg, full);
+        assert_eq!(prompt.fg, dark.decorations.gutter_text);
+        let selected = g.spans.iter().find(|s| s.text == "m").unwrap();
+        assert!(selected.small);
+        assert_eq!(selected.fg, dark.foreground);
+        assert_eq!(
+            g.bgs,
+            vec![BgRect {
+                row: 0,
+                col: 2,
+                cols: 1,
+                color: dark.selection_background,
+                small: true,
+            }]
+        );
         let command = g.spans.iter().find(|s| s.text == "l").unwrap();
-        assert_eq!(command.fg, full);
+        assert!(!command.small);
+        assert_eq!(command.fg, dark.foreground);
     }
 
     #[test]

@@ -737,3 +737,31 @@ fn ps1_rewritten_by_hooks_is_recomputed_without_duplication() {
     assert!(vis.contains("~ \r\n(venv) e"), "{vis:?}");
     assert!(!vis.contains("(venv) ~"), "{vis:?}");
 }
+
+#[test]
+fn transient_prompt_compacts_chips_on_command_submit() {
+    use std::os::unix::fs::PermissionsExt;
+
+    require_zsh!();
+    for promptsubst in [false, true] {
+        let fx = Fixture::new();
+        let rc = if promptsubst {
+            "setopt promptsubst\nPS1='%~ %# '\nHISTSIZE=0\n"
+        } else {
+            "PS1='%~ %# '\nHISTSIZE=0\n"
+        };
+        fx.write(".zshrc", rc);
+        fx.write("repo/package.json", "{}");
+        git_head(&fx.home, "repo/.git", "ref: refs/heads/main\n");
+        fx.write("bin/node", "#!/bin/sh\nprintf 'v26.13.0\\n'\n");
+        fs::set_permissions(fx.home.join("bin/node"), fs::Permissions::from_mode(0o755)).unwrap();
+
+        let out =
+            Run::start(&fx, true, &[]).run(&["PATH=$HOME/bin:/usr/bin:/bin", "cd repo", "echo ok"]);
+        let vis = visible_raw(&out);
+        assert!(
+            vis.contains("~/repo git:(main) node:v26.13.0\r\n"),
+            "提交命令后未重绘为紧凑纯文本历史行（promptsubst={promptsubst}）：{vis:?}"
+        );
+    }
+}
