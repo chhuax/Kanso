@@ -1045,7 +1045,16 @@ impl RealCore {
                 OpenRequest::Duplicate(src)
             }
         };
-        let id = self.sessions.open(request, size).map_err(open_error)?;
+        let color_prompt = !cfg!(windows)
+            || matches!(
+                &request,
+                OpenRequest::Ssh(_) | OpenRequest::SshShared { .. }
+            )
+            || self.setting(crate::POWERSHELL_COLOR_PROMPT).as_deref() != Some("false");
+        let id = self
+            .sessions
+            .open_with_powershell_prompt(request, size, color_prompt)
+            .map_err(open_error)?;
         if let Some(entry) = opened_profile {
             self.profile_sessions
                 .lock()
