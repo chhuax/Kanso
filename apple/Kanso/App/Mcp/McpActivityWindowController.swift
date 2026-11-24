@@ -415,21 +415,32 @@ final class McpActivityWindowController: NSWindowController {
     init(mcp: McpCoordinator, autosaveName: String? = "KansoMcpActivityWindow") {
         self.mcp = mcp
         content = McpActivityViewController(core: mcp.core)
+        let defaultSize = NSSize(width: 640, height: 520)
+        let minSize = NSSize(width: 480, height: 340)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 520),
+            contentRect: NSRect(origin: .zero, size: defaultSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false
         )
         window.title = String(localized: "MCP Activity")
         window.contentViewController = content
-        window.minSize = NSSize(width: 480, height: 340)
+        window.minSize = minSize
+        // 赋 contentViewController 会把窗口缩到根视图初始约束的最小宽度，这里恢复默认尺寸。
+        window.setContentSize(defaultSize)
         // 关闭后窗口留在持有者手里，下次 `present()` 直接再显示。
         window.isReleasedWhenClosed = false
         super.init(window: window)
 
         if let autosaveName {
-            // 没有已保存的位置时居中；setFrameAutosaveName 必须在这之后调用，否则会把居中前的位置存下来。
-            if !window.setFrameUsingName(autosaveName) { window.center() }
+            // 没有已保存的位置，或旧版本存下了低于最小尺寸的窄框时，恢复默认尺寸并居中；
+            // setFrameAutosaveName 必须在这之后调用，否则会把居中前的位置存下来。
+            if !window.setFrameUsingName(autosaveName)
+                || window.frame.width < minSize.width
+                || window.frame.height < minSize.height
+            {
+                window.setContentSize(defaultSize)
+                window.center()
+            }
             window.setFrameAutosaveName(autosaveName)
         } else {
             window.center()
