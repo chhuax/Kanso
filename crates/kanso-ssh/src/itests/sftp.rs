@@ -491,7 +491,9 @@ async fn short_reads_are_completed_with_follow_up_requests() {
 
 #[tokio::test]
 async fn download_pipelines_many_requests_on_high_latency_link() {
-    let e = env_with(|c| c.delay = Duration::from_millis(5)).await;
+    // debug 构建并发跑全量测试时，5ms 延迟容易被调度抖动吃掉导致在途数不到 32；
+    // 与下方上传用例一致用 40ms，让窗口深度而不是 CPU/调度决定在途数。
+    let e = env_with(|c| c.delay = Duration::from_millis(40)).await;
     std::fs::write(e.remote("home/tester/f"), pattern(4 * 1024 * 1024)).unwrap();
     e.server.sftp_stats.reset_max_inflight();
     let r = e

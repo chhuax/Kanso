@@ -506,4 +506,12 @@ final class McpActivityTests: XCTestCase {
         XCTAssertTrue(texts.contains { $0.contains(String(localized: "Unauthorized session")) && $0.contains("NOT_AUTHORIZED") }, "\(texts)")
         XCTAssertTrue(texts.contains { $0.hasSuffix("· web-01") }, "成功的记录照常显示会话名：\(texts)")
     }
+
+    func testInitialWindowUsesDefaultSize() throws {
+        let (controller, _) = makeWindow()
+        let window = try XCTUnwrap(controller.window)
+        let contentSize = window.contentRect(forFrameRect: window.frame).size
+        XCTAssertEqual(contentSize.width, 640, accuracy: 1)
+        XCTAssertEqual(contentSize.height, 520, accuracy: 1)
+    }
 }
