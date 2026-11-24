@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use kanso_types::event::LegacyHop;
 use kanso_types::message::{AlgorithmCategory, Endpoint, Reason};
+use kanso_types::profile::KeepaliveConfig;
 use kanso_types::prompt::CredentialKind;
 use kanso_types::secret::SecretString;
 use russh::client::{DisconnectReason, GexParams, Handle, Handler};
@@ -63,6 +64,8 @@ pub struct ConnectParams {
     pub host_keys: Arc<dyn HostKeyStore>,
     /// 主机密钥吊销查询；没有吊销概念的存储传 `None`。
     pub revoked_keys: Option<Arc<dyn RevokedKeys>>,
+    /// 保活配置（每个 Profile 独立，跳板链上每一跳用自己 Profile 的配置）。
+    pub keepalive: KeepaliveConfig,
 }
 
 /// 用户在提示里选了"记住"的凭据。认证成功后交给调用方，由 core 决定存不存。
@@ -299,17 +302,22 @@ fn map_handshake_error(endpoint: &Endpoint, e: HandlerError) -> SshError {
     }
 }
 
-/// 构造 russh 客户端配置。
-fn client_config(preferred: Preferred) -> Result<russh::client::Config, SshError> {
+/// 构造 russh 客户端配置。`keepalive` 来自该跳 Profile 的配置（ssh.md §2.4）。
+fn client_config(
+    preferred: Preferred,
+    keepalive: &KeepaliveConfig,
+) -> Result<russh::client::Config, SshError> {
     let gex = GexParams::new(GEX_MIN_BITS, GEX_PREFERRED_BITS, GEX_MAX_BITS)
         .expect("gex 参数是编译期常量，满足 russh 的校验");
     Ok(russh::client::Config {
         client_id: SshId::Standard(CLIENT_ID.into()),
         preferred,
         gex,
-        // 每 30 秒一次 keepalive，不设空闲超时（ssh.md §2.4）。
-        keepalive_interval: Some(KEEPALIVE_INTERVAL),
-        keepalive_max: KEEPALIVE_MAX,
+        // 协议层 keepalive 可按会话关闭；不设空闲超时。
+        keepalive_interval: keepalive
+            .enabled
+            .then(|| Duration::from_secs(keepalive.interval_secs as u64)),
+        keepalive_max: keepalive.max_misses as usize,
         inactivity_timeout: None,
         // 交互输入延迟优先，关闭 Nagle。
         nodelay: true,
@@ -419,6 +427,7 @@ where
         home_dir,
         host_keys,
         revoked_keys,
+        keepalive,
     } = params;
 
     let (closed_tx, closed_rx) = watch::channel(None);
@@ -438,7 +447,7 @@ where
         revoked: revoked_keys,
         shared: shared.clone(),
     };
-    let config = Arc::new(client_config(preferred)?);
+    let config = Arc::new(client_config(preferred, &keepalive)?);
     let mut handle = russh::client::connect_stream(config, stream, handler)
         .await
         .map_err(|e| map_handshake_error(&endpoint, e))?;
@@ -696,5 +705,28 @@ impl std::fmt::Debug for Connection {
             .field("endpoint", &self.inner.endpoint)
             .field("user", &self.inner.user)
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn client_config_uses_per_session_keepalive() {
+        let mut k = KeepaliveConfig {
+            interval_secs: 42,
+            max_misses: 7,
+            ..Default::default()
+        };
+        let config = client_config(algorithms::preferred(), &k).unwrap();
+        assert_eq!(config.keepalive_interval, Some(Duration::from_secs(42)));
+        assert_eq!(config.keepalive_max, 7);
+        assert_eq!(config.inactivity_timeout, None);
+
+        k.enabled = false;
+        let config = client_config(algorithms::preferred(), &k).unwrap();
+        assert_eq!(config.keepalive_interval, None);
+        assert_eq!(config.keepalive_max, 7);
     }
 }

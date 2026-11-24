@@ -24,6 +24,7 @@ fn target(host: &str, jump: Option<ProfileId>) -> SshTarget {
         private_key_path: None,
         jump,
         proxy_command: None,
+        keepalive: kanso_types::profile::KeepaliveConfig::default(),
     }
 }
 

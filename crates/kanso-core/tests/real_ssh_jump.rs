@@ -85,6 +85,7 @@ fn target(port: u16) -> SshTarget {
         private_key_path: None,
         jump: None,
         proxy_command: None,
+        keepalive: kanso_types::profile::KeepaliveConfig::default(),
     }
 }
 

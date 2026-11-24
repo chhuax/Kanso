@@ -101,6 +101,7 @@ mod tests {
             private_key_path: None,
             jump,
             proxy_command: None,
+            keepalive: kanso_types::profile::KeepaliveConfig::default(),
         }
     }
 
