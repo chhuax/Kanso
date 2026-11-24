@@ -107,4 +107,4 @@ pub use local::ReadStats;
 pub use local::{LocalLaunch, LocalSession};
 pub use manager::{ManagerConfig, OpenError, OpenRequest, Session, SessionManager, SessionSummary};
 pub use mcp::{McpBusy, McpOutput, McpRun, McpScreen, McpSend, McpTrackState, McpWrite};
-pub use ssh::{BoxFuture, SshConnector, SshLaunch, SshSession};
+pub use ssh::{BoxFuture, IdleKeepalive, SshConnector, SshLaunch, SshSession};

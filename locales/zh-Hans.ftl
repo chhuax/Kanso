@@ -243,6 +243,22 @@ ui-locale = Locale
 
 ui-proxy-command = ProxyCommand
 
+ui-keepalive-enabled = 协议层保活
+
+ui-keepalive-interval = 间隔（秒）
+
+ui-keepalive-max-misses = 无回应次数上限
+
+ui-idle-keepalive = 空闲保活
+
+ui-idle-interval = 空闲间隔（秒）
+
+ui-idle-string = 空闲时发送的字符串
+
+ui-on = 开
+
+ui-keepalive-interval-invalid = 保活间隔必须是 1 到 86400 之间的数字。
+
 ui-choose = 选择…
 
 ui-cancel = 取消

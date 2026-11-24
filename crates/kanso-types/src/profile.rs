@@ -133,6 +133,69 @@ pub struct LocalProfile {
     pub locale: Option<Locale>,
 }
 
+/// SSH 保活配置（ssh.md §2.4）。
+///
+/// 两套保活机制：协议层 keepalive（由 russh 实现）与空闲时向 shell 发字符串（由会话层实现）。
+/// 默认值保持规格现状：协议层开、30 秒、3 次无回应；空闲字符串关、3600 秒、`\r`。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeepaliveConfig {
+    /// 是否启用 SSH 协议层 keepalive（默认开）。
+    pub enabled: bool,
+    /// 协议层 keepalive 间隔秒数（默认 30，范围 1..=86400）。
+    pub interval_secs: u16,
+    /// 连续多少次无回应判定断线（默认 3）。
+    pub max_misses: u16,
+    /// 是否在空闲时向 shell 发送保活字符串（默认关）。
+    pub idle_enabled: bool,
+    /// 网络空闲多少秒后发送一次（默认 3600，范围 1..=86400）。
+    pub idle_interval_secs: u16,
+    /// 空闲时发送的字符串，支持 \r \n \t \\ 转义（默认 "\r"）。
+    pub idle_string: String,
+}
+
+impl Default for KeepaliveConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            interval_secs: 30,
+            max_misses: 3,
+            idle_enabled: false,
+            idle_interval_secs: 3600,
+            idle_string: "\\r".to_owned(),
+        }
+    }
+}
+
+impl KeepaliveConfig {
+    /// 把空闲保活字符串里的 `\r` `\n` `\t` `\\` 展开成字节。
+    ///
+    /// 其他转义序列按字面处理（保留反斜杠），非 ASCII 字符按 UTF-8 原样输出。
+    pub fn decoded_idle_string(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(self.idle_string.len());
+        let mut chars = self.idle_string.chars();
+        while let Some(c) = chars.next() {
+            if c == '\\' {
+                match chars.next() {
+                    Some('r') => out.push(b'\r'),
+                    Some('n') => out.push(b'\n'),
+                    Some('t') => out.push(b'\t'),
+                    Some('\\') => out.push(b'\\'),
+                    Some(other) => {
+                        out.push(b'\\');
+                        let mut buf = [0; 4];
+                        out.extend_from_slice(other.encode_utf8(&mut buf).as_bytes());
+                    }
+                    None => out.push(b'\\'),
+                }
+            } else {
+                let mut buf = [0; 4];
+                out.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+            }
+        }
+        out
+    }
+}
+
 /// SSH 连接目标，终端会话与 SFTP 会话共用。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SshTarget {
@@ -150,6 +213,9 @@ pub struct SshTarget {
     pub jump: Option<ProfileId>,
     /// 代理命令。与 `jump` 二选一，且仅 Direct 渠道生效（ssh.md §5）。
     pub proxy_command: Option<String>,
+    /// 保活配置；缺省时用 [`KeepaliveConfig::default`]（兼容旧配置与导出文件）。
+    #[serde(default)]
+    pub keepalive: KeepaliveConfig,
 }
 
 /// SSH 默认端口。
@@ -301,5 +367,38 @@ mod tests {
             locale: None,
         });
         assert_eq!(k.kind(), SessionKind::Local);
+    }
+
+    #[test]
+    fn keepalive_default() {
+        let k = KeepaliveConfig::default();
+        assert!(k.enabled);
+        assert_eq!(k.interval_secs, 30);
+        assert_eq!(k.max_misses, 3);
+        assert!(!k.idle_enabled);
+        assert_eq!(k.idle_interval_secs, 3600);
+        assert_eq!(k.idle_string, "\\r");
+        assert_eq!(k.decoded_idle_string(), vec![0x0d]);
+    }
+
+    #[test]
+    fn keepalive_missing_field_falls_back_to_default() {
+        let json = r#"{"host":"h","port":22,"user":"u","auth":"Password","private_key_path":null,"jump":null,"proxy_command":null}"#;
+        let t: SshTarget = serde_json::from_str(json).unwrap();
+        assert_eq!(t.keepalive, KeepaliveConfig::default());
+    }
+
+    #[test]
+    fn keepalive_decodes_escapes() {
+        let mut k = KeepaliveConfig {
+            idle_string: r"a\r\n\t\\b".to_owned(),
+            ..Default::default()
+        };
+        assert_eq!(k.decoded_idle_string(), b"a\r\n\t\\b".to_vec());
+        // 未知转义按字面保留，非 ASCII 按 UTF-8 输出。
+        k.idle_string = r"\q中".to_owned();
+        let mut expected = b"\\q".to_vec();
+        expected.extend_from_slice("中".as_bytes());
+        assert_eq!(k.decoded_idle_string(), expected);
     }
 }

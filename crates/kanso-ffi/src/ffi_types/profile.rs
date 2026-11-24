@@ -2,8 +2,8 @@
 
 use kanso_types::geometry::{CellSide, GridSize, Rgb, ViewportPoint};
 use kanso_types::profile::{
-    AuthMethod, EncodingLabel, Group, LineEnding, LocalProfile, Locale, Profile, ProfileKind,
-    SessionKind, Snippet, SnippetKindScope, SnippetScope, SshProfile, SshTarget,
+    AuthMethod, EncodingLabel, Group, KeepaliveConfig, LineEnding, LocalProfile, Locale, Profile,
+    ProfileKind, SessionKind, Snippet, SnippetKindScope, SnippetScope, SshProfile, SshTarget,
 };
 
 use super::{FfiCoreError, mirror_enum, parse_id};
@@ -183,6 +183,53 @@ pub struct FfiSshTarget {
     pub jump: Option<String>,
     /// ProxyCommand；与 `jump` 互斥。
     pub proxy_command: Option<String>,
+    /// 保活配置。
+    pub keepalive: FfiKeepaliveConfig,
+}
+
+/// SSH 保活配置（ssh.md §2.4）。
+#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
+pub struct FfiKeepaliveConfig {
+    /// 是否启用协议层 keepalive。
+    pub enabled: bool,
+    /// 协议层 keepalive 间隔秒数。
+    pub interval_secs: u16,
+    /// 连续多少次无回应判定断线。
+    pub max_misses: u16,
+    /// 是否在空闲时向 shell 发送保活字符串。
+    pub idle_enabled: bool,
+    /// 网络空闲多少秒后发送一次。
+    pub idle_interval_secs: u16,
+    /// 空闲时发送的字符串（支持 \r \n \t \\ 转义）。
+    pub idle_string: String,
+}
+
+/// 从 core 配置镜像到 FFI。
+impl From<&KeepaliveConfig> for FfiKeepaliveConfig {
+    fn from(k: &KeepaliveConfig) -> Self {
+        Self {
+            enabled: k.enabled,
+            interval_secs: k.interval_secs,
+            max_misses: k.max_misses,
+            idle_enabled: k.idle_enabled,
+            idle_interval_secs: k.idle_interval_secs,
+            idle_string: k.idle_string.clone(),
+        }
+    }
+}
+
+/// 从 FFI 写回 core 配置。
+impl From<FfiKeepaliveConfig> for KeepaliveConfig {
+    fn from(k: FfiKeepaliveConfig) -> Self {
+        Self {
+            enabled: k.enabled,
+            interval_secs: k.interval_secs,
+            max_misses: k.max_misses,
+            idle_enabled: k.idle_enabled,
+            idle_interval_secs: k.idle_interval_secs,
+            idle_string: k.idle_string,
+        }
+    }
 }
 
 /// SSH 终端的配置。
@@ -296,6 +343,7 @@ impl From<&SshTarget> for FfiSshTarget {
             private_key_path: t.private_key_path.clone(),
             jump: t.jump.map(|id| id.to_string()),
             proxy_command: t.proxy_command.clone(),
+            keepalive: (&t.keepalive).into(),
         }
     }
 }
@@ -316,6 +364,7 @@ impl TryFrom<FfiSshTarget> for SshTarget {
                 .map(|s| parse_id(s, "profile"))
                 .transpose()?,
             proxy_command: t.proxy_command,
+            keepalive: t.keepalive.into(),
         })
     }
 }
@@ -473,6 +522,15 @@ mod tests {
                     private_key_path: Some("/k".into()),
                     jump: Some(ProfileId::new()),
                     proxy_command: None,
+                    // 非默认值，确保双向转换真的搬运了六个字段。
+                    keepalive: KeepaliveConfig {
+                        enabled: false,
+                        interval_secs: 60,
+                        max_misses: 5,
+                        idle_enabled: true,
+                        idle_interval_secs: 120,
+                        idle_string: "\\n".into(),
+                    },
                 },
                 encoding: EncodingLabel::new("gbk"),
                 locale: Locale::parse("zh_CN.UTF-8"),

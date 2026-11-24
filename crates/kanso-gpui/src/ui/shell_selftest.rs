@@ -525,6 +525,34 @@ impl ShellView {
                     return self.st_fail("确认后标签应关闭且对话框消失".into(), cx);
                 }
                 self.st_pass("关闭确认：Tab + 回车确认后关闭标签");
+                self.run_command(AppCommand::OpenPalette, window, cx);
+            }
+            20 => {
+                if self.palette.as_ref().map(|palette| palette.selected) != Some(0) {
+                    return self.st_fail("命令面板未打开或没有选中首项".into(), cx);
+                }
+                key(window, cx, "down");
+                self.st_next();
+            }
+            21 => {
+                if self.palette.as_ref().map(|palette| palette.selected) != Some(1) {
+                    return self.st_fail("命令面板按下方向键后没有选中第二项".into(), cx);
+                }
+                key(window, cx, "up");
+                self.st_next();
+            }
+            22 => {
+                if self.palette.as_ref().map(|palette| palette.selected) != Some(0) {
+                    return self.st_fail("命令面板按上方向键后没有选回首项".into(), cx);
+                }
+                key(window, cx, "escape");
+                self.st_next();
+            }
+            23 => {
+                if self.palette.is_some() {
+                    return self.st_fail("Esc 没有关闭命令面板".into(), cx);
+                }
+                self.st_note("PASS 命令面板上下键切换选中项，Esc 关闭".to_owned());
                 self.shell_selftest_finish(true, "", cx);
                 return false;
             }

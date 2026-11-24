@@ -249,6 +249,22 @@ ui-locale = Locale
 
 ui-proxy-command = ProxyCommand
 
+ui-keepalive-enabled = Protocol keepalive
+
+ui-keepalive-interval = Interval (s)
+
+ui-keepalive-max-misses = Misses before disconnect
+
+ui-idle-keepalive = Idle keepalive
+
+ui-idle-interval = Idle interval (s)
+
+ui-idle-string = Idle string
+
+ui-on = On
+
+ui-keepalive-interval-invalid = Keepalive intervals must be numbers from 1 to 86400.
+
 ui-choose = Choose…
 
 ui-cancel = Cancel

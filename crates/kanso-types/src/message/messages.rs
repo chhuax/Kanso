@@ -528,6 +528,22 @@ messages! {
     UiEnterSessionName = "ui-enter-session-name" {},
     /// GPUI 界面文字：端口必须是 1 到 65535 之间的数字。
     UiPortMustBeNumberFrom = "ui-port-must-be-number-from" {},
+    /// GPUI 界面文字：保活间隔必须是 1 到 86400 之间的数字。
+    UiKeepaliveIntervalInvalid = "ui-keepalive-interval-invalid" {},
+    /// GPUI 界面文字：启用协议层 keepalive。
+    UiKeepaliveEnabled = "ui-keepalive-enabled" {},
+    /// GPUI 界面文字：协议层 keepalive 间隔（秒）。
+    UiKeepaliveInterval = "ui-keepalive-interval" {},
+    /// GPUI 界面文字：连续无回应次数。
+    UiKeepaliveMaxMisses = "ui-keepalive-max-misses" {},
+    /// GPUI 界面文字：空闲保活。
+    UiIdleKeepalive = "ui-idle-keepalive" {},
+    /// GPUI 界面文字：空闲保活间隔（秒）。
+    UiIdleInterval = "ui-idle-interval" {},
+    /// GPUI 界面文字：空闲时发送的字符串。
+    UiIdleString = "ui-idle-string" {},
+    /// GPUI 界面文字：开。
+    UiOn = "ui-on" {},
     /// GPUI 界面文字：Locale 只能包含字母、数字和 _ - . @，长度 1 到 64。
     UiLocaleMayOnlyContainLetters = "ui-locale-may-only-contain-letters" {},
     /// GPUI 界面文字：保存失败。

@@ -51,8 +51,8 @@ use kanso_frame::Frame;
 use kanso_license::{Entitlement, PurchaseOutcome};
 use kanso_secret::{SecretError, SecretKind, SecretRef, SecretStore};
 use kanso_session::{
-    EnvSnapshot, ManagerConfig, OpenError, OpenRequest, Session, SessionHost, SessionManager,
-    SshLaunch,
+    EnvSnapshot, IdleKeepalive, ManagerConfig, OpenError, OpenRequest, Session, SessionHost,
+    SessionManager, SshLaunch,
 };
 use kanso_ssh::sftp::{
     CancelToken, DirListing, MAX_DEPTH, SftpError, SkipReason, TransferOptions,
@@ -454,6 +454,7 @@ fn hop_spec(id: ProfileId, name: &str, t: &kanso_types::profile::SshTarget) -> C
         user: t.user.trim().to_owned(),
         auth,
         secret_kind,
+        keepalive: t.keepalive.clone(),
     }
 }
 
@@ -1227,13 +1228,23 @@ impl RealCore {
             proxy_command,
             non_interactive,
         };
-        Ok(SshLaunch::new(
+        let launch = SshLaunch::new(
             profile.name.clone(),
             endpoint,
             encoding,
             locale,
             Arc::new(connector),
-        ))
+        );
+        // 空闲保活由 core 解析转义后传给会话层；SFTP 会话虽带上参数，但没有 shell channel，
+        // 会话层会在 sftp_only 分支提前返回，不会启动定时器。
+        Ok(if target.keepalive.idle_enabled {
+            launch.idle_keepalive(IdleKeepalive {
+                interval: Duration::from_secs(target.keepalive.idle_interval_secs as u64),
+                bytes: target.keepalive.decoded_idle_string(),
+            })
+        } else {
+            launch
+        })
     }
 
     /// 会话对应的 Profile（id 与名字）；不是由 Profile 打开的返回 `None`。

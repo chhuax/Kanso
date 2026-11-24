@@ -26,6 +26,7 @@ use kanso_ssh::{
 use kanso_ssh::{HostKeyStoreError, KnownHostKey};
 use kanso_types::event::NoticeLevel;
 use kanso_types::message::Endpoint;
+use kanso_types::profile::KeepaliveConfig;
 use kanso_types::prompt::{CredentialKind, PromptRequest, PromptResponse};
 use kanso_types::secret::SecretString;
 use kanso_types::{CoreEvent, Message, ProfileId, PromptId, SessionId};
@@ -332,6 +333,8 @@ pub(crate) struct ConnectSpec {
     pub auth: AuthMethod,
     /// 要从凭据存储读取的凭据种类；agent 认证不读。
     pub secret_kind: Option<SecretKind>,
+    /// 这一跳的保活配置（每跳用它自己 Profile 的配置）。
+    pub keepalive: KeepaliveConfig,
 }
 
 /// 主机密钥存储与吊销查询（Direct 版是同一个 `KnownHostsFile`）。
@@ -459,6 +462,7 @@ impl SshConnector for CoreSshConnector {
                         home_dir: me.env.home_dir.clone(),
                         host_keys: Arc::clone(&host_store),
                         revoked_keys: me.host_keys.revoked.clone(),
+                        keepalive: spec.keepalive.clone(),
                     },
                     proxy_command: if i == 0 {
                         me.proxy_command.clone()

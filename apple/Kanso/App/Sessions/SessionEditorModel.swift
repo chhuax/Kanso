@@ -55,6 +55,8 @@ enum SessionEditorField: CaseIterable {
     case shellCommand, startDir
     case host, port, user, auth, password, keyPath, keyPassphrase, jump, proxyCommand
     case encoding, locale
+    case keepaliveEnabled, keepaliveInterval, keepaliveMaxMisses
+    case idleEnabled, idleInterval, idleString
 }
 
 /// `save()` 的结果。
@@ -105,6 +107,14 @@ final class SessionEditorModel {
 
     var encoding = ""
     var locale = ""
+
+    var keepaliveEnabled = true
+    var keepaliveIntervalText = "30"
+    var keepaliveMaxMissesText = "3"
+    var idleEnabled = false
+    var idleIntervalText = "3600"
+    var idleString = "\\r"
+
     /// 新建会话默认关闭。`showsMcpAccess` 为假时界面不显示，保存也不写。
     /// 只有用户改过它，保存时才写回：打开对话框后别处（设置页）改了级别，不改这个字段的保存不能用旧值覆盖。
     var mcpAccess: FfiMcpAccess = .off {
@@ -173,6 +183,12 @@ final class SessionEditorModel {
         keyPath = target.privateKeyPath ?? ""
         jumpID = target.jump
         proxyCommand = target.proxyCommand ?? ""
+        keepaliveEnabled = target.keepalive.enabled
+        keepaliveIntervalText = String(target.keepalive.intervalSecs)
+        keepaliveMaxMissesText = String(target.keepalive.maxMisses)
+        idleEnabled = target.keepalive.idleEnabled
+        idleIntervalText = String(target.keepalive.idleIntervalSecs)
+        idleString = target.keepalive.idleString
     }
 
     var isEditing: Bool { original != nil }
@@ -227,6 +243,10 @@ final class SessionEditorModel {
             isSSHLike && supportsProxyCommand
         case .encoding, .locale:
             kind != .sftp
+        case .keepaliveEnabled, .keepaliveInterval, .keepaliveMaxMisses:
+            isSSHLike
+        case .idleEnabled, .idleInterval, .idleString:
+            kind == .ssh
         }
     }
 
@@ -280,8 +300,23 @@ final class SessionEditorModel {
         return text.isEmpty ? nil : text
     }
 
+    /// 保活间隔（秒）：1–86400（`UInt16` 上限 65535）。
+    private static func parsedKeepaliveSecs(_ text: String) -> UInt16? {
+        guard let value = UInt16(text.trimmingCharacters(in: .whitespaces)), value >= 1 else { return nil }
+        return value
+    }
+
+    /// 三项保活数字的解析结果；任一项不合法则为 nil，界面据此报错。
+    private var keepaliveParsed: (interval: UInt16, maxMisses: UInt16, idleInterval: UInt16)? {
+        guard let interval = Self.parsedKeepaliveSecs(keepaliveIntervalText),
+              let idleInterval = Self.parsedKeepaliveSecs(idleIntervalText),
+              let maxMisses = UInt16(keepaliveMaxMissesText.trimmingCharacters(in: .whitespaces)),
+              maxMisses >= 1 else { return nil }
+        return (interval, maxMisses, idleInterval)
+    }
+
     private func makeTarget() -> FfiSshTarget? {
-        guard let port else { return nil }
+        guard let port, let keepalive = keepaliveParsed else { return nil }
         let key = keyPath.trimmingCharacters(in: .whitespaces)
         let proxy = proxyCommand.trimmingCharacters(in: .whitespaces)
         return FfiSshTarget(
@@ -293,7 +328,15 @@ final class SessionEditorModel {
             privateKeyPath: auth == .privateKey && !key.isEmpty ? key : nil,
             jump: jumpID,
             // 非 Direct 渠道没有 ProxyCommand 输入，也不保存它。
-            proxyCommand: supportsProxyCommand && !proxy.isEmpty ? proxy : nil
+            proxyCommand: supportsProxyCommand && !proxy.isEmpty ? proxy : nil,
+            keepalive: FfiKeepaliveConfig(
+                enabled: keepaliveEnabled,
+                intervalSecs: keepalive.interval,
+                maxMisses: keepalive.maxMisses,
+                idleEnabled: idleEnabled,
+                idleIntervalSecs: keepalive.idleInterval,
+                idleString: idleString
+            )
         )
     }
 
@@ -310,7 +353,9 @@ final class SessionEditorModel {
             return .failed
         }
         guard let profile = assemble() else {
-            errorText = String(localized: "The port must be a number from 1 to 65535.")
+            errorText = keepaliveParsed == nil
+                ? String(localized: "Keepalive intervals must be numbers from 1 to 86400.")
+                : String(localized: "The port must be a number from 1 to 65535.")
             return .failed
         }
         do {
