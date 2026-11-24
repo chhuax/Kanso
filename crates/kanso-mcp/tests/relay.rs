@@ -6,14 +6,17 @@
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-use kanso_core::{CollectingEventSink, Core, Platform};
+use kanso_core::mcp::TextScope;
+use kanso_core::{CollectingEventSink, Core, CoreConfig, OpenTarget, Platform};
 use kanso_mcp_server::{
     McpActivity, McpClientInfo, McpServer, McpServerConfig, McpServerDelegate, McpServerStatus,
 };
-use kanso_types::SessionId;
 use kanso_types::mcp::{McpAccess, McpAuditFilter};
+use kanso_types::profile::{LocalProfile, Profile, ProfileKind};
 use kanso_types::secret::SecretString;
+use kanso_types::{GridSize, ProfileId, SessionId};
 use serde_json::{Value, json};
 
 const TOKEN: &str = "relay-token";
@@ -220,6 +223,135 @@ fn end_to_end_with_real_server() {
             .iter()
             .any(|record| record.entry.args.contains("name=WEB"))
     );
+}
+
+#[test]
+fn relay_reads_an_authorized_local_pty_and_stops_after_revocation() {
+    let dir = tempfile::tempdir().unwrap();
+    let test_home = normalized_path(dir.path());
+    let marker = "KANSO_RELAY_PTY";
+    let shows_marker = |text: &str| text.lines().any(|line| line.trim() == marker);
+    let mut environment = vec![("HOME".into(), test_home.clone())];
+    if cfg!(windows) {
+        environment.extend(
+            ["SystemRoot", "windir", "ComSpec"]
+                .into_iter()
+                .filter_map(|key| std::env::var(key).ok().map(|value| (key.into(), value))),
+        );
+        environment.push(("USERPROFILE".into(), test_home.clone()));
+    }
+    let bundle = "test.kanso.relay";
+    let core = Arc::new(
+        Core::new_with_base_env(
+            CoreConfig::new(dir.path().join("data"), env!("CARGO_PKG_VERSION"), bundle),
+            Platform::for_tests(Arc::new(CollectingEventSink::new())),
+            environment,
+        )
+        .unwrap(),
+    );
+    let profile = ProfileId::new();
+    core.save_profile(Profile {
+        id: profile,
+        name: "Relay test".into(),
+        color: None,
+        group: None,
+        kind: ProfileKind::Local(LocalProfile {
+            shell_command: if cfg!(windows) {
+                format!(
+                    r#""{}\System32\cmd.exe" /d /q"#,
+                    std::env::var("SystemRoot").unwrap()
+                )
+            } else {
+                "/bin/sh -i".into()
+            },
+            start_dir: Some(test_home.clone()),
+            ..LocalProfile::default()
+        }),
+    })
+    .unwrap();
+    core.set_mcp_enabled(true).unwrap();
+    core.set_mcp_access(profile, McpAccess::ReadOnly).unwrap();
+    let tab = core
+        .open_session(
+            OpenTarget::Profile(profile),
+            GridSize { cols: 80, rows: 24 },
+        )
+        .unwrap();
+    let command = if cfg!(windows) {
+        "echo KANSO_RELAY_PTY\r"
+    } else {
+        "printf '%s%s\\n' KANSO_ RELAY_PTY\r"
+    };
+    core.text_input(tab, command).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let snapshot = core.terminal_text(tab, TextScope::Screen, 4096).unwrap();
+        if shows_marker(&snapshot.content.text) {
+            break;
+        }
+        assert!(Instant::now() < deadline, "{:?}", snapshot.content.text);
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    let endpoint = dir.path().join("mcp");
+    let server = McpServer::new_in_dir(core.clone(), Arc::new(NoopDelegate), endpoint.clone());
+    server
+        .start(McpServerConfig {
+            bundle_id: bundle.into(),
+            token: SecretString::new(TOKEN),
+        })
+        .unwrap();
+    let mut relay = Relay::spawn(&endpoint, TOKEN);
+    relay.ready();
+    let sessions = relay.list_sessions(2, json!({}));
+    assert_eq!(sessions.len(), 1);
+    let tabs = sessions[0]["tabs"].as_array().unwrap();
+    assert_eq!(tabs.len(), 1);
+    let status = &tabs[0];
+    assert_eq!(status["id"], tab.raw());
+    assert_eq!(status["state"], "connected");
+    assert_eq!(status["sender_active"], false);
+    assert!(status["osc133"].is_boolean());
+
+    let mut call = |request, tool| {
+        let response = relay.request(
+            request,
+            "tools/call",
+            json!({
+                "name": tool, "arguments": {"tab": tab.raw()}
+            }),
+        );
+        let result = &response["result"];
+        let text = result["content"][0]["text"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{response}"));
+        (
+            result["isError"] == true,
+            serde_json::from_str::<Value>(text).unwrap(),
+        )
+    };
+    let (error, cwd) = call(3, "kanso_get_cwd");
+    assert!(!error, "{cwd}");
+    assert_eq!(
+        normalized_path(std::path::Path::new(cwd["cwd"].as_str().unwrap())),
+        test_home
+    );
+    let (error, snapshot) = call(4, "kanso_terminal_read");
+    assert!(!error, "{snapshot}");
+    assert!(shows_marker(snapshot["text"].as_str().unwrap()));
+    core.set_mcp_access(profile, McpAccess::Off).unwrap();
+    let (error, denied) = call(5, "kanso_terminal_read");
+    assert!(error, "{denied}");
+    assert_eq!(denied["error"]["code"], "NOT_FOUND");
+    assert!(relay.list_sessions(6, json!({})).is_empty());
+    server.stop();
+    core.shutdown();
+}
+
+fn normalized_path(path: &std::path::Path) -> String {
+    let path = path.canonicalize().unwrap();
+    let path = path.to_str().unwrap();
+    path.strip_prefix(r"\\?\").unwrap_or(path).to_owned()
 }
 
 #[test]
