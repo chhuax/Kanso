@@ -217,20 +217,10 @@ fn paint_grid(
 ) {
     let line_height = px(m.cell_h);
     for bg in &grid.bgs {
-        let rect = if bg.small {
-            let cell_w = m.cell_w * 0.85;
-            let x0 = (f32::from(bg.col) * cell_w).round();
-            let x1 = (f32::from(bg.col + bg.cols) * cell_w).round();
-            let y0 = (f32::from(bg.row) * m.cell_h).round();
-            let y1 = (f32::from(bg.row + 1) * m.cell_h).round();
-            Bounds::new(
-                point(origin.x + px(x0), origin.y + px(y0)),
-                size(px(x1 - x0), px(y1 - y0)),
-            )
-        } else {
-            cell_rect(origin, m, bg.row, bg.col, bg.cols)
-        };
-        window.paint_quad(fill(rect, hsla(bg.color)));
+        window.paint_quad(fill(
+            cell_rect(origin, m, bg.row, bg.col, bg.cols),
+            hsla(bg.color),
+        ));
     }
 
     let stroke = px(1. / window.scale_factor());
@@ -282,32 +272,16 @@ fn paint_grid(
                 color: Some(fg),
             }),
         };
-        let cell_w = if span.small {
-            m.cell_w * 0.85
-        } else {
-            m.cell_w
-        };
-        let force = span.simple.then(|| px(cell_w));
-        let font_size = if span.small {
-            m.font_size * 0.85
-        } else {
-            m.font_size
-        };
+        let force = span.simple.then(|| px(m.cell_w));
         let line = window.text_system().shape_line(
             SharedString::from(span.text.clone()),
-            px(font_size),
+            px(m.font_size),
             &[run],
             force,
         );
-        // 小字在单元格里垂直居中，避免贴着行顶。
-        let nudge = if span.small {
-            (m.cell_h - font_size) * 0.35
-        } else {
-            0.
-        };
         let at = point(
-            origin.x + px((f32::from(span.col) * cell_w).round()),
-            origin.y + px((f32::from(span.row) * m.cell_h).round() + nudge),
+            origin.x + px((f32::from(span.col) * m.cell_w).round()),
+            origin.y + px((f32::from(span.row) * m.cell_h).round()),
         );
         let _ = line.paint(at, line_height, window, cx);
     }

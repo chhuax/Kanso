@@ -33,8 +33,6 @@ pub struct BgRect {
     pub cols: u16,
     /// 颜色。
     pub color: Rgb8,
-    /// 历史提示符行：绘制时按 0.85 倍列宽对齐紧凑小字。
-    pub small: bool,
 }
 
 /// 文字片段。
@@ -62,8 +60,6 @@ pub struct TextSpan {
     pub underline_color: Option<Rgb8>,
     /// 删除线。
     pub strike: bool,
-    /// 历史提示符：按 0.85 倍字号与紧凑步距绘制。
-    pub small: bool,
 }
 
 /// 光标形状。
@@ -236,7 +232,6 @@ struct SpanStyle {
     underline: u16,
     underline_color: Option<Rgb8>,
     strike: bool,
-    small: bool,
 }
 
 struct ResolvedCell {
@@ -324,7 +319,6 @@ fn resolve(
             underline,
             underline_color,
             strike: flags & CELL_STRIKE != 0,
-            small: quiet,
         },
         bg,
     }
@@ -449,8 +443,7 @@ pub fn build_render_grid_for(
                     Some(last)
                         if last.row == row
                             && last.col + last.cols == col
-                            && last.color == resolved.bg
-                            && last.small == quiet =>
+                            && last.color == resolved.bg =>
                     {
                         last.cols += width;
                     }
@@ -459,7 +452,6 @@ pub fn build_render_grid_for(
                         col,
                         cols: width,
                         color: resolved.bg,
-                        small: quiet,
                     }),
                 }
             }
@@ -584,7 +576,6 @@ fn new_span(row: u16, col: u16, cells: u16, text: String, simple: bool, s: SpanS
         underline: s.underline,
         underline_color: s.underline_color,
         strike: s.strike,
-        small: s.small,
     }
 }
 
@@ -595,7 +586,6 @@ fn same_style(span: &TextSpan, s: &SpanStyle) -> bool {
         && span.underline == s.underline
         && span.underline_color == s.underline_color
         && span.strike == s.strike
-        && span.small == s.small
 }
 
 /// 取一行的纯文本（宽字符占位格跳过，空单元格当空格），去掉行尾空白。自检与测试用。
@@ -841,14 +831,12 @@ mod tests {
                     col: 0,
                     cols: 3,
                     color: pal().ansi[4],
-                    small: false,
                 },
                 BgRect {
                     row: 0,
                     col: 3,
                     cols: 1,
                     color: pal().ansi[2],
-                    small: false,
                 },
             ]
         );
@@ -1265,11 +1253,9 @@ mod tests {
             &[block],
         );
         let prompt = g.spans.iter().find(|s| s.text == "~").unwrap();
-        assert!(prompt.small);
         assert!(!prompt.bold);
         assert_eq!(prompt.fg, dark.decorations.gutter_text);
         let selected = g.spans.iter().find(|s| s.text == "m").unwrap();
-        assert!(selected.small);
         assert_eq!(selected.fg, dark.foreground);
         assert_eq!(
             g.bgs,
@@ -1278,11 +1264,9 @@ mod tests {
                 col: 2,
                 cols: 1,
                 color: dark.selection_background,
-                small: true,
             }]
         );
         let command = g.spans.iter().find(|s| s.text == "l").unwrap();
-        assert!(!command.small);
         assert_eq!(command.fg, dark.foreground);
     }
 

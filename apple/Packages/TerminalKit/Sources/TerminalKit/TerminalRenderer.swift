@@ -525,9 +525,6 @@ public final class TerminalRenderer {
             let meta = frame.lineMeta(row: row)
             let rowEmphasized = chipEmphasized(frame: frame, row: row)
             let rowQuiet = historicalPrompt(frame: frame, row: row)
-            // 历史提示符改用 0.85x 的紧凑字面（与时间戳栏同字号、同色），字距同步收紧。
-            let cellStep = rowQuiet ? l.gutterMetrics.cellWidth : m.cellWidth
-            let quietTop = rowY + (m.cellHeight - l.gutterMetrics.cellHeight) / 2
 
             if !altScreen {
                 // 命令分隔线：提示符行上方 1 设备像素，横跨整个视图（包括栏）。同一行只画一条由 core 去重保证。
@@ -544,7 +541,7 @@ public final class TerminalRenderer {
             func flushRun(upTo end: Int) {
                 guard runColor != background, end > runStart else { return }
                 bgInstances.append(rect(
-                    l.originX + runStart * cellStep, rowY, (end - runStart) * cellStep, m.cellHeight,
+                    l.originX + runStart * m.cellWidth, rowY, (end - runStart) * m.cellWidth, m.cellHeight,
                     Self.vec(RGB8(hex: runColor))
                 ))
             }
@@ -609,8 +606,8 @@ public final class TerminalRenderer {
                     runStart = col
                 }
 
-                let x = l.originX + col * cellStep
-                let cellWidthPx = cellStep * span
+                let x = l.originX + col * m.cellWidth
+                let cellWidthPx = m.cellWidth * span
 
                 // ---- 字形 ----
                 if !cell.flags.contains(.hidden), !(rowQuiet && Self.isSpecialSymbol(cell.ch)) {
@@ -619,18 +616,16 @@ public final class TerminalRenderer {
                     let glyphBold = cell.flags.contains(.bold) && !rowQuiet
                         && !(cell.flags.contains(.chip) && !rowEmphasized)
                     let italic = cell.flags.contains(.italic)
-                    let face: GlyphFace = rowQuiet ? .gutter : .terminal
                     if cell.extra != 0, let cluster = frame.grapheme(for: cell) {
-                        entry = atlas.entry(cluster: cluster, bold: glyphBold, italic: italic, wide: wide, face: face)
+                        entry = atlas.entry(cluster: cluster, bold: glyphBold, italic: italic, wide: wide, face: .terminal)
                     } else if cell.ch > 0x20, cell.ch != 0x7F {
-                        entry = atlas.entry(scalar: cell.ch, bold: glyphBold, italic: italic, wide: wide, face: face)
+                        entry = atlas.entry(scalar: cell.ch, bold: glyphBold, italic: italic, wide: wide, face: .terminal)
                     }
                     if let entry {
                         let color = entry.isColor
                             ? SIMD4<Float>(1, 1, 1, (cell.flags.contains(.dim) || rowQuiet) ? 0.6 : 1)
                             : Self.vec(glyphFg)
-                        let glyphY = (rowQuiet ? quietTop : rowY) + Int(entry.offsetY)
-                        addGlyph(entry, x: x + Int(entry.offsetX), y: glyphY, color: color)
+                        addGlyph(entry, x: x + Int(entry.offsetX), y: rowY + Int(entry.offsetY), color: color)
                     }
                 }
 
