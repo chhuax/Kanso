@@ -4,10 +4,10 @@
 
 mod common;
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use common::*;
-use kanso_session::OpenRequest;
+use kanso_session::{OpenRequest, ReadScope};
 use kanso_types::CoreEvent;
 use kanso_types::event::{CloseReason, SessionState};
 use kanso_types::input::PasteContent;
@@ -87,19 +87,22 @@ fn check_powershell_prompt(color_prompt: bool) {
         sees(&dir, Some("feature/example")),
         "切换目录后应上报路径和分支"
     );
-    let mut screen = Screen::new(&session);
     let branch = if color_prompt {
         "\u{e0a0} feature/example"
     } else {
         "[feature/example]>"
     };
-    let shows_branch = |text: &str| text.contains(branch);
-    assert!(
-        screen.wait_for(POWERSHELL_TIMEOUT, shows_branch),
-        "默认提示符应显示分支：{}",
-        screen.text
-    );
-    assert_eq!(screen.text.contains('\u{e0b0}'), color_prompt);
+    // 按逻辑行读屏，长路径导致的软换行不会拆开分支提示符。
+    let deadline = Instant::now() + POWERSHELL_TIMEOUT;
+    let text = loop {
+        let text = session.mcp_read(ReadScope::Screen).text;
+        if text.contains(branch) {
+            break text;
+        }
+        assert!(Instant::now() < deadline, "默认提示符应显示分支：{text}");
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert_eq!(text.contains('\u{e0b0}'), color_prompt);
     fx.mgr.close(id);
 }
 
