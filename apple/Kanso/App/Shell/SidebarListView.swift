@@ -45,7 +45,7 @@ final class SidebarListView: NSView, TabRowHost {
     static let rowSpacing: CGFloat = DesignTokens.Spacing.tabRowGap
     static let headerHeight: CGFloat = 24
     static let horizontalInset: CGFloat = 8
-    static let verticalInset: CGFloat = 4
+    static let verticalInset: CGFloat = DesignTokens.Spacing.tabRowGap / 2
 
     /// 一次完整重建所需的数据。
     struct Section {
@@ -75,6 +75,8 @@ final class SidebarListView: NSView, TabRowHost {
     private var sections: [Section] = []
     /// 每个组内（含该组全部行）的 home 位置，布局时算出。
     private var homeY: [SessionID: CGFloat] = [:]
+    /// 标签行之间的 1px 横向分界线纵坐标，布局时算出。
+    private var dividerYs: [CGFloat] = []
     private let insertionLine = NSView()
 
     // 拖拽状态
@@ -186,20 +188,37 @@ final class SidebarListView: NSView, TabRowHost {
         var rowIter = rowViews.makeIterator()
         var headerIter = headerViews.makeIterator()
         homeY = [:]
+        dividerYs = rowViews.isEmpty ? [] : [0]
         for section in sections {
             if section.showsHeader, let header = headerIter.next() {
                 header.frame = NSRect(x: Self.horizontalInset, y: y, width: width, height: Self.headerHeight)
-                y += Self.headerHeight
+                y += Self.headerHeight + Self.verticalInset
             }
             for _ in section.rows {
                 guard let row = rowIter.next() else { break }
                 row.frame = NSRect(x: Self.horizontalInset, y: y, width: width, height: DesignTokens.Spacing.tabRowHeight)
                 homeY[row.model.item.id] = y
+                dividerYs.append(y + DesignTokens.Spacing.tabRowHeight + Self.rowSpacing / 2)
                 y += DesignTokens.Spacing.tabRowHeight + Self.rowSpacing
             }
         }
-        contentHeight = y + Self.verticalInset
+        contentHeight = y
+        needsDisplay = true
         applyDragOffsets()
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard !dividerYs.isEmpty else { return }
+        NSColor.token(DesignTokens.Color.borderSubtle).setFill()
+        for y in dividerYs {
+            let line = NSRect(x: 0, y: y, width: bounds.width, height: 1)
+            if line.intersects(dirtyRect) { line.fill() }
+        }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
     }
 
     // MARK: - 拖拽排序
@@ -284,7 +303,7 @@ final class SidebarListView: NSView, TabRowHost {
             addSubview(insertionLine, positioned: .above, relativeTo: nil)
         }
         let lineY = insertion <= originalIndex ? slots[insertion] - Self.rowSpacing / 2 : slots[insertion] + rowH + Self.rowSpacing / 2
-        insertionLine.frame = NSRect(x: Self.horizontalInset, y: lineY - 1, width: bounds.width - Self.horizontalInset * 2, height: 2)
+        insertionLine.frame = NSRect(x: Self.horizontalInset, y: max(0, lineY - 1), width: bounds.width - Self.horizontalInset * 2, height: 2)
         insertionLine.layer?.backgroundColor = resolvedCGColor(.token(DesignTokens.Color.accent))
         insertionLine.isHidden = false
     }

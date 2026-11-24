@@ -865,6 +865,12 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "无法启动终端" } }
       }
     },
+    "Disconnected" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Disconnected" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "已断开" } }
+      }
+    },
     "Session ended" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Session ended" } },

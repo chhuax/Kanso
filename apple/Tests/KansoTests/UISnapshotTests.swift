@@ -97,6 +97,7 @@ final class UISnapshotTests: XCTestCase {
     func testFilerConflictLight() throws { try verify(filerConflictCanvas(), .aqua, "filer-conflict-light") }
 
     func testTabRowAgentsDark() throws { try verify(tabRowAgentsCanvas(), .darkAqua, "tab-row-agents-dark") }
+    func testTabRowStatesDark() throws { try verify(tabRowStatesCanvas(), .darkAqua, "tab-row-states-dark") }
 
     // MARK: 画布
 
@@ -153,6 +154,41 @@ final class UISnapshotTests: XCTestCase {
                     row(3, name: "aider", activity: .agentWorking(name: "Aider", iconAsset: nil), selection: .none),
                 ]
             ),
+        ])
+        list.layoutSubtreeIfNeeded()
+        let size = NSSize(width: 240, height: listHeight)
+        list.frame = NSRect(origin: .zero, size: size)
+        return canvas(size: NSSize(width: size.width + 80, height: size.height + 80), content: list, contentSize: size, retaining: list)
+    }
+
+    /// 标签行状态：选中本地（含分支）、SSH 运行中、SSH 空闲、SSH 已断开（暗灰条 + 副标题"已断开"）。
+    private func tabRowStatesCanvas() -> NSView {
+        let rows: [TabRowView.Model] = [
+            TabRowView.Model(
+                item: TabItem(
+                    id: 1, kind: .local, name: "local", cwd: "/data/workspace/iuap-yms-manage",
+                    gitBranch: "onpremise-V3R6_20240712", connection: .connected
+                ),
+                sidebarIndex: 0, selection: .windowActive
+            ),
+            TabRowView.Model(
+                item: TabItem(id: 2, kind: .ssh, name: "jumper-dev", connection: .connected, activity: .commandRunning),
+                sidebarIndex: 1, selection: .none
+            ),
+            TabRowView.Model(
+                item: TabItem(id: 3, kind: .ssh, name: "beijing", connection: .connected),
+                sidebarIndex: 2, selection: .none
+            ),
+            TabRowView.Model(
+                item: TabItem(id: 4, kind: .ssh, name: "生产堡垒机", connection: .closed(reason: nil)),
+                sidebarIndex: 3, selection: .none
+            ),
+        ]
+        let listHeight = SidebarListView.verticalInset * 2
+            + CGFloat(rows.count) * (DesignTokens.Spacing.tabRowHeight + SidebarListView.rowSpacing)
+        let list = SidebarListView(frame: NSRect(x: 0, y: 0, width: 240, height: listHeight))
+        list.update([
+            SidebarListView.Section(pane: PaneID(raw: 1), titleIndex: 1, showsHeader: false, isActivePane: true, rows: rows),
         ])
         list.layoutSubtreeIfNeeded()
         let size = NSSize(width: 240, height: listHeight)
