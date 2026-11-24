@@ -401,12 +401,17 @@ pub fn build_render_grid_for(
             });
             let width: u16 = if wide { 2 } else { 1 };
 
+            let separator = grapheme.is_none() && cell.ch == 0xe0b0;
             let on_cursor = cursor_visible && row == cursor_row && col == cursor_col;
             let resolved = resolve(
                 cell,
                 extra.map_or(0, |e| e.underline_color),
                 palette,
-                guard.as_deref_mut(),
+                if separator {
+                    None
+                } else {
+                    guard.as_deref_mut()
+                },
                 on_cursor && header.cursor_shape == CURSOR_BLOCK,
                 emphasized,
                 quiet,
@@ -473,7 +478,9 @@ pub fn build_render_grid_for(
                 }
             };
             let blank = text == " " && resolved.style.underline == 0 && !resolved.style.strike;
-            let simple = !wide && text.chars().count() == 1;
+            let simple = !wide
+                && text.chars().count() == 1
+                && !matches!(text.as_str(), "\u{e0b0}" | "\u{e0a0}" | "\u{f07b}");
 
             if blank {
                 spans.extend(open.take());

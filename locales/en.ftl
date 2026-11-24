@@ -412,6 +412,8 @@ ui-history-clear-failed = Failed to clear command history: { $detail }
 ui-follow-system = Follow system
 
 ui-language = Language
+ui-powershell-color-prompt = Colorful PowerShell prompt
+ui-powershell-color-prompt-hint = Applies to newly opened PowerShell sessions.
 
 ui-interface-language = Interface language
 
