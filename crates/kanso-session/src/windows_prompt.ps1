@@ -113,3 +113,9 @@ function global:prompt {
     }
     $text
 }
+
+# 将默认目录蓝底改为蓝色粗体字，保留用户自定义的目录样式。
+if ($PSVersionTable.PSVersion -ge [version]'7.2' -and
+    $PSStyle.FileInfo.Directory -ceq "$([char]27)[44;1m") {
+    $PSStyle.FileInfo.Directory = $PSStyle.Foreground.Blue + $PSStyle.Bold
+}
