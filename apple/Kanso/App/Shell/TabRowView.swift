@@ -58,6 +58,7 @@ final class TabRowView: NSView {
         iconView.imageScaling = .scaleProportionallyDown
         titleLabel.lineBreakMode = .byTruncatingHead // 路径最有辨识度的是末尾几段，截断要保留末尾。
         titleLabel.font = .systemFont(ofSize: DesignTokens.Font.uiTabTitle)
+        titleLabel.textColor = .token(DesignTokens.Color.textPrimary)
         subtitleLabel.lineBreakMode = .byTruncatingTail
         subtitleLabel.font = .systemFont(ofSize: DesignTokens.Font.uiTabSubtitle)
         subtitleLabel.textColor = .token(DesignTokens.Color.textSecondary)
@@ -94,9 +95,7 @@ final class TabRowView: NSView {
 
     private func applyModel() {
         titleLabel.stringValue = TabPresentation.primaryTitle(item, homeDirectory: NSHomeDirectory())
-        let dim = isDisconnected || isConnecting
-        titleLabel.textColor = .token(dim ? DesignTokens.Color.textTertiary : DesignTokens.Color.textPrimary)
-        let subtitle = TabPresentation.subtitle(item)
+        let subtitle = isDisconnected ? String(localized: "Disconnected") : TabPresentation.subtitle(item)
         subtitleLabel.stringValue = subtitle ?? ""
         subtitleLabel.isHidden = subtitle == nil || style == .chip
         shortcutLabel.stringValue = TabPresentation.shortcutLabel(sidebarIndex: model.sidebarIndex)
@@ -142,10 +141,11 @@ final class TabRowView: NSView {
     /// MCP 打开标记当前是否显示。
     var showsMcpOpenedMark: Bool { !mcpOpenedMark.isHidden }
 
-    /// 右侧状态标记：命令 / AI 运行中、未读完成、已断开。悬停时让位给快捷键与关闭按钮。
+    /// 右侧状态标记（圆点）：命令 / AI 运行中、未读完成、连接中。已断开改由副标题与左侧暗灰条表达；悬停时让位给快捷键与关闭按钮。
     private var statusMarker: (color: NSColor, hollow: Bool)? {
         if model.mcp?.activityTool != nil { return (.token(DesignTokens.Color.accent), false) }
-        if isDisconnected { return (.token(DesignTokens.Color.statusDisconnected), true) }
+        if isDisconnected { return nil }
+        if isConnecting { return (.token(DesignTokens.Color.statusRunning), true) }
         if item.unreadDone { return (.token(DesignTokens.Color.statusUnreadDone), false) }
         switch item.activity {
         case .commandRunning: return (.token(DesignTokens.Color.statusRunning), false)
@@ -218,9 +218,10 @@ final class TabRowView: NSView {
                 path.fill()
             }
         }
-        // 左侧会话颜色细条。标签条里的标签比侧栏行矮，上下留白相应收窄，否则色条只剩一个点。
+        // 左侧会话颜色细条；已断开时熄灭为暗灰条。标签条里的标签比侧栏行矮，上下留白相应收窄，否则色条只剩一个点。
         let barInset: CGFloat = style == .chip ? 6 : 9
-        SessionColor.color(for: item).setFill()
+        let barColor = isDisconnected ? NSColor.token(DesignTokens.Color.borderStrong) : SessionColor.color(for: item)
+        barColor.setFill()
         NSBezierPath(
             roundedRect: NSRect(x: 4, y: barInset, width: 3, height: max(0, bounds.height - barInset * 2)), xRadius: 1.5, yRadius: 1.5
         ).fill()

@@ -61,9 +61,8 @@ impl ShellView {
             .overflow_y_scroll()
             .flex()
             .flex_col()
-            .gap(px(number("spacing", "tabRow.gap")))
-            .px(px(number("spacing", "tabRow.paddingX")))
-            .py(px(8.0))
+            .border_t_1()
+            .border_color(th.c("border.subtle"))
             .on_scroll_wheel(cx.listener(|this, _, _, cx| this.cancel_tab_reorder(cx)))
             .on_mouse_down(
                 MouseButton::Left,
@@ -104,7 +103,7 @@ impl ShellView {
                 list = list.child(
                     div()
                         .id(("section", pane.0 as usize))
-                        .px(px(8.0))
+                        .px(px(number("spacing", "tabRow.paddingX") + 8.0))
                         .pt(px(8.0))
                         .pb(px(2.0))
                         .text_size(px(number("font", "ui.caption")))
@@ -138,17 +137,24 @@ impl ShellView {
                 let in_active_pane = pane == active_pane;
                 let title =
                     truncate_keep_tail(&TabPresentation::primary_title(item, home), title_cells);
-                list = list.child(self.render_row(
-                    item,
-                    index,
-                    title,
-                    selected,
-                    in_active_pane,
-                    ws.active_tab_in(pane) == Some(item.id),
-                    None,
-                    th,
-                    cx,
-                ));
+                list = list.child(
+                    div()
+                        .px(px(number("spacing", "tabRow.paddingX")))
+                        .py(px(number("spacing", "tabRow.gap") / 2.0))
+                        .border_b_1()
+                        .border_color(th.c("border.subtle"))
+                        .child(self.render_row(
+                            item,
+                            index,
+                            title,
+                            selected,
+                            in_active_pane,
+                            ws.active_tab_in(pane) == Some(item.id),
+                            None,
+                            th,
+                            cx,
+                        )),
+                );
             }
         }
 
@@ -252,10 +258,16 @@ impl ShellView {
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         let sid = item.id;
-        let accent = session_color(item);
+        let closed = matches!(item.connection, TabConnection::Closed(_));
+        let accent = if closed {
+            th.c("border.strong")
+        } else {
+            session_color(item)
+        };
         let subtitle = TabDescriptions::state_line(item)
             .as_ref()
             .map(state_text)
+            .or_else(|| closed.then(|| t(&Message::UiSessionDisconnected {})))
             .or_else(|| TabPresentation::subtitle(item).map(str::to_owned));
         let chip_tooltip = chip.map(|_| {
             let mut lines = vec![title.clone()];
@@ -263,7 +275,6 @@ impl ShellView {
             lines
         });
         let subtitle = if chip.is_some() { None } else { subtitle };
-        let closed = matches!(item.connection, TabConnection::Closed(_));
         let busy = item.activity.is_busy();
         let mcp_mark = self.mcp.read(cx).tab_mark(sid).map(|(active, lines)| {
             let color = th.c(if active { "accent" } else { "text.tertiary" });
@@ -284,11 +295,8 @@ impl ShellView {
         } else {
             (None, false)
         };
-        let title_color = if closed {
-            th.c("text.tertiary")
-        } else {
-            th.c("text.primary")
-        };
+        // 标题始终用主文字色保持清晰，断开状态由左侧暗灰条与副标题表达。
+        let title_color = th.c("text.primary");
         let sub_color = match &item.connection {
             TabConnection::Closed(Some(_)) => th.c("status.warning"),
             _ if item.unread_done => th.c("status.unreadDone"),
@@ -473,7 +481,7 @@ impl ShellView {
         }))
         // 未读完成 / 运行中指示点。
         .children(mcp_mark)
-        .children((item.unread_done || busy).then(|| {
+        .children((!closed && (item.unread_done || busy)).then(|| {
             div()
                 .flex_none()
                 .w(px(6.0))
