@@ -992,7 +992,8 @@ impl KansoHandler {
         description = "List the saved sessions Kanso lets AI tools see (access level is not Off), \
             with their open tabs. Each session has id, name, kind (local/ssh/sftp), host, port, user, \
             group and access (read-only/full). Each tab has id, title, state, opened_by_mcp and \
-            is_client_tab (plus activity, locked and terminal_transfer when known). \
+            is_client_tab (plus activity, locked, terminal_transfer, sender_active and osc133 \
+            when known). \
             is_client_tab marks the tab your own client runs in: terminal writes to it are \
             refused (TAB_SELF), reads are allowed. opened_by_mcp is true for tabs opened by a connected client with kanso_open_tab.",
         annotations(
@@ -1999,6 +2000,8 @@ fn tab_json(
         });
         tab["locked"] = json!(status.locked);
         tab["terminal_transfer"] = json!(status.terminal_transfer);
+        tab["sender_active"] = json!(status.sender_active);
+        tab["osc133"] = json!(status.osc133);
     }
     tab
 }

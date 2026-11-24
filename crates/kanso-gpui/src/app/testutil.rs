@@ -24,6 +24,7 @@ pub(crate) fn ssh_target(host: &str, user: &str) -> SshTarget {
         private_key_path: None,
         jump: None,
         proxy_command: None,
+        keepalive: kanso_types::profile::KeepaliveConfig::default(),
     }
 }
 

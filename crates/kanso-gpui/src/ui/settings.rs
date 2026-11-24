@@ -1358,7 +1358,44 @@ impl Render for SettingsView {
             );
         }
         let cards = match self.page {
-            0 => vec![appearance_card, language_card],
+            0 => {
+                let mut cards = vec![appearance_card, language_card];
+                if cfg!(windows) {
+                    let enabled = self.model.read(cx).store.powershell_color_prompt();
+                    cards.push(card(
+                        &th,
+                        label(Message::UiLocalShell {}),
+                        "square-terminal",
+                        vec![
+                            check_row(
+                                &th,
+                                render_message(&Message::UiPowerShellColorPrompt {}),
+                                checkbox(
+                                    &th,
+                                    cx,
+                                    "powershell-color-prompt",
+                                    enabled,
+                                    |this, on, cx| {
+                                        if let Err(error) = this
+                                            .model
+                                            .read(cx)
+                                            .store
+                                            .set_powershell_color_prompt(on)
+                                        {
+                                            log(&format!(
+                                                "保存 PowerShell 提示符设置失败：{error}"
+                                            ));
+                                        }
+                                        cx.notify();
+                                    },
+                                ),
+                            ),
+                            caption(&th, label(Message::UiPowerShellColorPromptHint {})),
+                        ],
+                    ));
+                }
+                cards
+            }
             1 => vec![
                 font_card,
                 cursor_card,

@@ -398,7 +398,7 @@ final class UISnapshotTests: XCTestCase {
     /// 启动器：3 个会话、2 个分组（Prod / Dev），其中一个未分组。
     private func launcherCanvas() -> NSView {
         func profile(_ id: String, _ name: String, host: String, user: String, port: UInt16, color: FfiRgb?, group: String?) -> FfiProfile {
-            let target = FfiSshTarget(host: host, port: port, user: user, auth: .password, privateKeyPath: nil, jump: nil, proxyCommand: nil)
+            let target = FfiSshTarget(host: host, port: port, user: user, auth: .password, privateKeyPath: nil, jump: nil, proxyCommand: nil, keepalive: .defaultKeepalive)
             return FfiProfile(id: id, name: name, color: color, group: group,
                               kind: .ssh(profile: FfiSshProfile(target: target, encoding: "", locale: nil)))
         }

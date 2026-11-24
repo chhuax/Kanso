@@ -340,6 +340,7 @@ impl Planner<'_> {
                     private_key_path: key,
                     jump: None,
                     proxy_command: None,
+                    keepalive: kanso_types::profile::KeepaliveConfig::default(),
                 },
                 encoding: EncodingLabel::default(),
                 locale: None,

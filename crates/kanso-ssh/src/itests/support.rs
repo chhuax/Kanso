@@ -119,6 +119,7 @@ pub fn params_ep(endpoint: Endpoint, auth: AuthMethod) -> ConnectParams {
         home_dir: None,
         host_keys: Arc::new(MemoryHostKeyStore::new()),
         revoked_keys: None,
+        keepalive: kanso_types::profile::KeepaliveConfig::default(),
     }
 }
 

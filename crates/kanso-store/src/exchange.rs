@@ -222,6 +222,9 @@ struct TargetCfg {
     jump: Option<ProfileId>,
     #[serde(default)]
     proxy_command: Option<String>,
+    /// 保活配置；缺省时用默认值（兼容旧导出文件）。
+    #[serde(default)]
+    keepalive: kanso_types::profile::KeepaliveConfig,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -290,6 +293,7 @@ fn target_to_cfg(t: &SshTarget) -> TargetCfg {
         private_key_path: t.private_key_path.clone(),
         jump: t.jump,
         proxy_command: t.proxy_command.clone(),
+        keepalive: t.keepalive.clone(),
     }
 }
 
@@ -302,6 +306,7 @@ fn cfg_to_target(c: TargetCfg) -> SshTarget {
         private_key_path: c.private_key_path,
         jump: c.jump,
         proxy_command: c.proxy_command,
+        keepalive: c.keepalive,
     }
 }
 

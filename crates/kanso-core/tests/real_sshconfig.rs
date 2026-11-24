@@ -99,6 +99,7 @@ impl Fx {
                     private_key_path: None,
                     jump: None,
                     proxy_command: None,
+                    keepalive: kanso_types::profile::KeepaliveConfig::default(),
                 },
                 encoding: EncodingLabel::new("gbk"),
                 locale: None,
