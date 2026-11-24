@@ -1376,6 +1376,10 @@ impl ShellView {
 
     /// 捕获阶段：命中应用级快捷键就执行并吞掉按键，终端收不到。
     fn on_capture_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self.palette.is_some() {
+            self.palette_key(ev, cx);
+            return;
+        }
         // 浮层（启动器、编辑对话框、提示框）打开时键盘归浮层。
         if self.modal_open() {
             return;
