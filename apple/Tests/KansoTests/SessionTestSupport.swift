@@ -74,9 +74,18 @@ final class MemoryStore: SessionStore, @unchecked Sendable {
     func setCredential(profile: String, kind: FfiSecretKind, secret: String) async throws {}
 }
 
+extension FfiKeepaliveConfig {
+    /// 测试夹具用的默认值，与 core 的 `KeepaliveConfig::default` 一致。
+    static let defaultKeepalive = FfiKeepaliveConfig(
+        enabled: true, intervalSecs: 30, maxMisses: 3,
+        idleEnabled: false, idleIntervalSecs: 3600, idleString: "\\r"
+    )
+}
+
 enum SessionFixtures {
     static func target(host: String = "h", user: String = "u", port: UInt16 = 22) -> FfiSshTarget {
-        FfiSshTarget(host: host, port: port, user: user, auth: .password, privateKeyPath: nil, jump: nil, proxyCommand: nil)
+        FfiSshTarget(host: host, port: port, user: user, auth: .password, privateKeyPath: nil, jump: nil, proxyCommand: nil,
+                     keepalive: .defaultKeepalive)
     }
 
     static func ssh(_ id: String, _ name: String, host: String = "h", user: String = "u", group: String? = nil) -> FfiProfile {

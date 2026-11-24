@@ -31,6 +31,9 @@ pub fn core_error_text(error: &CoreError) -> String {
 // ---- 列表行 ----
 
 /// 启动器列表里的一行（自上而下）。
+// LauncherRow 是渲染期临时构造的列表行，非常驻大数组；Profile 因会话配置增大到 264B，
+// Box 化只会让每次构建列表多做一次堆分配，收益有限，故允许变体尺寸差异。
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum LauncherRow {
     /// 分组标题（未分组的会话没有标题）。
@@ -231,6 +234,9 @@ pub fn editor_error_text(error: &EditorError, render: impl Fn(&Message) -> Strin
         EditorError::NameEmpty => label(Message::UiEnterSessionName {}).to_owned(),
         EditorError::PortInvalid => label(Message::UiPortMustBeNumberFrom {}).to_owned(),
         EditorError::LocaleInvalid => label(Message::UiLocaleMayOnlyContainLetters {}).to_owned(),
+        EditorError::KeepaliveIntervalInvalid | EditorError::KeepaliveMaxMissesInvalid => {
+            label(Message::UiKeepaliveIntervalInvalid {}).to_owned()
+        }
         EditorError::Save(e) => e
             .user_message()
             .map_or_else(|| label(Message::UiSaveFailed {}).to_owned(), render),

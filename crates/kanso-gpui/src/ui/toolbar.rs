@@ -5,8 +5,8 @@ use super::widgets::{
     text_input::{TextInput, TextInputEvent},
 };
 use gpui::{
-    Context, Entity, KeyDownEvent, MouseButton, MouseDownEvent, ScrollHandle, Subscription, Window,
-    div, point, prelude::*, px,
+    Context, Entity, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, ScrollHandle,
+    Subscription, Window, div, point, prelude::*, px,
 };
 use kanso_gpui::app::launcher::{render_message, subtitle_text};
 use kanso_gpui::app::menus::{app_menu, decode};
@@ -188,7 +188,7 @@ pub(super) struct Palette {
     _subscription: Subscription,
     hits: Vec<Hit>,
     visible: Vec<usize>,
-    selected: usize,
+    pub(super) selected: usize,
     scroll: ScrollHandle,
 }
 
@@ -372,7 +372,7 @@ impl ShellView {
         }
     }
 
-    fn palette_key(&mut self, ev: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn palette_key(&mut self, ev: &KeyDownEvent, cx: &mut Context<Self>) {
         let Some(p) = &mut self.palette else { return };
         let modifiers = &ev.keystroke.modifiers;
         if p.input.read(cx).is_composing()
@@ -604,8 +604,15 @@ impl ShellView {
                         .px(px(8.))
                         .rounded(px(5.))
                         .cursor_pointer()
-                        .when(row == p.selected, |s| s.bg(th.c("bg.tabSelected")))
-                        .hover(|s| s.bg(th.c("bg.rowHover")))
+                        .when(row == p.selected, |s| s.bg(th.c("bg.rowHover")))
+                        .on_mouse_move(cx.listener(move |this, _: &MouseMoveEvent, _, cx| {
+                            if let Some(palette) = &mut this.palette
+                                && palette.selected != row
+                            {
+                                palette.selected = row;
+                                cx.notify();
+                            }
+                        }))
                         .on_mouse_down(
                             MouseButton::Left,
                             cx.listener(move |this, _: &MouseDownEvent, w, cx| {
@@ -667,7 +674,6 @@ impl ShellView {
                 .justify_center()
                 .items_start()
                 .occlude()
-                .capture_key_down(cx.listener(Self::palette_key))
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|this, _: &MouseDownEvent, w, cx| this.dismiss_palette(w, cx)),

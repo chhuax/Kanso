@@ -249,6 +249,22 @@ ui-locale = Locale
 
 ui-proxy-command = ProxyCommand
 
+ui-keepalive-enabled = Protocol keepalive
+
+ui-keepalive-interval = Interval (s)
+
+ui-keepalive-max-misses = Misses before disconnect
+
+ui-idle-keepalive = Idle keepalive
+
+ui-idle-interval = Idle interval (s)
+
+ui-idle-string = Idle string
+
+ui-on = On
+
+ui-keepalive-interval-invalid = Keepalive intervals must be numbers from 1 to 86400.
+
 ui-choose = Choose…
 
 ui-cancel = Cancel
@@ -396,6 +412,8 @@ ui-history-clear-failed = Failed to clear command history: { $detail }
 ui-follow-system = Follow system
 
 ui-language = Language
+ui-powershell-color-prompt = Colorful PowerShell prompt
+ui-powershell-color-prompt-hint = Applies to newly opened PowerShell sessions.
 
 ui-interface-language = Interface language
 

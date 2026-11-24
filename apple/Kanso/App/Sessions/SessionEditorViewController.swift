@@ -45,6 +45,12 @@ final class SessionEditorViewController: NSViewController, NSTextFieldDelegate {
     let proxyField = KTextField()
     let encodingPopup = KPopUpField()
     let localeField = KTextField()
+    let keepaliveCheck = KCheckRow(title: String(localized: "Protocol Keepalive"))
+    let keepaliveIntervalField = KTextField()
+    let keepaliveMaxMissesField = KTextField()
+    let idleCheck = KCheckRow(title: String(localized: "Idle Keepalive"))
+    let idleIntervalField = KTextField()
+    let idleStringField = KTextField()
 
     let cancelButton = KButton(title: String(localized: "Cancel"), style: .secondary)
     let saveButton = KButton(title: String(localized: "Save"), symbol: "square.and.arrow.down", style: .secondary)
@@ -112,7 +118,8 @@ final class SessionEditorViewController: NSViewController, NSTextFieldDelegate {
 
     private func buildControls() {
         for field in [nameField, shellField, startDirField, hostField, portField, userField, passwordField,
-                      keyPathField, keyPassphraseField, proxyField, localeField] {
+                      keyPathField, keyPassphraseField, proxyField, localeField,
+                      keepaliveIntervalField, keepaliveMaxMissesField, idleIntervalField, idleStringField] {
             field.textField.delegate = self
         }
         // 占位文字用示例值，不写成说明句（visual-style §3.1）。
@@ -124,6 +131,10 @@ final class SessionEditorViewController: NSViewController, NSTextFieldDelegate {
         keyPathField.placeholder = "~/.ssh/id_ed25519"
         localeField.placeholder = String(localized: "Automatic")
         proxyField.placeholder = "ssh -W %h:%p gateway"
+        keepaliveIntervalField.placeholder = "30"
+        keepaliveMaxMissesField.placeholder = "3"
+        idleIntervalField.placeholder = "3600"
+        idleStringField.placeholder = "\\r"
         // 编辑已保存的会话时，core 不会把密码回传；留空表示保持不变。
         let keepHint = String(localized: "Leave empty to keep the saved value")
         passwordField.placeholder = model.isEditing ? keepHint : ""
@@ -176,6 +187,9 @@ final class SessionEditorViewController: NSViewController, NSTextFieldDelegate {
         colorPalette.setColors(model.colorOptions.compactMap { $0 })
         colorPalette.onSelect = { [weak self] rgb in self?.model.color = rgb }
         colorPalette.toolTip = String(localized: "Click the selected color again to clear it")
+
+        keepaliveCheck.onToggle = { [weak self] on in self?.model.keepaliveEnabled = on }
+        idleCheck.onToggle = { [weak self] on in self?.model.idleEnabled = on }
     }
 
     private func buildCards() {
@@ -225,6 +239,14 @@ final class SessionEditorViewController: NSViewController, NSTextFieldDelegate {
         sshCard.addRow(labeled(.keyPassphrase, String(localized: "Key Passphrase"), keyPassphraseField))
         sshCard.addRow(labeled(.jump, String(localized: "Jump Host"), jumpPopup))
         sshCard.addRow(labeled(.proxyCommand, String(localized: "ProxyCommand"), proxyField))
+        fieldViews[.keepaliveEnabled] = keepaliveCheck
+        sshCard.addRow(keepaliveCheck)
+        sshCard.addRow(pair(labeled(.keepaliveInterval, String(localized: "Interval (s)"), keepaliveIntervalField),
+                            labeled(.keepaliveMaxMisses, String(localized: "Misses"), keepaliveMaxMissesField)))
+        fieldViews[.idleEnabled] = idleCheck
+        sshCard.addRow(idleCheck)
+        sshCard.addRow(pair(labeled(.idleInterval, String(localized: "Idle Interval (s)"), idleIntervalField),
+                            labeled(.idleString, String(localized: "Idle String"), idleStringField)))
 
         encodingRow = pair(labeled(.encoding, String(localized: "Encoding"), encodingPopup),
                            labeled(.locale, String(localized: "Locale"), localeField))
@@ -254,6 +276,12 @@ final class SessionEditorViewController: NSViewController, NSTextFieldDelegate {
         proxyField.stringValue = model.proxyCommand
         encodingPopup.selectItem(at: model.encodingOptions.firstIndex { $0.label == model.encoding } ?? 0)
         localeField.stringValue = model.locale
+        keepaliveCheck.isChecked = model.keepaliveEnabled
+        keepaliveIntervalField.stringValue = model.keepaliveIntervalText
+        keepaliveMaxMissesField.stringValue = model.keepaliveMaxMissesText
+        idleCheck.isChecked = model.idleEnabled
+        idleIntervalField.stringValue = model.idleIntervalText
+        idleStringField.stringValue = model.idleString
     }
 
     private static let authOrder: [FfiAuthMethod] = [.password, .privateKey, .agent]
@@ -273,6 +301,18 @@ final class SessionEditorViewController: NSViewController, NSTextFieldDelegate {
         model.keyPassphrase = keyPassphraseField.stringValue
         model.proxyCommand = proxyField.stringValue
         model.locale = localeField.stringValue
+        model.keepaliveEnabled = keepaliveCheck.isChecked
+        let keepaliveInterval = SessionEditorModel.sanitizedPortText(keepaliveIntervalField.stringValue)
+        if keepaliveInterval != keepaliveIntervalField.stringValue { keepaliveIntervalField.stringValue = keepaliveInterval }
+        model.keepaliveIntervalText = keepaliveInterval
+        let keepaliveMaxMisses = SessionEditorModel.sanitizedPortText(keepaliveMaxMissesField.stringValue)
+        if keepaliveMaxMisses != keepaliveMaxMissesField.stringValue { keepaliveMaxMissesField.stringValue = keepaliveMaxMisses }
+        model.keepaliveMaxMissesText = keepaliveMaxMisses
+        model.idleEnabled = idleCheck.isChecked
+        let idleInterval = SessionEditorModel.sanitizedPortText(idleIntervalField.stringValue)
+        if idleInterval != idleIntervalField.stringValue { idleIntervalField.stringValue = idleInterval }
+        model.idleIntervalText = idleInterval
+        model.idleString = idleStringField.stringValue
     }
 
     func controlTextDidChange(_ obj: Notification) {

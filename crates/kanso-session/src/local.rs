@@ -360,6 +360,7 @@ fn configure_windows_prompt(
     command: &mut CommandSpec,
     platform: PtyPlatform,
     env: &EnvSnapshot,
+    color_prompt: bool,
 ) -> Option<EnvChange> {
     let flavor = local_shell_flavor(platform, &command.program);
     if flavor == ShellFlavor::PowerShell {
@@ -378,9 +379,11 @@ fn configure_windows_prompt(
                 command.args.push("-NoExit".into());
             }
             command.args.push("-Command".into());
+            let color = if color_prompt { "$true" } else { "$false" };
+            let script = include_str!("windows_prompt.ps1").trim();
             command
                 .args
-                .push(include_str!("windows_prompt.ps1").trim().into());
+                .push(format!("$global:__KansoColorPrompt = {color}\n{script}"));
         }
         return None;
     }
@@ -427,6 +430,7 @@ impl LocalSession {
         launch: LocalLaunch,
         size: GridSize,
         cfg: &ManagerConfig,
+        color_prompt: bool,
     ) -> Result<Arc<LocalSession>, StartError> {
         let platform = PtyPlatform::current();
         let base = cfg
@@ -474,7 +478,8 @@ impl LocalSession {
             },
         );
         if cfg.shell_integration
-            && let Some(prompt) = configure_windows_prompt(&mut command, platform, &base)
+            && let Some(prompt) =
+                configure_windows_prompt(&mut command, platform, &base, color_prompt)
         {
             changes.push(prompt);
         }
@@ -1388,21 +1393,25 @@ mod cmd_prompt_tests {
         };
         let base = EnvSnapshot::from_pairs([("Prompt", "$T $P$G")]);
         let (key, value) =
-            configure_windows_prompt(&mut command, PtyPlatform::Windows, &base).unwrap();
+            configure_windows_prompt(&mut command, PtyPlatform::Windows, &base, true).unwrap();
         assert_eq!(key, "Prompt");
         assert_eq!(value.unwrap(), r#"$E]9;9;"$P"$E\$T $P$G"#);
-        assert!(configure_windows_prompt(&mut command, PtyPlatform::Linux, &base).is_none());
+        assert!(configure_windows_prompt(&mut command, PtyPlatform::Linux, &base, true).is_none());
         for arguments in [
             vec!["/C", "echo hello > result"],
             vec!["/cecho"],
             vec!["/K", "custom.cmd"],
         ] {
             command.args = arguments.into_iter().map(str::to_owned).collect();
-            assert!(configure_windows_prompt(&mut command, PtyPlatform::Windows, &base).is_none());
+            assert!(
+                configure_windows_prompt(&mut command, PtyPlatform::Windows, &base, true).is_none()
+            );
         }
         command.program = "powershell.exe".into();
         command.args.clear();
-        assert!(configure_windows_prompt(&mut command, PtyPlatform::Windows, &base).is_none());
+        assert!(
+            configure_windows_prompt(&mut command, PtyPlatform::Windows, &base, true).is_none()
+        );
     }
     #[test]
     fn powershell_wraps_interactive_prompts_only() {
@@ -1418,16 +1427,17 @@ mod cmd_prompt_tests {
                     program: program.into(),
                     args: args.iter().map(|s| s.to_string()).collect(),
                 };
-                configure_windows_prompt(&mut command, PtyPlatform::Windows, &base);
+                configure_windows_prompt(&mut command, PtyPlatform::Windows, &base, true);
                 assert_eq!(command.args, args);
             }
             let mut command = CommandSpec {
                 program: program.into(),
                 args: vec!["-NoProfile".into(), "-NoExit".into()],
             };
-            configure_windows_prompt(&mut command, PtyPlatform::Windows, &base);
+            configure_windows_prompt(&mut command, PtyPlatform::Windows, &base, false);
             assert_eq!(&command.args[..3], &["-NoProfile", "-NoExit", "-Command"]);
             assert_eq!(command.args.len(), 4);
+            assert!(command.args[3].starts_with("$global:__KansoColorPrompt = $false\n"));
         }
     }
 }
