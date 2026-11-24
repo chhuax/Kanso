@@ -88,6 +88,7 @@ fn ssh_profile(name: &str, group: Option<GroupId>) -> Profile {
                 private_key_path: None,
                 jump: None,
                 proxy_command: None,
+                keepalive: kanso_types::profile::KeepaliveConfig::default(),
             },
             encoding: EncodingLabel::default(),
             locale: None,

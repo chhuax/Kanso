@@ -15,8 +15,8 @@ use kanso_types::geometry::Rgb;
 use kanso_types::mcp::McpAccess;
 use kanso_types::message::Message;
 use kanso_types::profile::{
-    AuthMethod, EncodingLabel, Group, LocalProfile, Locale, Profile, ProfileKind, SessionKind,
-    SshProfile, SshTarget,
+    AuthMethod, EncodingLabel, Group, KeepaliveConfig, LocalProfile, Locale, Profile, ProfileKind,
+    SessionKind, SshProfile, SshTarget,
 };
 use kanso_types::secret::SecretString;
 use kanso_types::{GroupId, ProfileId};
@@ -554,6 +554,18 @@ pub enum EditorField {
     Encoding,
     /// Locale。
     Locale,
+    /// 协议层 keepalive 开关。
+    KeepaliveEnabled,
+    /// 协议层 keepalive 间隔。
+    KeepaliveInterval,
+    /// 连续无回应次数。
+    KeepaliveMaxMisses,
+    /// 空闲保活开关。
+    IdleEnabled,
+    /// 空闲保活间隔。
+    IdleInterval,
+    /// 空闲保活字符串。
+    IdleString,
 }
 
 /// 保存失败 / 部分失败的原因（视图用 `CoreError::user_message` 本地化核心错误）。
@@ -565,6 +577,10 @@ pub enum EditorError {
     PortInvalid,
     /// Locale 格式不合法（只允许 ASCII 字母数字和 `_ - . @`，长度 1..=64）。
     LocaleInvalid,
+    /// 保活间隔不是 1–86400 之间的数字。
+    KeepaliveIntervalInvalid,
+    /// 连续无回应次数不是 1–65535 之间的数字。
+    KeepaliveMaxMissesInvalid,
     /// 核心拒绝保存（校验失败等）。
     Save(CoreError),
     /// 会话已保存，但写凭据失败。MCP 授权也可能同时写失败。
@@ -673,12 +689,33 @@ pub struct SessionEditor<S: ProfileStore> {
     /// Locale（可选）。
     pub locale: String,
 
+    /// 是否启用协议层 keepalive。
+    pub keepalive_enabled: bool,
+    /// 协议层 keepalive 间隔输入框文字（秒）。
+    pub keepalive_interval_text: String,
+    /// 连续无回应次数输入框文字。
+    pub keepalive_max_misses_text: String,
+    /// 是否启用空闲保活字符串。
+    pub idle_enabled: bool,
+    /// 空闲保活间隔输入框文字（秒）。
+    pub idle_interval_text: String,
+    /// 空闲时发送的字符串（可含 \r \n \t \\ 转义）。
+    pub idle_string: String,
+
     error: Option<EditorError>,
 }
 
 /// 端口输入过滤：只保留 ASCII 数字，最多 5 位。
 pub fn sanitized_port_text(text: &str) -> String {
     text.chars().filter(char::is_ascii_digit).take(5).collect()
+}
+
+/// 保活间隔（秒）：1..=86400。类型 `u16` 上限 65535，因此实际可填到 65535。
+fn parse_keepalive_secs(text: &str) -> Option<u16> {
+    text.trim()
+        .parse::<u16>()
+        .ok()
+        .filter(|v| (1..=86400).contains(&u32::from(*v)))
 }
 
 impl<S: ProfileStore> SessionEditor<S> {
@@ -697,6 +734,7 @@ impl<S: ProfileStore> SessionEditor<S> {
             .as_ref()
             .filter(|_| options.supports_mcp)
             .map_or(McpAccess::Off, |p| store.mcp_access(p.id));
+        let keepalive = KeepaliveConfig::default();
         let mut e = SessionEditor {
             store,
             profile_id: original.as_ref().map_or_else(ProfileId::new, |p| p.id),
@@ -720,6 +758,12 @@ impl<S: ProfileStore> SessionEditor<S> {
             proxy_command: String::new(),
             encoding: String::new(),
             locale: String::new(),
+            keepalive_enabled: keepalive.enabled,
+            keepalive_interval_text: keepalive.interval_secs.to_string(),
+            keepalive_max_misses_text: keepalive.max_misses.to_string(),
+            idle_enabled: keepalive.idle_enabled,
+            idle_interval_text: keepalive.idle_interval_secs.to_string(),
+            idle_string: keepalive.idle_string,
             error: None,
             original: None,
         };
@@ -765,6 +809,12 @@ impl<S: ProfileStore> SessionEditor<S> {
         self.key_path = t.private_key_path.clone().unwrap_or_default();
         self.jump = t.jump;
         self.proxy_command = t.proxy_command.clone().unwrap_or_default();
+        self.keepalive_enabled = t.keepalive.enabled;
+        self.keepalive_interval_text = t.keepalive.interval_secs.to_string();
+        self.keepalive_max_misses_text = t.keepalive.max_misses.to_string();
+        self.idle_enabled = t.keepalive.idle_enabled;
+        self.idle_interval_text = t.keepalive.idle_interval_secs.to_string();
+        self.idle_string = t.keepalive.idle_string.clone();
     }
 
     /// 是否在编辑已保存的会话。
@@ -850,6 +900,9 @@ impl<S: ProfileStore> SessionEditor<S> {
             KeyPath | KeyPassphrase => self.is_ssh_like() && self.auth == AuthMethod::PrivateKey,
             ProxyCommand => self.is_ssh_like() && self.options.supports_proxy_command,
             Encoding | Locale => self.kind != SessionKind::Sftp,
+            // 协议层三项 SSH / SFTP 都显示；空闲三项只有 SSH（SFTP 没有 shell channel）。
+            KeepaliveEnabled | KeepaliveInterval | KeepaliveMaxMisses => self.is_ssh_like(),
+            IdleEnabled | IdleInterval | IdleString => self.kind == SessionKind::Ssh,
         }
     }
 
@@ -914,6 +967,17 @@ impl<S: ProfileStore> SessionEditor<S> {
         let port = self.port().ok_or(EditorError::PortInvalid)?;
         let key = self.key_path.trim();
         let proxy = self.proxy_command.trim();
+        let keepalive_secs = parse_keepalive_secs(&self.keepalive_interval_text)
+            .ok_or(EditorError::KeepaliveIntervalInvalid)?;
+        let idle_secs = parse_keepalive_secs(&self.idle_interval_text)
+            .ok_or(EditorError::KeepaliveIntervalInvalid)?;
+        let max_misses = self
+            .keepalive_max_misses_text
+            .trim()
+            .parse::<u16>()
+            .ok()
+            .filter(|v| *v >= 1)
+            .ok_or(EditorError::KeepaliveMaxMissesInvalid)?;
         Ok(SshTarget {
             host: self.host.trim().to_owned(),
             port,
@@ -926,6 +990,14 @@ impl<S: ProfileStore> SessionEditor<S> {
             // 非 Direct 渠道没有 ProxyCommand 输入，也不保存它。
             proxy_command: (self.options.supports_proxy_command && !proxy.is_empty())
                 .then(|| proxy.to_owned()),
+            keepalive: KeepaliveConfig {
+                enabled: self.keepalive_enabled,
+                interval_secs: keepalive_secs,
+                max_misses,
+                idle_enabled: self.idle_enabled,
+                idle_interval_secs: idle_secs,
+                idle_string: self.idle_string.clone(),
+            },
         })
     }
 
@@ -1305,6 +1377,46 @@ mod tests {
         let mut mas = mas;
         mas.kind = SessionKind::Ssh;
         assert!(!mas.is_visible(ProxyCommand), "沙盒渠道没有 ProxyCommand");
+    }
+
+    #[test]
+    fn keepalive_fields_visibility_and_roundtrip() {
+        use EditorField::*;
+        let mut e = ssh_editor(&FakeStore::default());
+        assert!(
+            e.is_visible(KeepaliveEnabled)
+                && e.is_visible(KeepaliveInterval)
+                && e.is_visible(KeepaliveMaxMisses)
+        );
+        assert!(
+            e.is_visible(IdleEnabled) && e.is_visible(IdleInterval) && e.is_visible(IdleString)
+        );
+        e.kind = SessionKind::Sftp;
+        assert!(e.is_visible(KeepaliveEnabled), "SFTP 也有 SSH 协议层保活");
+        assert!(!e.is_visible(IdleEnabled), "SFTP 没有 shell channel");
+
+        let mut e = ssh_editor(&FakeStore::default());
+        e.keepalive_enabled = false;
+        e.keepalive_interval_text = "120".into();
+        e.keepalive_max_misses_text = "5".into();
+        e.idle_enabled = true;
+        e.idle_interval_text = "600".into();
+        e.idle_string = r"\n".into();
+        let p = e.assemble().unwrap();
+        let ProfileKind::Ssh(s) = &p.kind else {
+            unreachable!()
+        };
+        assert!(!s.target.keepalive.enabled);
+        assert_eq!(s.target.keepalive.interval_secs, 120);
+        assert_eq!(s.target.keepalive.max_misses, 5);
+        assert!(s.target.keepalive.idle_enabled);
+        assert_eq!(s.target.keepalive.idle_interval_secs, 600);
+        assert_eq!(s.target.keepalive.idle_string, r"\n");
+
+        let e2 = SessionEditor::editing(FakeStore::default(), opts(true), p);
+        assert!(!e2.keepalive_enabled);
+        assert_eq!(e2.keepalive_interval_text, "120");
+        assert_eq!(e2.idle_string, r"\n");
     }
 
     #[test]

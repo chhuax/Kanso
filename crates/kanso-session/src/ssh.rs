@@ -91,6 +91,15 @@ pub trait SshConnector: Send + Sync + 'static {
     ) -> BoxFuture<Result<bool, SshError>>;
 }
 
+/// 空闲保活参数：由 core 从 Profile 解析好（含转义展开）后传给会话层。
+#[derive(Clone, Debug)]
+pub struct IdleKeepalive {
+    /// 网络空闲多久后发送一次。
+    pub interval: Duration,
+    /// 空闲时写进 shell 的字节。
+    pub bytes: Vec<u8>,
+}
+
 /// SSH 会话的启动参数。`Duplicate` 复用源会话的这份参数。
 #[derive(Clone)]
 pub struct SshLaunch {
@@ -107,6 +116,8 @@ pub struct SshLaunch {
     /// 纯 SFTP 会话（ssh.md §7）：连接、认证、跳板与 SSH 会话完全相同，只是不开 shell、不产生终端帧。
     /// 复制会话时随启动参数一起复制，所以"复制 SFTP 会话"得到的仍是 SFTP 会话。
     pub sftp_only: bool,
+    /// 空闲保活（按 session 配置）；`None` 表示不启用。仅终端会话会真正启动定时器。
+    pub idle_keepalive: Option<IdleKeepalive>,
 }
 
 impl SshLaunch {
@@ -126,12 +137,19 @@ impl SshLaunch {
             locale,
             connector,
             sftp_only: false,
+            idle_keepalive: None,
         }
     }
 
     /// 改成纯 SFTP 会话（不开 shell）。
     pub fn sftp_only(mut self) -> SshLaunch {
         self.sftp_only = true;
+        self
+    }
+
+    /// 启用空闲保活：网络空闲达到配置的间隔时，向 shell 写入指定字节。
+    pub fn idle_keepalive(mut self, cfg: IdleKeepalive) -> Self {
+        self.idle_keepalive = Some(cfg);
         self
     }
 }
@@ -144,6 +162,7 @@ impl std::fmt::Debug for SshLaunch {
             .field("encoding", &self.encoding)
             .field("locale", &self.locale)
             .field("sftp_only", &self.sftp_only)
+            .field("idle_keepalive", &self.idle_keepalive)
             .finish_non_exhaustive()
     }
 }
@@ -205,6 +224,8 @@ struct Shared {
     channel: Mutex<Option<ChannelWriter>>,
     /// 主任务与写任务，关闭时 abort。
     tasks: Mutex<Vec<AbortHandle>>,
+    /// 最近一次活动（用户输入或远端输出）的毫秒时间戳；空闲保活定时器据此判断。
+    last_activity: AtomicU64,
 }
 
 impl Shared {
@@ -247,6 +268,9 @@ impl Shared {
         if bytes.is_empty() {
             return;
         }
+        // 有字节要写说明有活动（用户输入或终端回应），空闲计时重新开始。
+        self.last_activity
+            .store(unix_ms() as u64, Ordering::Release);
         if let Some(tx) = lock(&self.write_tx).as_ref() {
             // 写任务已退出时 `send` 返回 Err，说明会话已经结束，丢弃即可。
             let _ = tx.send(WriteCmd::Data(bytes));
@@ -436,6 +460,7 @@ impl SshSession {
             sftp: Mutex::new(None),
             channel: Mutex::new(None),
             tasks: Mutex::new(Vec::new()),
+            last_activity: AtomicU64::new(unix_ms() as u64),
         });
         // 共享来源的连接在这里就已确定：同步记下 id，不等主任务被调度，
         // 这样"开了就立刻关"的标签也能被 core 认出用的是哪条连接。
@@ -1100,6 +1125,46 @@ async fn run(shared: Arc<Shared>, launch: SshLaunch, source: Source) {
     let writer_task = tokio::spawn(write_loop(Arc::clone(&shared), writer.clone(), rx));
     lock(&shared.tasks).push(writer_task.abort_handle());
 
+    // 空闲保活：每最小粒度 tick 检查一次，达到配置的空闲间隔就往 shell 写保活字节。
+    // 定时器持有 write_tx 的克隆，句柄放进 shared.tasks，会话关闭时随之 abort。
+    // 纯 SFTP 分支已经在上面 return（没有 shell channel），即便配置了也不会走到这里。
+    if let Some(idle) = &launch.idle_keepalive {
+        shared
+            .last_activity
+            .store(unix_ms() as u64, Ordering::Release);
+        let tx = lock(&shared.write_tx)
+            .as_ref()
+            .cloned()
+            .expect("write_tx 已在上面安装");
+        let bytes = idle.bytes.clone();
+        let interval_ms = idle.interval.as_millis() as u64;
+        let tick = idle.interval.min(Duration::from_secs(1));
+        let timer_shared = Arc::clone(&shared);
+        let timer_task = tokio::spawn(async move {
+            let mut timer = tokio::time::interval(tick);
+            timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                timer.tick().await;
+                if timer_shared.ended.load(Ordering::Acquire)
+                    || timer_shared.user_closing.load(Ordering::Acquire)
+                {
+                    break;
+                }
+                let now = unix_ms() as u64;
+                if now.saturating_sub(timer_shared.last_activity.load(Ordering::Acquire))
+                    >= interval_ms
+                {
+                    // 先刷新时间戳：保活字节的远端回显也是输出，不能让它触发连发。
+                    timer_shared.last_activity.store(now, Ordering::Release);
+                    if tx.send(WriteCmd::Data(bytes.clone())).is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+        lock(&shared.tasks).push(timer_task.abort_handle());
+    }
+
     if !shared.set_connected() {
         shared.release();
         return;
@@ -1285,6 +1350,10 @@ async fn read_loop(shared: &Arc<Shared>, reader: &mut kanso_ssh::ChannelReader) 
         if shared.user_closing.load(Ordering::Acquire) {
             continue;
         }
+        // 远端有输出也算活动：空闲保活不应打断正在工作的会话。
+        shared
+            .last_activity
+            .store(unix_ms() as u64, Ordering::Release);
         shared.transfer.feed(&chunk);
     }
 }

@@ -230,7 +230,7 @@ final class CoreFFITests: XCTestCase {
             kind: .ssh(profile: FfiSshProfile(
                 target: FfiSshTarget(
                     host: "", port: 22, user: "root", auth: .password,
-                    privateKeyPath: nil, jump: nil, proxyCommand: nil
+                    privateKeyPath: nil, jump: nil, proxyCommand: nil, keepalive: .defaultKeepalive
                 ),
                 encoding: "", locale: nil
             ))

@@ -69,6 +69,10 @@ enum Text {
     KeyPassphrase,
     Proxy,
     Locale,
+    KeepaliveInterval,
+    KeepaliveMaxMisses,
+    IdleInterval,
+    IdleString,
 }
 
 /// 一个下拉字段。
@@ -81,6 +85,8 @@ enum Pick {
     Auth,
     Jump,
     Encoding,
+    KeepaliveEnabled,
+    IdleEnabled,
 }
 
 /// Tab 环上的一站（字段，不含按钮）。
@@ -107,6 +113,8 @@ enum Row {
     Jump,
     Proxy,
     EncodingLocale,
+    Keepalive,
+    Idle,
 }
 
 fn row_of(stop: Stop) -> Row {
@@ -125,6 +133,11 @@ fn row_of(stop: Stop) -> Row {
         Stop::Pick(Pick::Jump) => Row::Jump,
         Stop::Text(Text::Proxy) => Row::Proxy,
         Stop::Pick(Pick::Encoding) | Stop::Text(Text::Locale) => Row::EncodingLocale,
+        Stop::Pick(Pick::KeepaliveEnabled)
+        | Stop::Text(Text::KeepaliveInterval | Text::KeepaliveMaxMisses) => Row::Keepalive,
+        Stop::Pick(Pick::IdleEnabled) | Stop::Text(Text::IdleInterval | Text::IdleString) => {
+            Row::Idle
+        }
     }
 }
 
@@ -165,6 +178,10 @@ pub(crate) struct SessionEditorView {
     key_passphrase: Entity<TextInput>,
     proxy: Entity<TextInput>,
     locale: Entity<TextInput>,
+    keepalive_interval: Entity<TextInput>,
+    keepalive_max_misses: Entity<TextInput>,
+    idle_interval: Entity<TextInput>,
+    idle_string: Entity<TextInput>,
     kind: FocusHandle,
     shell_pick: Entity<Dropdown>,
     shell_commands: Vec<String>,
@@ -174,6 +191,8 @@ pub(crate) struct SessionEditorView {
     auth: Entity<Dropdown>,
     jump: Entity<Dropdown>,
     encoding: Entity<Dropdown>,
+    keepalive_enabled: Entity<Dropdown>,
+    idle_enabled: Entity<Dropdown>,
 
     buttons: [FocusHandle; 3],
     root: FocusHandle,
@@ -195,7 +214,7 @@ fn appearance(window: &Window) -> Appearance {
     super::display::window_appearance(window)
 }
 
-const ALL_FIELDS: [EditorField; 18] = [
+const ALL_FIELDS: [EditorField; 24] = [
     EditorField::Name,
     EditorField::Kind,
     EditorField::Color,
@@ -214,6 +233,12 @@ const ALL_FIELDS: [EditorField; 18] = [
     EditorField::ProxyCommand,
     EditorField::Encoding,
     EditorField::Locale,
+    EditorField::KeepaliveEnabled,
+    EditorField::KeepaliveInterval,
+    EditorField::KeepaliveMaxMisses,
+    EditorField::IdleEnabled,
+    EditorField::IdleInterval,
+    EditorField::IdleString,
 ];
 
 impl SessionEditorView {
@@ -331,6 +356,38 @@ impl SessionEditorView {
             Text::Locale,
             &model.locale,
             &render_message(&Message::UiAutomatic {}),
+            false,
+            window,
+            cx,
+        );
+        let keepalive_interval = text(
+            Text::KeepaliveInterval,
+            &model.keepalive_interval_text,
+            "30",
+            false,
+            window,
+            cx,
+        );
+        let keepalive_max_misses = text(
+            Text::KeepaliveMaxMisses,
+            &model.keepalive_max_misses_text,
+            "3",
+            false,
+            window,
+            cx,
+        );
+        let idle_interval = text(
+            Text::IdleInterval,
+            &model.idle_interval_text,
+            "3600",
+            false,
+            window,
+            cx,
+        );
+        let idle_string = text(
+            Text::IdleString,
+            &model.idle_string,
+            "\\r",
             false,
             window,
             cx,
@@ -466,6 +523,26 @@ impl SessionEditorView {
             window,
             cx,
         );
+        let on_off = || {
+            vec![
+                Item::option(label(Message::UiOn {})),
+                Item::option(label(Message::UiOff {})),
+            ]
+        };
+        let keepalive_enabled = dropdown(
+            Pick::KeepaliveEnabled,
+            on_off(),
+            usize::from(!model.keepalive_enabled),
+            window,
+            cx,
+        );
+        let idle_enabled = dropdown(
+            Pick::IdleEnabled,
+            on_off(),
+            usize::from(!model.idle_enabled),
+            window,
+            cx,
+        );
 
         let color = model.color;
         let color_options = model.color_options();
@@ -493,6 +570,10 @@ impl SessionEditorView {
             key_passphrase,
             proxy,
             locale,
+            keepalive_interval,
+            keepalive_max_misses,
+            idle_interval,
+            idle_string,
             kind,
             shell_pick,
             shell_commands,
@@ -502,6 +583,8 @@ impl SessionEditorView {
             auth,
             jump,
             encoding,
+            keepalive_enabled,
+            idle_enabled,
             buttons: [cx.focus_handle(), cx.focus_handle(), cx.focus_handle()],
             root: cx.focus_handle(),
             scroll: ScrollHandle::new(),
@@ -580,6 +663,32 @@ impl SessionEditorView {
             Text::KeyPassphrase => m.key_passphrase = v,
             Text::Proxy => m.proxy_command = v,
             Text::Locale => m.locale = v,
+            Text::KeepaliveInterval | Text::KeepaliveMaxMisses | Text::IdleInterval => {
+                let clean = kanso_gpui::app::sessions::sanitized_port_text(&v);
+                if clean != v {
+                    // 保活间隔只接受数字：过滤后写回输入框（再触发一次 Change，到时 clean == v）。
+                    match field {
+                        Text::KeepaliveInterval => self
+                            .keepalive_interval
+                            .update(cx, |t, cx| t.set_text(&clean, cx)),
+                        Text::KeepaliveMaxMisses => self
+                            .keepalive_max_misses
+                            .update(cx, |t, cx| t.set_text(&clean, cx)),
+                        Text::IdleInterval => self
+                            .idle_interval
+                            .update(cx, |t, cx| t.set_text(&clean, cx)),
+                        _ => unreachable!(),
+                    }
+                    return;
+                }
+                match field {
+                    Text::KeepaliveInterval => m.keepalive_interval_text = v,
+                    Text::KeepaliveMaxMisses => m.keepalive_max_misses_text = v,
+                    Text::IdleInterval => m.idle_interval_text = v,
+                    _ => unreachable!(),
+                }
+            }
+            Text::IdleString => m.idle_string = v,
         }
         if field == Text::Proxy {
             self.sync_exclusive(cx);
@@ -621,6 +730,8 @@ impl SessionEditorView {
                     m.encoding = e.label.clone();
                 }
             }
+            Pick::KeepaliveEnabled => m.keepalive_enabled = index == 0,
+            Pick::IdleEnabled => m.idle_enabled = index == 0,
         }
         self.refresh_visible();
         if pick == Pick::Jump {
@@ -780,6 +891,10 @@ impl SessionEditorView {
             Text::KeyPassphrase => &self.key_passphrase,
             Text::Proxy => &self.proxy,
             Text::Locale => &self.locale,
+            Text::KeepaliveInterval => &self.keepalive_interval,
+            Text::KeepaliveMaxMisses => &self.keepalive_max_misses,
+            Text::IdleInterval => &self.idle_interval,
+            Text::IdleString => &self.idle_string,
         }
     }
 
@@ -792,6 +907,8 @@ impl SessionEditorView {
             Pick::Auth => &self.auth,
             Pick::Jump => &self.jump,
             Pick::Encoding => &self.encoding,
+            Pick::KeepaliveEnabled => &self.keepalive_enabled,
+            Pick::IdleEnabled => &self.idle_enabled,
         }
     }
 
@@ -817,6 +934,12 @@ impl SessionEditorView {
             (F::ProxyCommand, Stop::Text(Text::Proxy)),
             (F::Encoding, Stop::Pick(Pick::Encoding)),
             (F::Locale, Stop::Text(Text::Locale)),
+            (F::KeepaliveEnabled, Stop::Pick(Pick::KeepaliveEnabled)),
+            (F::KeepaliveInterval, Stop::Text(Text::KeepaliveInterval)),
+            (F::KeepaliveMaxMisses, Stop::Text(Text::KeepaliveMaxMisses)),
+            (F::IdleEnabled, Stop::Pick(Pick::IdleEnabled)),
+            (F::IdleInterval, Stop::Text(Text::IdleInterval)),
+            (F::IdleString, Stop::Text(Text::IdleString)),
         ];
         v.retain(|(f, _)| self.vis(*f));
         v.into_iter().map(|(_, s)| s).collect()
@@ -870,6 +993,8 @@ impl SessionEditorView {
             Pick::Auth,
             Pick::Jump,
             Pick::Encoding,
+            Pick::KeepaliveEnabled,
+            Pick::IdleEnabled,
         ]
         .into_iter()
         .any(|p| self.pick_entity(p).read(cx).is_open())
@@ -1350,6 +1475,56 @@ impl Render for SessionEditorView {
                     self.field(th, &tr(Message::UiLocale {}), self.locale.clone()),
                 )
                 .into_any_element(),
+            ));
+        }
+        if self.vis(F::KeepaliveEnabled) {
+            rows.push((
+                Row::Keepalive,
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(12.0))
+                    .child(self.field(
+                        th,
+                        &tr(Message::UiKeepaliveEnabled {}),
+                        self.keepalive_enabled.clone(),
+                    ))
+                    .child(pair(
+                        self.field(
+                            th,
+                            &tr(Message::UiKeepaliveInterval {}),
+                            self.keepalive_interval.clone(),
+                        ),
+                        self.field(
+                            th,
+                            &tr(Message::UiKeepaliveMaxMisses {}),
+                            self.keepalive_max_misses.clone(),
+                        ),
+                    ))
+                    .into_any_element(),
+            ));
+        }
+        if self.vis(F::IdleEnabled) {
+            rows.push((
+                Row::Idle,
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(12.0))
+                    .child(self.field(
+                        th,
+                        &tr(Message::UiIdleKeepalive {}),
+                        self.idle_enabled.clone(),
+                    ))
+                    .child(pair(
+                        self.field(
+                            th,
+                            &tr(Message::UiIdleInterval {}),
+                            self.idle_interval.clone(),
+                        ),
+                        self.field(th, &tr(Message::UiIdleString {}), self.idle_string.clone()),
+                    ))
+                    .into_any_element(),
             ));
         }
         self.rows.clear();
