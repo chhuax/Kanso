@@ -280,7 +280,8 @@ fn relay_reads_an_authorized_local_pty_and_stops_after_revocation() {
     let command = if cfg!(windows) {
         "echo KANSO_RELAY_PTY\r"
     } else {
-        "printf '%s%s\\n' KANSO_ RELAY_PTY\r"
+        // 先输出换行，避免命令早于 `/bin/sh -i` 首个 `$ ` 提示符到达时标记与提示符拼在同一行。
+        "printf '\\n%s%s\\n' KANSO_ RELAY_PTY\r"
     };
     core.text_input(tab, command).unwrap();
     let deadline = Instant::now() + Duration::from_secs(10);
