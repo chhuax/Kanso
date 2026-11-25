@@ -674,6 +674,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     @objc func kansoOpenLauncher(_ sender: Any?) {
         guard tabBarPosition == .top else {
+            if sidebarItem.isCollapsed {
+                sidebarItem.isCollapsed = false
+                sidebarButton.toolTip = String(localized: "Hide Tab Bar")
+            }
             (sidebarItem.viewController as? TabSidebarViewController)?.showSessionLauncher()
             return
         }
