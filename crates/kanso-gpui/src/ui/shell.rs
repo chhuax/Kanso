@@ -27,9 +27,9 @@ use std::time::{Duration, Instant};
 use futures::StreamExt as _;
 use futures::channel::mpsc::UnboundedReceiver;
 use gpui::{
-    ClipboardItem, Context, CursorStyle, Entity, Hsla, KeyDownEvent, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, Pixels, Render, SharedString, Subscription, Window, WindowHandle,
-    div, prelude::*, px, rgba,
+    App, ClipboardItem, Context, CursorStyle, Entity, Hsla, KeyDownEvent, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Render, SharedString, Subscription,
+    Window, WindowHandle, div, prelude::*, px, rgba,
 };
 use kanso_core::Core;
 use kanso_gpui::app::blocks::BlockPart;
@@ -1132,17 +1132,30 @@ impl ShellView {
     fn request_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.save_frame(window);
         if !self.confirm_quit_if_needed(window, cx) {
-            cx.quit();
+            self.quit(cx);
         }
+    }
+
+    fn close_audit_window(&self, cx: &mut App) {
+        let handle = self.mcp.update(cx, |model, _| model.audit_window.take());
+        if let Some(handle) = handle {
+            let _ = handle.update(cx, |_, window, _| window.remove_window());
+        }
+    }
+
+    fn quit(&self, cx: &mut App) {
+        self.close_audit_window(cx);
+        cx.quit();
     }
 
     /// 点窗口关闭按钮：返回 `true` 表示可以直接关闭，`false` 表示已弹出确认框（或确认框已在）。
     fn window_close_requested(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         self.save_frame(window);
-        if self.dialog.is_some() {
+        if self.dialog.is_some() || self.confirm_quit_if_needed(window, cx) {
             return false;
         }
-        !self.confirm_quit_if_needed(window, cx)
+        self.close_audit_window(cx);
+        true
     }
 
     /// 需要确认时弹出退出确认框并返回 `true`。
@@ -1277,7 +1290,7 @@ impl ShellView {
         }
         log(&format!("关闭确认结果：确认={confirmed} {}", r.log_line()));
         match pending {
-            Some(req) if confirmed && req.quit => cx.quit(),
+            Some(req) if confirmed && req.quit => self.quit(cx),
             Some(req) if confirmed => self.close_now(&req.sessions, window, cx),
             _ => {
                 self.sync_focus(window, cx);

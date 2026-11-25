@@ -3,9 +3,9 @@
 use std::collections::HashMap;
 
 use gpui::{
-    AnyElement, App, Bounds, Context, ElementId, FocusHandle, FontWeight, KeyDownEvent, Render,
-    ScrollHandle, SharedString, Subscription, TitlebarOptions, Window, WindowBounds, WindowOptions,
-    div, point, prelude::*, px, size,
+    AnyElement, AnyWindowHandle, App, Bounds, Context, ElementId, FocusHandle, FontWeight,
+    KeyDownEvent, Render, ScrollHandle, SharedString, Subscription, TitlebarOptions, Window,
+    WindowBounds, WindowOptions, div, point, prelude::*, px, size,
 };
 use kanso_gpui::app::i18n::{Lang, label, lang};
 use kanso_gpui::app::launcher::render_message;
@@ -75,12 +75,26 @@ pub(in crate::ui) struct AuditView {
     expanded: Option<i64>,
     confirm_clear: bool,
     language: Lang,
-    appearance: Option<Appearance>,
+    appearance: Appearance,
     _subs: Vec<Subscription>,
 }
 
 impl AuditView {
     fn new(model: gpui::Entity<McpModel>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        display::apply_titlebar(window);
+        let appearance = display::window_appearance(window);
+        let window_id = window.window_handle().window_id();
+        cx.on_release(move |this, cx| {
+            this.model.update(cx, |model, _| {
+                if model
+                    .audit_window
+                    .is_some_and(|handle| AnyWindowHandle::from(handle).window_id() == window_id)
+                {
+                    model.audit_window = None;
+                }
+            });
+        })
+        .detach();
         let focus = cx.focus_handle();
         window.focus(&focus);
         let audit_client = cx.new(|cx| TextInput::new(window, cx));
@@ -138,7 +152,7 @@ impl AuditView {
             expanded: None,
             confirm_clear: false,
             language: lang(),
-            appearance: None,
+            appearance,
             _subs: subs,
         };
         view.sync_profiles(cx);
@@ -381,9 +395,9 @@ impl AuditView {
 impl Render for AuditView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let appearance = display::window_appearance(window);
-        if self.appearance != Some(appearance) {
+        if self.appearance != appearance {
             display::apply_titlebar(window);
-            self.appearance = Some(appearance);
+            self.appearance = appearance;
         }
         if self.language != lang() {
             self.language = lang();
