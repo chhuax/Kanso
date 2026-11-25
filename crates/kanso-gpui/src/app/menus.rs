@@ -39,6 +39,7 @@ pub fn encode(command: AppCommand) -> String {
         }
         AppCommand::RenameTab(s) => format!("rename-tab:{}", s.raw()),
         AppCommand::EditSession(s) => format!("edit-session:{}", s.raw()),
+        AppCommand::CopyMcpTab(s) => format!("copy-mcp-tab:{}", s.raw()),
         AppCommand::ToggleRightClickMenu => "toggle-right-click-menu".into(),
         AppCommand::ToggleCopyOnSelect => "toggle-copy-on-select".into(),
         AppCommand::Quit => "quit".into(),
@@ -113,6 +114,9 @@ pub fn decode(id: &str) -> Option<AppCommand> {
     }
     if let Some(rest) = id.strip_prefix("edit-session:") {
         return session(rest).map(AppCommand::EditSession);
+    }
+    if let Some(rest) = id.strip_prefix("copy-mcp-tab:") {
+        return session(rest).map(AppCommand::CopyMcpTab);
     }
     if let Some(rest) = id.strip_prefix("close-group:") {
         let (scope, sid) = rest.split_once(':')?;
@@ -230,6 +234,8 @@ pub struct TabMenuContext {
     pub session: SessionId,
     /// 标签来自已保存的会话（才显示“编辑会话”）。
     pub from_profile: bool,
+    /// MCP 服务正在运行且标签所属会话已授权。
+    pub mcp_addressable: bool,
     /// 同组里是否有可关闭的“其他”标签。
     pub has_others: bool,
     /// 同组里它上方（菜单叫左侧）是否有标签。
@@ -254,6 +260,12 @@ pub fn tab_menu(ctx: TabMenuContext) -> Vec<MenuItem> {
         items.push(MenuItem::action(
             encode(AppCommand::EditSession(s)),
             label(Message::UiEditSession2 {}),
+        ));
+    }
+    if ctx.mcp_addressable {
+        items.push(MenuItem::action(
+            encode(AppCommand::CopyMcpTab(s)),
+            label(Message::WinMcpCopyTab {}),
         ));
     }
     items.push(MenuItem::separator());
@@ -584,6 +596,7 @@ mod tests {
         let ctx = TabMenuContext {
             session: sid(1),
             from_profile: true,
+            mcp_addressable: true,
             has_others: true,
             has_above: true,
             has_below: true,
@@ -657,6 +670,7 @@ mod tests {
         let base = TabMenuContext {
             session: sid(5),
             from_profile: false,
+            mcp_addressable: false,
             has_others: false,
             has_above: false,
             has_below: false,
@@ -664,6 +678,7 @@ mod tests {
         let a = all(&tab_menu(base));
         // 没有已保存会话：不出现“编辑”，但始终有“重命名”。
         assert!(!a.iter().any(|x| x.0.starts_with("edit-session")));
+        assert!(!a.iter().any(|x| x.0.starts_with("copy-mcp-tab")));
         let enabled = |id: &str| a.iter().find(|x| x.0 == id).map(|x| x.1);
         assert_eq!(enabled("rename-tab:5"), Some(true));
         assert_eq!(enabled("close-tab:5"), Some(true));
@@ -675,11 +690,13 @@ mod tests {
 
         let b = all(&tab_menu(TabMenuContext {
             from_profile: true,
+            mcp_addressable: true,
             has_others: true,
             has_below: true,
             ..base
         }));
         assert!(b.iter().any(|x| x.0 == "edit-session:5"));
+        assert!(b.iter().any(|x| x.0 == "copy-mcp-tab:5"));
         let enabled = |id: &str| b.iter().find(|x| x.0 == id).map(|x| x.1);
         assert_eq!(enabled("close-group:others:5"), Some(true));
         assert_eq!(enabled("close-group:above:5"), Some(false));

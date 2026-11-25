@@ -272,12 +272,6 @@ impl ShellView {
             .map(state_text)
             .or_else(|| closed.then(|| t(&Message::UiSessionDisconnected {})))
             .or_else(|| TabPresentation::subtitle(item, self.ctl.home_dir()));
-        let chip_tooltip = chip.map(|_| {
-            let mut lines = vec![title.clone()];
-            lines.extend(subtitle.clone());
-            lines
-        });
-        let subtitle = if chip.is_some() { None } else { subtitle };
         let busy = item.activity.is_busy();
         let mcp_mark = self.mcp.read(cx).tab_mark(sid).map(|(active, lines)| {
             let color = th.c(if active { "accent" } else { "text.tertiary" });
@@ -307,6 +301,25 @@ impl ShellView {
             _ => th.c("text.secondary"),
         };
         let (_, has_digit) = TabPresentation::shortcut_digit(index);
+        let mcp_addressable = item
+            .profile
+            .is_some_and(|profile| self.mcp.read(cx).can_address_tab(profile));
+        let row_tooltip = (chip.is_some() || mcp_addressable || has_digit).then(|| {
+            let mut lines = vec![title.clone()];
+            if chip.is_some() {
+                lines.extend(subtitle.clone());
+            }
+            if mcp_addressable {
+                lines.push(t(&Message::WinMcpTabId {
+                    id: format!("tab={}", sid.raw()),
+                }));
+            }
+            if has_digit {
+                lines.push(format!("Alt+{}", index + 1));
+            }
+            lines
+        });
+        let subtitle = if chip.is_some() { None } else { subtitle };
 
         let rect = std::rc::Rc::new(std::cell::Cell::new(gpui::Bounds::<gpui::Pixels>::default()));
         let measured = rect.clone();
@@ -339,7 +352,7 @@ impl ShellView {
                 number("spacing", "tabRow.height")
             }))
             .when_some(chip, |row, w| row.w(px(w)))
-            .when_some(chip_tooltip, |row, lines| {
+            .when_some(row_tooltip, |row, lines| {
                 row.tooltip(move |_, cx| {
                     let lines = lines.clone();
                     cx.new(|_| super::status_bar::LinesTooltip { lines, th })

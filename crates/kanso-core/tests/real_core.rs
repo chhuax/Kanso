@@ -1089,8 +1089,8 @@ fn terminal_text_screen_and_recent_soft_wrap_trailing_spaces_and_wide_chars() {
     assert!(lines.contains(&"中文"), "{lines:?}");
     // 光标在最后一行（提示符）的 "K> " 之后。光标行是**屏幕坐标**：软换行的那一行占两个屏幕行，
     // 所以比逻辑行数组的下标大 1。
-    assert_eq!(usize::from(text.cursor_row), lines.len());
-    assert_eq!(text.cursor_col, 3);
+    assert_eq!(usize::from(text.cursor.unwrap().0), lines.len());
+    assert_eq!(text.cursor.unwrap().1, 3);
 }
 
 #[test]
@@ -1268,6 +1268,10 @@ fn mcp_run_is_rejected_when_the_user_has_typed_on_the_prompt_until_ctrl_c() {
     let rt = mcp_rt();
     fx.core.text_input(id, "abc").unwrap();
     fx.wait_screen(id, "K> abc");
+    assert_eq!(
+        fx.core.mcp_session_status(id).unwrap().run_blocker,
+        Some(TerminalBusy::InputNotEmpty)
+    );
     assert_eq!(
         rt.block_on(fx.core.mcp_terminal_run(id, "echo x", limits(1000)))
             .unwrap(),
@@ -1460,7 +1464,7 @@ fn mcp_send_text_and_enter_run_a_command_and_settle_returns_the_screen() {
     let lines: Vec<&str> = screen.content.text.lines().collect();
     // 回显的命令行、输出、新的提示符。
     assert_eq!(lines, vec!["K> echo SEND_MARK", "SEND_MARK", "K>"]);
-    assert_eq!(screen.cursor_col, 3);
+    assert_eq!(screen.cursor.unwrap().1, 3);
     // 没有请求等待时不带屏幕。
     let out = rt
         .block_on(

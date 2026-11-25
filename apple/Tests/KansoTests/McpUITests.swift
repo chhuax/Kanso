@@ -509,7 +509,8 @@ final class McpUITests: XCTestCase {
     func testAuditHeadPartsOmitEmptyTool() {
         let record = FfiMcpAuditRecord(
             id: 1, atMs: 1_700_000_000_000, client: "", mcpSession: "s", tool: "",
-            profileId: nil, sessionId: nil, args: "", errorCode: nil, durationMs: 1, bytes: 0
+            profileId: nil, sessionId: nil, args: "", input: nil, dispatch: nil,
+            errorCode: nil, durationMs: 1, bytes: 0
         )
         XCTAssertEqual(
             McpText.auditHeadParts(record),

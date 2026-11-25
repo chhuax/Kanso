@@ -45,8 +45,7 @@ fn captured(output: McpOutput, max_bytes: usize) -> CapturedText {
 fn terminal_text_of(screen: McpScreen, max_bytes: usize) -> TerminalText {
     TerminalText {
         content: capture_tail(&screen.text, max_bytes),
-        cursor_row: screen.cursor_row,
-        cursor_col: screen.cursor_col,
+        cursor: screen.cursor,
         rows: screen.rows,
         cols: screen.cols,
         alternate_screen: screen.alternate_screen,
@@ -118,17 +117,18 @@ impl RealCore {
         let s = self.sessions.session(session)?;
         let info = self.session_info(session)?;
         // 纯 SFTP 会话没有终端，也就没有命令跟踪与终端传输。
-        let (activity, osc133, terminal_transfer) = if s.kind() == SessionKind::Sftp {
-            (Activity::Idle, false, false)
+        let (activity, osc133, terminal_transfer, run_blocker) = if s.kind() == SessionKind::Sftp {
+            (Activity::Idle, false, false, None)
         } else {
             let t = s.mcp_track_state();
-            (t.activity, t.osc133, t.transfer)
+            (t.activity, t.osc133, t.transfer, t.run_blocker.map(busy))
         };
         Some(McpSessionStatus {
             info,
             activity,
             locked: s.is_locked(),
             terminal_transfer,
+            run_blocker,
             // 由 Core 层根据 Sender 状态覆盖。
             sender_active: false,
             headless: s.is_headless(),
@@ -146,6 +146,7 @@ impl RealCore {
     ) -> Result<TerminalText> {
         let scope = match scope {
             TextScope::Screen => ReadScope::Screen,
+            TextScope::Viewport => ReadScope::Viewport,
             TextScope::Recent { lines } => ReadScope::Recent(lines as usize),
         };
         let screen = self.terminal_session(session)?.mcp_read(scope);

@@ -85,10 +85,8 @@ impl From<RunBlock> for McpBusy {
 pub struct McpScreen {
     /// 文本。
     pub text: String,
-    /// 光标所在行（屏幕坐标，从 0 开始）。
-    pub cursor_row: u16,
-    /// 光标所在列。
-    pub cursor_col: u16,
+    /// 光标坐标（行、列，从 0 开始）；滚出视口时为空。
+    pub cursor: Option<(u16, u16)>,
     /// 屏幕行数。
     pub rows: u16,
     /// 屏幕列数。
@@ -171,6 +169,8 @@ pub struct McpTrackState {
     pub osc133: bool,
     /// 是否在进行终端内传输。
     pub transfer: bool,
+    /// 当前命令跟踪器拒绝执行命令的原因。
+    pub run_blocker: Option<McpBusy>,
 }
 
 /// 读取屏幕文本；持终端锁的时间与范围成正比。
@@ -180,12 +180,14 @@ pub(crate) fn read_screen<H: McpHost>(host: &H, scope: ReadScope) -> McpScreen {
 }
 
 fn screen_of(term: &Terminal, scope: ReadScope) -> McpScreen {
-    let (cursor_row, cursor_col) = term.screen_cursor();
+    let cursor = match scope {
+        ReadScope::Viewport => term.viewport_cursor(),
+        _ => Some(term.screen_cursor()),
+    };
     let size = term.size();
     McpScreen {
         text: term.read_text(scope),
-        cursor_row,
-        cursor_col,
+        cursor,
         rows: size.rows,
         cols: size.cols,
         alternate_screen: term.modes().alt_screen,
@@ -199,6 +201,7 @@ pub(crate) fn track_state<H: McpHost>(host: &H) -> McpTrackState {
         activity: p.activity,
         osc133: p.osc133,
         transfer: host.transfer().active(),
+        run_blocker: host.hub().run_blocker(host).map(McpBusy::from),
     }
 }
 

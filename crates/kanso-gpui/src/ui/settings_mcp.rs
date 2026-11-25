@@ -14,12 +14,12 @@ use kanso_gpui::widgets::dropdown::Item;
 use kanso_gpui::widgets::style::number;
 use kanso_mcp_server::{McpClientKind, McpServerStatus, McpUnavailable};
 use kanso_types::ProfileId;
-use kanso_types::mcp::{McpAccess, McpAuditFilter, McpAuditRecord};
+use kanso_types::mcp::{McpAccess, McpAuditDispatch, McpAuditFilter, McpAuditRecord};
 use kanso_types::message::Message;
 use kanso_types::profile::{Group, Profile};
 
 use super::{Th, boxed, caption, card, check_row, checkbox_box, row};
-use crate::ui::mcp::McpModel;
+use crate::ui::mcp::{AuditChanged, McpModel};
 use crate::ui::widgets::dropdown::{Dropdown, DropdownEvent};
 use crate::ui::widgets::text_input::{TextInput, TextInputEvent};
 use crate::ui::{display, log, tz};
@@ -81,6 +81,7 @@ pub(super) struct McpPage {
     audit_records: Vec<McpAuditRecord>,
     audit_error: Option<String>,
     audit_has_more: bool,
+    audit_has_updates: bool,
     shown: bool,
     grants_dirty: bool,
     language: Lang,
@@ -112,6 +113,16 @@ impl McpPage {
                 if this.shown {
                     this.grants_dirty = true;
                     this.update_command(cx);
+                }
+            }),
+            cx.subscribe(&model, |this, _, _: &AuditChanged, cx| {
+                if this.shown {
+                    if this.audit_filter.before_id.is_none() {
+                        this.load_audit(true, cx);
+                    } else {
+                        this.audit_has_updates = true;
+                        cx.notify();
+                    }
                 }
             }),
             cx.observe_window_activation(window, |this, window, cx| {
@@ -169,6 +180,7 @@ impl McpPage {
             audit_records: Vec::new(),
             audit_error: None,
             audit_has_more: false,
+            audit_has_updates: false,
             shown: false,
             grants_dirty: true,
             language: lang(),
@@ -378,6 +390,7 @@ impl McpPage {
                 self.audit_error = None;
                 self.audit_has_more = records.len() == AUDIT_PAGE as usize;
                 if first_page {
+                    self.audit_has_updates = false;
                     self.audit_records = records;
                 } else {
                     self.audit_records.extend(records);
@@ -507,6 +520,15 @@ impl McpPage {
             div()
                 .flex()
                 .gap(px(8.0))
+                .when(self.audit_has_updates, |d| {
+                    d.child(actions.button(
+                        "mcp-audit-refresh",
+                        Message::WinMcpAuditRefresh {},
+                        false,
+                        true,
+                        |this, cx| this.load_audit(true, cx),
+                    ))
+                })
                 .when(self.audit_has_more, |d| {
                     d.child(actions.button(
                         "mcp-audit-more",
@@ -557,12 +579,67 @@ impl McpPage {
         if let Some(code) = &entry.error_code {
             parts.push(code.clone());
         }
+        if matches!(
+            entry.tool.as_str(),
+            "kanso_terminal_run" | "kanso_terminal_send"
+        ) && let Some(tab) = entry.session
+        {
+            parts.push(format!("tab={}", tab.raw()));
+        }
+        let input = entry.input();
+        if let Some(dispatch) = input.as_ref().and_then(|input| input.dispatch) {
+            parts.push(
+                label(match dispatch {
+                    McpAuditDispatch::Submitted => Message::WinMcpAuditSubmitted {},
+                    McpAuditDispatch::Rejected => Message::WinMcpAuditNotSent {},
+                    McpAuditDispatch::Unconfirmed => Message::WinMcpAuditUnconfirmed {},
+                })
+                .to_owned(),
+            );
+        }
+        let args = input
+            .as_ref()
+            .map_or(entry.args.as_str(), |input| input.options);
         div()
             .flex()
             .flex_col()
             .child(caption(th, &parts.join(" · ")))
-            .when(!entry.args.is_empty(), |d| {
-                let full: SharedString = entry.args.clone().into();
+            .when_some(input, |d, input| {
+                let full: SharedString = input.text.to_owned().into();
+                let heading = if entry.tool == "kanso_terminal_send" {
+                    label(Message::WinMcpAuditInput {})
+                } else {
+                    label(Message::WinMcpAuditCommand {})
+                };
+                let tooltip_theme = Th(th.0);
+                d.child(
+                    div()
+                        .id(("mcp-audit-input", record.id as usize))
+                        .py(px(4.0))
+                        .px(px(8.0))
+                        .rounded(px(number("radius", "sm")))
+                        .bg(th.c("bg.rowHover"))
+                        .text_size(px(number("font", "ui.caption")))
+                        .text_color(th.c("text.primary"))
+                        .child(div().font_weight(FontWeight::SEMIBOLD).child(heading))
+                        .child(
+                            div()
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .text_ellipsis()
+                                .child(full.clone()),
+                        )
+                        .tooltip(move |_, cx| {
+                            cx.new(|_| ArgsTooltip {
+                                text: full.clone(),
+                                th: Th(tooltip_theme.0),
+                            })
+                            .into()
+                        }),
+                )
+            })
+            .when(!args.is_empty(), |d| {
+                let full: SharedString = args.to_owned().into();
                 let th = Th(th.0);
                 d.child(
                     div()
@@ -572,7 +649,7 @@ impl McpPage {
                         .text_ellipsis()
                         .text_size(px(number("font", "ui.caption")))
                         .text_color(th.c("text.tertiary"))
-                        .child(entry.args.split_whitespace().collect::<Vec<_>>().join(" "))
+                        .child(args.split_whitespace().collect::<Vec<_>>().join(" "))
                         .tooltip(move |_, cx| {
                             cx.new(|_| ArgsTooltip {
                                 text: full.clone(),

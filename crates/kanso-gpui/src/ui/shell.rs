@@ -27,9 +27,9 @@ use std::time::{Duration, Instant};
 use futures::StreamExt as _;
 use futures::channel::mpsc::UnboundedReceiver;
 use gpui::{
-    Context, CursorStyle, Entity, Hsla, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, Pixels, Render, SharedString, Subscription, Window, WindowHandle, div,
-    prelude::*, px, rgba,
+    ClipboardItem, Context, CursorStyle, Entity, Hsla, KeyDownEvent, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, Pixels, Render, SharedString, Subscription, Window, WindowHandle,
+    div, prelude::*, px, rgba,
 };
 use kanso_core::Core;
 use kanso_gpui::app::blocks::BlockPart;
@@ -683,6 +683,10 @@ impl ShellView {
                     self.open_editor(Some(p), window, cx);
                 }
             }
+            AppCommand::CopyMcpTab(id) => {
+                let reference = format!("tab={}", id.raw());
+                cx.write_to_clipboard(ClipboardItem::new_string(reference));
+            }
             AppCommand::OpenSettings => self.open_settings(cx),
             AppCommand::OpenDisplaySettings | AppCommand::OpenKeyboardSettings => {
                 self.open_settings(cx);
@@ -991,9 +995,12 @@ impl ShellView {
     ) {
         let ws = self.ctl.workspace();
         let has = |scope| !ws.close_targets(scope, session).is_empty();
+        let profile = ws.item(session).and_then(|item| item.profile);
         let ctx = TabMenuContext {
             session,
-            from_profile: ws.item(session).is_some_and(|i| i.profile.is_some()),
+            from_profile: profile.is_some(),
+            mcp_addressable: profile
+                .is_some_and(|profile| self.mcp.read(cx).can_address_tab(profile)),
             has_others: has(CloseScope::Others),
             has_above: has(CloseScope::Above),
             has_below: has(CloseScope::Below),

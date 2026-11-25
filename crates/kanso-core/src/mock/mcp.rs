@@ -54,8 +54,7 @@ fn mock_text(s: &MockSession, max_bytes: usize) -> TerminalText {
     let text = format!("mock terminal: {}\n{prompt}", s.info.name);
     TerminalText {
         content: capture_tail(&text, max_bytes),
-        cursor_row: 1,
-        cursor_col: u16::try_from(prompt.chars().count()).unwrap_or(u16::MAX),
+        cursor: Some((1, u16::try_from(prompt.chars().count()).unwrap_or(u16::MAX))),
         rows: s.size.rows,
         cols: s.size.cols,
         alternate_screen: false,
@@ -126,12 +125,17 @@ impl MockCore {
 
     pub(crate) fn mcp_audit(&self, filter: McpAuditFilter) -> Result<Vec<McpAuditRecord>> {
         let limit = filter.effective_limit() as usize;
+        let client_filter = filter.client.as_deref().map(str::to_lowercase);
         Ok(self
             .lock()
             .mcp_audit
             .iter()
             .rev()
-            .filter(|r| filter.client.as_ref().is_none_or(|c| &r.entry.client == c))
+            .filter(|r| {
+                client_filter
+                    .as_ref()
+                    .is_none_or(|query| r.entry.client.to_lowercase().contains(query))
+            })
             .filter(|r| filter.profile.is_none_or(|p| r.entry.profile == Some(p)))
             .filter(|r| !filter.errors_only || r.entry.error_code.is_some())
             .filter(|r| filter.before_id.is_none_or(|b| r.id < b))
@@ -171,6 +175,7 @@ impl MockCore {
             terminal_transfer: terminal_transfer(&st, session),
             // 由 Core 层根据 Sender 状态覆盖。
             sender_active: false,
+            run_blocker: None,
             headless: s.headless,
             osc133: local,
             local_tty: local.then(|| format!("/dev/ttys{:03}", session.raw() % 1000)),

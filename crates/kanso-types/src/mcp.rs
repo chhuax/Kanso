@@ -52,6 +52,74 @@ pub struct McpAuditEntry {
     pub bytes: u64,
 }
 
+/// 审计记录中输入的发送状态。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum McpAuditDispatch {
+    /// 在发送前被拒绝。
+    #[default]
+    Rejected,
+    /// 开始处理输入后，未能确认是否发出。
+    Unconfirmed,
+    /// 输入已发出。
+    Submitted,
+}
+
+impl McpAuditDispatch {
+    /// 审计存储中的稳定标识。
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::Rejected => "rejected",
+            Self::Unconfirmed => "unconfirmed",
+            Self::Submitted => "submitted",
+        }
+    }
+}
+
+/// 从持久化的参数摘要拆出的输入，供各端共用。
+pub struct McpAuditInput<'a> {
+    /// 发送的命令或按键摘要。
+    pub text: &'a str,
+    /// 旧记录可能没有发送状态。
+    pub dispatch: Option<McpAuditDispatch>,
+    /// 超时等其它参数。
+    pub options: &'a str,
+}
+
+impl McpAuditEntry {
+    /// 解析命令或按键摘要，兼容没有发送状态的旧记录。
+    pub fn input(&self) -> Option<McpAuditInput<'_>> {
+        let prefix = match self.tool.as_str() {
+            "kanso_terminal_run" | "kanso_exec" => "command=",
+            "kanso_terminal_send" => "inputs=",
+            _ => return None,
+        };
+        if let Some((text, tail)) = self
+            .args
+            .strip_prefix(prefix)
+            .and_then(|args| args.split_once("\ndispatch="))
+            && let Some((code, options)) = tail.split_once('\n')
+        {
+            let dispatch = match code {
+                "rejected" => Some(McpAuditDispatch::Rejected),
+                "unconfirmed" => Some(McpAuditDispatch::Unconfirmed),
+                "submitted" => Some(McpAuditDispatch::Submitted),
+                _ => None,
+            };
+            return Some(McpAuditInput {
+                text,
+                dispatch,
+                options,
+            });
+        }
+        let (options, text) = self.args.split_once(&format!(", {prefix}"))?;
+        Some(McpAuditInput {
+            text,
+            dispatch: None,
+            options,
+        })
+    }
+}
+
 /// 从数据库读出的审计记录：带自增 id，供分页。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct McpAuditRecord {
@@ -64,7 +132,7 @@ pub struct McpAuditRecord {
 /// 审计日志查询条件。结果按 id 倒序（新的在前）。
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct McpAuditFilter {
-    /// 只看某个客户端名称（精确匹配）。
+    /// 只看名称包含此文本的客户端，忽略大小写。
     pub client: Option<String>,
     /// 只看某个会话配置。
     pub profile: Option<ProfileId>,

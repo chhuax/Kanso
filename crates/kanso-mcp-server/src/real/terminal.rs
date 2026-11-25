@@ -143,7 +143,7 @@ pub(super) fn text_json(t: &TerminalText) -> Value {
     put_capture(&mut obj, "text", &t.content);
     obj.insert(
         "cursor".to_owned(),
-        json!({"row": t.cursor_row, "col": t.cursor_col}),
+        json!(t.cursor.map(|(row, col)| json!({"row": row, "col": col}))),
     );
     obj.insert("size".to_owned(), json!({"rows": t.rows, "cols": t.cols}));
     obj.insert("alternate_screen".to_owned(), json!(t.alternate_screen));

@@ -121,6 +121,12 @@ impl ActivityHub {
         result
     }
 
+    /// 只读检查 MCP 命令的终端前置条件。
+    pub(crate) fn run_blocker(&self, host: &impl ActivityHost) -> Option<kanso_term::RunBlock> {
+        let term = lock(host.term());
+        lock(&self.tracker).run_blocker(&term)
+    }
+
     /// 唤醒线程里等待的（`Condvar`）与 async 里等待的（`watch`）。
     fn wake(&self) {
         self.cond.notify_all();

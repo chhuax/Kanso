@@ -272,6 +272,7 @@ mod tests {
             locked: false,
             terminal_transfer: false,
             sender_active: false,
+            run_blocker: None,
             headless,
             osc133: true,
             local_tty: tty.map(str::to_owned),

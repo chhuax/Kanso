@@ -1,6 +1,6 @@
 //! Windows / Linux MCP 宿主：令牌保存在系统凭据库中，服务回调经通道投递到 GPUI 线程。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,10 +15,10 @@ use kanso_mcp_server::{
     McpServerStatus, McpUnavailable, client_config, powershell_client_config,
 };
 use kanso_secret::PlatformSecretStore;
-use kanso_types::SessionId;
 use kanso_types::event::SessionState;
 use kanso_types::message::Message;
 use kanso_types::secret::SecretString;
+use kanso_types::{ProfileId, SessionId};
 
 enum Event {
     Status,
@@ -26,6 +26,7 @@ enum Event {
     Opened(SessionId, McpClientInfo),
     Activity(SessionId, Option<McpActivity>),
     Released(SessionId),
+    AuditChanged,
 }
 
 struct Delegate(UnboundedSender<Event>);
@@ -51,11 +52,13 @@ impl McpServerDelegate for Delegate {
         let _ = self.0.unbounded_send(Event::Released(session));
     }
 
-    // GPUI 端的 MCP 活动记录界面不在本次范围内，审计变化暂不处理。
-    fn on_audit_changed(&self) {}
+    fn on_audit_changed(&self) {
+        let _ = self.0.unbounded_send(Event::AuditChanged);
+    }
 }
 
 pub(super) struct TabOpened(pub(super) SessionId);
+pub(super) struct AuditChanged;
 
 #[derive(Default)]
 struct TabMark {
@@ -73,17 +76,21 @@ pub(super) struct McpModel {
     clients: Vec<McpClientInfo>,
     helper: PathBuf,
     marks: HashMap<SessionId, TabMark>,
+    accessible_profiles: HashSet<ProfileId>,
 }
 
 impl EventEmitter<TabOpened> for McpModel {}
+impl EventEmitter<AuditChanged> for McpModel {}
 
 impl McpModel {
     pub(super) fn new(core: Arc<Core>, cx: &mut Context<Self>) -> Self {
         let (tx, mut rx) = unbounded();
         let (server, tokens) = open_server(&core, Arc::new(Delegate(tx)));
+        let mut policy = core.mcp_policy_watch();
         let mut model = Self {
             tokens,
             status: server.status(),
+            accessible_profiles: accessible_profiles(&core),
             core,
             server,
             token: None,
@@ -131,10 +138,15 @@ impl McpModel {
             }
         })
         .detach();
-        let mut policy = model.core.mcp_policy_watch();
         cx.spawn(async move |entity, cx| {
             while policy.changed().await.is_ok() {
-                if entity.update(cx, |_, cx| cx.notify()).is_err() {
+                if entity
+                    .update(cx, |model, cx| {
+                        model.accessible_profiles = accessible_profiles(&model.core);
+                        cx.notify();
+                    })
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -178,6 +190,11 @@ impl McpModel {
 
     pub(super) fn status(&self) -> &McpServerStatus {
         &self.status
+    }
+
+    pub(super) fn can_address_tab(&self, profile: ProfileId) -> bool {
+        matches!(self.status, McpServerStatus::Running { .. })
+            && self.accessible_profiles.contains(&profile)
     }
 
     pub(super) fn clients(&self) -> &[McpClientInfo] {
@@ -300,6 +317,7 @@ impl McpModel {
 
     fn apply(&mut self, event: Event, cx: &mut Context<Self>) {
         match event {
+            Event::AuditChanged => cx.emit(AuditChanged),
             Event::Status => {
                 self.status = self.server.status();
                 if !matches!(self.status, McpServerStatus::Running { .. }) {
@@ -363,6 +381,16 @@ impl McpModel {
         self.core
             .session_info(session)
             .is_some_and(|i| !matches!(i.state, SessionState::Closed(_)))
+    }
+}
+
+fn accessible_profiles(core: &Core) -> HashSet<ProfileId> {
+    match core.mcp_accesses() {
+        Ok(accesses) => accesses.into_iter().map(|(profile, _)| profile).collect(),
+        Err(error) => {
+            super::log(&format!("读取标签的 MCP 授权失败：{error}"));
+            HashSet::new()
+        }
     }
 }
 
