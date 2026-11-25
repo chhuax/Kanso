@@ -88,6 +88,8 @@ pub(crate) struct LauncherView {
     scroll: ScrollHandle,
     /// 鼠标悬停的会话行。行尾「…」只在这时或键盘高亮时才接收点击。
     hovered_profile: Option<ProfileId>,
+    /// 嵌入左侧栏「会话」页时为 true：铺满父容器、小圆角，右键菜单与对话框交由 `ShellView` 顶层渲染。
+    embedded: bool,
     root: FocusHandle,
     menu: Option<(Entity<ContextMenu>, MenuTarget)>,
     dialog: Option<(Entity<Dialog>, Pending)>,
@@ -109,10 +111,30 @@ fn appearance(window: &Window) -> Appearance {
 }
 
 impl LauncherView {
-    /// 创建并聚焦搜索框。必须在窗口上下文里创建。
+    /// 创建浮层启动器并聚焦搜索框。必须在窗口上下文里创建。
     pub(crate) fn new(
         core: Arc<Core>,
         collapsed_groups: HashSet<GroupId>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        Self::build(core, collapsed_groups, false, window, cx)
+    }
+
+    /// 创建嵌入左侧栏「会话」页的常驻视图（不主动抢占终端焦点，由调用方按需聚焦搜索框）。
+    pub(crate) fn new_embedded(
+        core: Arc<Core>,
+        collapsed_groups: HashSet<GroupId>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        Self::build(core, collapsed_groups, true, window, cx)
+    }
+
+    fn build(
+        core: Arc<Core>,
+        collapsed_groups: HashSet<GroupId>,
+        embedded: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -124,7 +146,7 @@ impl LauncherView {
         let sub = cx.subscribe_in(
             &search,
             window,
-            |this, _s, ev: &TextInputEvent, window, cx| match ev {
+            |this, input, ev: &TextInputEvent, window, cx| match ev {
                 TextInputEvent::Change(t) => {
                     this.model.set_query(t);
                     cx.notify();
@@ -134,17 +156,28 @@ impl LauncherView {
                         cx.emit(LauncherEvent::Connect(id));
                     }
                 }
-                TextInputEvent::Escape => this.close(window, cx),
+                TextInputEvent::Escape => {
+                    if this.embedded && !this.model.query().is_empty() {
+                        input.update(cx, |i, cx| i.set_text("", cx));
+                        this.model.set_query("");
+                        cx.notify();
+                    } else {
+                        this.close(window, cx);
+                    }
+                }
                 _ => {}
             },
         );
-        search.read(cx).focus(window);
+        if !embedded {
+            search.read(cx).focus(window);
+        }
         LauncherView {
             model: LauncherModel::with_collapsed_groups(core.clone(), collapsed_groups),
             core,
             search,
             scroll: ScrollHandle::new(),
             hovered_profile: None,
+            embedded,
             root: cx.focus_handle(),
             menu: None,
             dialog: None,
@@ -158,6 +191,24 @@ impl LauncherView {
         self.model.collapsed_groups()
     }
 
+    /// 供侧栏切回「会话」页或库变更后主动刷新列表。
+    pub(super) fn reload(&mut self, cx: &mut Context<Self>) {
+        self.model.reload();
+        cx.notify();
+    }
+
+    pub(super) fn has_overlay(&self) -> bool {
+        self.menu.is_some() || self.dialog.is_some()
+    }
+
+    pub(super) fn overlay_menu(&self) -> Option<Entity<ContextMenu>> {
+        self.menu.as_ref().map(|(m, _)| m.clone())
+    }
+
+    pub(super) fn overlay_dialog(&self) -> Option<Entity<Dialog>> {
+        self.dialog.as_ref().map(|(d, _)| d.clone())
+    }
+
     fn close(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         cx.emit(LauncherEvent::Close);
     }
@@ -169,7 +220,7 @@ impl LauncherView {
         }
     }
 
-    fn focus_search(&self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn focus_search(&self, window: &mut Window, cx: &App) {
         self.search.read(cx).focus(window);
     }
 
@@ -721,7 +772,7 @@ impl Render for LauncherView {
         let saved_header = div()
             .h(px(HEADER_ROW_H))
             .flex_none()
-            .px(px(16.0))
+            .px(px(if self.embedded { 10.0 } else { 16.0 }))
             .flex()
             .items_center()
             .justify_between()
@@ -735,6 +786,99 @@ impl Render for LauncherView {
                     this.show_menu(MenuTarget::Saved, ev.position, window, cx);
                 }),
             ));
+
+        if self.embedded {
+            log_state(self);
+            return div()
+                .id("sidebar-sessions")
+                .key_context("Launcher")
+                .track_focus(&self.root)
+                .on_key_down(cx.listener(Self::on_key_down))
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .flex_col()
+                .text_size(px(number("font", "ui.body")))
+                .text_color(th.c("text.primary"))
+                // 顶部搜索框 + ＋ 新建按钮，与「标签」页工具条等高对齐。
+                .child(
+                    div()
+                        .h(px(40.0))
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .px(px(8.0))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .mr(px(4.0))
+                                .child(self.search.clone()),
+                        )
+                        .child(
+                            div()
+                                .id("sidebar-new-session")
+                                .w(px(24.0))
+                                .h(px(24.0))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(number("radius", "sm")))
+                                .cursor_pointer()
+                                .hover(|s| {
+                                    s.bg(th.c("bg.rowHover")).text_color(th.c("text.primary"))
+                                })
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(|_, _, _, cx| {
+                                        cx.stop_propagation();
+                                        cx.emit(LauncherEvent::NewSession);
+                                    }),
+                                )
+                                .child(icon("plus", 16.0, th.c("text.secondary"))),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex_none()
+                        .border_t_1()
+                        .border_color(th.c("border.subtle"))
+                        .pt(px(4.0))
+                        .flex()
+                        .items_center()
+                        .child(div().flex_1().min_w_0().child(self.render_action_row(
+                            "launcher-local",
+                            "square-terminal",
+                            logic::render_message(&Message::UiLocalSession {}),
+                            th,
+                            |_this, _w, cx| cx.emit(LauncherEvent::OpenLocal),
+                            cx,
+                        )))
+                        .child(
+                            div()
+                                .id("launcher-settings")
+                                .mr(px(8.0))
+                                .size(px(24.0))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(number("radius", "sm")))
+                                .cursor_pointer()
+                                .hover(|s| s.bg(th.c("bg.rowHover")))
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(|_, _, _, cx| {
+                                        cx.stop_propagation();
+                                        cx.emit(LauncherEvent::CustomizeShell);
+                                    }),
+                                )
+                                .child(icon("sliders-horizontal", 15.0, th.c("text.secondary"))),
+                        ),
+                )
+                .child(saved_header)
+                .child(list);
+        }
 
         let panel = div()
             .id("launcher-panel")

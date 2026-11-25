@@ -47,21 +47,27 @@ final class SessionLauncherViewController: NSViewController, NSTextFieldDelegate
     private let model: SessionLauncherModel
     private let dialogs: SessionDialogs
     private let actions: SessionLauncherActions
+    /// 嵌入左侧栏「会话」页时为 true：铺满父容器、采用紧凑边距与小圆角，顶部搜索框右侧放 ＋ 按钮。
+    private let embedded: Bool
 
-    private let newShellRow = LauncherActionRow(title: String(localized: "Local Shell"), symbol: "terminal")
+    private let newShellRow: LauncherActionRow
     private let newSessionRow = LauncherActionRow(title: String(localized: "New Session…"), symbol: "plus")
     private let settingsButton = KButton(symbol: "slider.horizontal.3", style: .icon)
+    private let plusButton = NSButton()
     let searchField = SidebarFilterField()
-    private let savedHeader = LauncherHeaderView(title: String(localized: "Saved Sessions"))
+    private let savedHeader: LauncherHeaderView
     private let tableView = NSTableView()
     private let scrollView = NSScrollView()
     private let emptyLabel = NSTextField(wrappingLabelWithString: "")
     private var items: [Item] = []
 
-    init(model: SessionLauncherModel, dialogs: SessionDialogs, actions: SessionLauncherActions) {
+    init(model: SessionLauncherModel, dialogs: SessionDialogs, actions: SessionLauncherActions, embedded: Bool = false) {
         self.model = model
         self.dialogs = dialogs
         self.actions = actions
+        self.embedded = embedded
+        self.newShellRow = LauncherActionRow(title: String(localized: "Local Shell"), symbol: "terminal", compact: embedded)
+        self.savedHeader = LauncherHeaderView(title: String(localized: "Saved Sessions"), compact: embedded)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -79,11 +85,25 @@ final class SessionLauncherViewController: NSViewController, NSTextFieldDelegate
         settingsButton.onPress = { [weak self] in self?.actions.openSettings() }
 
         searchField.placeholder = String(localized: "Search saved sessions")
-        searchField.textField.font = .systemFont(ofSize: DesignTokens.Font.uiBody)
+        searchField.textField.font = .systemFont(ofSize: embedded ? DesignTokens.Font.uiCaption : DesignTokens.Font.uiBody)
+        if embedded { searchField.layer?.cornerRadius = DesignTokens.Radius.sm }
         searchField.textField.delegate = self
         searchField.onClear = { [weak self] in
             self?.model.query = ""
             self?.rebuild(revealSelection: false)
+        }
+
+        if embedded {
+            newSessionRow.isHidden = true
+            plusButton.isBordered = false
+            plusButton.image = .symbol("plus", description: String(localized: "New Session…"))
+            plusButton.imagePosition = .imageOnly
+            plusButton.contentTintColor = .token(DesignTokens.Color.textSecondary)
+            plusButton.toolTip = String(localized: "New Session…")
+            plusButton.target = self
+            plusButton.action = #selector(plusClicked)
+        } else {
+            plusButton.isHidden = true
         }
 
         savedHeader.onMenu = { [weak self] anchor in self?.showSavedMenu(from: anchor) }
@@ -112,10 +132,20 @@ final class SessionLauncherViewController: NSViewController, NSTextFieldDelegate
         emptyLabel.textColor = .token(DesignTokens.Color.textTertiary)
         emptyLabel.alignment = .center
 
-        for v in [newShellRow, newSessionRow, settingsButton, searchField, savedHeader, scrollView, emptyLabel] {
+        for v in [newShellRow, newSessionRow, settingsButton, plusButton, searchField, savedHeader, scrollView, emptyLabel] {
             root.addSubview(v)
         }
+        model.onReload = { [weak self] in self?.rebuild(revealSelection: false) }
         rebuild()
+    }
+
+    /// 供侧栏切回「会话」页时主动刷新（含 MCP 访问级别等未发库变更通知的状态）。
+    func reloadData() {
+        model.reload()
+    }
+
+    @objc private func plusClicked() {
+        actions.newSession()
     }
 
     /// 把键盘焦点交给搜索框。面板不是内容控制器，`viewDidAppear` 不会触发，由呈现方在面板成为 key 后调用。
@@ -130,6 +160,26 @@ final class SessionLauncherViewController: NSViewController, NSTextFieldDelegate
 
     private func layoutContents() {
         let w = view.bounds.width
+        if embedded {
+            let pad = DesignTokens.Spacing.sm
+            let toolbarH: CGFloat = 24
+            let plusW: CGFloat = 24
+            var y: CGFloat = 0
+            plusButton.frame = NSRect(x: w - pad - plusW, y: y, width: plusW, height: toolbarH)
+            searchField.frame = NSRect(x: pad, y: y, width: max(0, plusButton.frame.minX - pad - DesignTokens.Spacing.xs), height: toolbarH)
+            y += toolbarH + DesignTokens.Spacing.sm
+            let shellH: CGFloat = 32
+            settingsButton.frame = NSRect(x: w - pad - 24, y: y + (shellH - 24) / 2, width: 24, height: 24)
+            newShellRow.frame = NSRect(x: 0, y: y, width: max(0, settingsButton.frame.minX - DesignTokens.Spacing.xs), height: shellH)
+            y += shellH + DesignTokens.Spacing.xs
+            let headerH: CGFloat = 28
+            savedHeader.frame = NSRect(x: 0, y: y, width: w, height: headerH)
+            y += headerH
+            scrollView.frame = NSRect(x: 0, y: y, width: w, height: max(0, view.bounds.height - y))
+            emptyLabel.frame = NSRect(x: pad, y: y + DesignTokens.Spacing.md, width: max(0, w - pad * 2), height: 40)
+            tableView.tableColumns.first?.width = w
+            return
+        }
         let side = DesignTokens.Spacing.lg
         var y = Self.topPadding
         // 第一行右侧留给齿轮，高亮不盖住它。
@@ -163,8 +213,9 @@ final class SessionLauncherViewController: NSViewController, NSTextFieldDelegate
         if revealSelection { scrollToSelection() }
     }
 
-    /// 面板高度 = 固定头部 + 列表内容（有上限，超出滚动）+ 底部留白。
+    /// 面板高度 = 固定头部 + 列表内容（有上限，超出滚动）+ 底部留白。嵌入侧栏时由父容器决定尺寸。
     private func updatePreferredSize() {
+        guard !embedded else { return }
         let list = items.isEmpty ? Self.emptyListHeight : items.reduce(CGFloat(0)) { $0 + height(of: $1) }
         // 不能叫 height：同一函数里用到了 height(of:)，Swift 6.1（Xcode 16）会报循环引用。
         let total = min(Self.maxHeight, Self.headHeight + list + Self.bottomPadding)
@@ -194,7 +245,7 @@ final class SessionLauncherViewController: NSViewController, NSTextFieldDelegate
         switch items[row] {
         case .header(let group):
             let collapsed = model.isSearching ? nil : model.collapsedGroupIDs.contains(group.id)
-            let view = LauncherHeaderView(title: group.name, collapsed: collapsed)
+            let view = LauncherHeaderView(title: group.name, collapsed: collapsed, compact: embedded)
             view.onToggle = { [weak self] in
                 guard let self else { return }
                 model.toggleGroup(group.id)
@@ -203,7 +254,7 @@ final class SessionLauncherViewController: NSViewController, NSTextFieldDelegate
             view.onMenu = { [weak self] anchor in self?.showGroupMenu(group, from: anchor) }
             return view
         case .profile(let profile):
-            let view = LauncherProfileRowView(profile: profile)
+            let view = LauncherProfileRowView(profile: profile, compact: embedded)
             // 读失败时授权未知，不显示标记（`.off` 即不显示），免得把未知当成已关闭或已授权。
             view.mcpLevel = model.mcpReadError == nil ? model.mcpLevel(of: profile.id) : .off
             view.isSelected = profile.id == model.selectedID
@@ -448,7 +499,13 @@ final class SessionLauncherViewController: NSViewController, NSTextFieldDelegate
         case #selector(NSResponder.insertNewline(_:)):
             if let id = model.selectedID { actions.connect(id) }
         case #selector(NSResponder.cancelOperation(_:)):
-            actions.dismiss()
+            if embedded, !searchField.stringValue.isEmpty {
+                searchField.stringValue = ""
+                model.query = ""
+                rebuild(revealSelection: false)
+            } else {
+                actions.dismiss()
+            }
         default:
             return false
         }
@@ -480,6 +537,7 @@ private final class HoverHighlightView: StyledBoxView {
 class LauncherHoverRow: NSView {
     private let highlight = HoverHighlightView()
     private(set) var isHovered = false
+    let compact: Bool
 
     var isSelected = false {
         didSet { refreshHighlight() }
@@ -487,9 +545,10 @@ class LauncherHoverRow: NSView {
 
     override var isFlipped: Bool { true }
 
-    override init(frame frameRect: NSRect) {
+    init(frame frameRect: NSRect = .zero, compact: Bool = false) {
+        self.compact = compact
         super.init(frame: frameRect)
-        highlight.cornerRadius = 8
+        highlight.cornerRadius = compact ? DesignTokens.Radius.sm : 8
         highlight.borderWidth = 0
         addSubview(highlight)
     }
@@ -499,10 +558,11 @@ class LauncherHoverRow: NSView {
 
     /// 高亮块之上的内容左右内边距（相对面板边缘）。
     static let contentInset: CGFloat = 18
+    var horizontalInset: CGFloat { compact ? DesignTokens.Spacing.sm + 4 : Self.contentInset }
 
     override func layout() {
         super.layout()
-        highlight.frame = bounds.insetBy(dx: 6, dy: 1)
+        highlight.frame = bounds.insetBy(dx: compact ? DesignTokens.Spacing.sm : 6, dy: 1)
     }
 
     private func refreshHighlight() {
@@ -533,11 +593,11 @@ final class LauncherActionRow: LauncherHoverRow {
     private let iconView = NSImageView()
     private let label: PassthroughLabel
 
-    init(title: String, symbol: String) {
+    init(title: String, symbol: String, compact: Bool = false) {
         label = PassthroughLabel(labelWithString: title)
-        super.init(frame: .zero)
+        super.init(frame: .zero, compact: compact)
         iconView.image = .symbol(symbol)
-        iconView.symbolConfiguration = .init(pointSize: 15, weight: .regular)
+        iconView.symbolConfiguration = .init(pointSize: compact ? 13 : 15, weight: .regular)
         iconView.contentTintColor = .token(DesignTokens.Color.textPrimary)
         label.font = .systemFont(ofSize: DesignTokens.Font.uiBody)
         label.textColor = .token(DesignTokens.Color.textPrimary)
@@ -552,10 +612,11 @@ final class LauncherActionRow: LauncherHoverRow {
 
     override func layout() {
         super.layout()
-        let inset = Self.contentInset
+        let inset = horizontalInset
+        let iconGap: CGFloat = compact ? 24 : 32
         iconView.frame = NSRect(x: inset, y: (bounds.height - 18) / 2, width: 20, height: 18)
         let h = ceil(label.intrinsicContentSize.height)
-        label.frame = NSRect(x: inset + 32, y: (bounds.height - h) / 2, width: max(0, bounds.width - inset * 2 - 32), height: h)
+        label.frame = NSRect(x: inset + iconGap, y: (bounds.height - h) / 2, width: max(0, bounds.width - inset * 2 - iconGap), height: h)
     }
 
     override func mouseDown(with event: NSEvent) { onClick?() }
@@ -574,10 +635,12 @@ final class LauncherHeaderView: NSView {
     private let disclosureButton: KButton?
     private let label: NSTextField
     private let menuButton = KButton(symbol: "ellipsis", style: .icon)
+    private let compact: Bool
 
     override var isFlipped: Bool { true }
 
-    init(title: String, collapsed: Bool? = nil) {
+    init(title: String, collapsed: Bool? = nil, compact: Bool = false) {
+        self.compact = compact
         disclosureButton = collapsed.map { KButton(symbol: $0 ? "chevron.right" : "chevron.down", style: .icon) }
         label = NSTextField(labelWithString: title)
         super.init(frame: .zero)
@@ -605,7 +668,7 @@ final class LauncherHeaderView: NSView {
 
     override func layout() {
         super.layout()
-        let inset = LauncherHoverRow.contentInset - 2
+        let inset = compact ? DesignTokens.Spacing.sm : LauncherHoverRow.contentInset - 2
         menuButton.frame = NSRect(x: bounds.width - inset - 24, y: (bounds.height - 24) / 2, width: 24, height: 24)
         disclosureButton?.frame = NSRect(x: inset, y: (bounds.height - 24) / 2, width: 24, height: 24)
         let labelX = disclosureButton?.frame.maxX ?? inset
@@ -656,9 +719,9 @@ final class LauncherProfileRowView: LauncherHoverRow {
     /// 标记视图本身，供测试做 hitTest。
     var mcpBadgeViewForTesting: NSView { mcpBadge }
 
-    init(title: String, subtitle: String, color: FfiRgb?, showsAccessoryButtons: Bool = true) {
+    init(title: String, subtitle: String, color: FfiRgb?, showsAccessoryButtons: Bool = true, compact: Bool = false) {
         self.showsAccessoryButtons = showsAccessoryButtons
-        super.init(frame: .zero)
+        super.init(frame: .zero, compact: compact)
         mcpBadge.image = .symbol("point.3.connected.trianglepath.dotted", description: String(localized: "MCP access"))
         mcpBadge.imageScaling = .scaleProportionallyDown
         mcpBadge.contentTintColor = .token(DesignTokens.Color.textTertiary)
@@ -686,12 +749,13 @@ final class LauncherProfileRowView: LauncherHoverRow {
         setAccessibilityLabel(title)
     }
 
-    convenience init(profile: FfiProfile) {
+    convenience init(profile: FfiProfile, compact: Bool = false) {
         self.init(
             title: profile.name,
             subtitle: SessionLauncherModel.subtitle(for: profile),
             color: profile.color,
-            showsAccessoryButtons: true
+            showsAccessoryButtons: true,
+            compact: compact
         )
     }
 
@@ -700,7 +764,7 @@ final class LauncherProfileRowView: LauncherHoverRow {
 
     override func layout() {
         super.layout()
-        let inset = Self.contentInset - 2
+        let inset = compact ? DesignTokens.Spacing.sm + 4 : Self.contentInset - 2
         let h = bounds.height
         var textTrailing: CGFloat
         if showsAccessoryButtons {

@@ -284,4 +284,43 @@ final class SessionLauncherTests: XCTestCase {
         controller.perform { try controller.openProfile("00000000-0000-0000-0000-000000000000") }
         XCTAssertEqual(errors, 1)
     }
+
+    func testSidebarSwitchesBetweenTabsAndSessions() {
+        let dispatcher = CoreEventDispatcher()
+        let core = KansoCore.newMock(listener: dispatcher)
+        let controller = WorkspaceController(core: core, dispatcher: dispatcher, confirmer: StubCloseConfirmer(answer: true))
+        defer { controller.shutdown() }
+        let sidebar = TabSidebarViewController(controller: controller)
+        sidebar.view.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
+        sidebar.view.layoutSubtreeIfNeeded()
+        XCTAssertEqual(sidebar.activePage, .tabs)
+
+        sidebar.showSessionsPage(focusSearch: false)
+        XCTAssertEqual(sidebar.activePage, .sessions)
+        XCTAssertEqual(sidebar.children.count, 1)
+        let embedded = sidebar.children.first
+        XCTAssertEqual(embedded?.view.isHidden, false)
+        XCTAssertEqual(embedded?.view.frame.width, 260)
+
+        sidebar.showTabsPage()
+        XCTAssertEqual(sidebar.activePage, .tabs)
+        XCTAssertEqual(embedded?.view.isHidden, true)
+    }
+
+    func testEmbeddedLauncherKeepsContainerSizeAndReloadsOnChange() throws {
+        let store = makeStore()
+        let model = SessionLauncherModel(store: store)
+        let actions = SessionLauncherActions(
+            newLocalShell: {}, newSession: {}, connect: { _ in }, edit: { _ in },
+            dismiss: {}, openSettings: {}, withDialog: { _ in }
+        )
+        let launcher = SessionLauncherViewController(model: model, dialogs: AlertSessionDialogs(), actions: actions, embedded: true)
+        launcher.view.frame = NSRect(x: 0, y: 0, width: 240, height: 520)
+        launcher.view.layoutSubtreeIfNeeded()
+        XCTAssertEqual(launcher.view.frame.size, NSSize(width: 240, height: 520))
+
+        _ = try model.createGroup(named: "Ops")
+        XCTAssertTrue(model.groups.contains { $0.name == "Ops" })
+        XCTAssertEqual(launcher.view.frame.size, NSSize(width: 240, height: 520))
+    }
 }

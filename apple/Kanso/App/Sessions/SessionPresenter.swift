@@ -116,6 +116,50 @@ final class SessionPresenter {
         launcherContent = nil
     }
 
+    /// 构造嵌入左侧栏「会话」页的会话管理控制器，共享当前窗口的分组折叠状态、MCP 支持判断与各类编辑对话框。
+    func makeEmbeddedSessionsViewController(
+        onDidOpen: @escaping @MainActor () -> Void,
+        onDismiss: @escaping @MainActor () -> Void
+    ) -> SessionLauncherViewController {
+        let model = SessionLauncherModel(
+            store: store, mcpAccess: mcpSupported() ? controller.core : nil, collapsedGroupIDs: collapsedGroupIDs
+        )
+        model.onCollapsedGroupsChange = { [weak self] in self?.collapsedGroupIDs = $0 }
+        let actions = SessionLauncherActions(
+            newLocalShell: { [weak self] in
+                self?.controller.perform { try self?.controller.openLocalShell() }
+                onDidOpen()
+                self?.controller.requestTerminalFocus?()
+            },
+            newSession: { [weak self] in
+                self?.presentEditor(editing: nil)
+            },
+            connect: { [weak self] id in
+                self?.controller.perform { try self?.controller.openProfile(id) }
+                onDidOpen()
+                self?.controller.requestTerminalFocus?()
+            },
+            edit: { [weak self] profile in
+                self?.presentEditor(editing: profile)
+            },
+            dismiss: onDismiss,
+            importSshConfig: { [weak self] in
+                self?.presentSshImport()
+            },
+            openSettings: { [weak self] in
+                self?.presentEditor(editing: nil, customLocal: true)
+            },
+            withDialog: { [weak self] work in
+                guard let self else { return }
+                Task { @MainActor in
+                    await work()
+                    self.controller.refresh()
+                }
+            }
+        )
+        return SessionLauncherViewController(model: model, dialogs: dialogs, actions: actions, embedded: true)
+    }
+
     // MARK: - 编辑对话框
 
     /// 以 sheet 打开编辑对话框；`profile` 为 nil 表示新建。已有 sheet 时忽略（避免叠多个）。

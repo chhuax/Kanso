@@ -250,6 +250,10 @@ messages! {
     UiPaletteTabs = "ui-palette-tabs" {},
     /// 命令面板的已保存会话。
     UiPaletteSessions = "ui-palette-sessions" {},
+    /// 左侧栏顶部切换：标签页。
+    UiSidebarTabs = "ui-sidebar-tabs" {},
+    /// 左侧栏顶部切换：会话管理页。
+    UiSidebarSessions = "ui-sidebar-sessions" {},
     /// 命令面板的命令分组。
     UiPaletteCommands = "ui-palette-commands" {},
     /// 命令面板搜索范围。

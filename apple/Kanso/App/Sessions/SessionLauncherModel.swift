@@ -40,6 +40,8 @@ final class SessionLauncherModel {
 
     private(set) var collapsedGroupIDs: Set<String>
     var onCollapsedGroupsChange: ((Set<String>) -> Void)?
+    /// 库变更触发 `reload()` 后通知视图刷新（常驻在侧栏里时需要实时同步）。
+    var onReload: (() -> Void)?
     private var searchTerm: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
     var isSearching: Bool { !searchTerm.isEmpty }
 
@@ -83,6 +85,7 @@ final class SessionLauncherModel {
             mcpReadError = CoreMessageText.text(for: error)
         }
         filterSnapshot()
+        onReload?()
     }
 
     func toggleGroup(_ id: String) {
