@@ -301,15 +301,15 @@ impl ShellView {
             _ => th.c("text.secondary"),
         };
         let (_, has_digit) = TabPresentation::shortcut_digit(index);
-        let mcp_id = item
+        let mcp_addressable = item
             .profile
-            .filter(|profile| self.mcp.read(cx).can_address_tab(*profile));
-        let row_tooltip = (chip.is_some() || mcp_id.is_some()).then(|| {
+            .is_some_and(|profile| self.mcp.read(cx).can_address_tab(profile));
+        let row_tooltip = (chip.is_some() || mcp_addressable || has_digit).then(|| {
             let mut lines = vec![title.clone()];
             if chip.is_some() {
                 lines.extend(subtitle.clone());
             }
-            if mcp_id.is_some() {
+            if mcp_addressable {
                 lines.push(t(&Message::WinMcpTabId {
                     id: format!("tab={}", sid.raw()),
                 }));
@@ -320,20 +320,6 @@ impl ShellView {
             lines
         });
         let subtitle = if chip.is_some() { None } else { subtitle };
-        let id_badge = mcp_id.map(|_| {
-            div()
-                .id(("tab-mcp-id", sid.raw() as usize))
-                .flex_none()
-                .px(px(5.0))
-                .rounded(px(number("radius", "sm")))
-                .border_1()
-                .border_color(th.c("border.segmentSelected"))
-                .bg(th.c("bg.segmentSelected"))
-                .text_color(th.c("text.primary"))
-                .text_size(px(number("font", "ui.caption")))
-                .font_weight(gpui::FontWeight::SEMIBOLD)
-                .child(format!("#{}", sid.raw()))
-        });
 
         let rect = std::rc::Rc::new(std::cell::Cell::new(gpui::Bounds::<gpui::Pixels>::default()));
         let measured = rect.clone();
@@ -501,7 +487,7 @@ impl ShellView {
                 })),
         )
         // 前 9 个标签的快捷键序号（Alt+N）。
-        .children((has_digit && id_badge.is_none()).then(|| {
+        .children(has_digit.then(|| {
             div()
                 .flex_none()
                 .text_size(px(number("font", "ui.caption")))
@@ -513,7 +499,6 @@ impl ShellView {
                 )
                 .child((index + 1).to_string())
         }))
-        .children(id_badge)
         // 未读完成 / 运行中指示点。
         .children(mcp_mark)
         .children((!closed && (item.unread_done || busy)).then(|| {

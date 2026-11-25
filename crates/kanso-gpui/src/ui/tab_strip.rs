@@ -20,7 +20,6 @@ pub(super) const CHIP_HEIGHT: f32 = 26.0;
 /// 相邻标签的间隔。拖拽排序按"标签宽 + 间隔"推算其他标签的中点，改这里两边会一起变。
 pub(super) const CHIP_GAP: f32 = 4.0;
 const CHIP_MIN_WIDTH: f32 = 110.0;
-const MCP_ID_EXTRA_WIDTH: f32 = 20.0;
 const CHIP_MAX_WIDTH: f32 = 200.0;
 const INSET_X: f32 = 6.0;
 const PLUS_WIDTH: f32 = 28.0;
@@ -28,13 +27,15 @@ const PLUS_WIDTH: f32 = 28.0;
 const CHIP_CHROME: f32 = 12.0 * 2.0 + 24.0 + 8.0 * 3.0 + 20.0 + 10.0;
 
 /// 标签条里 `count` 个标签的统一宽度。`strip_width` 是整条标签条的宽度（含 ＋ 按钮）。
-fn chip_width(strip_width: f32, count: usize, min_width: f32) -> f32 {
+fn chip_width(strip_width: f32, count: usize) -> f32 {
     if count == 0 {
         return CHIP_MAX_WIDTH;
     }
     let n = count as f32;
     let available = strip_width - PLUS_WIDTH - INSET_X * 2.0 - CHIP_GAP * (n - 1.0);
-    (available / n).clamp(min_width, CHIP_MAX_WIDTH).floor()
+    (available / n)
+        .clamp(CHIP_MIN_WIDTH, CHIP_MAX_WIDTH)
+        .floor()
 }
 
 impl ShellView {
@@ -85,14 +86,8 @@ impl ShellView {
             let row = tabs.remove(from);
             tabs.insert(index.min(tabs.len()), row);
         }
-        let mcp = self.mcp.read(cx);
-        let has_mcp_id = tabs.iter().any(|item| {
-            item.profile
-                .is_some_and(|profile| mcp.can_address_tab(profile))
-        });
-        let extra_width = if has_mcp_id { MCP_ID_EXTRA_WIDTH } else { 0.0 };
-        let width = chip_width(r.width as f32, tabs.len(), CHIP_MIN_WIDTH + extra_width);
-        let title_cells = (((width - CHIP_CHROME - extra_width) / CELL_PX) as usize).max(4);
+        let width = chip_width(r.width as f32, tabs.len());
+        let title_cells = (((width - CHIP_CHROME) / CELL_PX) as usize).max(4);
 
         let mut list = div()
             .id(("tab-strip", pane.0 as usize))
@@ -209,12 +204,12 @@ mod tests {
 
     #[test]
     fn chips_share_one_width_clamped_between_min_and_max() {
-        assert_eq!(chip_width(1200.0, 2, CHIP_MIN_WIDTH), CHIP_MAX_WIDTH);
-        assert_eq!(chip_width(300.0, 5, CHIP_MIN_WIDTH), CHIP_MIN_WIDTH);
-        let w = chip_width(700.0, 4, CHIP_MIN_WIDTH);
+        assert_eq!(chip_width(1200.0, 2), CHIP_MAX_WIDTH);
+        assert_eq!(chip_width(300.0, 5), CHIP_MIN_WIDTH);
+        let w = chip_width(700.0, 4);
         assert!(w > CHIP_MIN_WIDTH && w < CHIP_MAX_WIDTH);
         // 四个标签加间隔正好放进去，不需要滚动。
         assert!(INSET_X * 2.0 + w * 4.0 + CHIP_GAP * 3.0 + PLUS_WIDTH <= 700.0);
-        assert_eq!(chip_width(500.0, 0, CHIP_MIN_WIDTH), CHIP_MAX_WIDTH);
+        assert_eq!(chip_width(500.0, 0), CHIP_MAX_WIDTH);
     }
 }

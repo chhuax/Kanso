@@ -18,7 +18,7 @@ use kanso_core::{Core, CoreError};
 use kanso_encoding::TextEncoding;
 use kanso_mcp::jsonrpc::MSG_DISABLED;
 use kanso_types::event::{Activity, SessionState};
-use kanso_types::mcp::{McpAccess, McpAuditEntry};
+use kanso_types::mcp::{McpAccess, McpAuditDispatch as AuditDispatch, McpAuditEntry};
 use kanso_types::profile::{Profile, ProfileKind, SessionKind};
 use kanso_types::{GridSize, ProfileId, SessionId};
 use rmcp::handler::server::router::tool::ToolRouter;
@@ -78,7 +78,7 @@ impl ArgsSummary {
     fn for_input(prefix: &str, options: String) -> Self {
         let mut summary = Self::new();
         // 留出提交状态和参数的空间，长命令优先保留命令开头。
-        summary.limit -= 32 + options.chars().count();
+        summary.limit = summary.limit.saturating_sub(32 + options.chars().count());
         summary.input_options = Some(options);
         summary.push_str(prefix);
         summary
@@ -189,24 +189,6 @@ impl ToolError {
 pub(super) struct Target {
     ids: Mutex<(Option<ProfileId>, Option<SessionId>)>,
     dispatch: Mutex<AuditDispatch>,
-}
-
-#[derive(Clone, Copy, Default)]
-enum AuditDispatch {
-    #[default]
-    Rejected,
-    Unconfirmed,
-    Submitted,
-}
-
-impl AuditDispatch {
-    fn code(self) -> &'static str {
-        match self {
-            Self::Rejected => "rejected",
-            Self::Unconfirmed => "unconfirmed",
-            Self::Submitted => "submitted",
-        }
-    }
 }
 
 impl Target {
@@ -1504,7 +1486,7 @@ impl KansoHandler {
                 .run_remote(&mut call, &context.ct, |s| async move {
                     target.set_dispatch(AuditDispatch::Unconfirmed);
                     let result = core.mcp_exec(s, command, limits).await;
-                    if result.as_ref().is_ok_and(|outcome| !outcome.timed_out) {
+                    if result.is_ok() {
                         target.set_dispatch(AuditDispatch::Submitted);
                     }
                     result.map_err(|e| {

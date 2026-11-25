@@ -342,15 +342,35 @@ final class McpActivityViewController: NSViewController, NSTextFieldDelegate {
             var parts = McpText.auditHeadParts(record)
             if let session { parts.append(session) }
             if let error = record.errorCode { parts.append(error) }
+            if let tab = record.sessionId, record.tool == "kanso_terminal_run" || record.tool == "kanso_terminal_send" {
+                parts.append("tab=\(tab)")
+            }
+            switch record.dispatch {
+            case .some(.submitted):
+                parts.append(String(localized: "Sent"))
+            case .some(.rejected):
+                parts.append(String(localized: "Rejected before sending"))
+            case .some(.unconfirmed):
+                parts.append(String(localized: "Sending unconfirmed"))
+            case .none:
+                break
+            }
             let head = Self.wrappingLabel(parts.joined(separator: " · "), color: DesignTokens.Color.textSecondary)
             var lines: [NSView] = [head]
-            if !record.args.isEmpty {
-                // 参数摘要可能很长（整条命令），界面只放截断后的一行，悬停看全文。
-                let args = NSTextField(labelWithString: McpText.argsSummary(record.args))
+            var summaries: [String] = []
+            if let input = record.input {
+                summaries.append(record.tool == "kanso_terminal_send"
+                    ? String(localized: "Terminal input: \(input)")
+                    : String(localized: "Command: \(input)"))
+            }
+            if !record.args.isEmpty { summaries.append(record.args) }
+            for summary in summaries {
+                // 长命令和参数各显示一行，悬停看全文。
+                let args = NSTextField(labelWithString: McpText.argsSummary(summary))
                 args.font = .monospacedSystemFont(ofSize: DesignTokens.Font.uiCaption, weight: .regular)
                 args.textColor = .token(DesignTokens.Color.textTertiary)
                 args.lineBreakMode = .byTruncatingTail
-                args.toolTip = record.args
+                args.toolTip = summary
                 args.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
                 lines.append(args)
             }

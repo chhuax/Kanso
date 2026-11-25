@@ -3358,6 +3358,36 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "没有审计记录。" } }
       }
     },
+    "Command: %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Command: %@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "命令：%@" } }
+      }
+    },
+    "Terminal input: %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Terminal input: %@" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "终端输入：%@" } }
+      }
+    },
+    "Sent" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sent" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "已发出" } }
+      }
+    },
+    "Rejected before sending" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Rejected before sending" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "拒绝，未发出" } }
+      }
+    },
+    "Sending unconfirmed" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sending unconfirmed" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "发送状态未确认" } }
+      }
+    },
     "Opened by MCP" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Opened by MCP" } },

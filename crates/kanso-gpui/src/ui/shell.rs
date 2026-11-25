@@ -684,9 +684,7 @@ impl ShellView {
                 }
             }
             AppCommand::CopyMcpTab(id) => {
-                let reference = t(&Message::WinMcpTabId {
-                    id: format!("tab={}", id.raw()),
-                });
+                let reference = format!("tab={}", id.raw());
                 cx.write_to_clipboard(ClipboardItem::new_string(reference));
             }
             AppCommand::OpenSettings => self.open_settings(cx),

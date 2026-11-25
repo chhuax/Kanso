@@ -14,7 +14,7 @@ use kanso_gpui::widgets::dropdown::Item;
 use kanso_gpui::widgets::style::number;
 use kanso_mcp_server::{McpClientKind, McpServerStatus, McpUnavailable};
 use kanso_types::ProfileId;
-use kanso_types::mcp::{McpAccess, McpAuditEntry, McpAuditFilter, McpAuditRecord};
+use kanso_types::mcp::{McpAccess, McpAuditDispatch, McpAuditFilter, McpAuditRecord};
 use kanso_types::message::Message;
 use kanso_types::profile::{Group, Profile};
 
@@ -586,13 +586,13 @@ impl McpPage {
         {
             parts.push(format!("tab={}", tab.raw()));
         }
-        let input = audit_input(entry);
+        let input = entry.input();
         if let Some(dispatch) = input.as_ref().and_then(|input| input.dispatch) {
             parts.push(
                 label(match dispatch {
-                    "submitted" => Message::WinMcpAuditSubmitted {},
-                    "rejected" => Message::WinMcpAuditNotSent {},
-                    _ => Message::WinMcpAuditUnconfirmed {},
+                    McpAuditDispatch::Submitted => Message::WinMcpAuditSubmitted {},
+                    McpAuditDispatch::Rejected => Message::WinMcpAuditNotSent {},
+                    McpAuditDispatch::Unconfirmed => Message::WinMcpAuditUnconfirmed {},
                 })
                 .to_owned(),
             );
@@ -996,39 +996,6 @@ impl McpActions<'_, '_> {
             )
             .into_any_element()
     }
-}
-
-struct AuditInput<'a> {
-    text: &'a str,
-    dispatch: Option<&'a str>,
-    options: &'a str,
-}
-
-fn audit_input(entry: &McpAuditEntry) -> Option<AuditInput<'_>> {
-    let prefix = match entry.tool.as_str() {
-        "kanso_terminal_run" | "kanso_exec" => "command=",
-        "kanso_terminal_send" => "inputs=",
-        _ => return None,
-    };
-    if let Some((text, tail)) = entry
-        .args
-        .strip_prefix(prefix)
-        .and_then(|args| args.split_once("\ndispatch="))
-        && let Some((dispatch, options)) = tail.split_once('\n')
-    {
-        return Some(AuditInput {
-            text,
-            dispatch: Some(dispatch),
-            options,
-        });
-    }
-    // 旧记录仍可单独显示命令，但没有可靠的发送状态。
-    let (options, text) = entry.args.split_once(&format!(", {prefix}"))?;
-    Some(AuditInput {
-        text,
-        dispatch: None,
-        options,
-    })
 }
 
 struct ArgsTooltip {

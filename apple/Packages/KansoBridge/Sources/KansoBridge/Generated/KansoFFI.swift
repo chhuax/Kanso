@@ -6508,7 +6508,7 @@ public func FfiConverterTypeFfiMcpActivity_lower(_ value: FfiMcpActivity) -> Rus
  */
 public struct FfiMcpAuditFilter: Equatable, Hashable {
     /**
-     * 只看某个客户端名称（精确匹配）。
+     * 只看名称包含此文本的客户端，忽略大小写。
      */
     public var client: String?
     /**
@@ -6532,7 +6532,7 @@ public struct FfiMcpAuditFilter: Equatable, Hashable {
     // declare one manually.
     public init(
         /**
-         * 只看某个客户端名称（精确匹配）。
+         * 只看名称包含此文本的客户端，忽略大小写。
          */client: String?, 
         /**
          * 只看某个会话配置。
@@ -6635,9 +6635,17 @@ public struct FfiMcpAuditRecord: Equatable, Hashable {
      */
     public var sessionId: UInt64?
     /**
-     * 参数摘要（命令文本、路径）。
+     * 参数摘要，如超时和路径。
      */
     public var args: String
+    /**
+     * 命令或按键摘要。
+     */
+    public var input: String?
+    /**
+     * 输入的发送状态，旧记录可能没有。
+     */
+    public var dispatch: FfiMcpAuditDispatch?
     /**
      * 错误码；成功为空。
      */
@@ -6676,8 +6684,14 @@ public struct FfiMcpAuditRecord: Equatable, Hashable {
          * 目标标签或无界面会话的运行时 id。
          */sessionId: UInt64?, 
         /**
-         * 参数摘要（命令文本、路径）。
+         * 参数摘要，如超时和路径。
          */args: String, 
+        /**
+         * 命令或按键摘要。
+         */input: String?, 
+        /**
+         * 输入的发送状态，旧记录可能没有。
+         */dispatch: FfiMcpAuditDispatch?, 
         /**
          * 错误码；成功为空。
          */errorCode: String?, 
@@ -6695,6 +6709,8 @@ public struct FfiMcpAuditRecord: Equatable, Hashable {
         self.profileId = profileId
         self.sessionId = sessionId
         self.args = args
+        self.input = input
+        self.dispatch = dispatch
         self.errorCode = errorCode
         self.durationMs = durationMs
         self.bytes = bytes
@@ -6724,6 +6740,8 @@ public struct FfiConverterTypeFfiMcpAuditRecord: FfiConverterRustBuffer {
                 profileId: FfiConverterOptionString.read(from: &buf), 
                 sessionId: FfiConverterOptionUInt64.read(from: &buf), 
                 args: FfiConverterString.read(from: &buf), 
+                input: FfiConverterOptionString.read(from: &buf), 
+                dispatch: FfiConverterOptionTypeFfiMcpAuditDispatch.read(from: &buf), 
                 errorCode: FfiConverterOptionString.read(from: &buf), 
                 durationMs: FfiConverterUInt32.read(from: &buf), 
                 bytes: FfiConverterUInt64.read(from: &buf)
@@ -6739,6 +6757,8 @@ public struct FfiConverterTypeFfiMcpAuditRecord: FfiConverterRustBuffer {
         FfiConverterOptionString.write(value.profileId, into: &buf)
         FfiConverterOptionUInt64.write(value.sessionId, into: &buf)
         FfiConverterString.write(value.args, into: &buf)
+        FfiConverterOptionString.write(value.input, into: &buf)
+        FfiConverterOptionTypeFfiMcpAuditDispatch.write(value.dispatch, into: &buf)
         FfiConverterOptionString.write(value.errorCode, into: &buf)
         FfiConverterUInt32.write(value.durationMs, into: &buf)
         FfiConverterUInt64.write(value.bytes, into: &buf)
@@ -11079,6 +11099,91 @@ public func FfiConverterTypeFfiMcpAccess_lower(_ value: FfiMcpAccess) -> RustBuf
 
 
 /**
+ * 审计记录中输入的发送状态。
+ */
+
+public enum FfiMcpAuditDispatch: Equatable, Hashable {
+    
+    /**
+     * 在发送前被拒绝。
+     */
+    case rejected
+    /**
+     * 未能确认是否发出。
+     */
+    case unconfirmed
+    /**
+     * 输入已发出。
+     */
+    case submitted
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiMcpAuditDispatch: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiMcpAuditDispatch: FfiConverterRustBuffer {
+    typealias SwiftType = FfiMcpAuditDispatch
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiMcpAuditDispatch {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .rejected
+        
+        case 2: return .unconfirmed
+        
+        case 3: return .submitted
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiMcpAuditDispatch, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .rejected:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .unconfirmed:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .submitted:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMcpAuditDispatch_lift(_ buf: RustBuffer) throws -> FfiMcpAuditDispatch {
+    return try FfiConverterTypeFfiMcpAuditDispatch.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMcpAuditDispatch_lower(_ value: FfiMcpAuditDispatch) -> RustBuffer {
+    return FfiConverterTypeFfiMcpAuditDispatch.lower(value)
+}
+
+
+
+/**
  * 生成配置命令的客户端种类（镜像 `kanso_mcp_server::McpClientKind`）。
  */
 
@@ -13783,6 +13888,30 @@ fileprivate struct FfiConverterOptionTypeFfiSessionInfo: FfiConverterRustBuffer 
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeFfiSessionInfo.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeFfiMcpAuditDispatch: FfiConverterRustBuffer {
+    typealias SwiftType = FfiMcpAuditDispatch?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeFfiMcpAuditDispatch.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeFfiMcpAuditDispatch.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }

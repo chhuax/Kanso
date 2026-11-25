@@ -18,7 +18,7 @@ use kanso_mcp_server::{
     McpActivity, McpClientInfo, McpClientKind, McpServer, McpServerConfig, McpServerDelegate,
     McpServerError, McpServerStatus, McpUnavailable,
 };
-use kanso_types::mcp::{McpAccess, McpAuditFilter, McpAuditRecord};
+use kanso_types::mcp::{McpAccess, McpAuditDispatch, McpAuditFilter, McpAuditRecord};
 use kanso_types::secret::SecretString;
 use kanso_types::{ProfileId, SessionId};
 
@@ -51,7 +51,7 @@ pub struct FfiMcpGrant {
 /// 审计日志查询条件（镜像 `McpAuditFilter`）。结果按 id 倒序。
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
 pub struct FfiMcpAuditFilter {
-    /// 只看某个客户端名称（精确匹配）。
+    /// 只看名称包含此文本的客户端，忽略大小写。
     pub client: Option<String>,
     /// 只看某个会话配置。
     pub profile_id: Option<String>,
@@ -80,6 +80,18 @@ impl TryFrom<FfiMcpAuditFilter> for McpAuditFilter {
     }
 }
 
+mirror_enum! {
+    /// 审计记录中输入的发送状态。
+    FfiMcpAuditDispatch <=> McpAuditDispatch {
+        /// 在发送前被拒绝。
+        Rejected,
+        /// 未能确认是否发出。
+        Unconfirmed,
+        /// 输入已发出。
+        Submitted,
+    }
+}
+
 /// 一条审计记录（扁平化的 `McpAuditRecord`）。
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
 pub struct FfiMcpAuditRecord {
@@ -97,8 +109,12 @@ pub struct FfiMcpAuditRecord {
     pub profile_id: Option<String>,
     /// 目标标签或无界面会话的运行时 id。
     pub session_id: Option<u64>,
-    /// 参数摘要（命令文本、路径）。
+    /// 参数摘要，如超时和路径。
     pub args: String,
+    /// 命令或按键摘要。
+    pub input: Option<String>,
+    /// 输入的发送状态，旧记录可能没有。
+    pub dispatch: Option<FfiMcpAuditDispatch>,
     /// 错误码；成功为空。
     pub error_code: Option<String>,
     /// 耗时（毫秒）。
@@ -110,6 +126,14 @@ pub struct FfiMcpAuditRecord {
 impl From<McpAuditRecord> for FfiMcpAuditRecord {
     fn from(r: McpAuditRecord) -> Self {
         let e = r.entry;
+        let (args, input, dispatch) = match e.input() {
+            Some(input) => (
+                input.options.to_owned(),
+                Some(input.text.to_owned()),
+                input.dispatch.map(Into::into),
+            ),
+            None => (e.args, None, None),
+        };
         FfiMcpAuditRecord {
             id: r.id,
             at_ms: e.at_ms,
@@ -118,11 +142,51 @@ impl From<McpAuditRecord> for FfiMcpAuditRecord {
             tool: e.tool,
             profile_id: e.profile.map(|p| p.to_string()),
             session_id: e.session.map(|s| s.raw()),
-            args: e.args,
+            args,
+            input,
+            dispatch,
             error_code: e.error_code,
             duration_ms: e.duration_ms,
             bytes: e.bytes,
         }
+    }
+}
+
+#[cfg(test)]
+mod audit_tests {
+    use kanso_types::mcp::McpAuditEntry;
+
+    use super::*;
+
+    #[test]
+    fn audit_input_keeps_tab_and_supports_previous_records() {
+        let mut record = McpAuditRecord {
+            id: 1,
+            entry: McpAuditEntry {
+                at_ms: 0,
+                client: "Codex".into(),
+                mcp_session: "client-1".into(),
+                tool: "kanso_terminal_run".into(),
+                profile: None,
+                session: Some(SessionId::from_raw(3)),
+                args: "command=echo hello\ndispatch=submitted\ntimeout_secs=2".into(),
+                error_code: Some("TIMEOUT".into()),
+                duration_ms: 2_000,
+                bytes: 0,
+            },
+        };
+        let current = FfiMcpAuditRecord::from(record.clone());
+        assert_eq!(current.session_id, Some(3));
+        assert_eq!(current.input.as_deref(), Some("echo hello"));
+        assert_eq!(current.dispatch, Some(FfiMcpAuditDispatch::Submitted));
+        assert_eq!(current.args, "timeout_secs=2");
+
+        record.entry.args = "tab=3, timeout_secs=2, command=echo hello".into();
+        let legacy = FfiMcpAuditRecord::from(record);
+        assert_eq!(legacy.session_id, Some(3));
+        assert_eq!(legacy.input.as_deref(), Some("echo hello"));
+        assert_eq!(legacy.dispatch, None);
+        assert_eq!(legacy.args, "tab=3, timeout_secs=2");
     }
 }
 
