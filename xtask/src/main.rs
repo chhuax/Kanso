@@ -8,6 +8,7 @@ mod bindings;
 mod color;
 mod locales;
 mod notices;
+mod release;
 mod tokens;
 mod windows;
 
@@ -25,6 +26,7 @@ fn main() -> ExitCode {
         Some("gen-tokens") => tokens::generate(&args[1..]),
         Some("check-locales") => locales::check(),
         Some("notices") => notices::generate(),
+        Some("release") => release::dispatch(&args[1..]),
         Some("dmg") => apple::dmg(&args[1..]),
         Some("win-package") => windows::win_package(&args[1..]),
         Some("bindgen") => bindings::generate(),
@@ -52,6 +54,8 @@ fn usage() {
          gen-tokens [--out <dir>]    生成 Xcode 颜色集与 DesignTokens.swift（默认 apple/Kanso/Generated）\n  \
          check-locales               校验 locales/*.ftl 与 kanso-types 消息清单一致，并检查 Localizable.xcstrings 中英齐全\n  \
          notices                     重新生成产品依赖与素材的 THIRD_PARTY_NOTICES.md\n  \
+         release bump <版本> [--build <N>]\n                                     同步更新 Cargo.toml、apple/project.yml 与 Cargo.lock\n  \
+         release tag <版本> [--remote <r>] [--dry-run]\n                                     拉取远端 main、核对提交内版本号与标签状态后打标并推送\n  \
          dmg [--arch <arm64|x86_64>]  （仅 macOS）用 Xcode 构建 Direct AppKit 版并生成 DMG，输出 SHA-256（默认 arm64）\n  \
          win-package [--skip-build] [--no-installer] [--offline]\n                                     （仅 Windows）Release 构建 x64 GPUI，生成免安装 ZIP 与 NSIS 安装程序（找到 makensis 时），输出 SHA-256\n  \
          bindgen                     用 UniFFI library mode 重新生成 Swift 绑定（入库于 apple/Packages/KansoBridge）\n  \
