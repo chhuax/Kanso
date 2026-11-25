@@ -294,6 +294,7 @@ final class WorkspaceController {
             id: id,
             kind: info.map { CoreEventMapping.tabKind(for: $0.kind) } ?? .local,
             name: info?.name ?? "",
+            customTitle: info?.customTitle,
             profileID: info?.profile,
             connection: info.map { CoreEventMapping.connection(for: $0.state) } ?? .connecting
         )
@@ -423,6 +424,16 @@ final class WorkspaceController {
     }
 
     // MARK: - 其他动作
+
+    /// 设置或清除标签的自定义名（同步通知 core，让 MCP 等处看到同一标题）。
+    func renameSession(_ id: SessionID, to title: String?) {
+        let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = (trimmed?.isEmpty == false) ? trimmed : nil
+        core.setSessionTitle(sessionId: id, title: normalized)
+        if workspace.setCustomTitle(id, normalized) {
+            refresh()
+        }
+    }
 
     /// 清除活动会话的缓冲区。会话已关闭等错误无事可做，忽略。
     func clearActiveBuffer() {

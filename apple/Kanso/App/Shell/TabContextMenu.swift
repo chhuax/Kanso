@@ -8,6 +8,8 @@ import KansoUI
 final class TabContextMenu: NSObject, NSMenuItemValidation {
     private let controller: WorkspaceController
     private var workspace: Workspace { controller.workspace }
+    /// 防止连续双击叠出多个重命名对话框。
+    private var isRenaming = false
 
     init(controller: WorkspaceController) {
         self.controller = controller
@@ -27,14 +29,18 @@ final class TabContextMenu: NSObject, NSMenuItemValidation {
     ///   作用域本身不变，都是同一分屏组内排在前面 / 后面的标签。
     func makeMenu(for session: SessionID, horizontal: Bool) -> NSMenu {
         let menu = NSMenu()
+        let renameItem = NSMenuItem(title: String(localized: "Rename…"), action: #selector(renameFromMenu(_:)), keyEquivalent: "")
+        renameItem.target = self
+        renameItem.representedObject = NSNumber(value: session)
+        menu.addItem(renameItem)
         // 只有由已保存会话打开的标签才能回到它的配置。
         if let profileID = workspace.item(session)?.profileID {
             let edit = NSMenuItem(title: String(localized: "Edit Saved Session…"), action: #selector(editSavedSession(_:)), keyEquivalent: "")
             edit.target = self
             edit.representedObject = profileID
             menu.addItem(edit)
-            menu.addItem(.separator())
         }
+        menu.addItem(.separator())
         let entries: [(String, CloseScope?)] = [
             (String(localized: "Close"), nil),
             (String(localized: "Close Others"), .others),
@@ -53,6 +59,25 @@ final class TabContextMenu: NSObject, NSMenuItemValidation {
         return menu
     }
 
+    /// 弹出轻量输入框重命名标签（留空恢复默认标题）。
+    func rename(_ session: SessionID) {
+        guard !isRenaming, let item = workspace.item(session) else { return }
+        isRenaming = true
+        let initial = item.customTitle ?? ""
+        Task { @MainActor [weak self] in
+            defer { self?.isRenaming = false }
+            guard let self else { return }
+            guard let name = await controller.sessions.dialogs.promptText(
+                title: String(localized: "Rename Tab"),
+                message: String(localized: "Leave blank to restore the default title."),
+                initial: initial,
+                confirmTitle: String(localized: "Rename")
+            ) else { return }
+            controller.renameSession(session, to: name)
+            controller.requestTerminalFocus?()
+        }
+    }
+
     /// 关闭一组标签（走控制器的关闭确认）。
     func close(_ ids: [SessionID]) {
         Task { @MainActor [controller] in await controller.requestClose(ids) }
@@ -61,6 +86,11 @@ final class TabContextMenu: NSObject, NSMenuItemValidation {
     private func targets(for action: CloseAction) -> [SessionID] {
         guard let scope = action.scope else { return [action.session] }
         return workspace.closeTargets(scope, relativeTo: action.session)
+    }
+
+    @objc private func renameFromMenu(_ sender: NSMenuItem) {
+        guard let session = (sender.representedObject as? NSNumber)?.uint64Value else { return }
+        rename(session)
     }
 
     @objc private func editSavedSession(_ sender: NSMenuItem) {

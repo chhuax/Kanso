@@ -53,6 +53,8 @@ pub enum AppCommand {
     CloseTab(SessionId),
     /// 在指定标签所在分屏组内批量关闭（只确认一次）。
     CloseGroup(CloseScope, SessionId),
+    /// 重命名指定标签（侧栏右键菜单或双击标签行）。
+    RenameTab(SessionId),
     /// 编辑指定标签来源的已保存会话（打开会话编辑对话框）。
     EditSession(SessionId),
     /// 切换右键行为：弹出菜单 / 复制或粘贴（terminal.md §8.1）。

@@ -23,6 +23,7 @@ final class TabStripView: NSView, TabRowHost {
     var onActivate: ((SessionID) -> Void)?
     var onActivatePane: ((PaneID) -> Void)?
     var onClose: (([SessionID]) -> Void)?
+    var onRename: ((SessionID) -> Void)?
     /// 拖拽正常结束：`(会话, 本分屏内插入位置)`。
     var onMove: ((SessionID, Int) -> Void)?
     var onNewSession: ((PaneID) -> Void)?
@@ -323,6 +324,11 @@ final class TabStripView: NSView, TabRowHost {
     // MARK: - TabRowHost
 
     func rowMouseDown(_ row: TabRowView, event: NSEvent) {
+        if event.clickCount == 2 {
+            discardDragState()
+            onRename?(row.model.item.id)
+            return
+        }
         // 先建拖拽状态再激活：激活触发的刷新会走"结构不变就地更新"，不会重建视图。
         dragBegan(session: row.model.item.id, pointerX: content.convert(event.locationInWindow, from: nil).x)
         onActivate?(row.model.item.id)

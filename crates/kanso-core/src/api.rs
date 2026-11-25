@@ -209,8 +209,10 @@ pub struct SessionInfo {
     pub profile: Option<ProfileId>,
     /// 会话种类。
     pub kind: SessionKind,
-    /// 显示名。
+    /// 默认显示名（Profile 名或会话默认名）。
     pub name: String,
+    /// 用户或 MCP 为标签设置的自定义名；`None` 表示使用默认标题。
+    pub custom_title: Option<String>,
     /// 当前状态。
     pub state: SessionState,
 }
@@ -838,6 +840,19 @@ impl Core {
     /// - 实现：I1。
     pub fn session_info(&self, session: SessionId) -> Option<SessionInfo> {
         dispatch!(self, session_info(session))
+    }
+
+    /// 设置或清除标签的自定义名（去掉首尾空白后为空视为清除，恢复默认标题）。
+    ///
+    /// - 线程：任意（通常主线程）。阻塞：同步，极短。出错：会话不存在时忽略。
+    /// - 规格：ui-shell.md §2.2、§2.4，mcp.md §3.1。
+    pub fn set_session_title(&self, session: SessionId, title: Option<String>) {
+        let normalized = title
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned);
+        dispatch!(self, set_session_title(session, normalized))
     }
 
     /// 告知 core 标签是否可见。不可见的标签只解析不渲染，后台完成时才发系统通知。

@@ -135,8 +135,11 @@ impl ShellView {
                 let selected = active_session == Some(item.id);
                 // 选中且在活动分屏：完整高亮；选中但分屏不活动：淡一点，表示“该分屏当前显示它”。
                 let in_active_pane = pane == active_pane;
-                let title =
-                    truncate_keep_tail(&TabPresentation::primary_title(item, home), title_cells);
+                let title = if item.custom_title.is_some() {
+                    TabPresentation::primary_title(item, home)
+                } else {
+                    truncate_keep_tail(&TabPresentation::primary_title(item, home), title_cells)
+                };
                 list = list.child(
                     div()
                         .px(px(number("spacing", "tabRow.paddingX")))
@@ -268,7 +271,7 @@ impl ShellView {
             .as_ref()
             .map(state_text)
             .or_else(|| closed.then(|| t(&Message::UiSessionDisconnected {})))
-            .or_else(|| TabPresentation::subtitle(item).map(str::to_owned));
+            .or_else(|| TabPresentation::subtitle(item, self.ctl.home_dir()));
         let chip_tooltip = chip.map(|_| {
             let mut lines = vec![title.clone()];
             lines.extend(subtitle.clone());
@@ -356,6 +359,10 @@ impl ShellView {
                 cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
                     cx.stop_propagation();
                     this.cancel_tab_reorder(cx);
+                    if ev.click_count == 2 {
+                        this.open_rename_tab_dialog(sid, window, cx);
+                        return;
+                    }
                     this.activate_session(sid, window, cx);
                     // 竖栏筛选中只显示子集，插入位置对不上完整列表，不允许排序；标签条没有筛选。
                     if (chip.is_some() || this.path_filter.read(cx).text().trim().is_empty())

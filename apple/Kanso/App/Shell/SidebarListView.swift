@@ -59,6 +59,7 @@ final class SidebarListView: NSView, TabRowHost {
     var onActivate: ((SessionID) -> Void)?
     var onActivatePane: ((PaneID) -> Void)?
     var onClose: (([SessionID]) -> Void)?
+    var onRename: ((SessionID) -> Void)?
     /// 拖拽正常结束：`(会话, 同组内插入位置)`。
     var onMove: ((SessionID, Int) -> Void)?
     var onBlankDoubleClick: (() -> Void)?
@@ -346,6 +347,11 @@ final class SidebarListView: NSView, TabRowHost {
     // MARK: - 行回调（由 TabRowView 转发）
 
     func rowMouseDown(_ row: TabRowView, event: NSEvent) {
+        if event.clickCount == 2 {
+            discardDragState()
+            onRename?(row.model.item.id)
+            return
+        }
         let y = convert(event.locationInWindow, from: nil).y
         // 先建拖拽状态再激活：激活触发的刷新会走"结构不变就地更新"，不会重建视图。
         dragBegan(session: row.model.item.id, pointerY: y)

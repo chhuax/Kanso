@@ -265,6 +265,7 @@ mod tests {
                 profile: None,
                 kind: SessionKind::Local,
                 name: String::new(),
+                custom_title: None,
                 state: SessionState::Connected,
             },
             activity: Activity::Idle,

@@ -185,6 +185,18 @@ final class WorkspaceControllerTests: XCTestCase {
         XCTAssertNotNil(c.host(for: id), "已结束的会话保留终端视图（最后画面）")
         XCTAssertEqual(c.workspace.activeSession, id)
     }
+
+    func testRenameSessionSyncsWorkspaceAndCore() throws {
+        let (c, _, _) = makeController()
+        let id = try c.openLocalShell()
+        c.renameSession(id, to: "  构建  ")
+        XCTAssertEqual(c.workspace.item(id)?.customTitle, "构建")
+        XCTAssertEqual(c.core.sessionInfo(sessionId: id)?.customTitle, "构建")
+
+        c.renameSession(id, to: "   ")
+        XCTAssertNil(c.workspace.item(id)?.customTitle)
+        XCTAssertNil(c.core.sessionInfo(sessionId: id)?.customTitle)
+    }
 }
 
 extension PaneContainerView {

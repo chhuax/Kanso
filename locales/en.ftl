@@ -687,6 +687,12 @@ ui-create = Create
 
 ui-rename-group = Rename Group
 
+ui-rename-tab = Rename Tab
+
+ui-tab-name = Tab name
+
+ui-rename-tab-hint = Leave blank to restore the default title.
+
 ui-rename-2 = Rename
 
 ui-delete-2 = Delete

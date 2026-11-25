@@ -2270,6 +2270,11 @@ public protocol KansoCoreProtocol: AnyObject, Sendable {
     func setLocalShellDefaults(profile: FfiLocalProfile) throws 
     
     /**
+     * 设置或清除标签自定义名；会话不存在时忽略。
+     */
+    func setSessionTitle(sessionId: UInt64, title: String?) 
+    
+    /**
      * 写设置值；`json` 必须是合法 JSON。
      */
     func setSetting(key: String, json: String) throws 
@@ -3284,6 +3289,19 @@ open func setLocalShellDefaults(profile: FfiLocalProfile)throws   {try rustCallW
     uniffi_kanso_ffi_fn_method_kansocore_set_local_shell_defaults(
             self.uniffiCloneHandle(),
         FfiConverterTypeFfiLocalProfile_lower(profile),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * 设置或清除标签自定义名；会话不存在时忽略。
+     */
+open func setSessionTitle(sessionId: UInt64, title: String?)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_method_kansocore_set_session_title(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(sessionId),
+        FfiConverterOptionString.lower(title),uniffiCallStatus
     )
 }
 }
@@ -7838,9 +7856,13 @@ public struct FfiSessionInfo: Equatable, Hashable {
      */
     public var kind: FfiSessionKind
     /**
-     * 显示名。
+     * 默认显示名。
      */
     public var name: String
+    /**
+     * 用户或 MCP 设置的自定义标签名；`None` 表示使用默认标题。
+     */
+    public var customTitle: String?
     /**
      * 当前状态。
      */
@@ -7859,8 +7881,11 @@ public struct FfiSessionInfo: Equatable, Hashable {
          * 会话种类。
          */kind: FfiSessionKind, 
         /**
-         * 显示名。
+         * 默认显示名。
          */name: String, 
+        /**
+         * 用户或 MCP 设置的自定义标签名；`None` 表示使用默认标题。
+         */customTitle: String?, 
         /**
          * 当前状态。
          */state: FfiSessionState) {
@@ -7868,6 +7893,7 @@ public struct FfiSessionInfo: Equatable, Hashable {
         self.profile = profile
         self.kind = kind
         self.name = name
+        self.customTitle = customTitle
         self.state = state
     }
 
@@ -7891,6 +7917,7 @@ public struct FfiConverterTypeFfiSessionInfo: FfiConverterRustBuffer {
                 profile: FfiConverterOptionString.read(from: &buf), 
                 kind: FfiConverterTypeFfiSessionKind.read(from: &buf), 
                 name: FfiConverterString.read(from: &buf), 
+                customTitle: FfiConverterOptionString.read(from: &buf), 
                 state: FfiConverterTypeFfiSessionState.read(from: &buf)
         )
     }
@@ -7900,6 +7927,7 @@ public struct FfiConverterTypeFfiSessionInfo: FfiConverterRustBuffer {
         FfiConverterOptionString.write(value.profile, into: &buf)
         FfiConverterTypeFfiSessionKind.write(value.kind, into: &buf)
         FfiConverterString.write(value.name, into: &buf)
+        FfiConverterOptionString.write(value.customTitle, into: &buf)
         FfiConverterTypeFfiSessionState.write(value.state, into: &buf)
     }
 }
@@ -14660,6 +14688,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_kanso_ffi_checksum_method_kansocore_set_local_shell_defaults() != 19650) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_kanso_ffi_checksum_method_kansocore_set_session_title() != 40291) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_kanso_ffi_checksum_method_kansocore_set_setting() != 57606) {

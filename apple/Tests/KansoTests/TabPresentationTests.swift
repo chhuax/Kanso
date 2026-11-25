@@ -39,6 +39,21 @@ final class TabPresentationTests: XCTestCase {
         XCTAssertNil(TabPresentation.subtitle(ssh))
     }
 
+    func testCustomTitlePrimaryAndSubtitle() {
+        var localTab = TabItem(id: 1, kind: .local, name: "zsh", customTitle: "构建", cwd: "/Users/a/work")
+        XCTAssertEqual(TabPresentation.primaryTitle(localTab, homeDirectory: "/Users/a"), "构建")
+        XCTAssertEqual(TabPresentation.subtitle(localTab, homeDirectory: "/Users/a"), "~/work")
+        XCTAssertEqual(TabPresentation.displayPath("/Users/a/work", homeDirectory: "/Users/a"), "~/work")
+        localTab.gitBranch = "main"
+        XCTAssertEqual(TabPresentation.subtitle(localTab, homeDirectory: "/Users/a"), "~/work · main")
+
+        var ssh = TabItem(id: 2, kind: .ssh, name: "prod", customTitle: "日志")
+        XCTAssertEqual(TabPresentation.primaryTitle(ssh, homeDirectory: "/Users/a"), "日志")
+        XCTAssertEqual(TabPresentation.subtitle(ssh, homeDirectory: "/Users/a"), "prod")
+        ssh.customTitle = "prod"
+        XCTAssertNil(TabPresentation.subtitle(ssh, homeDirectory: "/Users/a"))
+    }
+
     func testShortcutLabel() {
         XCTAssertEqual(TabPresentation.shortcutLabel(sidebarIndex: 0), "⌘1")
         XCTAssertEqual(TabPresentation.shortcutLabel(sidebarIndex: 8), "⌘9")

@@ -471,7 +471,8 @@ impl ShellView {
                     return self.st_fail("标签右键菜单没有弹出".into(), cx);
                 }
                 self.st_hold("tab-menu");
-                // 第一项是“关闭”：Down 选中它，Enter 执行（空闲的本地 shell 不需要确认）。
+                // 第一项是“重命名…”，分隔线之后是“关闭”：两次 Down 选中它，Enter 执行（空闲的本地 shell 不需要确认）。
+                key(window, cx, "down");
                 key(window, cx, "down");
                 key(window, cx, "enter");
                 self.st_next();

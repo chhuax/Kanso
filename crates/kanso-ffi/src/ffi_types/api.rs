@@ -228,8 +228,10 @@ pub struct FfiSessionInfo {
     pub profile: Option<String>,
     /// 会话种类。
     pub kind: FfiSessionKind,
-    /// 显示名。
+    /// 默认显示名。
     pub name: String,
+    /// 用户或 MCP 设置的自定义标签名；`None` 表示使用默认标题。
+    pub custom_title: Option<String>,
     /// 当前状态。
     pub state: FfiSessionState,
 }
@@ -241,6 +243,7 @@ impl From<&SessionInfo> for FfiSessionInfo {
             profile: s.profile.map(|p| p.to_string()),
             kind: s.kind.into(),
             name: s.name.clone(),
+            custom_title: s.custom_title.clone(),
             state: (&s.state).into(),
         }
     }
@@ -657,11 +660,13 @@ mod tests {
             profile: None,
             kind: SessionKind::Sftp,
             name: "n".into(),
+            custom_title: Some("custom".into()),
             state: SessionState::Connected,
         };
         let f = FfiSessionInfo::from(&info);
         assert_eq!(f.id, 2);
         assert_eq!(f.kind, FfiSessionKind::Sftp);
+        assert_eq!(f.custom_title.as_deref(), Some("custom"));
         assert_eq!(f.state, FfiSessionState::Connected);
 
         let e = Entitlement {

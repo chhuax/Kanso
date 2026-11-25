@@ -461,6 +461,56 @@ fn list_sessions_respects_access_and_switch() {
 }
 
 #[test]
+fn list_sessions_and_open_tab_support_custom_tab_title() {
+    let f = Fixture::started();
+    f.core.set_mcp_enabled(true).unwrap();
+    let web = f.web_01();
+    f.core.set_mcp_access(web, McpAccess::Full).unwrap();
+    let grid = GridSize { cols: 80, rows: 24 };
+    let first = f.core.open_session(OpenTarget::Profile(web), grid).unwrap();
+    let second = f.core.open_session(OpenTarget::Profile(web), grid).unwrap();
+    f.core.set_session_title(first, Some("  日志  ".into()));
+
+    let mut c = f.ready_client("tester");
+    // kanso_open_tab 传入 title 参数，打开的标签直接带上自定义名。
+    let (is_error, opened_text) = c.call(
+        2,
+        "kanso_open_tab",
+        json!({"session": web.to_string(), "title": "  部署  "}),
+    );
+    assert!(!is_error, "{opened_text}");
+    let opened_id = serde_json::from_str::<Value>(&opened_text).unwrap()["tab"]
+        .as_u64()
+        .unwrap();
+
+    let (is_error, text) = c.call(3, "kanso_list_sessions", json!({}));
+    assert!(!is_error, "{text}");
+    let v: Value = serde_json::from_str(&text).unwrap();
+    let tabs = v["sessions"][0]["tabs"].as_array().unwrap();
+    let title_of = |id: u64| {
+        tabs.iter()
+            .find(|t| t["id"] == id)
+            .and_then(|t| t["title"].as_str())
+            .map(str::to_owned)
+    };
+    assert_eq!(title_of(first.raw()).as_deref(), Some("日志"));
+    assert_eq!(title_of(second.raw()).as_deref(), Some("web-01"));
+    assert_eq!(title_of(opened_id).as_deref(), Some("部署"));
+
+    // 留空清除自定义名，恢复默认名称。
+    f.core.set_session_title(first, Some("   ".into()));
+    let (is_error, text) = c.call(4, "kanso_list_sessions", json!({}));
+    assert!(!is_error, "{text}");
+    let v: Value = serde_json::from_str(&text).unwrap();
+    let tabs = v["sessions"][0]["tabs"].as_array().unwrap();
+    let title = tabs
+        .iter()
+        .find(|t| t["id"] == first.raw())
+        .and_then(|t| t["title"].as_str());
+    assert_eq!(title, Some("web-01"));
+}
+
+#[test]
 fn invalid_token_gets_error_reply_audit_and_is_closed() {
     let f = Fixture::started();
     let mut c = f.connect("wrong");

@@ -681,6 +681,12 @@ ui-create = 创建
 
 ui-rename-group = 重命名分组
 
+ui-rename-tab = 重命名标签
+
+ui-tab-name = 标签名称
+
+ui-rename-tab-hint = 留空以恢复默认标题。
+
 ui-rename-2 = 重命名
 
 ui-delete-2 = 删除

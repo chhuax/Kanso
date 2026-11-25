@@ -200,6 +200,7 @@ final class PaneContainerView: NSView {
             self?.controller.requestTerminalFocus?()
         }
         strip.onClose = { [weak self] ids in self?.contextMenu.close(ids) }
+        strip.onRename = { [weak self] id in self?.contextMenu.rename(id) }
         strip.onMove = { [weak self] id, index in self?.workspace.moveTab(id, toIndex: index) }
         // ＋、双击、右键都作用于"活动 pane"：先切到这条标签条所在的 pane，新会话才会开在这里。
         strip.onNewSession = { [weak self] pane in

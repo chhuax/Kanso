@@ -309,6 +309,7 @@ impl MockCore {
                 profile: Some(profile),
                 kind: SessionKind::Sftp,
                 name: target.name,
+                custom_title: None,
                 state: SessionState::Connected,
             },
             endpoint: Some(Endpoint {
