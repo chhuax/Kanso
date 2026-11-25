@@ -302,6 +302,11 @@ impl KansoCore {
             .map(Into::into)
     }
 
+    /// 设置或清除标签自定义名；会话不存在时忽略。
+    pub fn set_session_title(&self, session_id: u64, title: Option<String>) {
+        self.inner.set_session_title(session(session_id), title)
+    }
+
     /// 告知 core 标签是否可见。
     pub fn set_visible(&self, session_id: u64, visible: bool) {
         self.inner.set_visible(session(session_id), visible)

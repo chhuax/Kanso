@@ -73,6 +73,7 @@ final class TabSidebarViewController: NSViewController, NSTextFieldDelegate {
             self?.controller.requestTerminalFocus?()
         }
         list.onClose = { [weak self] ids in self?.close(ids) }
+        list.onRename = { [weak self] id in self?.contextMenu.rename(id) }
         list.onMove = { [weak self] id, index in self?.workspace.moveTab(id, toIndex: index) }
         list.onBlankDoubleClick = { [weak self] in
             guard let self else { return }

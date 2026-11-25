@@ -94,8 +94,12 @@ final class TabRowView: NSView {
     private var isConnecting: Bool { item.connection == .connecting }
 
     private func applyModel() {
-        titleLabel.stringValue = TabPresentation.primaryTitle(item, homeDirectory: NSHomeDirectory())
-        let subtitle = isDisconnected ? String(localized: "Disconnected") : TabPresentation.subtitle(item)
+        let home = NSHomeDirectory()
+        let hasCustomTitle = item.customTitle?.isEmpty == false
+        titleLabel.lineBreakMode = hasCustomTitle ? .byTruncatingTail : .byTruncatingHead
+        titleLabel.stringValue = TabPresentation.primaryTitle(item, homeDirectory: home)
+        let subtitle = isDisconnected ? String(localized: "Disconnected") : TabPresentation.subtitle(item, homeDirectory: home)
+        subtitleLabel.lineBreakMode = (hasCustomTitle && item.kind == .local && !isDisconnected) ? .byTruncatingHead : .byTruncatingTail
         subtitleLabel.stringValue = subtitle ?? ""
         subtitleLabel.isHidden = subtitle == nil || style == .chip
         shortcutLabel.stringValue = TabPresentation.shortcutLabel(sidebarIndex: model.sidebarIndex)

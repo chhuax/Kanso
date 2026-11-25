@@ -589,6 +589,19 @@ impl Workspace {
 
     // ---- 事件应用 ----
 
+    /// 设置或清除标签的自定义名（去掉首尾空白后为空视为清除）。会话不存在返回 `false`。
+    pub fn set_custom_title(&mut self, session: SessionId, title: Option<String>) -> bool {
+        let Some(item) = self.items.get_mut(&session) else {
+            return false;
+        };
+        item.custom_title = title
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned);
+        true
+    }
+
     /// 位置变化（cwd / 主机 / 分支）。
     pub fn apply_location(
         &mut self,

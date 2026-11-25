@@ -152,6 +152,8 @@ pub struct TabItem {
     pub kind: TabKind,
     /// 会话名称（core 给的显示名）。
     pub name: String,
+    /// 用户或 MCP 设置的自定义标签名；`None` 表示使用默认标题。
+    pub custom_title: Option<String>,
     /// 对应的已保存会话；默认本地 shell 为 `None`。
     pub profile: Option<ProfileId>,
     /// 配置里设置的会话颜色；`None` 则按 [`TabPresentation::color_index`] 稳定生成。
@@ -179,6 +181,7 @@ impl TabItem {
             id,
             kind,
             name: name.into(),
+            custom_title: None,
             profile: None,
             color: None,
             cwd: None,
@@ -196,19 +199,10 @@ impl TabItem {
 pub struct TabPresentation;
 
 impl TabPresentation {
-    /// 主标题：本地且 cwd 已知 → 路径（home 前缀替换为 `~`）；其他 → `name`。
-    ///
-    /// 返回完整字符串，过长时保留末尾的截断由视图层做。路径末尾的 `/` 会被去掉（根目录 `/` 除外）；
+    /// 把本机路径里的 home 前缀替换为 `~`，并去掉末尾多余的 `/`（根目录 `/` 除外）。
     /// `/Users/ab` 不是 `/Users/a` 的子目录，不替换。Windows 路径（`C:\Users\me`）同样按
     /// `\` 或 `/` 分隔处理，home 前缀比较忽略大小写（盘符大小写常不一致）。
-    pub fn primary_title(item: &TabItem, home_dir: &str) -> String {
-        let Some(cwd) = item
-            .cwd
-            .as_deref()
-            .filter(|c| item.kind == TabKind::Local && !c.is_empty())
-        else {
-            return item.name.clone();
-        };
+    pub fn display_path(cwd: &str, home_dir: &str) -> String {
         let path = trim_trailing_separators(cwd);
         let home = trim_trailing_separators(home_dir);
         // home 为空或根目录时替换没有意义（否则所有绝对路径都会变成 `~/...`）。
@@ -238,12 +232,61 @@ impl TabPresentation {
         path.to_owned()
     }
 
-    /// 副标题：本地且有 Git 分支 → 分支名；否则 `None`（不在仓库里不显示，也不重复显示目录）。
-    pub fn subtitle(item: &TabItem) -> Option<&str> {
+    /// 默认标题（不考虑自定义名）：本地且 cwd 已知 → 路径（home 前缀替换为 `~`）；其他 → `name`。
+    pub fn default_title(item: &TabItem, home_dir: &str) -> String {
+        let Some(cwd) = item
+            .cwd
+            .as_deref()
+            .filter(|c| item.kind == TabKind::Local && !c.is_empty())
+        else {
+            return item.name.clone();
+        };
+        Self::display_path(cwd, home_dir)
+    }
+
+    /// 主标题：已设置自定义名 → 自定义名；否则走 [`default_title`](Self::default_title)。
+    ///
+    /// 返回完整字符串，过长时的截断由视图层做。
+    pub fn primary_title(item: &TabItem, home_dir: &str) -> String {
+        if let Some(custom) = item.custom_title.as_deref().filter(|s| !s.is_empty()) {
+            return custom.to_owned();
+        }
+        Self::default_title(item, home_dir)
+    }
+
+    /// 副标题：
+    /// - 未改名：本地且有 Git 分支 → 分支名；否则 `None`（不在仓库里不显示，也不重复显示目录）。
+    /// - 已改名：保留上下文——SSH / SFTP 显示原会话名（与自定义名不同时）；
+    ///   本地显示当前目录，在仓库里时连同分支一并显示（`~/work · main`）。
+    pub fn subtitle(item: &TabItem, home_dir: &str) -> Option<String> {
+        if let Some(custom) = item.custom_title.as_deref().filter(|s| !s.is_empty()) {
+            return match item.kind {
+                TabKind::Local => {
+                    let dir = item
+                        .cwd
+                        .as_deref()
+                        .filter(|c| !c.is_empty())
+                        .map(|c| Self::display_path(c, home_dir));
+                    let branch = item.git_branch.as_deref().filter(|b| !b.is_empty());
+                    match (dir, branch) {
+                        (Some(d), Some(b)) => Some(format!("{d} · {b}")),
+                        (Some(d), None) => Some(d),
+                        (None, Some(b)) => Some(b.to_owned()),
+                        (None, None) => None,
+                    }
+                }
+                TabKind::Ssh | TabKind::Sftp => {
+                    (!item.name.is_empty() && item.name != custom).then(|| item.name.clone())
+                }
+            };
+        }
         if item.kind != TabKind::Local {
             return None;
         }
-        item.git_branch.as_deref().filter(|b| !b.is_empty())
+        item.git_branch
+            .as_deref()
+            .filter(|b| !b.is_empty())
+            .map(str::to_owned)
     }
 
     /// 悬停时的快捷键提示：前 9 个是 `Ctrl+1`–`Ctrl+9` 的数字，之后是序号。返回要显示的数字文字，
@@ -432,7 +475,7 @@ impl TabDescriptions {
         let item = item?;
         let cwd = item.cwd.as_deref().filter(|c| !c.is_empty())?;
         Some(if item.kind == TabKind::Local {
-            TabPresentation::primary_title(item, home_dir)
+            TabPresentation::display_path(cwd, home_dir)
         } else {
             cwd.to_owned()
         })
@@ -619,14 +662,49 @@ mod tests {
     #[test]
     fn subtitle_only_for_local_with_branch() {
         let mut t = local(Some("/x"));
-        assert_eq!(TabPresentation::subtitle(&t), None);
+        assert_eq!(TabPresentation::subtitle(&t, "/Users/a"), None);
         t.git_branch = Some("main".into());
-        assert_eq!(TabPresentation::subtitle(&t), Some("main"));
+        assert_eq!(
+            TabPresentation::subtitle(&t, "/Users/a").as_deref(),
+            Some("main")
+        );
         t.git_branch = Some(String::new());
-        assert_eq!(TabPresentation::subtitle(&t), None);
+        assert_eq!(TabPresentation::subtitle(&t, "/Users/a"), None);
         let mut s = ssh();
         s.git_branch = Some("main".into());
-        assert_eq!(TabPresentation::subtitle(&s), None);
+        assert_eq!(TabPresentation::subtitle(&s, "/Users/a"), None);
+    }
+
+    #[test]
+    fn custom_title_overrides_primary_and_keeps_context_in_subtitle() {
+        let mut t = local(Some("/Users/a/work"));
+        t.custom_title = Some("构建".into());
+        assert_eq!(TabPresentation::primary_title(&t, "/Users/a"), "构建");
+        assert_eq!(
+            TabPresentation::subtitle(&t, "/Users/a").as_deref(),
+            Some("~/work")
+        );
+        // 状态栏当前目录不受自定义名影响。
+        assert_eq!(
+            TabDescriptions::directory_text(Some(&t), "/Users/a").as_deref(),
+            Some("~/work")
+        );
+        t.git_branch = Some("main".into());
+        assert_eq!(
+            TabPresentation::subtitle(&t, "/Users/a").as_deref(),
+            Some("~/work · main")
+        );
+
+        let mut s = ssh();
+        s.custom_title = Some("日志".into());
+        assert_eq!(TabPresentation::primary_title(&s, "/Users/a"), "日志");
+        assert_eq!(
+            TabPresentation::subtitle(&s, "/Users/a").as_deref(),
+            Some("prod")
+        );
+        // 与原会话名相同时不重复显示副标题。
+        s.custom_title = Some("prod".into());
+        assert_eq!(TabPresentation::subtitle(&s, "/Users/a"), None);
     }
 
     #[test]

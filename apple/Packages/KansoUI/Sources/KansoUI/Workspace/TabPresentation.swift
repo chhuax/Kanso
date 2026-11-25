@@ -2,12 +2,9 @@ import Foundation
 
 /// 标签的展示辅助（纯函数，不依赖视图）。
 public enum TabPresentation {
-    /// 主标题：本地且 cwd 已知 → 路径（home 前缀替换为 `~`）；其他 → `name`。
-    ///
-    /// 返回完整字符串，过长时保留末尾的截断由视图层做。
-    /// 路径末尾的 `/` 会被去掉（根目录 `/` 除外）；`/Users/ab` 不是 `/Users/a` 的子目录，不替换。
-    public static func primaryTitle(_ item: TabItem, homeDirectory: String) -> String {
-        guard item.kind == .local, let cwd = item.cwd, !cwd.isEmpty else { return item.name }
+    /// 把本机路径里的 home 前缀替换为 `~`，并去掉末尾多余的 `/`（根目录 `/` 除外）。
+    /// `/Users/ab` 不是 `/Users/a` 的子目录，不替换。
+    public static func displayPath(_ cwd: String, homeDirectory: String) -> String {
         let path = trimTrailingSlashes(cwd)
         let home = trimTrailingSlashes(homeDirectory)
         // home 为空或根目录时替换没有意义（否则所有绝对路径都会变成 `~/...`）。
@@ -17,8 +14,35 @@ public enum TabPresentation {
         return path
     }
 
-    /// 副标题：本地且有 Git 分支 → 分支名；否则 nil（不在仓库里不显示，也不重复显示目录）。
-    public static func subtitle(_ item: TabItem) -> String? {
+    /// 主标题：已设置自定义名 → 自定义名；否则本地且 cwd 已知 → 路径（home 前缀替换为 `~`）；其他 → `name`。
+    ///
+    /// 返回完整字符串，过长时截断由视图层做。
+    public static func primaryTitle(_ item: TabItem, homeDirectory: String) -> String {
+        if let custom = item.customTitle, !custom.isEmpty { return custom }
+        guard item.kind == .local, let cwd = item.cwd, !cwd.isEmpty else { return item.name }
+        return displayPath(cwd, homeDirectory: homeDirectory)
+    }
+
+    /// 副标题：
+    /// - 未改名：本地且有 Git 分支 → 分支名；否则 nil（不在仓库里不显示，也不重复显示目录）。
+    /// - 已改名：保留上下文——SSH / SFTP 显示原会话名（与自定义名不同时）；
+    ///   本地显示当前目录，在仓库里时连同分支一并显示（`~/work · main`）。
+    public static func subtitle(_ item: TabItem, homeDirectory: String = "") -> String? {
+        if let custom = item.customTitle, !custom.isEmpty {
+            switch item.kind {
+            case .local:
+                let dir = item.cwd.flatMap { $0.isEmpty ? nil : displayPath($0, homeDirectory: homeDirectory) }
+                let branch = item.gitBranch.flatMap { $0.isEmpty ? nil : $0 }
+                switch (dir, branch) {
+                case (let d?, let b?): return "\(d) · \(b)"
+                case (let d?, nil): return d
+                case (nil, let b?): return b
+                case (nil, nil): return nil
+                }
+            case .ssh, .sftp:
+                return (!item.name.isEmpty && item.name != custom) ? item.name : nil
+            }
+        }
         guard item.kind == .local, let branch = item.gitBranch, !branch.isEmpty else { return nil }
         return branch
     }

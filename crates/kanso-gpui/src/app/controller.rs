@@ -352,6 +352,7 @@ impl<B: AppBackend + Clone> AppController<B> {
             info.as_ref().map_or("", |i| i.name.as_str()),
         );
         if let Some(info) = &info {
+            item.custom_title = info.custom_title.clone();
             item.connection = TabConnection::from(&info.state);
             item.profile = info.profile;
             item.color = info
@@ -372,6 +373,17 @@ impl<B: AppBackend + Clone> AppController<B> {
     /// 接管 MCP 已打开的标签，保持前台会话与输入焦点。
     pub fn adopt_mcp_session(&mut self, id: SessionId) -> bool {
         self.adopt(id, None, None, false)
+    }
+
+    /// 设置或清除标签的自定义名，并同步通知核心（MCP 等处看到同一标题）。
+    pub fn rename_session(&mut self, session: SessionId, title: Option<String>) -> bool {
+        let normalized = title
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned);
+        self.backend.set_session_title(session, normalized.clone());
+        self.workspace.set_custom_title(session, normalized)
     }
 
     // ---- 关闭 ----
@@ -522,6 +534,7 @@ mod tests {
                     profile,
                     kind,
                     name,
+                    custom_title: None,
                     state: SessionState::Connecting,
                 },
             );
@@ -536,6 +549,12 @@ mod tests {
 
         fn session_info(&self, session: SessionId) -> Option<SessionInfo> {
             self.0.borrow().sessions.get(&session).cloned()
+        }
+
+        fn set_session_title(&self, session: SessionId, title: Option<String>) {
+            if let Some(info) = self.0.borrow_mut().sessions.get_mut(&session) {
+                info.custom_title = title;
+            }
         }
 
         fn set_visible(&self, session: SessionId, visible: bool) {

@@ -34,6 +34,8 @@ public struct TabItem: Identifiable, Equatable, Sendable {
     public let id: SessionID
     public var kind: TabKind
     public var name: String
+    /// 用户或 MCP 设置的自定义标签名；nil 表示使用默认标题。
+    public var customTitle: String?
     public var profileID: String?
     /// 配置里设置的会话颜色（#RRGGBB）；nil 则按 `TabPresentation.colorIndex` 稳定生成。
     public var colorHex: String?
@@ -50,6 +52,7 @@ public struct TabItem: Identifiable, Equatable, Sendable {
         id: SessionID,
         kind: TabKind,
         name: String,
+        customTitle: String? = nil,
         profileID: String? = nil,
         colorHex: String? = nil,
         cwd: String? = nil,
@@ -63,6 +66,7 @@ public struct TabItem: Identifiable, Equatable, Sendable {
         self.id = id
         self.kind = kind
         self.name = name
+        self.customTitle = customTitle
         self.profileID = profileID
         self.colorHex = colorHex
         self.cwd = cwd
@@ -431,6 +435,15 @@ public final class Workspace {
         if old.isBusy, !activity.isBusy, session != activeSession {
             items[session]?.unreadDone = true
         }
+        return true
+    }
+
+    /// 设置或清除标签的自定义名（去掉首尾空白后为空视为清除）。会话不存在返回 false。
+    @discardableResult
+    public func setCustomTitle(_ session: SessionID, _ title: String?) -> Bool {
+        guard items[session] != nil else { return false }
+        let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        items[session]?.customTitle = (trimmed?.isEmpty == false) ? trimmed : nil
         return true
     }
 

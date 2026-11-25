@@ -37,6 +37,7 @@ pub fn encode(command: AppCommand) -> String {
         AppCommand::CloseGroup(scope, s) => {
             format!("close-group:{}:{}", scope_name(scope), s.raw())
         }
+        AppCommand::RenameTab(s) => format!("rename-tab:{}", s.raw()),
         AppCommand::EditSession(s) => format!("edit-session:{}", s.raw()),
         AppCommand::ToggleRightClickMenu => "toggle-right-click-menu".into(),
         AppCommand::ToggleCopyOnSelect => "toggle-copy-on-select".into(),
@@ -106,6 +107,9 @@ pub fn decode(id: &str) -> Option<AppCommand> {
     }
     if let Some(rest) = id.strip_prefix("close-tab:") {
         return session(rest).map(AppCommand::CloseTab);
+    }
+    if let Some(rest) = id.strip_prefix("rename-tab:") {
+        return session(rest).map(AppCommand::RenameTab);
     }
     if let Some(rest) = id.strip_prefix("edit-session:") {
         return session(rest).map(AppCommand::EditSession);
@@ -234,7 +238,7 @@ pub struct TabMenuContext {
     pub has_below: bool,
 }
 
-/// 标签右键菜单（ui-shell.md §2.4）：编辑已保存的会话（仅来自已保存会话的标签）、关闭、
+/// 标签右键菜单（ui-shell.md §2.4）：重命名、编辑已保存的会话（仅来自已保存会话的标签）、关闭、
 /// 关闭其他 / 左侧 / 右侧 / 全部（只在同一分屏组内生效，没有可关闭的标签时禁用）。
 pub fn tab_menu(ctx: TabMenuContext) -> Vec<MenuItem> {
     let s = ctx.session;
@@ -242,14 +246,17 @@ pub fn tab_menu(ctx: TabMenuContext) -> Vec<MenuItem> {
         let it = MenuItem::action(encode(AppCommand::CloseGroup(scope, s)), label);
         if enabled { it } else { it.disabled() }
     };
-    let mut items = Vec::new();
+    let mut items = vec![MenuItem::action(
+        encode(AppCommand::RenameTab(s)),
+        label(Message::UiRename {}),
+    )];
     if ctx.from_profile {
         items.push(MenuItem::action(
             encode(AppCommand::EditSession(s)),
             label(Message::UiEditSession2 {}),
         ));
-        items.push(MenuItem::separator());
     }
+    items.push(MenuItem::separator());
     items.push(MenuItem::action(
         encode(AppCommand::CloseTab(s)),
         label(Message::UiClose {}),
@@ -528,6 +535,7 @@ mod tests {
             AppCommand::CloseGroup(CloseScope::Above, sid(8)),
             AppCommand::CloseGroup(CloseScope::Below, sid(9)),
             AppCommand::CloseGroup(CloseScope::All, sid(10)),
+            AppCommand::RenameTab(sid(4)),
             AppCommand::EditSession(sid(3)),
             AppCommand::ToggleRightClickMenu,
             AppCommand::ToggleCopyOnSelect,
@@ -654,9 +662,10 @@ mod tests {
             has_below: false,
         };
         let a = all(&tab_menu(base));
-        // 没有已保存会话：不出现“编辑”。
+        // 没有已保存会话：不出现“编辑”，但始终有“重命名”。
         assert!(!a.iter().any(|x| x.0.starts_with("edit-session")));
         let enabled = |id: &str| a.iter().find(|x| x.0 == id).map(|x| x.1);
+        assert_eq!(enabled("rename-tab:5"), Some(true));
         assert_eq!(enabled("close-tab:5"), Some(true));
         // 没有可关闭的标签时禁用，全部关闭始终可用（至少关自己）。
         assert_eq!(enabled("close-group:others:5"), Some(false));

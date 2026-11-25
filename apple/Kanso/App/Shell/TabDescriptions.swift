@@ -56,6 +56,6 @@ enum TabDescriptions {
     /// 远端 home 未知，不能用本机 home 去替换。没有上报（cwd 为空）就不显示，不用会话名充数。
     static func directoryText(for item: TabItem?, homeDirectory: String) -> String? {
         guard let item, let cwd = item.cwd, !cwd.isEmpty else { return nil }
-        return item.kind == .local ? TabPresentation.primaryTitle(item, homeDirectory: homeDirectory) : cwd
+        return item.kind == .local ? TabPresentation.displayPath(cwd, homeDirectory: homeDirectory) : cwd
     }
 }

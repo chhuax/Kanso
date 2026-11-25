@@ -122,8 +122,11 @@ impl ShellView {
         for item in &tabs {
             // 快捷键序号按完整侧栏顺序编号，与 Alt+N 的实际目标一致。
             let index = order.iter().position(|id| *id == item.id).unwrap_or(0);
-            let title =
-                truncate_keep_tail(&TabPresentation::primary_title(item, home), title_cells);
+            let title = if item.custom_title.is_some() {
+                TabPresentation::primary_title(item, home)
+            } else {
+                truncate_keep_tail(&TabPresentation::primary_title(item, home), title_cells)
+            };
             list = list.child(self.render_row(
                 item,
                 index,

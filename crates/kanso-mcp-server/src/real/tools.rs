@@ -382,6 +382,10 @@ pub(super) struct ExecParams {
 pub(super) struct OpenTabParams {
     #[schemars(description = "Session id, as returned by kanso_list_sessions.")]
     session: String,
+    #[schemars(
+        description = "Optional custom title for the newly opened tab (blank restores the default title)."
+    )]
+    title: Option<String>,
 }
 
 /// `kanso_sftp_list` 的参数。
@@ -1288,6 +1292,9 @@ impl KansoHandler {
     ) -> CallToolResult {
         let mut args = ArgsSummary::new();
         args.push_str("session=").push_str(&params.session);
+        if let Some(title) = params.title.as_deref() {
+            args.push_str(", title=").push_str(title);
+        }
         self.invoke("kanso_open_tab", None, args, |target| async move {
             let policy = self.shared.core.mcp_policy_watch();
             let resolved = self
@@ -1314,6 +1321,9 @@ impl KansoHandler {
             match outcome {
                 McpConnectOutcome::Connected { session, .. } => {
                     target.set_session(session);
+                    if params.title.is_some() {
+                        self.shared.core.set_session_title(session, params.title);
+                    }
                     self.register_opened_tab(session)
                 }
                 McpConnectOutcome::NotConnected => Err(remote::not_connected()),
@@ -1980,7 +1990,7 @@ fn tab_json(
 ) -> Value {
     let mut tab = json!({
         "id": info.id.raw(),
-        "title": info.name,
+        "title": info.custom_title.as_deref().unwrap_or(&info.name),
         "state": match info.state {
             SessionState::Connecting => "connecting",
             SessionState::Connected => "connected",

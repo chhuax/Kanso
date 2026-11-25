@@ -689,6 +689,7 @@ impl MockCore {
                 profile,
                 kind,
                 name: name.clone(),
+                custom_title: None,
                 state: SessionState::Connecting,
             },
             endpoint: endpoint.clone(),
@@ -803,6 +804,17 @@ impl MockCore {
             .iter()
             .find(|s| s.info.id == session)
             .map(|s| s.info.clone())
+    }
+
+    pub(crate) fn set_session_title(&self, session: SessionId, title: Option<String>) {
+        if let Some(s) = self
+            .lock()
+            .sessions
+            .iter_mut()
+            .find(|s| s.info.id == session)
+        {
+            s.info.custom_title = title;
+        }
     }
 
     pub(crate) fn set_visible(&self, _session: SessionId, _visible: bool) {
@@ -1918,5 +1930,21 @@ mod tests {
             3
         );
         assert_eq!(block_on(core.restore_purchases()).unwrap(), None);
+    }
+
+    #[test]
+    fn set_session_title_trims_and_clears() {
+        let (core, _) = setup();
+        let id = open(&core, "Local");
+        assert_eq!(core.session_info(id).unwrap().custom_title, None);
+        core.set_session_title(id, Some("  构建  ".into()));
+        assert_eq!(
+            core.session_info(id).unwrap().custom_title.as_deref(),
+            Some("构建")
+        );
+        core.set_session_title(id, Some("   ".into()));
+        assert_eq!(core.session_info(id).unwrap().custom_title, None);
+        // 不存在的会话静默忽略。
+        core.set_session_title(SessionId::from_raw(999_999), Some("x".into()));
     }
 }

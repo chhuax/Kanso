@@ -47,7 +47,7 @@ use kanso_gpui::app::status_bar::{clock_text, ms_until_next_minute};
 use kanso_gpui::app::tab::{CloseNote, TabConnection};
 use kanso_gpui::app::workspace::{CloseConfirmation, CloseScope};
 use kanso_gpui::keys::KeyInput;
-use kanso_gpui::widgets::dialog::DialogResult;
+use kanso_gpui::widgets::dialog::{ButtonSpec, DialogResult, DialogSpec, InputSpec};
 use kanso_gpui::widgets::menu::MenuItem;
 use kanso_gpui::widgets::style::{Appearance, color, number};
 use kanso_types::{CoreEvent, PromptId, SessionId};
@@ -120,6 +120,8 @@ pub(crate) struct ShellView {
     pub(super) dialog: Option<Entity<Dialog>>,
     pub(super) dialog_sub: Option<Subscription>,
     pending_close: Option<CloseRequest>,
+    /// 正在重命名的标签。
+    pending_rename_tab: Option<SessionId>,
     /// “恢复默认设置”的确认框正在显示。
     pub(super) pending_reset: bool,
     /// 状态栏时钟文字（整分钟刷新）。
@@ -235,6 +237,7 @@ impl ShellView {
             dialog: None,
             dialog_sub: None,
             pending_close: None,
+            pending_rename_tab: None,
             pending_reset: false,
             clock: clock_text(unix_ms(), tz::local_offset_minutes()),
             notice: None,
@@ -673,6 +676,7 @@ impl ShellView {
                 m.update_mouse(cx, |s| s.copy_on_select = !s.copy_on_select)
             }),
             AppCommand::Quit => self.request_quit(window, cx),
+            AppCommand::RenameTab(id) => self.open_rename_tab_dialog(id, window, cx),
             AppCommand::EditSession(id) => {
                 let profile = self.ctl.workspace().item(id).and_then(|i| i.profile);
                 if let Some(p) = profile {
@@ -1185,6 +1189,46 @@ impl ShellView {
         cx.notify();
     }
 
+    /// 弹出标签重命名对话框（留空恢复默认标题），结果由 [`Self::on_dialog_result`] 处理。
+    pub(super) fn open_rename_tab_dialog(
+        &mut self,
+        session: SessionId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.dialog.is_some() {
+            return;
+        }
+        let Some(item) = self.ctl.workspace().item(session) else {
+            return;
+        };
+        let initial = item.custom_title.clone().unwrap_or_default();
+        let placeholder =
+            kanso_gpui::app::tab::TabPresentation::default_title(item, self.ctl.home_dir());
+        self.menu = None;
+        self.menu_sub = None;
+        let spec = DialogSpec::new(label(Message::UiRenameTab {}))
+            .text(label(Message::UiRenameTabHint {}))
+            .input(
+                InputSpec::new("title", label(Message::UiTabName {}))
+                    .initial(&initial)
+                    .placeholder(&placeholder),
+            )
+            .button(ButtonSpec::secondary("cancel", label(Message::UiCancel {})).cancel())
+            .button(ButtonSpec::primary("ok", label(Message::UiRename2 {})));
+        let dialog = cx.new(|cx| Dialog::new(spec, window, cx));
+        self.dialog_sub =
+            Some(
+                cx.subscribe_in(&dialog, window, |this, _d, ev: &DialogEvent, window, cx| {
+                    let DialogEvent::Result(r) = ev;
+                    this.on_dialog_result(r, window, cx);
+                }),
+            );
+        self.dialog = Some(dialog);
+        self.pending_rename_tab = Some(session);
+        cx.notify();
+    }
+
     pub(super) fn on_dialog_result(
         &mut self,
         r: &DialogResult,
@@ -1193,6 +1237,15 @@ impl ShellView {
     ) {
         self.dialog = None;
         self.dialog_sub = None;
+        if let Some(session) = self.pending_rename_tab.take() {
+            if r.button.as_deref() == Some("ok") {
+                let title = r.value("title").map(str::to_owned);
+                self.ctl.rename_session(session, title);
+            }
+            self.sync_focus(window, cx);
+            cx.notify();
+            return;
+        }
         if let Some(p) = self.pending_data.take() {
             self.on_data_dialog(p, r, window, cx);
             return;

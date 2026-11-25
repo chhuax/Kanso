@@ -1549,6 +1549,18 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "重命名分组" } }
       }
     },
+    "Rename Tab" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Rename Tab" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "重命名标签" } }
+      }
+    },
+    "Leave blank to restore the default title." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Leave blank to restore the default title." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "留空以恢复默认标题。" } }
+      }
+    },
     "Rename" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Rename" } },

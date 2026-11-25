@@ -24,6 +24,8 @@ pub trait SessionBackend {
     fn close_session(&self, session: SessionId);
     /// 单个会话的摘要。
     fn session_info(&self, session: SessionId) -> Option<SessionInfo>;
+    /// 设置或清除标签的自定义名；会话不存在时忽略。
+    fn set_session_title(&self, session: SessionId, title: Option<String>);
     /// 告知核心标签是否可见（不可见的标签只解析不渲染）。
     fn set_visible(&self, session: SessionId, visible: bool);
     /// 按 id 取已保存的会话（取颜色等展示信息）。
@@ -86,6 +88,10 @@ impl SessionBackend for Core {
 
     fn session_info(&self, session: SessionId) -> Option<SessionInfo> {
         Core::session_info(self, session)
+    }
+
+    fn set_session_title(&self, session: SessionId, title: Option<String>) {
+        Core::set_session_title(self, session, title);
     }
 
     fn set_visible(&self, session: SessionId, visible: bool) {
@@ -161,6 +167,10 @@ impl<T: SessionBackend + ?Sized> SessionBackend for Arc<T> {
 
     fn session_info(&self, session: SessionId) -> Option<SessionInfo> {
         (**self).session_info(session)
+    }
+
+    fn set_session_title(&self, session: SessionId, title: Option<String>) {
+        (**self).set_session_title(session, title);
     }
 
     fn set_visible(&self, session: SessionId, visible: bool) {

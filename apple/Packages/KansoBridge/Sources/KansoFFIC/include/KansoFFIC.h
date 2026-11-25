@@ -682,6 +682,11 @@ uint64_t uniffi_kanso_ffi_fn_method_kansocore_set_credential(uint64_t ptr, RustB
 void uniffi_kanso_ffi_fn_method_kansocore_set_local_shell_defaults(uint64_t ptr, RustBuffer profile, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_SET_SESSION_TITLE
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_SET_SESSION_TITLE
+void uniffi_kanso_ffi_fn_method_kansocore_set_session_title(uint64_t ptr, uint64_t session_id, RustBuffer title, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_SET_SETTING
 #define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_SET_SETTING
 void uniffi_kanso_ffi_fn_method_kansocore_set_setting(uint64_t ptr, RustBuffer key, RustBuffer json, RustCallStatus *_Nonnull out_status
@@ -1693,6 +1698,12 @@ uint16_t uniffi_kanso_ffi_checksum_method_kansocore_set_credential(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_SET_LOCAL_SHELL_DEFAULTS
 #define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_SET_LOCAL_SHELL_DEFAULTS
 uint16_t uniffi_kanso_ffi_checksum_method_kansocore_set_local_shell_defaults(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_SET_SESSION_TITLE
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_SET_SESSION_TITLE
+uint16_t uniffi_kanso_ffi_checksum_method_kansocore_set_session_title(void
     
 );
 #endif

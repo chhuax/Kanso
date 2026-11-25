@@ -644,6 +644,12 @@ messages! {
     UiCreate = "ui-create" {},
     /// GPUI 界面文字：重命名分组
     UiRenameGroup = "ui-rename-group" {},
+    /// GPUI 界面文字：重命名标签
+    UiRenameTab = "ui-rename-tab" {},
+    /// GPUI 界面文字：标签名称
+    UiTabName = "ui-tab-name" {},
+    /// GPUI 界面文字：留空以恢复默认标题。
+    UiRenameTabHint = "ui-rename-tab-hint" {},
     /// GPUI 界面文字：重命名
     UiRename2 = "ui-rename-2" {},
     /// GPUI 界面文字：删除

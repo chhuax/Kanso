@@ -485,6 +485,8 @@ pub(crate) struct RealCore {
     /// 由 Profile 打开的会话 → (Profile id, Profile 名)，供 `sessions()` 填 `SessionInfo`。
     /// 会话层不认识 Profile，所以由 core 记录；`close_session` 时清除。
     profile_sessions: Arc<Mutex<HashMap<SessionId, (ProfileId, String)>>>,
+    /// 标签自定义名；`close_session` 时清除。
+    custom_titles: Mutex<HashMap<SessionId, String>>,
     /// 无界面会话 → 是否借用（`true` 为借用用户建立的连接，`false` 为 MCP 自建），见 `connect.rs`。
     headless: Arc<Mutex<HashMap<SessionId, bool>>>,
     /// 每条连接（按 `Connection::id`）一个 exec 并发限额，见 `exec.rs`。
@@ -637,6 +639,7 @@ impl RealCore {
             platform_host_keys,
             builtin_host_keys: Mutex::new(None),
             profile_sessions,
+            custom_titles: Mutex::new(HashMap::new()),
             headless,
             exec_slots: Mutex::new(HashMap::new()),
             ssh_config_env: SshConfigEnv::from_snapshot(&env),
@@ -1277,6 +1280,10 @@ impl RealCore {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(&session);
+        self.custom_titles
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&session);
         // 用户关闭标签后，若这是该连接上最后一个可见会话，立即释放借用它的无界面会话。
         // 同步执行（只是登记关闭，不阻塞）：返回之后调用方再查一定看不到已释放的借用会话。
         if let Some(connection_id) = visible_connection {
@@ -1298,11 +1305,18 @@ impl RealCore {
             Some((id, name)) => (Some(id), name),
             None => (None, s.name),
         };
+        let custom_title = self
+            .custom_titles
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&s.id)
+            .cloned();
         SessionInfo {
             id: s.id,
             profile,
             kind: s.kind,
             name,
+            custom_title,
             state: s.state,
         }
     }
@@ -1311,6 +1325,21 @@ impl RealCore {
         self.sessions
             .summary(session)
             .map(|s| self.session_info_from(s))
+    }
+
+    pub(crate) fn set_session_title(&self, session: SessionId, title: Option<String>) {
+        if self.sessions.summary(session).is_none() {
+            return;
+        }
+        let mut titles = self.custom_titles.lock().unwrap_or_else(|e| e.into_inner());
+        match title {
+            Some(name) => {
+                titles.insert(session, name);
+            }
+            None => {
+                titles.remove(&session);
+            }
+        }
     }
 
     pub(crate) fn set_visible(&self, session: SessionId, visible: bool) {
