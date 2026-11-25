@@ -1,10 +1,10 @@
-//! 设置 → MCP：服务与接入、客户端、会话授权和审计记录（mcp.md §7）。
+//! 设置 → MCP：服务与接入、客户端和会话授权（mcp.md §7）。
 
 use std::{cell::Cell, collections::HashMap, rc::Rc};
 
 use gpui::{
     AnyElement, ClipboardItem, Context, Div, ElementId, Entity, FontWeight, KeyDownEvent, Render,
-    ScrollHandle, SharedString, Stateful, Subscription, Window, canvas, div, prelude::*, px,
+    ScrollHandle, Stateful, Subscription, Window, canvas, div, prelude::*, px,
 };
 use kanso_core::CoreError;
 use kanso_gpui::app::i18n::{Lang, label, lang};
@@ -14,20 +14,23 @@ use kanso_gpui::widgets::dropdown::Item;
 use kanso_gpui::widgets::style::number;
 use kanso_mcp_server::{McpClientKind, McpServerStatus, McpUnavailable};
 use kanso_types::ProfileId;
-use kanso_types::mcp::{McpAccess, McpAuditDispatch, McpAuditFilter, McpAuditRecord};
+use kanso_types::mcp::McpAccess;
 use kanso_types::message::Message;
 use kanso_types::profile::{Group, Profile};
 
 use super::{Th, boxed, caption, card, check_row, checkbox_box, row};
-use crate::ui::mcp::{AuditChanged, McpModel};
+use crate::ui::mcp::McpModel;
 use crate::ui::widgets::dropdown::{Dropdown, DropdownEvent};
-use crate::ui::widgets::text_input::{TextInput, TextInputEvent};
+use crate::ui::widgets::text_input::TextInput;
 use crate::ui::{display, log, tz};
 
 pub(in crate::ui) const MCP_ACCESS_LEVELS: [McpAccess; 3] =
     [McpAccess::Off, McpAccess::ReadOnly, McpAccess::Full];
 const CLIENTS: [McpClientKind; 2] = [McpClientKind::ClaudeCode, McpClientKind::Codex];
-const AUDIT_PAGE: u32 = 100;
+#[path = "settings_mcp_audit.rs"]
+mod audit;
+
+pub(in crate::ui) use audit::AuditView;
 
 pub(in crate::ui) fn mcp_access_title(level: McpAccess) -> String {
     render_message(&match level {
@@ -75,13 +78,6 @@ pub(super) struct McpPage {
     /// 读取授权失败的原因；`Some` 时 `levels` 不可信，不得据此判断"未授权"。
     levels_error: Option<String>,
     sensitive_notice: bool,
-    audit_client: Entity<TextInput>,
-    audit_session: Entity<Dropdown>,
-    audit_filter: McpAuditFilter,
-    audit_records: Vec<McpAuditRecord>,
-    audit_error: Option<String>,
-    audit_has_more: bool,
-    audit_has_updates: bool,
     shown: bool,
     grants_dirty: bool,
     language: Lang,
@@ -102,12 +98,6 @@ impl McpPage {
                 .read_only()
                 .placeholder(Message::WinMcpTokenNeeded {})
         });
-        let audit_client = cx.new(|cx| TextInput::new(window, cx));
-        let audit_session = cx.new(|cx| {
-            Dropdown::new(window, cx)
-                .items(vec![Item::option(label(Message::WinMcpAllSessions {}))])
-                .selected(0)
-        });
         let subs = vec![
             cx.observe(&model, |this, _, cx| {
                 if this.shown {
@@ -115,45 +105,16 @@ impl McpPage {
                     this.update_command(cx);
                 }
             }),
-            cx.subscribe(&model, |this, _, _: &AuditChanged, cx| {
-                if this.shown {
-                    if this.audit_filter.before_id.is_none() {
-                        this.load_audit(true, cx);
-                    } else {
-                        this.audit_has_updates = true;
-                        cx.notify();
-                    }
-                }
-            }),
             cx.observe_window_activation(window, |this, window, cx| {
                 if this.shown && window.is_window_active() {
                     this.grants_dirty = true;
-                    this.load_audit(true, cx);
+                    cx.notify();
                 }
             }),
             cx.subscribe(&client_picker, |this, _, event, cx| {
                 if let DropdownEvent::Change(i) = event {
                     this.client = CLIENTS[*i];
                     this.update_command(cx);
-                }
-            }),
-            cx.subscribe(&audit_client, |this, input, event, cx| {
-                if matches!(event, TextInputEvent::Submit(_) | TextInputEvent::Blur) {
-                    let name = input.read(cx).text().trim();
-                    let client = (!name.is_empty()).then(|| name.to_owned());
-                    if client != this.audit_filter.client {
-                        this.audit_filter.client = client;
-                        this.load_audit(true, cx);
-                    }
-                }
-            }),
-            cx.subscribe(&audit_session, |this, _, event, cx| {
-                if let DropdownEvent::Change(i) = event {
-                    this.audit_filter.profile = i
-                        .checked_sub(1)
-                        .and_then(|i| this.profiles.get(i))
-                        .map(|profile| profile.id);
-                    this.load_audit(true, cx);
                 }
             }),
         ];
@@ -171,16 +132,6 @@ impl McpPage {
             grants_error: None,
             levels_error: None,
             sensitive_notice: false,
-            audit_client,
-            audit_session,
-            audit_filter: McpAuditFilter {
-                limit: AUDIT_PAGE,
-                ..Default::default()
-            },
-            audit_records: Vec::new(),
-            audit_error: None,
-            audit_has_more: false,
-            audit_has_updates: false,
             shown: false,
             grants_dirty: true,
             language: lang(),
@@ -195,7 +146,6 @@ impl McpPage {
             self.grants_dirty = true;
             self.model.update(cx, |m, cx| m.refresh_token(cx));
             self.update_command(cx);
-            self.load_audit(true, cx);
         }
     }
 
@@ -240,7 +190,7 @@ impl McpPage {
         let core = self.model.read(cx).core();
         let mut profiles = core.profiles();
         let mut groups = core.groups();
-        // 读失败时不能当成"全部关闭"：显示错误、禁用并清空级别下拉框（见下方），审计列表也不再标"未授权"。
+        // 读失败时不能当成"全部关闭"：显示错误、禁用并清空级别下拉框（见下方）。
         match core.mcp_accesses() {
             Ok(levels) => {
                 self.levels = levels.into_iter().collect();
@@ -259,7 +209,6 @@ impl McpPage {
             self.profiles = profiles;
             self.groups = groups;
             self.rebuild_grants(window, cx);
-            self.update_audit_sessions(cx);
         }
         // 读失败时级别未知：所有下拉框清空选择并禁用，不能显示成"关闭"，也不能让用户基于错误的现状去改；
         // 读成功后恢复（空分组的批量下拉框始终禁用）。
@@ -355,65 +304,6 @@ impl McpPage {
         }
     }
 
-    fn update_audit_sessions(&mut self, cx: &mut Context<Self>) {
-        let items = std::iter::once(Item::option(label(Message::WinMcpAllSessions {})))
-            .chain(self.profiles.iter().map(|p| Item::option(p.name.clone())))
-            .collect();
-        let selected = self.audit_filter.profile.and_then(|id| {
-            self.profiles
-                .iter()
-                .position(|profile| profile.id == id)
-                .map(|i| i + 1)
-        });
-        self.audit_session.update(cx, |d, cx| {
-            d.set_items(items, cx);
-            d.set_selected(Some(selected.unwrap_or(0)), cx);
-        });
-        if selected.is_none() && self.audit_filter.profile.take().is_some() {
-            self.load_audit(true, cx);
-        }
-    }
-
-    fn load_audit(&mut self, first_page: bool, cx: &mut Context<Self>) {
-        self.audit_filter.before_id = if first_page {
-            None
-        } else {
-            self.audit_records.last().map(|record| record.id)
-        };
-        match self
-            .model
-            .read(cx)
-            .core()
-            .mcp_audit(self.audit_filter.clone())
-        {
-            Ok(records) => {
-                self.audit_error = None;
-                self.audit_has_more = records.len() == AUDIT_PAGE as usize;
-                if first_page {
-                    self.audit_has_updates = false;
-                    self.audit_records = records;
-                } else {
-                    self.audit_records.extend(records);
-                }
-            }
-            Err(error) => {
-                self.audit_error = Some(operator_error(error, Message::WinMcpAuditReadFailed {}));
-                self.audit_has_more = false;
-            }
-        }
-        cx.notify();
-    }
-
-    fn clear_audit(&mut self, cx: &mut Context<Self>) {
-        match self.model.read(cx).core().mcp_audit_clear() {
-            Ok(()) => self.load_audit(true, cx),
-            Err(error) => {
-                self.audit_error = Some(operator_error(error, Message::WinMcpAuditClearFailed {}));
-                cx.notify();
-            }
-        }
-    }
-
     fn status_text(status: &McpServerStatus) -> (Message, Option<Message>) {
         match status {
             McpServerStatus::Running { .. } => (Message::WinMcpRunning {}, None),
@@ -461,206 +351,6 @@ impl McpPage {
         }
         rows
     }
-
-    fn audit_rows(&self, th: &Th, actions: &mut McpActions<'_, '_>) -> Vec<AnyElement> {
-        let mut rows = vec![
-            div()
-                .flex()
-                .gap(px(10.0))
-                .child(row(
-                    th,
-                    label(Message::WinMcpClient {}),
-                    self.audit_client.clone(),
-                ))
-                .child(row(
-                    th,
-                    label(Message::UiSession {}),
-                    self.audit_session.clone(),
-                ))
-                .into_any_element(),
-            check_row(
-                th,
-                render_message(&Message::WinMcpErrorsOnly {}),
-                actions.checkbox(
-                    "mcp-audit-errors",
-                    self.audit_filter.errors_only,
-                    true,
-                    |this, on, cx| {
-                        this.audit_filter.errors_only = on;
-                        this.load_audit(true, cx);
-                    },
-                ),
-            ),
-        ];
-        if let Some(error) = &self.audit_error {
-            rows.push(error_label(th, error));
-        } else if self.audit_records.is_empty() {
-            rows.push(caption(th, label(Message::WinMcpNoAudit {})));
-        } else {
-            let names: HashMap<_, _> = self
-                .profiles
-                .iter()
-                .map(|p| (p.id, p.name.as_str()))
-                .collect();
-            let offset = tz::local_offset_minutes();
-            rows.push(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(6.0))
-                    .children(
-                        self.audit_records
-                            .iter()
-                            .map(|record| self.audit_entry(th, record, &names, offset)),
-                    )
-                    .into_any_element(),
-            );
-        }
-        rows.push(
-            div()
-                .flex()
-                .gap(px(8.0))
-                .when(self.audit_has_updates, |d| {
-                    d.child(actions.button(
-                        "mcp-audit-refresh",
-                        Message::WinMcpAuditRefresh {},
-                        false,
-                        true,
-                        |this, cx| this.load_audit(true, cx),
-                    ))
-                })
-                .when(self.audit_has_more, |d| {
-                    d.child(actions.button(
-                        "mcp-audit-more",
-                        Message::WinMcpAuditMore {},
-                        false,
-                        true,
-                        |this, cx| this.load_audit(false, cx),
-                    ))
-                })
-                .child(actions.button(
-                    "mcp-audit-clear",
-                    Message::WinMcpAuditClear {},
-                    false,
-                    true,
-                    Self::clear_audit,
-                ))
-                .into_any_element(),
-        );
-        rows
-    }
-
-    fn audit_entry(
-        &self,
-        th: &Th,
-        record: &McpAuditRecord,
-        names: &HashMap<ProfileId, &str>,
-        offset: i32,
-    ) -> AnyElement {
-        let entry = &record.entry;
-        let mut parts = vec![
-            format_mtime(entry.at_ms, offset),
-            client_name(&entry.client).to_owned(),
-        ];
-        if !entry.tool.is_empty() {
-            parts.push(entry.tool.clone());
-        }
-        if let Some(id) = entry.profile {
-            let name = match names.get(&id) {
-                None => label(Message::WinMcpAuditDeleted {}),
-                // 授权读取失败时无法判断是否未授权，只显示会话名。
-                Some(_) if self.levels_error.is_none() && !self.levels.contains_key(&id) => {
-                    label(Message::WinMcpAuditUnauthorized {})
-                }
-                Some(name) => name,
-            };
-            parts.push(name.to_owned());
-        }
-        if let Some(code) = &entry.error_code {
-            parts.push(code.clone());
-        }
-        if matches!(
-            entry.tool.as_str(),
-            "kanso_terminal_run" | "kanso_terminal_send"
-        ) && let Some(tab) = entry.session
-        {
-            parts.push(format!("tab={}", tab.raw()));
-        }
-        let input = entry.input();
-        if let Some(dispatch) = input.as_ref().and_then(|input| input.dispatch) {
-            parts.push(
-                label(match dispatch {
-                    McpAuditDispatch::Submitted => Message::WinMcpAuditSubmitted {},
-                    McpAuditDispatch::Rejected => Message::WinMcpAuditNotSent {},
-                    McpAuditDispatch::Unconfirmed => Message::WinMcpAuditUnconfirmed {},
-                })
-                .to_owned(),
-            );
-        }
-        let args = input
-            .as_ref()
-            .map_or(entry.args.as_str(), |input| input.options);
-        div()
-            .flex()
-            .flex_col()
-            .child(caption(th, &parts.join(" · ")))
-            .when_some(input, |d, input| {
-                let full: SharedString = input.text.to_owned().into();
-                let heading = if entry.tool == "kanso_terminal_send" {
-                    label(Message::WinMcpAuditInput {})
-                } else {
-                    label(Message::WinMcpAuditCommand {})
-                };
-                let tooltip_theme = Th(th.0);
-                d.child(
-                    div()
-                        .id(("mcp-audit-input", record.id as usize))
-                        .py(px(4.0))
-                        .px(px(8.0))
-                        .rounded(px(number("radius", "sm")))
-                        .bg(th.c("bg.rowHover"))
-                        .text_size(px(number("font", "ui.caption")))
-                        .text_color(th.c("text.primary"))
-                        .child(div().font_weight(FontWeight::SEMIBOLD).child(heading))
-                        .child(
-                            div()
-                                .overflow_hidden()
-                                .whitespace_nowrap()
-                                .text_ellipsis()
-                                .child(full.clone()),
-                        )
-                        .tooltip(move |_, cx| {
-                            cx.new(|_| ArgsTooltip {
-                                text: full.clone(),
-                                th: Th(tooltip_theme.0),
-                            })
-                            .into()
-                        }),
-                )
-            })
-            .when(!args.is_empty(), |d| {
-                let full: SharedString = args.to_owned().into();
-                let th = Th(th.0);
-                d.child(
-                    div()
-                        .id(("mcp-audit-args", record.id as usize))
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_ellipsis()
-                        .text_size(px(number("font", "ui.caption")))
-                        .text_color(th.c("text.tertiary"))
-                        .child(args.split_whitespace().collect::<Vec<_>>().join(" "))
-                        .tooltip(move |_, cx| {
-                            cx.new(|_| ArgsTooltip {
-                                text: full.clone(),
-                                th: Th(th.0),
-                            })
-                            .into()
-                        }),
-                )
-            })
-            .into_any_element()
-    }
 }
 
 impl Render for McpPage {
@@ -702,7 +392,7 @@ impl Render for McpPage {
         let has_command = !self.command.read(cx).text().is_empty();
         let mut actions = McpActions {
             th: &th,
-            scroll: &self.scroll,
+            scroll: Some(&self.scroll),
             window,
             cx,
         };
@@ -758,6 +448,19 @@ impl Render for McpPage {
                         actions.checkbox("mcp-enable", enabled, owns_service, Self::toggle_service),
                     ),
                     caption(&th, label(Message::WinMcpEnableHint {})),
+                    div()
+                        .flex()
+                        .child(actions.button(
+                            "mcp-open-audit",
+                            Message::WinMcpAuditOpen {},
+                            false,
+                            true,
+                            |this, cx| {
+                                let model = this.model.clone();
+                                cx.defer(move |cx| audit::open(model, cx));
+                            },
+                        ))
+                        .into_any_element(),
                 ],
             ))
             .child(card(
@@ -817,12 +520,6 @@ impl Render for McpPage {
                 "tag",
                 self.grant_rows(&th),
             ))
-            .child(card(
-                &th,
-                label(Message::WinMcpAudit {}),
-                "list",
-                self.audit_rows(&th, &mut actions),
-            ))
     }
 }
 
@@ -867,21 +564,21 @@ fn grant_row(th: &Th, title: &str, selector: &Entity<Dropdown>, heading: bool) -
         .into_any_element()
 }
 
-struct McpActions<'a, 'cx> {
+struct McpActions<'a, 'cx, View: 'static> {
     th: &'a Th,
-    scroll: &'a ScrollHandle,
+    scroll: Option<&'a ScrollHandle>,
     window: &'a mut Window,
-    cx: &'a mut Context<'cx, McpPage>,
+    cx: &'a mut Context<'cx, View>,
 }
 
-impl McpActions<'_, '_> {
+impl<View: 'static> McpActions<'_, '_, View> {
     fn button(
         &mut self,
         id: impl Into<ElementId>,
         title: Message,
         primary: bool,
         enabled: bool,
-        run: impl Fn(&mut McpPage, &mut Context<McpPage>) + 'static,
+        run: impl Fn(&mut View, &mut Context<View>) + 'static,
     ) -> AnyElement {
         let id = id.into();
         let th = self.th;
@@ -914,7 +611,7 @@ impl McpActions<'_, '_> {
         id: &'static str,
         checked: bool,
         enabled: bool,
-        toggle: impl Fn(&mut McpPage, bool, &mut Context<McpPage>) + 'static,
+        toggle: impl Fn(&mut View, bool, &mut Context<View>) + 'static,
     ) -> AnyElement {
         self.control(
             checkbox_box(self.th, id, checked),
@@ -931,7 +628,7 @@ impl McpActions<'_, '_> {
         element: Stateful<Div>,
         id: ElementId,
         enabled: bool,
-        run: impl Fn(&mut McpPage, &mut Context<McpPage>) + 'static,
+        run: impl Fn(&mut View, &mut Context<View>) + 'static,
     ) -> AnyElement {
         if !enabled {
             return element.opacity(0.45).into_any_element();
@@ -941,7 +638,7 @@ impl McpActions<'_, '_> {
         });
         let (focus, was_focused) = state.read(self.cx).clone();
         let border = self.th.c("text.primary");
-        let scroll = self.scroll.clone();
+        let scroll = self.scroll.cloned();
         let run = Rc::new(run);
         let key_run = run.clone();
         element
@@ -965,56 +662,37 @@ impl McpActions<'_, '_> {
                     run(this, cx);
                 }
             }))
-            .child(
-                canvas(
-                    move |bounds, window, _| {
-                        let focused = focus.is_focused(window);
-                        if !was_focused.replace(focused) && focused {
-                            let viewport = scroll.bounds();
-                            let dy = if bounds.top() < viewport.top() {
-                                viewport.top() - bounds.top()
-                            } else if bounds.bottom() > viewport.bottom() {
-                                viewport.bottom() - bounds.bottom()
-                            } else {
-                                px(0.0)
-                            };
-                            if dy != px(0.0) {
-                                let scroll = scroll.clone();
-                                window.on_next_frame(move |window, _| {
-                                    let mut offset = scroll.offset();
-                                    offset.y += dy;
-                                    scroll.set_offset(offset);
-                                    window.refresh();
-                                });
+            .when_some(scroll, |element, scroll| {
+                element.child(
+                    canvas(
+                        move |bounds, window, _| {
+                            let focused = focus.is_focused(window);
+                            if !was_focused.replace(focused) && focused {
+                                let viewport = scroll.bounds();
+                                let dy = if bounds.top() < viewport.top() {
+                                    viewport.top() - bounds.top()
+                                } else if bounds.bottom() > viewport.bottom() {
+                                    viewport.bottom() - bounds.bottom()
+                                } else {
+                                    px(0.0)
+                                };
+                                if dy != px(0.0) {
+                                    let scroll = scroll.clone();
+                                    window.on_next_frame(move |window, _| {
+                                        let mut offset = scroll.offset();
+                                        offset.y += dy;
+                                        scroll.set_offset(offset);
+                                        window.refresh();
+                                    });
+                                }
                             }
-                        }
-                    },
-                    |_, _, _, _| {},
+                        },
+                        |_, _, _, _| {},
+                    )
+                    .absolute()
+                    .size_full(),
                 )
-                .absolute()
-                .size_full(),
-            )
+            })
             .into_any_element()
-    }
-}
-
-struct ArgsTooltip {
-    text: SharedString,
-    th: Th,
-}
-
-impl Render for ArgsTooltip {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .max_w(px(420.0))
-            .px(px(10.0))
-            .py(px(6.0))
-            .rounded(px(number("radius", "md")))
-            .bg(self.th.c("bg.popover"))
-            .border_1()
-            .border_color(self.th.c("border.strong"))
-            .text_size(px(number("font", "ui.caption")))
-            .text_color(self.th.c("text.primary"))
-            .child(self.text.clone())
     }
 }

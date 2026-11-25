@@ -43,7 +43,7 @@ mod keys;
 #[path = "settings_mcp.rs"]
 mod mcp_page;
 
-pub(super) use mcp_page::{MCP_ACCESS_LEVELS, mcp_access_title};
+pub(super) use mcp_page::{AuditView, MCP_ACCESS_LEVELS, mcp_access_title};
 
 const MCP_PAGE: usize = 3;
 

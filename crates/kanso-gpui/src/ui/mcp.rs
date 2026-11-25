@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use futures::StreamExt as _;
 use futures::channel::mpsc::{UnboundedSender, unbounded};
-use gpui::{Context, EventEmitter, Task};
+use gpui::{Context, EventEmitter, Task, WindowHandle};
 use kanso_core::Core;
 use kanso_gpui::app::launcher::render_message;
 use kanso_mcp_server::{
@@ -77,6 +77,7 @@ pub(super) struct McpModel {
     helper: PathBuf,
     marks: HashMap<SessionId, TabMark>,
     accessible_profiles: HashSet<ProfileId>,
+    pub(super) audit_window: Option<WindowHandle<super::settings::AuditView>>,
 }
 
 impl EventEmitter<TabOpened> for McpModel {}
@@ -105,6 +106,7 @@ impl McpModel {
                 })
                 .unwrap_or_default(),
             marks: HashMap::new(),
+            audit_window: None,
         };
         if model.enabled()
             && let Err(error) = model.start(false)

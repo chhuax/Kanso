@@ -1485,8 +1485,12 @@ messages! {
     WinMcpGrantReadFailed = "win-mcp-grant-read-failed" {},
     /// 会话编辑器已保存会话但授权写入失败。
     WinMcpAccessSaveFailed = "win-mcp-access-save-failed" { detail: String },
-    /// MCP 审计记录的卡片标题。
+    /// MCP 活动记录的窗口标题。
     WinMcpAudit = "win-mcp-audit" {},
+    /// 设置页打开 MCP 活动记录窗口的按钮。
+    WinMcpAuditOpen = "win-mcp-audit-open" {},
+    /// 活动记录窗口的保存说明。
+    WinMcpAuditHint = "win-mcp-audit-hint" {},
     /// 审计记录筛选不限会话。
     WinMcpAllSessions = "win-mcp-all-sessions" {},
     /// 审计记录仅显示失败或被拒绝的调用。
@@ -1497,6 +1501,8 @@ messages! {
     WinMcpAuditMore = "win-mcp-audit-more" {},
     /// 清空本机 MCP 审计日志。
     WinMcpAuditClear = "win-mcp-audit-clear" {},
+    /// 清空 MCP 活动记录前的确认。
+    WinMcpAuditConfirmClear = "win-mcp-audit-confirm-clear" {},
     /// 审计日志读取失败。
     WinMcpAuditReadFailed = "win-mcp-audit-read-failed" {},
     /// 审计日志清空失败。
