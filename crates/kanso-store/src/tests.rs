@@ -1161,7 +1161,7 @@ mod mcp {
         let mut s = store();
         let p = ProfileId::new();
         s.append_mcp_audit(&[
-            entry(1, "claude-code", Some(p), None),
+            entry(1, "Claude-Code", Some(p), None),
             entry(2, "codex", None, Some("ACCESS_DENIED")),
             entry(3, "claude-code", Some(p), Some("TAB_BUSY")),
         ])
@@ -1178,7 +1178,7 @@ mod mcp {
 
         let claude = s
             .mcp_audit(&McpAuditFilter {
-                client: Some("claude-code".into()),
+                client: Some("AuDe".into()),
                 ..Default::default()
             })
             .unwrap();
@@ -1209,6 +1209,17 @@ mod mcp {
             .unwrap();
         assert_eq!(page.len(), 1);
         assert_eq!(page[0].id, all[1].id);
+
+        let filtered_page = s
+            .mcp_audit(&McpAuditFilter {
+                client: Some("AuDe".into()),
+                before_id: Some(all[0].id),
+                limit: 1,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(filtered_page.len(), 1);
+        assert_eq!(filtered_page[0].id, all[2].id);
 
         s.clear_mcp_audit().unwrap();
         assert!(s.mcp_audit(&McpAuditFilter::default()).unwrap().is_empty());

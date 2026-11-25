@@ -272,12 +272,6 @@ impl ShellView {
             .map(state_text)
             .or_else(|| closed.then(|| t(&Message::UiSessionDisconnected {})))
             .or_else(|| TabPresentation::subtitle(item, self.ctl.home_dir()));
-        let chip_tooltip = chip.map(|_| {
-            let mut lines = vec![title.clone()];
-            lines.extend(subtitle.clone());
-            lines
-        });
-        let subtitle = if chip.is_some() { None } else { subtitle };
         let busy = item.activity.is_busy();
         let mcp_mark = self.mcp.read(cx).tab_mark(sid).map(|(active, lines)| {
             let color = th.c(if active { "accent" } else { "text.tertiary" });
@@ -307,6 +301,39 @@ impl ShellView {
             _ => th.c("text.secondary"),
         };
         let (_, has_digit) = TabPresentation::shortcut_digit(index);
+        let mcp_id = item
+            .profile
+            .filter(|profile| self.mcp.read(cx).can_address_tab(*profile));
+        let row_tooltip = (chip.is_some() || mcp_id.is_some()).then(|| {
+            let mut lines = vec![title.clone()];
+            if chip.is_some() {
+                lines.extend(subtitle.clone());
+            }
+            if mcp_id.is_some() {
+                lines.push(t(&Message::WinMcpTabId {
+                    id: format!("tab={}", sid.raw()),
+                }));
+            }
+            if has_digit {
+                lines.push(format!("Alt+{}", index + 1));
+            }
+            lines
+        });
+        let subtitle = if chip.is_some() { None } else { subtitle };
+        let id_badge = mcp_id.map(|_| {
+            div()
+                .id(("tab-mcp-id", sid.raw() as usize))
+                .flex_none()
+                .px(px(5.0))
+                .rounded(px(number("radius", "sm")))
+                .border_1()
+                .border_color(th.c("border.segmentSelected"))
+                .bg(th.c("bg.segmentSelected"))
+                .text_color(th.c("text.primary"))
+                .text_size(px(number("font", "ui.caption")))
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .child(format!("#{}", sid.raw()))
+        });
 
         let rect = std::rc::Rc::new(std::cell::Cell::new(gpui::Bounds::<gpui::Pixels>::default()));
         let measured = rect.clone();
@@ -339,7 +366,7 @@ impl ShellView {
                 number("spacing", "tabRow.height")
             }))
             .when_some(chip, |row, w| row.w(px(w)))
-            .when_some(chip_tooltip, |row, lines| {
+            .when_some(row_tooltip, |row, lines| {
                 row.tooltip(move |_, cx| {
                     let lines = lines.clone();
                     cx.new(|_| super::status_bar::LinesTooltip { lines, th })
@@ -474,7 +501,7 @@ impl ShellView {
                 })),
         )
         // 前 9 个标签的快捷键序号（Alt+N）。
-        .children(has_digit.then(|| {
+        .children((has_digit && id_badge.is_none()).then(|| {
             div()
                 .flex_none()
                 .text_size(px(number("font", "ui.caption")))
@@ -486,6 +513,7 @@ impl ShellView {
                 )
                 .child((index + 1).to_string())
         }))
+        .children(id_badge)
         // 未读完成 / 运行中指示点。
         .children(mcp_mark)
         .children((!closed && (item.unread_done || busy)).then(|| {

@@ -171,10 +171,6 @@ impl Store {
              FROM mcp_audit WHERE 1 = 1",
         );
         let mut args: Vec<Value> = Vec::new();
-        if let Some(client) = &filter.client {
-            sql.push_str(" AND client = ?");
-            args.push(Value::Text(client.clone()));
-        }
         if let Some(profile) = filter.profile {
             sql.push_str(" AND profile_id = ?");
             args.push(Value::Text(profile.to_string()));
@@ -186,9 +182,9 @@ impl Store {
             sql.push_str(" AND id < ?");
             args.push(Value::Integer(before));
         }
-        let limit = filter.effective_limit();
-        sql.push_str(" ORDER BY id DESC LIMIT ?");
-        args.push(Value::Integer(i64::from(limit)));
+        sql.push_str(" ORDER BY id DESC");
+        let client_filter = filter.client.as_deref().map(str::to_lowercase);
+        let limit = filter.effective_limit() as usize;
 
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(params_from_iter(args), |r| {
@@ -210,6 +206,12 @@ impl Store {
         for row in rows {
             let (id, at, client, mcp_session, tool, profile, session, args, error_code, ms, bytes) =
                 row?;
+            if client_filter
+                .as_ref()
+                .is_some_and(|query| !client.to_lowercase().contains(query))
+            {
+                continue;
+            }
             out.push(McpAuditRecord {
                 id,
                 entry: McpAuditEntry {
@@ -228,6 +230,9 @@ impl Store {
                     bytes: u64::try_from(bytes).unwrap_or(0),
                 },
             });
+            if out.len() == limit {
+                break;
+            }
         }
         Ok(out)
     }

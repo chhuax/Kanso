@@ -1513,4 +1513,20 @@ messages! {
     WinMcpTabOpened = "win-mcp-tab-opened" { client: String },
     /// MCP 正在操作标签时的标记提示。
     WinMcpTabActivity = "win-mcp-tab-activity" { client: String, tool: String },
+    /// MCP 工具使用的标签参数。
+    WinMcpTabId = "win-mcp-tab-id" { id: String },
+    /// 复制 MCP 标签引用的菜单项。
+    WinMcpCopyTab = "win-mcp-copy-tab" {},
+    /// 审计记录中的命令与输入。
+    WinMcpAuditCommand = "win-mcp-audit-command" {},
+    /// 审计记录中的终端输入。
+    WinMcpAuditInput = "win-mcp-audit-input" {},
+    /// 审计记录中的命令或输入提交状态。
+    WinMcpAuditSubmitted = "win-mcp-audit-submitted" {},
+    /// 审计记录中的未发送状态。
+    WinMcpAuditNotSent = "win-mcp-audit-not-sent" {},
+    /// 审计记录中无法确认的发送状态。
+    WinMcpAuditUnconfirmed = "win-mcp-audit-unconfirmed" {},
+    /// 刷新已翻页的 MCP 审计记录。
+    WinMcpAuditRefresh = "win-mcp-audit-refresh" {},
 }

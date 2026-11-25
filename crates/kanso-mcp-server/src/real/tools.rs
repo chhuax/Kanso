@@ -35,7 +35,7 @@ use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use super::Shared;
-use super::gate::{ActivityGuard, GateDenied};
+use super::gate::{ActivityGuard, GateDenied, TabGate};
 use super::headless::{Acquired, Lease};
 use super::identity::{ClientIdentity, Probe};
 use super::remote::{
@@ -48,6 +48,7 @@ use super::terminal::{
     SEND_MAX_TEXT_BYTES, SETTLE_MAX_MS,
 };
 use crate::{McpActivity, now_ms};
+use kanso_core::mcp::TerminalBusy;
 
 /// 审计里参数摘要的最大字符数：参数由 AI 给出，长度不可控，审计表不该被它撑大。
 const ARGS_SUMMARY_MAX_CHARS: usize = 512;
@@ -60,6 +61,8 @@ const ARGS_SUMMARY_MAX_CHARS: usize = 512;
 pub(super) struct ArgsSummary {
     buf: String,
     chars: usize,
+    limit: usize,
+    input_options: Option<String>,
 }
 
 impl ArgsSummary {
@@ -67,12 +70,48 @@ impl ArgsSummary {
         ArgsSummary {
             buf: String::new(),
             chars: 0,
+            limit: ARGS_SUMMARY_MAX_CHARS,
+            input_options: None,
         }
+    }
+
+    fn for_input(prefix: &str, options: String) -> Self {
+        let mut summary = Self::new();
+        // 留出提交状态和参数的空间，长命令优先保留命令开头。
+        summary.limit -= 32 + options.chars().count();
+        summary.input_options = Some(options);
+        summary.push_str(prefix);
+        summary
+    }
+
+    fn push_input(&mut self, input: &str) {
+        for c in input.chars() {
+            if self.is_full() {
+                break;
+            }
+            if c.is_control() {
+                for escaped in c.escape_debug() {
+                    self.push_char(escaped);
+                }
+            } else {
+                self.push_char(c);
+            }
+        }
+    }
+
+    fn into_audit_string(mut self, dispatch: AuditDispatch) -> String {
+        let Some(options) = self.input_options.take() else {
+            return self.into_string();
+        };
+        if self.is_full() {
+            self.buf.push('…');
+        }
+        format!("{}\ndispatch={}\n{options}", self.buf, dispatch.code())
     }
 
     /// 已达上限；调用方可据此提前结束循环。
     fn is_full(&self) -> bool {
-        self.chars >= ARGS_SUMMARY_MAX_CHARS
+        self.chars >= self.limit
     }
 
     fn push_char(&mut self, c: char) {
@@ -84,10 +123,7 @@ impl ArgsSummary {
 
     /// 原样追加，超出上限的部分丢弃（只遍历到上限为止）。
     pub(super) fn push_str(&mut self, s: &str) -> &mut ArgsSummary {
-        for c in s
-            .chars()
-            .take(ARGS_SUMMARY_MAX_CHARS.saturating_sub(self.chars))
-        {
+        for c in s.chars().take(self.limit.saturating_sub(self.chars)) {
             self.push_char(c);
         }
         self
@@ -150,19 +186,48 @@ impl ToolError {
 /// 一次调用的审计目标：由工具在解析出目标后填写，`invoke` 写审计时读取。
 /// 用 `Mutex` 是因为工具的 future 与 `invoke` 同时持有它；锁只在赋值和读取的瞬间持有。
 #[derive(Default)]
-pub(super) struct Target(Mutex<(Option<ProfileId>, Option<SessionId>)>);
+pub(super) struct Target {
+    ids: Mutex<(Option<ProfileId>, Option<SessionId>)>,
+    dispatch: Mutex<AuditDispatch>,
+}
+
+#[derive(Clone, Copy, Default)]
+enum AuditDispatch {
+    #[default]
+    Rejected,
+    Unconfirmed,
+    Submitted,
+}
+
+impl AuditDispatch {
+    fn code(self) -> &'static str {
+        match self {
+            Self::Rejected => "rejected",
+            Self::Unconfirmed => "unconfirmed",
+            Self::Submitted => "submitted",
+        }
+    }
+}
 
 impl Target {
+    fn set_dispatch(&self, phase: AuditDispatch) {
+        *self.dispatch.lock().unwrap_or_else(|e| e.into_inner()) = phase;
+    }
+
+    fn dispatch(&self) -> AuditDispatch {
+        *self.dispatch.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     fn set_session(&self, session: SessionId) {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).1 = Some(session);
+        self.ids.lock().unwrap_or_else(|e| e.into_inner()).1 = Some(session);
     }
 
     fn set_profile(&self, profile: ProfileId) {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).0 = Some(profile);
+        self.ids.lock().unwrap_or_else(|e| e.into_inner()).0 = Some(profile);
     }
 
     fn get(&self) -> (Option<ProfileId>, Option<SessionId>) {
-        *self.0.lock().unwrap_or_else(|e| e.into_inner())
+        *self.ids.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
 
@@ -291,6 +356,7 @@ pub(super) struct TabParams {
 #[serde(rename_all = "lowercase")]
 enum ReadScope {
     Screen,
+    Viewport,
     Recent,
 }
 
@@ -300,8 +366,9 @@ pub(super) struct ReadParams {
     #[schemars(description = "Tab id, as returned by kanso_list_sessions.")]
     tab: u64,
     #[schemars(
-        description = "\"screen\" (default) returns the visible screen; \"recent\" returns the \
-            last `lines` lines of scrollback plus screen."
+        description = "\"screen\" (default) returns the live screen regardless of scrolling. \
+            \"viewport\" reads the user's current viewport and can return a null cursor. \
+            \"recent\" returns the last `lines` lines of scrollback plus screen."
     )]
     scope: Option<ReadScope>,
     #[schemars(
@@ -610,7 +677,7 @@ impl KansoHandler {
             tool: tool.to_owned(),
             profile,
             session,
-            args: args.into_string(),
+            args: args.into_audit_string(target.dispatch()),
             error_code: error_code.map(str::to_owned),
             duration_ms: u32::try_from(started.elapsed().as_millis()).unwrap_or(u32::MAX),
             bytes: text.len() as u64,
@@ -861,8 +928,12 @@ impl KansoHandler {
                 tool: tool.to_owned(),
             },
         );
+        let operation = async {
+            target.set_dispatch(AuditDispatch::Unconfirmed);
+            call().await
+        };
         let outcome = self
-            .interruptible(call(), &mut policy, Subject::Tab(session), request_ct)
+            .interruptible(operation, &mut policy, Subject::Tab(session), request_ct)
             .await?
             .map_err(|e| core_error(&e, "INTERRUPTED"))?;
         if took_over(&outcome) {
@@ -998,6 +1069,7 @@ impl KansoHandler {
             group and access (read-only/full). Each tab has id, title, state, opened_by_mcp and \
             is_client_tab (plus activity, locked, terminal_transfer, sender_active and osc133 \
             when known). \
+            terminal_run_blocker and terminal_send_blocker give the current reason each tool is blocked, or null. \
             is_client_tab marks the tab your own client runs in: terminal writes to it are \
             refused (TAB_SELF), reads are allowed. opened_by_mcp is true for tabs opened by a connected client with kanso_open_tab.",
         annotations(
@@ -1026,7 +1098,7 @@ impl KansoHandler {
                 shared
                     .tabs
                     .prune(|tab| core.mcp_session_status(tab).is_some());
-                list_sessions(&core, &params, &identity, &shared.tabs)
+                list_sessions(&core, &params, &identity, &shared.tabs, &shared.gate)
             })
             .await
             .map_err(|e| {
@@ -1072,7 +1144,7 @@ impl KansoHandler {
 
     #[tool(
         name = "kanso_terminal_read",
-        description = "Read a tab's terminal text: the visible screen, or the last N lines \
+        description = "Read a tab's live screen, user viewport, or the last N lines \
             including scrollback. Returns text, cursor position, screen size and whether the \
             alternate screen (a full-screen TUI) is active. Text is capped at 256 KiB (the tail \
             is kept) and the result says so when truncated. Needs at least read-only access; \
@@ -1091,6 +1163,7 @@ impl KansoHandler {
         let session = SessionId::from_raw(params.tab);
         let scope = match (params.scope, params.lines) {
             (Some(ReadScope::Screen), _) | (None, None) => TextScope::Screen,
+            (Some(ReadScope::Viewport), _) => TextScope::Viewport,
             (Some(ReadScope::Recent) | None, lines) => TextScope::Recent {
                 lines: lines.unwrap_or(READ_LINES_DEFAULT).clamp(1, READ_LINES_MAX),
             },
@@ -1146,12 +1219,8 @@ impl KansoHandler {
         let timeout_secs =
             terminal::clamp_or(params.timeout_secs, RUN_TIMEOUT_DEFAULT, 1, RUN_TIMEOUT_MAX);
         // 命令文本进审计（spec/mcp.md §6）。
-        let mut args = ArgsSummary::new();
-        args.push_str(&format!(
-            "tab={}, timeout_secs={timeout_secs}, command=",
-            params.tab
-        ))
-        .push_str(&params.command);
+        let mut args = ArgsSummary::for_input("command=", format!("timeout_secs={timeout_secs}"));
+        args.push_input(&params.command);
         self.invoke("kanso_terminal_run", Some(params.tab), args, |target| async move {
             // 命令文本必须是一行可打印文字：C0 控制字符（含 \t、\r、\n、ESC）与 DEL 一律拒绝。
             // 命令是"输入后回车"执行的，里面的 ESC 序列、Ctrl+字符会被终端当作按键解释，
@@ -1179,6 +1248,10 @@ impl KansoHandler {
                     |o| matches!(o, kanso_core::mcp::TerminalRunOutcome::TakenOver { .. }),
                 )
                 .await?;
+            target.set_dispatch(match &outcome {
+                kanso_core::mcp::TerminalRunOutcome::Rejected(_) => AuditDispatch::Rejected,
+                _ => AuditDispatch::Submitted,
+            });
             terminal::run_result(outcome, timeout_secs)
         })
         .await
@@ -1209,12 +1282,13 @@ impl KansoHandler {
             .settle_ms
             .map(|ms| Duration::from_millis(ms.min(SETTLE_MAX_MS)));
         // 文字原样进审计，与命令文本同级别敏感（spec/mcp.md §6）；摘要边写边截断，见 `ArgsSummary`。
-        let mut args = ArgsSummary::new();
-        args.push_str(&format!(
-            "tab={}, settle_ms={}, inputs=[",
-            params.tab,
-            settle.map_or_else(|| "none".to_owned(), |d| d.as_millis().to_string()),
-        ));
+        let mut args = ArgsSummary::for_input(
+            "inputs=[",
+            format!(
+                "settle_ms={}",
+                settle.map_or_else(|| "none".to_owned(), |d| d.as_millis().to_string())
+            ),
+        );
         for (n, i) in params.inputs.iter().enumerate() {
             if args.is_full() {
                 break;
@@ -1224,7 +1298,7 @@ impl KansoHandler {
             }
             match (&i.text, &i.key) {
                 (Some(t), None) => args.push_str("text:").push_quoted(t),
-                (None, Some(k)) => args.push_str("key:").push_str(k),
+                (None, Some(k)) => args.push_str("key:").push_quoted(k),
                 _ => args.push_str("invalid"),
             };
         }
@@ -1264,6 +1338,12 @@ impl KansoHandler {
                     |o| matches!(o, kanso_core::mcp::TerminalSendOutcome::TakenOver { .. }),
                 )
                 .await?;
+            target.set_dispatch(match &outcome {
+                // 断开可能发生在一组输入中途，提交状态不能确定。
+                kanso_core::mcp::TerminalSendOutcome::Rejected(TerminalBusy::NotConnected) => AuditDispatch::Unconfirmed,
+                kanso_core::mcp::TerminalSendOutcome::Rejected(_) => AuditDispatch::Rejected,
+                _ => AuditDispatch::Submitted,
+            });
             terminal::send_result(outcome)
         })
         .await
@@ -1400,12 +1480,8 @@ impl KansoHandler {
             EXEC_TIMEOUT_MAX,
         );
         // 命令文本进审计，输出不进（spec/mcp.md §6）。
-        let mut args = ArgsSummary::new();
-        args.push_str(&format!(
-            "session={}, timeout_secs={timeout_secs}, command=",
-            params.session
-        ))
-        .push_str(&params.command);
+        let mut args = ArgsSummary::for_input("command=", format!("timeout_secs={timeout_secs}"));
+        args.push_input(&params.command);
         self.invoke("kanso_exec", None, args, |target| async move {
             let mut call = self
                 .begin_remote(
@@ -1426,7 +1502,12 @@ impl KansoHandler {
             let command = &params.command;
             let outcome = self
                 .run_remote(&mut call, &context.ct, |s| async move {
-                    core.mcp_exec(s, command, limits).await.map_err(|e| {
+                    target.set_dispatch(AuditDispatch::Unconfirmed);
+                    let result = core.mcp_exec(s, command, limits).await;
+                    if result.as_ref().is_ok_and(|outcome| !outcome.timed_out) {
+                        target.set_dispatch(AuditDispatch::Submitted);
+                    }
+                    result.map_err(|e| {
                         remote::remote_error(&e, "This session does not support command execution.")
                     })
                 })
@@ -1915,6 +1996,7 @@ fn list_sessions(
     params: &ListSessionsParams,
     identity: &ClientIdentity,
     mcp_tabs: &McpTabs,
+    gate: &TabGate,
 ) -> Result<Value, ToolError> {
     let accesses: HashMap<_, _> = core
         .mcp_accesses()
@@ -1974,7 +2056,7 @@ fn list_sessions(
         let tab_items: Vec<Value> = tabs
             .iter()
             .filter(|s| s.profile == Some(profile.id))
-            .map(|s| tab_json(core, s, &probe, mcp_tabs))
+            .map(|s| tab_json(core, s, &probe, mcp_tabs, access, gate))
             .collect();
         item["tabs"] = Value::Array(tab_items);
         out.push(item);
@@ -1987,6 +2069,8 @@ fn tab_json(
     info: &kanso_core::SessionInfo,
     probe: &Probe<'_>,
     tabs: &McpTabs,
+    access: McpAccess,
+    gate: &TabGate,
 ) -> Value {
     let mut tab = json!({
         "id": info.id.raw(),
@@ -2000,9 +2084,20 @@ fn tab_json(
         "opened_by_mcp": tabs.contains(info.id),
         "is_client_tab": false,
     });
-    // 真实后端暂时没有这项状态（返回 None）：缺失就省略，`is_client_tab` 保持 false，不编造。
-    if let Some(status) = core.mcp_session_status(info.id) {
-        tab["is_client_tab"] = json!(probe.is_own(&status));
+    let status = core.mcp_session_status(info.id);
+    let own = status.as_ref().is_some_and(|status| probe.is_own(status));
+    let send_blocker = tab_write_blocker(info, status.as_ref(), access, own, gate);
+    let run_blocker = send_blocker.or_else(|| {
+        let status = status.as_ref()?;
+        if status.sender_active {
+            return Some("sender_active");
+        }
+        status.run_blocker.map(terminal_blocker_code)
+    });
+    tab["terminal_send_blocker"] = json!(send_blocker);
+    tab["terminal_run_blocker"] = json!(run_blocker);
+    if let Some(status) = status {
+        tab["is_client_tab"] = json!(own);
         tab["activity"] = json!(match status.activity {
             Activity::Idle => "idle",
             Activity::CommandRunning => "command-running",
@@ -2014,6 +2109,52 @@ fn tab_json(
         tab["osc133"] = json!(status.osc133);
     }
     tab
+}
+
+fn tab_write_blocker(
+    info: &kanso_core::SessionInfo,
+    status: Option<&McpSessionStatus>,
+    access: McpAccess,
+    own: bool,
+    gate: &TabGate,
+) -> Option<&'static str> {
+    if access != McpAccess::Full {
+        return Some("read_only");
+    }
+    if info.kind == SessionKind::Sftp {
+        return Some("no_terminal");
+    }
+    if own {
+        return Some("client_tab");
+    }
+    if let Some(reason) = gate.blocker(info.id) {
+        return Some(match reason {
+            GateDenied::Busy => "mcp_write_in_progress",
+            GateDenied::Cooldown { .. } => "user_takeover",
+        });
+    }
+    match info.state {
+        SessionState::Connecting => return Some("connecting"),
+        SessionState::Closed(_) => return Some("not_connected"),
+        SessionState::Connected => {}
+    }
+    match status {
+        None => Some("status_unavailable"),
+        Some(status) if status.locked => Some("not_connected"),
+        Some(status) if status.terminal_transfer => Some("terminal_transfer"),
+        Some(_) => None,
+    }
+}
+
+fn terminal_blocker_code(reason: TerminalBusy) -> &'static str {
+    match reason {
+        TerminalBusy::NotConnected => "not_connected",
+        TerminalBusy::CommandRunning => "command_running",
+        TerminalBusy::AgentRunning => "agent_running",
+        TerminalBusy::InputNotEmpty => "input_not_empty",
+        TerminalBusy::Transferring => "terminal_transfer",
+        TerminalBusy::SenderActive => "sender_active",
+    }
 }
 
 #[cfg(test)]

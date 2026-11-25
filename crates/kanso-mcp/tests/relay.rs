@@ -16,7 +16,7 @@ use kanso_mcp_server::{
 use kanso_types::mcp::{McpAccess, McpAuditFilter};
 use kanso_types::profile::{LocalProfile, Profile, ProfileKind};
 use kanso_types::secret::SecretString;
-use kanso_types::{GridSize, ProfileId, SessionId};
+use kanso_types::{CellSide, GridSize, Modifiers, ProfileId, SessionId, ViewportPoint};
 use serde_json::{Value, json};
 
 const TOKEN: &str = "relay-token";
@@ -313,13 +313,15 @@ fn relay_reads_an_authorized_local_pty_and_stops_after_revocation() {
     assert_eq!(status["state"], "connected");
     assert_eq!(status["sender_active"], false);
     assert!(status["osc133"].is_boolean());
+    assert_eq!(status["terminal_run_blocker"], "read_only");
+    assert_eq!(status["terminal_send_blocker"], "read_only");
 
-    let mut call = |request, tool| {
+    let mut call = |request, tool, args: Value| {
         let response = relay.request(
             request,
             "tools/call",
             json!({
-                "name": tool, "arguments": {"tab": tab.raw()}
+                "name": tool, "arguments": args
             }),
         );
         let result = &response["result"];
@@ -331,21 +333,108 @@ fn relay_reads_an_authorized_local_pty_and_stops_after_revocation() {
             serde_json::from_str::<Value>(text).unwrap(),
         )
     };
-    let (error, cwd) = call(3, "kanso_get_cwd");
+    let (error, cwd) = call(3, "kanso_get_cwd", json!({"tab": tab.raw()}));
     assert!(!error, "{cwd}");
     assert_eq!(
         normalized_path(std::path::Path::new(cwd["cwd"].as_str().unwrap())),
         test_home
     );
-    let (error, snapshot) = call(4, "kanso_terminal_read");
+    let (error, snapshot) = call(4, "kanso_terminal_read", json!({"tab": tab.raw()}));
     assert!(!error, "{snapshot}");
     assert!(shows_marker(snapshot["text"].as_str().unwrap()));
+    let command = if cfg!(windows) {
+        "for /L %i in (1,1,55) do @echo VIEWPORT_%i\r"
+    } else {
+        "i=1; while [ \"$i\" -le 55 ]; do echo VIEWPORT_$i; i=$((i+1)); done\r"
+    };
+    core.text_input(tab, command).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let snapshot = core.terminal_text(tab, TextScope::Screen, 4096).unwrap();
+        if snapshot
+            .content
+            .text
+            .lines()
+            .any(|line| line.trim() == "VIEWPORT_55")
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline, "{:?}", snapshot.content.text);
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    core.scroll(
+        tab,
+        50.0,
+        ViewportPoint {
+            col: 0,
+            row: 0,
+            side: CellSide::Left,
+        },
+        Modifiers::NONE,
+    )
+    .unwrap();
+    let (error, view) = call(
+        5,
+        "kanso_terminal_read",
+        json!({"tab": tab.raw(), "scope": "viewport"}),
+    );
+    assert!(!error, "{view}");
+    assert!(
+        view["text"]
+            .as_str()
+            .unwrap()
+            .lines()
+            .any(|line| line.trim() == "VIEWPORT_1")
+    );
+    assert_eq!(view["cursor"], Value::Null);
+    let (error, live) = call(6, "kanso_terminal_read", json!({"tab": tab.raw()}));
+    assert!(!error, "{live}");
+    assert!(
+        live["text"]
+            .as_str()
+            .unwrap()
+            .lines()
+            .any(|line| line.trim() == "VIEWPORT_55")
+    );
+    assert!(live["cursor"]["row"].is_number());
+
+    let (error, denied) = call(
+        7,
+        "kanso_terminal_run",
+        json!({"tab": tab.raw(), "command": "echo KANSO_REJECTED"}),
+    );
+    assert!(error, "{denied}");
+    assert_eq!(denied["error"]["code"], "ACCESS_DENIED");
+
+    core.set_mcp_access(profile, McpAccess::Full).unwrap();
+    let (error, sent) = call(
+        8,
+        "kanso_terminal_send",
+        json!({"tab": tab.raw(), "inputs": [{"text": "echo KANSO_AUDIT"}, {"key": "Enter"}]}),
+    );
+    assert!(!error, "{sent}");
+
     core.set_mcp_access(profile, McpAccess::Off).unwrap();
-    let (error, denied) = call(5, "kanso_terminal_read");
+    let (error, denied) = call(9, "kanso_terminal_read", json!({"tab": tab.raw()}));
     assert!(error, "{denied}");
     assert_eq!(denied["error"]["code"], "NOT_FOUND");
-    assert!(relay.list_sessions(6, json!({})).is_empty());
+    assert!(relay.list_sessions(10, json!({})).is_empty());
     server.stop();
+    let audit = core.mcp_audit(McpAuditFilter::default()).unwrap();
+    assert!(audit.iter().any(|record| {
+        record
+            .entry
+            .args
+            .starts_with("command=echo KANSO_REJECTED\n")
+            && record.entry.args.contains("\ndispatch=rejected\n")
+    }));
+    assert!(audit.iter().any(|record| {
+        record
+            .entry
+            .args
+            .starts_with("inputs=[text:\"echo KANSO_AUDIT\", key:\"Enter\"]\n")
+            && record.entry.args.contains("\ndispatch=submitted\n")
+    }));
     core.shutdown();
 }
 

@@ -57,6 +57,8 @@ pub enum AppCommand {
     RenameTab(SessionId),
     /// 编辑指定标签来源的已保存会话（打开会话编辑对话框）。
     EditSession(SessionId),
+    /// 复制指定标签的 MCP 引用。
+    CopyMcpTab(SessionId),
     /// 切换右键行为：弹出菜单 / 复制或粘贴（terminal.md §8.1）。
     ToggleRightClickMenu,
     /// 切换“选中即复制”（terminal.md §8.2）。

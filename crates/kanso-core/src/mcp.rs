@@ -68,8 +68,10 @@ pub struct CapturedText {
 /// 读取终端的范围。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TextScope {
-    /// 当前可见屏幕。
+    /// 实时屏幕，不受用户滚动位置影响。
     Screen,
+    /// 用户当前滚动到的视口。
+    Viewport,
     /// 回滚缓冲加屏幕的最后若干行（spec/mcp.md §3.2：默认 200，最多 2000，由调用方夹取）。
     Recent {
         /// 行数。
@@ -82,10 +84,8 @@ pub enum TextScope {
 pub struct TerminalText {
     /// 文本，规则见 spec/mcp.md §5：软换行拼回整行，行尾空格去掉。
     pub content: CapturedText,
-    /// 光标所在行（屏幕坐标，从 0 开始）。
-    pub cursor_row: u16,
-    /// 光标所在列（从 0 开始）。
-    pub cursor_col: u16,
+    /// 光标坐标（行、列，从 0 开始）；滚出视口时为空。
+    pub cursor: Option<(u16, u16)>,
     /// 屏幕行数。
     pub rows: u16,
     /// 屏幕列数。
@@ -238,6 +238,8 @@ pub struct McpSessionStatus {
     pub terminal_transfer: bool,
     /// Sender 是否正在向它发送。
     pub sender_active: bool,
+    /// 当前命令跟踪器拒绝执行命令的原因。
+    pub run_blocker: Option<TerminalBusy>,
     /// 是否是 [`Core::mcp_connect`](crate::Core::mcp_connect) 建立的无界面会话。
     pub headless: bool,
     /// 有没有 OSC 133 shell 集成上报。

@@ -64,7 +64,7 @@ pub struct McpAuditRecord {
 /// 审计日志查询条件。结果按 id 倒序（新的在前）。
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct McpAuditFilter {
-    /// 只看某个客户端名称（精确匹配）。
+    /// 只看名称包含此文本的客户端，忽略大小写。
     pub client: Option<String>,
     /// 只看某个会话配置。
     pub profile: Option<ProfileId>,

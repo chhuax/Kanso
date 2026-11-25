@@ -865,6 +865,21 @@ fn read_and_cwd_work_with_read_only_access() {
     assert_eq!(v["size"]["rows"], 24);
     assert_eq!(v["alternate_screen"], false);
 
+    let (err, text) = c.call(
+        6,
+        "kanso_terminal_read",
+        json!({"tab": tab.raw(), "scope": "viewport"}),
+    );
+    assert!(!err, "{text}");
+    assert_eq!(parse(&text)["cursor"], v["cursor"]);
+
+    let (err, text) = c.call(7, "kanso_list_sessions", json!({"name": "web-01"}));
+    assert!(!err, "{text}");
+    let listed = &parse(&text)["sessions"][0]["tabs"][0];
+    assert_eq!(listed["id"], tab.raw());
+    assert_eq!(listed["terminal_run_blocker"], "read_only");
+    assert_eq!(listed["terminal_send_blocker"], "read_only");
+
     // 行数夹取：超大、为 0 都不报错。
     for (id, lines) in [(4, 100_000), (5, 0)] {
         let (err, text) = c.call(
@@ -1261,7 +1276,12 @@ fn audit_records_target_and_command_but_not_output() {
     assert_eq!(run.tool, "kanso_terminal_run");
     assert_eq!(run.profile, Some(web));
     assert_eq!(run.session, Some(tab));
-    assert!(run.args.contains("echo hello-audit"), "{}", run.args);
+    assert!(
+        run.args.starts_with("command=echo hello-audit\n"),
+        "{}",
+        run.args
+    );
+    assert!(run.args.contains("\ndispatch=submitted\n"), "{}", run.args);
     // mock 的输出是 "mock output: <命令>"，审计里不应出现输出。
     assert!(!run.args.contains("mock output"), "{}", run.args);
     assert_eq!(run.error_code, None);
@@ -1339,6 +1359,8 @@ fn audit_of_argument_errors_keeps_the_profile() {
     assert_eq!(entry.error_code.as_deref(), Some("INVALID_ARGUMENT"));
     assert_eq!(entry.session, Some(tab));
     assert_eq!(entry.profile, Some(web));
+    assert!(entry.args.starts_with("command=a\\tb\n"));
+    assert!(entry.args.contains("\ndispatch=rejected\n"));
 
     let inputs: Vec<Value> = (0..300).map(|_| json!({"key": "Tab"})).collect();
     let (_, text) = c.call(

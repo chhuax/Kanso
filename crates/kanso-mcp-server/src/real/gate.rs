@@ -64,18 +64,19 @@ impl TabGate {
         let now = (self.clock)();
         let mut st = self.lock();
         st.cooldown.retain(|_, until| *until > now);
-        if let Some(until) = st.cooldown.get(&session) {
-            return Err(GateDenied::Cooldown {
-                remaining: until.saturating_duration_since(now),
-            });
+        if let Some(reason) = write_blocker(&st, session, now) {
+            return Err(reason);
         }
-        if !st.busy.insert(session) {
-            return Err(GateDenied::Busy);
-        }
+        st.busy.insert(session);
         Ok(WriteLease {
             gate: self.clone(),
             session,
         })
+    }
+
+    /// 查询当前写入阻塞原因，不取得写锁。
+    pub(super) fn blocker(&self, session: SessionId) -> Option<GateDenied> {
+        write_blocker(&self.lock(), session, (self.clock)())
     }
 
     /// 记录用户接管：此后 [`TAKEOVER_COOLDOWN`] 内拒绝这个标签的新写操作。
@@ -83,6 +84,15 @@ impl TabGate {
         let until = (self.clock)() + TAKEOVER_COOLDOWN;
         self.lock().cooldown.insert(session, until);
     }
+}
+
+fn write_blocker(st: &State, session: SessionId, now: Instant) -> Option<GateDenied> {
+    if let Some(until) = st.cooldown.get(&session).filter(|until| **until > now) {
+        return Some(GateDenied::Cooldown {
+            remaining: *until - now,
+        });
+    }
+    st.busy.contains(&session).then_some(GateDenied::Busy)
 }
 
 /// 一个标签的写权；`Drop` 时释放。
@@ -144,6 +154,7 @@ mod tests {
         let (clock, _) = fake_clock();
         let gate = TabGate::new(clock);
         let lease = gate.acquire(tab(1)).unwrap();
+        assert_eq!(gate.blocker(tab(1)), Some(GateDenied::Busy));
         assert_eq!(gate.acquire(tab(1)).err(), Some(GateDenied::Busy));
         // 别的标签不受影响。
         let _other = gate.acquire(tab(2)).unwrap();
@@ -166,6 +177,7 @@ mod tests {
         // 其他标签不受冷却影响。
         assert!(gate.acquire(tab(2)).is_ok());
         *now.lock().unwrap() += Duration::from_secs(6);
+        assert_eq!(gate.blocker(tab(1)), None);
         assert!(gate.acquire(tab(1)).is_ok());
     }
 }
