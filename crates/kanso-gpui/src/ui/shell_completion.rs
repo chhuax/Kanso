@@ -194,7 +194,7 @@ impl ShellView {
 
     /// 活动终端是否在等输入（有键盘焦点、没有组字、没有浮层）。
     fn completion_ready(&self, sid: SessionId, window: &Window, cx: &gpui::App) -> bool {
-        if self.modal_open() {
+        if self.modal_open(cx) {
             return false;
         }
         self.terminals.get(&sid).is_some_and(|t| {
@@ -431,7 +431,7 @@ impl ShellView {
         let Some(sid) = self.ctl.workspace().active_session() else {
             return false;
         };
-        if self.modal_open() {
+        if self.modal_open(cx) {
             return false;
         }
         let Some(term) = self.terminals.get(&sid).cloned() else {
@@ -507,7 +507,7 @@ impl ShellView {
     ) -> Option<AnyElement> {
         let c = &self.completion;
         let sid = self.ctl.workspace().active_session()?;
-        if !c.enabled || !c.model.visible() || c.session != Some(sid) || self.modal_open() {
+        if !c.enabled || !c.model.visible() || c.session != Some(sid) || self.modal_open(cx) {
             return None;
         }
         let state = c.last.as_ref()?;
