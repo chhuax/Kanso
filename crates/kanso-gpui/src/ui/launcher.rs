@@ -220,7 +220,7 @@ impl LauncherView {
         }
     }
 
-    pub(super) fn focus_search(&self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn focus_search(&self, window: &mut Window, cx: &App) {
         self.search.read(cx).focus(window);
     }
 

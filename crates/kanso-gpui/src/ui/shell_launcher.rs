@@ -23,7 +23,7 @@ use super::widgets::dialog::{Dialog, DialogEvent};
 
 impl ShellView {
     /// 有浮层（启动器、编辑对话框、提示框）在显示：应用级快捷键让路。
-    pub(super) fn modal_open(&self, cx: &Context<Self>) -> bool {
+    pub(super) fn modal_open(&self, cx: &gpui::App) -> bool {
         self.palette.is_some()
             || self.launcher.is_some()
             || self.editor.is_some()
