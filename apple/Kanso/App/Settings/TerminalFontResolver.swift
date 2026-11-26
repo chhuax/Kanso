@@ -4,11 +4,11 @@ import AppKit
 enum TerminalFontResolver {
     /// 按设置里的家族名与字号取字体。
     ///
-    /// - 空串：系统等宽字体。
+    /// - 空串：默认使用 Menlo（macOS 内置等宽字体；不存在时回退系统等宽字体）。
     /// - 家族名（"Menlo"）或字体全名 / PostScript 名（"JetBrainsMono-Regular"）都可以：用户手填的名称不一定是家族名。
-    /// - 找不到：回落系统等宽字体，`isFallback` 为 true，设置页据此提示——不能静默换字体让用户以为设置生效了。
+    /// - 找不到：回落默认等宽字体，`isFallback` 为 true，设置页据此提示——不能静默换字体让用户以为设置生效了。
     static func font(family: String, size: CGFloat) -> (font: NSFont, isFallback: Bool) {
-        let system = NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+        let system = NSFont(name: "Menlo", size: size) ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
         let name = family.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return (system, false) }
         // 先按字体名（全名 / PostScript 名）找：NSFont(name:) 对不存在的名字返回 nil，不会悄悄换成别的字体。

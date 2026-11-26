@@ -7,7 +7,6 @@
 
 use gpui::{Context, Hsla, MouseButton, MouseDownEvent, div, prelude::*, px, rgb};
 use kanso_gpui::app::i18n::t;
-use kanso_gpui::app::shortcuts::AppCommand;
 use kanso_gpui::app::status_bar::state_text;
 use kanso_gpui::app::tab::{
     TabConnection, TabDescriptions, TabItem, TabKind, TabPresentation, truncate_keep_tail,
@@ -216,13 +215,6 @@ impl ShellView {
                     if ev.click_count == 2 {
                         this.duplicate_active_tab_clicked(window, cx);
                     }
-                }),
-            )
-            // 标签栏空白处右键：打开会话启动器（标签行的右键会先拦下，不会走到这里）。
-            .on_mouse_down(
-                MouseButton::Right,
-                cx.listener(|this, _: &MouseDownEvent, window, cx| {
-                    this.run_command(AppCommand::OpenLauncher, window, cx)
                 }),
             );
 
