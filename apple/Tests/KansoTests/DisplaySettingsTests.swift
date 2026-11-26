@@ -148,6 +148,7 @@ final class DisplaySettingsTests: XCTestCase {
     func testFontResolver() {
         let system = TerminalFontResolver.font(family: "", size: 14)
         XCTAssertFalse(system.isFallback)
+        XCTAssertEqual(system.font.familyName, "Menlo")
         XCTAssertEqual(system.font.pointSize, 14)
         XCTAssertTrue(system.font.isFixedPitch)
 
