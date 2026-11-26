@@ -254,6 +254,22 @@ final class WorkspaceController {
         return sessionID
     }
 
+    /// 重新连接已断开的标签：用它的已保存会话配置建立一条全新会话，留在原位置并替换旧标签。
+    /// core 的会话 id 是一次性的，无法复活旧会话，所以这里必然是新的 SessionID。
+    /// 只有来自已保存会话的标签才有可复用的配置；临时本地 shell 不提供重连。
+    @discardableResult
+    func reconnectSession(_ old: SessionID) throws -> SessionID? {
+        guard let item = workspace.item(old),
+              case .closed = item.connection,
+              let profileID = item.profileID,
+              let pane = workspace.pane(of: old) else { return nil }
+        let index = workspace.tabs(in: pane).firstIndex { $0.id == old } ?? 0
+        let new = try openProfile(profileID, in: pane)
+        workspace.moveTab(new, toIndex: index)
+        closeNow(old)
+        return new
+    }
+
     /// 复制活动标签；没有活动标签时退化为新本地 shell。
     @discardableResult
     func duplicateActiveTab() throws -> SessionID {

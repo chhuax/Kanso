@@ -33,8 +33,16 @@ final class TabContextMenu: NSObject, NSMenuItemValidation {
         renameItem.target = self
         renameItem.representedObject = NSNumber(value: session)
         menu.addItem(renameItem)
+        let item = workspace.item(session)
+        // 断开的标签可用原已保存会话重新连接（新会话，见 reconnectSession）。
+        if case .closed = item?.connection, item?.profileID != nil {
+            let reconnect = NSMenuItem(title: String(localized: "Reconnect"), action: #selector(reconnectFromMenu(_:)), keyEquivalent: "")
+            reconnect.target = self
+            reconnect.representedObject = NSNumber(value: session)
+            menu.addItem(reconnect)
+        }
         // 只有由已保存会话打开的标签才能回到它的配置。
-        if let profileID = workspace.item(session)?.profileID {
+        if let profileID = item?.profileID {
             let edit = NSMenuItem(title: String(localized: "Edit Saved Session…"), action: #selector(editSavedSession(_:)), keyEquivalent: "")
             edit.target = self
             edit.representedObject = profileID
@@ -91,6 +99,12 @@ final class TabContextMenu: NSObject, NSMenuItemValidation {
     @objc private func renameFromMenu(_ sender: NSMenuItem) {
         guard let session = (sender.representedObject as? NSNumber)?.uint64Value else { return }
         rename(session)
+    }
+
+    @objc private func reconnectFromMenu(_ sender: NSMenuItem) {
+        guard let session = (sender.representedObject as? NSNumber)?.uint64Value else { return }
+        controller.perform { _ = try controller.reconnectSession(session) }
+        controller.requestTerminalFocus?()
     }
 
     @objc private func editSavedSession(_ sender: NSMenuItem) {

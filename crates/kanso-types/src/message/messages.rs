@@ -472,6 +472,8 @@ messages! {
     UiQuit = "ui-quit" {},
     /// GPUI 界面文字：编辑会话…
     UiEditSession2 = "ui-edit-session-2" {},
+    /// GPUI 界面文字：重新连接
+    UiReconnect = "ui-reconnect" {},
     /// GPUI 界面文字：关闭
     UiClose = "ui-close" {},
     /// GPUI 界面文字：关闭其他

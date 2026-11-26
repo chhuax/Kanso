@@ -524,6 +524,8 @@ ui-quit = Quit
 
 ui-edit-session-2 = Edit Session…
 
+ui-reconnect = Reconnect
+
 ui-close = Close
 
 ui-close-others = Close Others
