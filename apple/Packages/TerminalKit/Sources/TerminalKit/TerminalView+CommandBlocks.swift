@@ -5,6 +5,26 @@ import KansoBridge
 /// 产品决定（2026-11-16）：不显示块右端的耗时标签、不显示悬停复制按钮与悬停高亮，
 /// 失败块的左侧红条由渲染器绘制，不在这里。
 extension TerminalView {
+    /// 鼠标事件所在行是否落在某个可折叠命令块的左侧折叠按钮区（`[-]` / `[+]`）。
+    func foldableBlock(at event: NSEvent) -> FfiCommandBlock? {
+        guard let frame = currentFrame, !frame.flags.contains(.altScreen),
+              let renderer, let geometry = hitGeometry() else { return nil }
+        let location = convert(event.locationInWindow, from: nil)
+        let top = bounds.height - location.y
+        let scale = currentScaleForInput
+        let gutterRight = Double(renderer.layout(scale: scale).gutterWidth) / scale
+        guard bounds.contains(location),
+              location.x >= gutterRight, location.x < geometry.originX,
+              top >= geometry.originY,
+              top < geometry.originY + Double(frame.rows) * geometry.cellHeight else { return nil }
+        let row = Int((top - geometry.originY) / geometry.cellHeight)
+        guard row >= 0, row < frame.rows else { return nil }
+        let line = frame.lineMeta(row: row).absLine
+        return frame.commandBlocks.first {
+            $0.foldable && ($0.commandLine ?? $0.startLine) == line
+        }
+    }
+
     /// 鼠标事件所在行属于哪个命令块；不在任何块内（或全屏程序期间）为 nil。
     func commandBlock(at event: NSEvent) -> FfiCommandBlock? {
         guard let frame = currentFrame, !frame.flags.contains(.altScreen), let geometry = hitGeometry() else { return nil }
@@ -55,9 +75,9 @@ extension TerminalView {
     }
 
     @objc public func previousCommandBlock(_ sender: Any?) {
-        if let id = editActions?.jumpCommandBlock(forward: false) { selectedCommandBlock = id }
+        _ = editActions?.jumpCommandBlock(forward: false)
     }
     @objc public func nextCommandBlock(_ sender: Any?) {
-        if let id = editActions?.jumpCommandBlock(forward: true) { selectedCommandBlock = id }
+        _ = editActions?.jumpCommandBlock(forward: true)
     }
 }

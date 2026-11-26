@@ -36,6 +36,7 @@ public protocol TerminalEditActions: AnyObject {
     func clearSelection()
     func commandBlockText(id: UInt64, part: FfiBlockText) -> String?
     func jumpCommandBlock(forward: Bool) -> UInt64?
+    func toggleCommandBlockFold(id: UInt64) -> Bool
 }
 
 extension TerminalEditActions {
@@ -43,15 +44,12 @@ extension TerminalEditActions {
     public func clearSelection() {}
     public func commandBlockText(id: UInt64, part: FfiBlockText) -> String? { nil }
     public func jumpCommandBlock(forward: Bool) -> UInt64? { nil }
+    public func toggleCommandBlockFold(id: UInt64) -> Bool { false }
 }
 
 extension TerminalView: NSMenuItemValidation {
     /// 编辑菜单的"复制"（⌘C）。菜单项用标准 selector，first responder 是终端视图时自动路由到这里。
     @objc public func copy(_ sender: Any?) {
-        if editActions?.hasSelection != true, let id = selectedCommandBlock {
-            copyCommandBlock(id, part: .all)
-            return
-        }
         copySelectionIfPresent()
     }
 
@@ -86,7 +84,7 @@ extension TerminalView: NSMenuItemValidation {
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.action {
         case #selector(copy(_:)):
-            return editActions?.hasSelection == true || selectedCommandBlock != nil
+            return editActions?.hasSelection == true
         case #selector(paste(_:)), #selector(selectAll(_:)):
             return editActions != nil
         case #selector(copyBlockCommand(_:)):

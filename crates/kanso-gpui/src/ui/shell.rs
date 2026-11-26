@@ -1502,7 +1502,6 @@ impl ShellView {
                 && input.key.len() == 1
                 && input.key.as_bytes()[0].is_ascii_alphabetic()
                 && !term.has_selection()
-                && term.block_sel.selected().is_none()
             {
                 return;
             }

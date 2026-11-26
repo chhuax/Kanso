@@ -76,7 +76,6 @@ extension TerminalView {
     func emitKey(_ event: NSEvent) -> Bool {
         let kind: KeyEventKind = event.isARepeat ? .repeat : .press
         guard let key = TerminalKeyEvent(event: event, kind: kind) else { return false }
-        selectedCommandBlock = nil
         pressedKeyCodes.insert(event.keyCode)
         inputSink?.key(key)
         return true
@@ -220,6 +219,10 @@ extension TerminalView {
     }
 
     public override func mouseMoved(with event: NSEvent) {
+        if currentFrame?.flags.contains(.mouseReporting) != true, foldableBlock(at: event) != nil {
+            NSCursor.pointingHand.set()
+            return
+        }
         guard let point = viewportPoint(for: event) else { return }
         inputSink?.mouse(TerminalMouseEvent(
             kind: .move, button: .none, point: point, mods: KeyModifiers(event.modifierFlags), clickCount: 0
@@ -228,16 +231,14 @@ extension TerminalView {
 
     private func pointerDown(_ event: NSEvent, button: TerminalMouseButton) {
         if button == .left {
+            if event.clickCount == 1, !isMouseCaptured(by: event), let block = foldableBlock(at: event) {
+                window?.makeFirstResponder(self)
+                _ = editActions?.toggleCommandBlockFold(id: block.id)
+                return
+            }
             leftDragIsSelection = currentFrame?.flags.contains(.mouseReporting) != true
                 || KeyModifiers(event.modifierFlags).contains(.shift)
-            clickedCommandBlock = nil
             clickedDirectoryChip = event.clickCount == 1 ? directoryChip(at: event) : nil
-            if event.clickCount == 1, currentFrame?.flags.contains(.mouseReporting) != true {
-                let block = commandBlock(at: event)
-                if block?.canCopyOutput == true { clickedCommandBlock = block?.id }
-            } else {
-                selectedCommandBlock = nil
-            }
         }
         guard let point = viewportPoint(for: event) else { return }
         // 拖动不能"粘住"（terminal.md §8.1）：如果上一次按下没有等到松开（松开事件被别的窗口、菜单或
@@ -257,9 +258,7 @@ extension TerminalView {
 
     private func pointerDragged(_ event: NSEvent, button: TerminalMouseButton) {
         if button == .left {
-            clickedCommandBlock = nil
             clickedDirectoryChip = nil
-            selectedCommandBlock = nil
         }
         guard let point = viewportPoint(for: event) else { return }
         let drag = TerminalMouseEvent(
@@ -280,14 +279,8 @@ extension TerminalView {
                currentFrame?.flags.contains(.mouseReporting) != true {
                 if let anchor = directoryChip(at: event), anchor == clickedDirectoryChip {
                     directoryAnchor = anchor
-                    selectedCommandBlock = nil
-                } else {
-                    let block = commandBlock(at: event)
-                    let id = block?.canCopyOutput == true ? block?.id : nil
-                    selectedCommandBlock = id == clickedCommandBlock && id != selectedCommandBlock ? id : nil
                 }
             }
-            clickedCommandBlock = nil
             clickedDirectoryChip = nil
         }
         activeButtons[button] = nil
@@ -306,7 +299,6 @@ extension TerminalView {
     /// 结束所有进行中的拖动：对每个未松开的按键补发 Up。失去 first responder、窗口失去 key 状态、
     /// 视图离开窗口时调用。
     func endAllDrags() {
-        clickedCommandBlock = nil
         leftDragIsSelection = false
         guard !activeButtons.isEmpty else { return }
         let pending = activeButtons

@@ -45,7 +45,6 @@ final class DirectoryPickerTests: XCTestCase {
         XCTAssertEqual(anchors.count, 3)
         XCTAssertEqual(anchors.first, anchors.last)
         XCTAssertEqual(anchors.first?.width, try XCTUnwrap(view.hitGeometry()).cellWidth * 8)
-        XCTAssertNil(view.selectedCommandBlock)
     }
 
     func testOldPromptMouseReportingAlternateScreenOtherChipDragAndMultipleClickAreIgnored() throws {

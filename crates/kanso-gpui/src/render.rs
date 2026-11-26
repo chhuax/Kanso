@@ -1242,6 +1242,8 @@ mod tests {
             duration: None,
             can_copy_command: true,
             can_copy_output: true,
+            foldable: true,
+            folded: false,
         };
         let f = frame(b);
         let dark = Palette::kanso_dark();
@@ -1284,6 +1286,8 @@ mod tests {
                 duration: None,
                 can_copy_command: command.is_some(),
                 can_copy_output: command.is_some(),
+                foldable: false,
+                folded: false,
             }
         }
         assert_eq!(LiveChips::from_blocks(&[]), LiveChips::All);

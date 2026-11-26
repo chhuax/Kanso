@@ -52,6 +52,10 @@ extension CoreInputSink: TerminalEditActions {
     public func jumpCommandBlock(forward: Bool) -> UInt64? {
         try? core.jumpCommandBlock(sessionId: session, forward: forward)
     }
+
+    public func toggleCommandBlockFold(id: UInt64) -> Bool {
+        (try? core.toggleCommandBlockFold(sessionId: session, id: id)) ?? false
+    }
     public var hasSelection: Bool {
         core.hasSelection(sessionId: session)
     }

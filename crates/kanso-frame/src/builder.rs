@@ -50,6 +50,10 @@ pub struct CommandBlock {
     pub can_copy_command: bool,
     /// 是否存在输出范围。
     pub can_copy_output: bool,
+    /// 该块是否有可折叠的输出行（已完成且输出至少一行）。
+    pub foldable: bool,
+    /// 该块的输出当前是否已折叠隐藏。
+    pub folded: bool,
 }
 
 impl Frame {

@@ -1424,6 +1424,12 @@ impl RealCore {
         Ok(self.terminal_session(session)?.jump_command_block(forward))
     }
 
+    pub(crate) fn toggle_command_block_fold(&self, session: SessionId, id: u64) -> Result<bool> {
+        Ok(self
+            .terminal_session(session)?
+            .toggle_command_block_fold(id))
+    }
+
     pub(crate) fn selection_text(&self, session: SessionId) -> Option<String> {
         self.sessions.session(session)?.selection_text()
     }

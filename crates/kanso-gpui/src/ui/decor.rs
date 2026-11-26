@@ -1,4 +1,4 @@
-//! 终端装饰的绘制：命令块选中底色、时间戳 / 行号栏、命令分隔线、失败块色条、悬停链接下划线。
+//! 终端装饰的绘制：时间戳 / 行号栏、命令分隔线、失败块色条、悬停链接下划线。
 //!
 //! 数据全部来自帧（`RenderGrid` 的行元数据与 `CommandBlock` 列表）；几何与格式化的纯逻辑在
 //! `kanso_gpui::app::{gutter, blocks}`。对照 mac 版 `TerminalKit/TerminalRenderer`。
@@ -9,7 +9,7 @@ use gpui::{
     App, Bounds, Hsla, Pixels, Point, SharedString, TextRun, Window, fill, point, px, rgba, size,
 };
 use kanso_frame::CommandBlock;
-use kanso_gpui::app::blocks::{Stripe, block_at_line, has_command, stripe, visible_rows};
+use kanso_gpui::app::blocks::{Stripe, block_at_line, stripe};
 use kanso_gpui::app::gutter::{self, line_text};
 use kanso_gpui::app::links::LinkHit;
 use kanso_gpui::app::settings::GutterMode;
@@ -28,7 +28,6 @@ pub(crate) struct DecorInput {
     /// 栏宽（逻辑像素）；关闭为 0。
     pub gutter_w: f32,
     pub blocks: Vec<CommandBlock>,
-    pub selected_block: Option<u64>,
     pub hover: Option<LinkHit>,
     pub tz_offset_min: i32,
 }
@@ -46,42 +45,37 @@ fn row_y(origin: Point<Pixels>, m: &Metrics, row: u16) -> f32 {
     f32::from(origin.y) + (f32::from(row) * m.cell_h).round()
 }
 
-/// 选中命令块的整行底色（在文字背景之下）：从提示符行覆盖到块最后一行，
-/// 左右铺满正文区（含左右留白），不覆盖时间戳栏。
-pub(crate) fn paint_block_highlight(
+/// 命令提示符所在行的整行浅底色（在文字与选区之下，不覆盖时间戳栏）。
+pub(crate) fn paint_prompt_backgrounds(
     d: &DecorInput,
     bounds: Bounds<Pixels>,
     origin: Point<Pixels>,
     window: &mut Window,
 ) {
-    if d.grid.alt_screen {
+    if d.grid.alt_screen || d.blocks.is_empty() {
         return;
     }
-    let Some(id) = d.selected_block else {
-        return;
-    };
-    let Some(block) = d.blocks.iter().find(|b| b.id == id && has_command(b)) else {
-        return;
-    };
-    let Some((r0, r1)) = visible_rows(block, d.grid.first_abs_line, d.grid.rows) else {
-        return;
-    };
+    let tint = overlay(d.palette.decorations.prompt_background);
     let x = f32::from(bounds.origin.x) + d.gutter_w;
-    let y0 = row_y(origin, &d.metrics, r0);
-    let y1 = row_y(origin, &d.metrics, r1 + 1);
-    window.paint_quad(fill(
-        Bounds::new(
-            point(px(x), px(y0)),
-            size(
-                px((f32::from(bounds.size.width) - d.gutter_w).max(0.0)),
-                px(y1 - y0),
-            ),
-        ),
-        hsla(d.palette.decorations.block_selection),
-    ));
+    let width = (f32::from(bounds.size.width) - d.gutter_w).max(0.0);
+    for (row, info) in d.grid.lines.iter().enumerate() {
+        let abs = info.abs_line;
+        let is_prompt = d.blocks.iter().any(|b| {
+            let end = b.command_line.unwrap_or(b.end_line);
+            b.start_line <= abs && abs <= end
+        });
+        if is_prompt {
+            let y0 = row_y(origin, &d.metrics, row as u16);
+            let y1 = row_y(origin, &d.metrics, row as u16 + 1);
+            window.paint_quad(fill(
+                Bounds::new(point(px(x), px(y0)), size(px(width), px(y1 - y0))),
+                tint,
+            ));
+        }
+    }
 }
 
-/// 栏、分隔线与色条（在文字之上，半透明 / 细线不影响阅读）。
+/// 栏、折叠树线与色条（在文字之上，半透明 / 细线不影响阅读）。
 pub(crate) fn paint_overlays(
     d: &DecorInput,
     bounds: Bounds<Pixels>,
@@ -108,39 +102,133 @@ pub(crate) fn paint_overlays(
     }
 
     if !d.grid.alt_screen {
-        // 命令分隔线：提示符行上方 1 个设备像素，横跨整个视图（含栏）。同一行只画一条由核心去重保证。
-        for (row, info) in d.grid.lines.iter().enumerate() {
-            if info.prompt && !info.first_prompt {
-                let y = snap(row_y(origin, m, row as u16), scale);
-                window.paint_quad(fill(
-                    Bounds::new(
-                        point(bounds.origin.x, px(y)),
-                        size(bounds.size.width, px(thin)),
-                    ),
-                    sep,
-                ));
-            }
-        }
-
-        // 块的左侧色条：失败红 / 运行中强调色，画在栏与正文之间的左内边距里，不与时间戳重叠。
+        // 左侧命令块折叠图标（[-]/[+]）与输出树线（| / └）；无输出但失败或运行中的块保留细色条。
+        let fold_cx = snap(f32::from(bounds.origin.x) + d.gutter_w + 9.0, scale);
+        let box_sz = 9.0_f32;
+        let box_half = 4.0_f32;
         for block in &d.blocks {
-            let color = match stripe(block) {
-                Some(Stripe::Failed) => d.palette.ansi[1],
-                Some(Stripe::Running) => d.palette.cursor,
-                None => continue,
-            };
-            let Some((r0, r1)) = visible_rows(block, d.grid.first_abs_line, d.grid.rows) else {
-                continue;
-            };
-            let y0 = row_y(origin, m, r0);
-            let y1 = row_y(origin, m, r1 + 1);
-            window.paint_quad(fill(
-                Bounds::new(
-                    point(px(snap(f32::from(origin.x) - 4.0, scale)), px(y0)),
-                    size(px(2.0), px(y1 - y0)),
-                ),
-                hsla(color),
-            ));
+            let failed = matches!(stripe(block), Some(Stripe::Failed));
+            if block.foldable {
+                let cmd_abs = block.command_line.unwrap_or(block.start_line);
+                let color = if block.folded {
+                    hsla(d.palette.cursor)
+                } else if failed {
+                    hsla(d.palette.ansi[1])
+                } else {
+                    hsla(deco.gutter_text)
+                };
+                if let Some((cmd_row, _)) = d
+                    .grid
+                    .lines
+                    .iter()
+                    .enumerate()
+                    .find(|(_, info)| info.abs_line == cmd_abs)
+                {
+                    let cmd_y = row_y(origin, m, cmd_row as u16);
+                    let bx = snap(fold_cx - box_half, scale);
+                    let by = snap(cmd_y + (m.cell_h - box_sz) / 2.0, scale);
+                    window.paint_quad(fill(
+                        Bounds::new(point(px(bx), px(by)), size(px(box_sz), px(thin))),
+                        color,
+                    ));
+                    window.paint_quad(fill(
+                        Bounds::new(
+                            point(px(bx), px(by + box_sz - thin)),
+                            size(px(box_sz), px(thin)),
+                        ),
+                        color,
+                    ));
+                    window.paint_quad(fill(
+                        Bounds::new(point(px(bx), px(by)), size(px(thin), px(box_sz))),
+                        color,
+                    ));
+                    window.paint_quad(fill(
+                        Bounds::new(
+                            point(px(bx + box_sz - thin), px(by)),
+                            size(px(thin), px(box_sz)),
+                        ),
+                        color,
+                    ));
+                    // 内部 -
+                    window.paint_quad(fill(
+                        Bounds::new(
+                            point(px(bx + 2.0), px(snap(by + box_half, scale))),
+                            size(px(box_sz - 4.0), px(thin)),
+                        ),
+                        color,
+                    ));
+                    if block.folded {
+                        // 内部 +
+                        window.paint_quad(fill(
+                            Bounds::new(
+                                point(px(snap(bx + box_half, scale)), px(by + 2.0)),
+                                size(px(thin), px(box_sz - 4.0)),
+                            ),
+                            color,
+                        ));
+                    } else {
+                        let stem_top = by + box_sz;
+                        let stem_h = (cmd_y + m.cell_h - stem_top).max(0.0);
+                        if stem_h > 0.0 {
+                            window.paint_quad(fill(
+                                Bounds::new(
+                                    point(px(fold_cx), px(stem_top)),
+                                    size(px(thin), px(stem_h)),
+                                ),
+                                color,
+                            ));
+                        }
+                    }
+                }
+                if !block.folded {
+                    for (row, info) in d.grid.lines.iter().enumerate() {
+                        let abs = info.abs_line;
+                        if abs <= cmd_abs || abs > block.end_line {
+                            continue;
+                        }
+                        let y0 = row_y(origin, m, row as u16);
+                        if abs < block.end_line {
+                            window.paint_quad(fill(
+                                Bounds::new(
+                                    point(px(fold_cx), px(y0)),
+                                    size(px(thin), px(m.cell_h)),
+                                ),
+                                color,
+                            ));
+                        } else {
+                            let mid_y = snap(y0 + m.cell_h / 2.0, scale);
+                            window.paint_quad(fill(
+                                Bounds::new(
+                                    point(px(fold_cx), px(y0)),
+                                    size(px(thin), px((mid_y - y0 + thin).max(0.0))),
+                                ),
+                                color,
+                            ));
+                            window.paint_quad(fill(
+                                Bounds::new(
+                                    point(px(fold_cx), px(mid_y)),
+                                    size(px(box_half + 1.0), px(thin)),
+                                ),
+                                color,
+                            ));
+                        }
+                    }
+                }
+            } else if let Some(kind) = stripe(block) {
+                let color = match kind {
+                    Stripe::Failed => d.palette.ansi[1],
+                    Stripe::Running => d.palette.cursor,
+                };
+                for (row, info) in d.grid.lines.iter().enumerate() {
+                    if block.start_line <= info.abs_line && info.abs_line <= block.end_line {
+                        let y0 = row_y(origin, m, row as u16);
+                        window.paint_quad(fill(
+                            Bounds::new(point(px(fold_cx), px(y0)), size(px(2.0), px(m.cell_h))),
+                            hsla(color),
+                        ));
+                    }
+                }
+            }
         }
 
         if d.gutter_w > 0.0 {

@@ -161,18 +161,16 @@ impl ShellView {
                 &format!("{off:?}"),
             );
 
-            // 5. 命令块跳转：本地 shell 有 OSC 133，应能选中上一个块（信息项，没有块不算失败）。
-            let sel = this
+            // 5. 命令块跳转：本地 shell 有 OSC 133，验证调用不崩溃（信息项，没有块不算失败）。
+            let jumped = this
                 .update_in(cx, |this, _w, cx| {
                     let t = this.active_terminal()?;
-                    Some(t.update(cx, |t, cx| {
-                        t.jump_block(false, cx);
-                        t.block_sel.selected()
-                    }))
+                    Some(t.update(cx, |t, cx| t.jump_block(false, cx)))
                 })
                 .ok()
-                .flatten();
-            log(&format!("[term-test] INFO block-jump selected={sel:?}"));
+                .flatten()
+                .is_some();
+            log(&format!("[term-test] INFO block-jump invoked={jumped}"));
 
             log(&format!(
                 "[term-test] 汇总：{} 通过，{} 失败",

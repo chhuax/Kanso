@@ -903,6 +903,12 @@ impl SshSession {
             .with_term(|term| term.jump_command_block(forward))
     }
 
+    /// 切换指定命令块的折叠状态。
+    pub fn toggle_command_block_fold(&self, id: u64) -> bool {
+        self.shared
+            .with_term(|term| term.toggle_command_block_fold(id))
+    }
+
     /// 选区文本。
     pub fn selection_text(&self) -> Option<String> {
         self.shared.term().selection_text()

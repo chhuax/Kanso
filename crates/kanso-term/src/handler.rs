@@ -897,6 +897,20 @@ impl Core {
     }
 
     pub fn scroll_display(&mut self, scroll: Scroll) -> bool {
+        if self.has_folded() {
+            let (_, before, max_off) = self.viewport_map();
+            let next = match scroll {
+                Scroll::Delta(d) => {
+                    (before as i64 + i64::from(d)).clamp(0, max_off as i64) as usize
+                }
+                Scroll::PageUp => before.saturating_add(self.rows).min(max_off),
+                Scroll::PageDown => before.saturating_sub(self.rows),
+                Scroll::Top => max_off,
+                Scroll::Bottom => 0,
+            };
+            self.blocks.fold_offset = next;
+            return next != before;
+        }
         let before = self.term.grid().display_offset();
         self.term.scroll_display(scroll);
         self.drain_events();

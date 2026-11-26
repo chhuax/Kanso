@@ -960,6 +960,11 @@ impl Core {
         dispatch!(self, jump_command_block(session, forward))
     }
 
+    /// 切换指定命令块的输出折叠状态。
+    pub fn toggle_command_block_fold(&self, session: SessionId, id: u64) -> Result<bool> {
+        dispatch!(self, toggle_command_block_fold(session, id))
+    }
+
     /// 选区文本；没有选区或会话不存在为 `None`。
     ///
     /// - 线程：任意。阻塞：同步，选区很大时复制成本与大小成正比，持锁时间应受限。

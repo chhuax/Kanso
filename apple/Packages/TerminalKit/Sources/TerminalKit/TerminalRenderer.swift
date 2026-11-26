@@ -91,7 +91,6 @@ public final class TerminalRenderer {
     /// 光标当前是否处于"显示"相位。闪烁由视图的计时器翻转它；帧里光标不可见时无论如何不画。
     /// 只影响绘制，不改帧：闪烁不需要向 core 取新帧。
     public var isCursorPhaseVisible = true
-    var selectedCommandBlock: UInt64?
 
     /// 顶部让出的高度（pt）。全尺寸内容视图下标题栏会盖住顶部，由视图按 `safeAreaInsets.top` 设置。
     public var topInset: CGFloat = 0
@@ -197,7 +196,7 @@ public final class TerminalRenderer {
         // 左侧 1 个字符的留白，右侧 2 个字符的间隔，把栏与正文隔开。
         let gutterWidth = chars == 0 ? 0 : (chars + 3) * gcw
         let padding = Int((4 * scale).rounded())
-        let paddingX = Int((12 * scale).rounded())
+        let paddingX = Int((18 * scale).rounded())
         return Layout(
             metrics: fonts.terminal.metrics, gutterMetrics: fonts.gutter.metrics,
             gutterCharWidth: gcw, gutterWidth: gutterWidth, padding: padding, paddingX: paddingX,
@@ -491,13 +490,20 @@ public final class TerminalRenderer {
         let stroke = max(1, Int(scale.rounded()))
         var cursorWide = false
 
-        if !altScreen, let block = frame.commandBlocks.first(where: { $0.id == selectedCommandBlock }),
-           block.canCopyOutput {
+        // 命令行 / 提示符行整行浅底色（在文字与选区之下，不覆盖时间戳栏）。
+        if !altScreen, !frame.commandBlocks.isEmpty {
+            let promptTint = Self.vec(palette.promptBackground)
             for row in 0..<rows {
                 let line = frame.lineMeta(row: row).absLine
-                if block.startLine <= line && line <= block.endLine {
-                    bgInstances.append(rect(l.gutterWidth, l.originY + row * m.cellHeight,
-                        target.width - l.gutterWidth, m.cellHeight, Self.vec(palette.blockSelection)))
+                let isPromptRow = frame.commandBlocks.contains { block in
+                    let end = block.commandLine ?? block.endLine
+                    return block.startLine <= line && line <= end
+                }
+                if isPromptRow {
+                    bgInstances.append(rect(
+                        l.gutterWidth, l.originY + row * m.cellHeight,
+                        target.width - l.gutterWidth, m.cellHeight, promptTint
+                    ))
                 }
             }
         }
@@ -509,14 +515,76 @@ public final class TerminalRenderer {
             decoInstances.append(rect(l.gutterWidth, 0, stroke, target.height, Self.vec(palette.commandSeparator)))
         }
 
-        for block in frame.commandBlocks where !altScreen && rows > 0 && (block.running || (block.exitCode.map { $0 != 0 } ?? false)) {
-            let first = frame.lineMeta(row: 0).absLine
-            let start = Int(max(block.startLine, first) - first)
-            let end = Int(min(block.endLine, first + UInt64(rows - 1)) - first)
-            if end >= start {
-                let color = block.running ? palette.cursor : palette.ansi[1]
-                decoInstances.append(rect(l.originX - l.paddingX / 2, l.originY + start * m.cellHeight,
-                    2, (end - start + 1) * m.cellHeight, Self.vec(color)))
+        // 左侧命令块折叠图标（[-]/[+]）与输出树线（| / └）；无输出但失败或运行中的块保留细色条。
+        if !altScreen, rows > 0, !frame.commandBlocks.isEmpty {
+            let foldCenterX = l.gutterWidth + l.paddingX / 2
+            var boxSize = Int((9 * scale).rounded())
+            if boxSize % 2 == 0 { boxSize += 1 }
+            let boxHalf = boxSize / 2
+            let inset = max(2, boxSize / 4)
+            let lineThick = max(1, Int((0.5 * scale).rounded()))
+            let rowForAbs: [UInt64: Int] = Dictionary(
+                uniqueKeysWithValues: (0..<rows).map { (frame.lineMeta(row: $0).absLine, $0) }
+            )
+            for block in frame.commandBlocks {
+                let failed = block.exitCode.map { $0 != 0 } ?? false
+                if block.foldable {
+                    let cmdAbs = block.commandLine ?? block.startLine
+                    let guideColor: SIMD4<Float> = if block.folded {
+                        Self.vec(palette.cursor)
+                    } else if failed {
+                        Self.vec(palette.ansi[1])
+                    } else {
+                        Self.vec(palette.gutterText)
+                    }
+                    if let cmdRow = rowForAbs[cmdAbs] {
+                        let cmdY = l.originY + cmdRow * m.cellHeight
+                        let bx = foldCenterX - boxHalf
+                        let by = cmdY + (m.cellHeight - boxSize) / 2
+                        // 方形外框
+                        decoInstances.append(rect(bx, by, boxSize, lineThick, guideColor))
+                        decoInstances.append(rect(bx, by + boxSize - lineThick, boxSize, lineThick, guideColor))
+                        decoInstances.append(rect(bx, by, lineThick, boxSize, guideColor))
+                        decoInstances.append(rect(bx + boxSize - lineThick, by, lineThick, boxSize, guideColor))
+                        // 内部横杠（-）
+                        decoInstances.append(rect(bx + inset, by + boxHalf, boxSize - inset * 2, lineThick, guideColor))
+                        if block.folded {
+                            // 折叠状态加竖杠组成 +
+                            decoInstances.append(rect(bx + boxHalf, by + inset, lineThick, boxSize - inset * 2, guideColor))
+                        } else {
+                            let stemTop = by + boxSize
+                            let stemHeight = (cmdY + m.cellHeight) - stemTop
+                            if stemHeight > 0 {
+                                decoInstances.append(rect(foldCenterX, stemTop, lineThick, stemHeight, guideColor))
+                            }
+                        }
+                    }
+                    if !block.folded {
+                        for row in 0..<rows {
+                            let line = frame.lineMeta(row: row).absLine
+                            guard line > cmdAbs && line <= block.endLine else { continue }
+                            let rowY = l.originY + row * m.cellHeight
+                            if line < block.endLine {
+                                decoInstances.append(rect(foldCenterX, rowY, lineThick, m.cellHeight, guideColor))
+                            } else {
+                                let midY = rowY + m.cellHeight / 2
+                                decoInstances.append(rect(foldCenterX, rowY, lineThick, midY - rowY + lineThick, guideColor))
+                                decoInstances.append(rect(foldCenterX, midY, boxHalf + 1, lineThick, guideColor))
+                            }
+                        }
+                    }
+                } else if block.running || failed {
+                    let color = block.running ? palette.cursor : palette.ansi[1]
+                    for row in 0..<rows {
+                        let line = frame.lineMeta(row: row).absLine
+                        if block.startLine <= line && line <= block.endLine {
+                            decoInstances.append(rect(
+                                foldCenterX, l.originY + row * m.cellHeight,
+                                2, m.cellHeight, Self.vec(color)
+                            ))
+                        }
+                    }
+                }
             }
         }
 
@@ -524,13 +592,9 @@ public final class TerminalRenderer {
             let rowY = l.originY + row * m.cellHeight
             let meta = frame.lineMeta(row: row)
             let rowEmphasized = chipEmphasized(frame: frame, row: row)
-            let rowQuiet = historicalPrompt(frame: frame, row: row)
+            let rowQuiet = false
 
             if !altScreen {
-                // 命令分隔线：提示符行上方 1 设备像素，横跨整个视图（包括栏）。同一行只画一条由 core 去重保证。
-                if meta.flags.contains(.prompt), !meta.flags.contains(.firstPrompt) {
-                    decoInstances.append(rect(0, rowY, target.width, 1, Self.vec(palette.commandSeparator)))
-                }
                 if l.gutterWidth > 0 {
                     encodeGutter(frame: frame, meta: meta, rowY: rowY, palette: palette, layout: l, atlas: atlas)
                 }

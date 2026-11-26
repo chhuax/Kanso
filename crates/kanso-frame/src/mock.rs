@@ -366,6 +366,8 @@ pub fn mock_command_blocks_frame(cols: u16, rows: u16) -> Frame {
             }),
             can_copy_command: exit_code.is_some(),
             can_copy_output: exit_code.is_some(),
+            foldable: exit_code.is_some() && end > start,
+            folded: false,
         })
         .collect();
     frame

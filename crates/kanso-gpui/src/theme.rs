@@ -79,8 +79,8 @@ pub struct Decorations {
     pub gutter_cursor_line: Overlay,
     /// 命令分隔线与栏边线（`terminal.commandSeparator`）。
     pub command_separator: Overlay,
-    /// 选中命令块的整行底色（`terminal.blockSelection`）。
-    pub block_selection: Rgb8,
+    /// 命令提示符行整行浅底色（`terminal.promptBackground`）。
+    pub prompt_background: Overlay,
 }
 
 impl Decorations {
@@ -100,7 +100,10 @@ impl Decorations {
                     rgb: Rgb8::new(0xEC, 0xED, 0xEF),
                     alpha: 0x26,
                 },
-                block_selection: Rgb8::new(0x20, 0x34, 0x3E),
+                prompt_background: Overlay {
+                    rgb: Rgb8::new(0xFF, 0xFF, 0xFF),
+                    alpha: 0x14,
+                },
             }
         } else {
             Decorations {
@@ -115,7 +118,10 @@ impl Decorations {
                     rgb: Rgb8::new(0x1B, 0x1D, 0x20),
                     alpha: 0x26,
                 },
-                block_selection: Rgb8::new(0xDF, 0xEB, 0xEF),
+                prompt_background: Overlay {
+                    rgb: Rgb8::new(0x00, 0x00, 0x00),
+                    alpha: 0x0D,
+                },
             }
         }
     }
@@ -220,8 +226,6 @@ mod tests {
     fn decorations_follow_the_background() {
         let d = Palette::kanso_dark().decorations;
         let l = Palette::kanso_light().decorations;
-        assert_eq!(d.block_selection, Rgb8::new(0x20, 0x34, 0x3E));
-        assert_eq!(l.block_selection, Rgb8::new(0xDF, 0xEB, 0xEF));
         assert_eq!(d.chip_background, Rgb8::new(0x12, 0x12, 0x14));
         assert_eq!(d.chip_border, Rgb8::new(0x2A, 0x2A, 0x2C));
         assert_eq!(l.chip_background, Rgb8::new(0xF1, 0xF1, 0xEC));

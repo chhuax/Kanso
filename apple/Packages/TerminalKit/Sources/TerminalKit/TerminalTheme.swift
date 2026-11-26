@@ -27,7 +27,7 @@ public struct TerminalTheme: Identifiable, Equatable, Sendable {
             selectionBackground: RGB8(hex: file.selectionBackground),
             ansi: file.ansi.map(RGB8.init(hex:)), semantic: file.semantic.map(RGB8.init(hex:)),
             gutterText: base.gutterText, gutterCursorLine: base.gutterCursorLine,
-            commandSeparator: base.commandSeparator, blockSelection: base.blockSelection,
+            commandSeparator: base.commandSeparator, promptBackground: base.promptBackground,
             chipBackground: base.chipBackground, chipBorder: base.chipBorder, chipIcon: base.chipIcon
         ))
     }

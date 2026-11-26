@@ -79,7 +79,8 @@ public struct TerminalPalette: Sendable {
     public let gutterCursorLine: RGBA8
     /// token `terminal.commandSeparator`：命令分隔线颜色（半透明）。
     public let commandSeparator: RGBA8
-    public let blockSelection: RGBA8
+    /// token `terminal.promptBackground`：命令提示符所在行的整行浅底色（半透明）。
+    public let promptBackground: RGBA8
     public let chipBackground: RGBA8
     public let chipBorder: RGBA8
     /// token `terminal.chipIcon`：标签内置图标（目录、Node、Git 分支）的颜色。
@@ -91,7 +92,7 @@ public struct TerminalPalette: Sendable {
     public init(
         foreground: RGB8, background: RGB8, cursor: RGB8, cursorText: RGB8,
         selectionBackground: RGB8, ansi: [RGB8], semantic: [RGB8],
-        gutterText: RGBA8, gutterCursorLine: RGBA8, commandSeparator: RGBA8, blockSelection: RGBA8,
+        gutterText: RGBA8, gutterCursorLine: RGBA8, commandSeparator: RGBA8, promptBackground: RGBA8,
         chipBackground: RGBA8, chipBorder: RGBA8, chipIcon: RGBA8
     ) {
         precondition(ansi.count == 16 && semantic.count == 13, "调色板尺寸错误")
@@ -105,7 +106,7 @@ public struct TerminalPalette: Sendable {
         self.gutterText = gutterText
         self.gutterCursorLine = gutterCursorLine
         self.commandSeparator = commandSeparator
-        self.blockSelection = blockSelection
+        self.promptBackground = promptBackground
         self.chipBackground = chipBackground
         self.chipBorder = chipBorder
         self.chipIcon = chipIcon
