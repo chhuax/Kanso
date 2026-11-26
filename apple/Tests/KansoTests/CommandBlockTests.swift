@@ -19,21 +19,29 @@ final class CommandBlockTests: XCTestCase {
         for mode: GutterMode in [.off, .both] {
             renderer.gutterMode = mode
             let layout = renderer.layout(scale: 2)
-            let stripeX = layout.originX - layout.paddingX / 2
-            XCTAssertGreaterThan(stripeX, layout.gutterWidth)
-            XCTAssertLessThan(stripeX + 2, layout.originX)
+            let centerX = layout.gutterWidth + layout.paddingX / 2
+            var boxSize = Int((9 * CGFloat(2)).rounded())
+            if boxSize % 2 == 0 { boxSize += 1 }
+            let boxHalf = boxSize / 2
+            XCTAssertGreaterThan(centerX - boxHalf, layout.gutterWidth)
+            XCTAssertLessThan(centerX + boxHalf, layout.originX)
             for appearance: TerminalAppearance in [.dark, .light] {
                 let image = try XCTUnwrap(renderer.renderImage(frame: snapshot,
                     size: CGSize(width: 800, height: 300), scale: 2, appearance: appearance))
                 let pixels = try SnapshotTests.pixels(image)
                 let red = (appearance == .dark ? TerminalPalette.kansoDark : .kansoLight).ansi[1]
-                for column in (stripeX - 1)...(stripeX + 2) {
-                    let redCount = (0..<image.height).filter { row in
+                let redCountInColumn: (Int) -> Int = { column in
+                    (0..<image.height).filter { row in
                         let offset = (row * image.width + column) * 4
                         return pixels[offset] == red.r && pixels[offset + 1] == red.g && pixels[offset + 2] == red.b
                     }.count
-                    XCTAssertEqual(redCount, (stripeX..<(stripeX + 2)).contains(column) ? 3 * layout.metrics.cellHeight - 1 : 0)
                 }
+                // 失败的可折叠块在 gutter 与正文之间绘制红色 [-]/树形引导线，不侵入 gutter 或正文。
+                XCTAssertGreaterThan(redCountInColumn(centerX), layout.metrics.cellHeight)
+                XCTAssertEqual(redCountInColumn(centerX - boxHalf), boxSize)
+                XCTAssertEqual(redCountInColumn(centerX + boxHalf), boxSize)
+                XCTAssertEqual(redCountInColumn(layout.gutterWidth + 1), 0)
+                XCTAssertEqual(redCountInColumn(layout.originX - 1), 0)
             }
         }
     }

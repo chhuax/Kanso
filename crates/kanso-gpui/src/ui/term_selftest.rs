@@ -165,7 +165,8 @@ impl ShellView {
             let jumped = this
                 .update_in(cx, |this, _w, cx| {
                     let t = this.active_terminal()?;
-                    Some(t.update(cx, |t, cx| t.jump_block(false, cx)))
+                    t.update(cx, |t, cx| t.jump_block(false, cx));
+                    Some(())
                 })
                 .ok()
                 .flatten()
