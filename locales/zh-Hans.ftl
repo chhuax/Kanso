@@ -850,6 +850,8 @@ ui-file-browser = 文件浏览器
 
 ui-palette-tabs = 标签页
 ui-palette-sessions = 会话
+ui-sidebar-tabs = 标签
+ui-sidebar-sessions = 会话
 ui-palette-commands = 命令
 ui-palette-hint = 搜索标签页、会话、命令和文件
 ui-search-empty = 没有匹配结果

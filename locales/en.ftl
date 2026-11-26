@@ -856,6 +856,8 @@ ui-file-browser = File Browser
 
 ui-palette-tabs = Tabs
 ui-palette-sessions = Sessions
+ui-sidebar-tabs = Tabs
+ui-sidebar-sessions = Sessions
 ui-palette-commands = Commands
 ui-palette-hint = Search tabs, sessions, commands, files
 ui-search-empty = No matches

@@ -3459,6 +3459,18 @@
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Keepalive intervals must be numbers from 1 to 86400." } },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "保活间隔必须是 1 到 86400 之间的数字。" } }
       }
+    },
+    "Sessions" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sessions" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "会话" } }
+      }
+    },
+    "Tabs" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Tabs" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "标签" } }
+      }
     }
   },
   "version" : "1.0"

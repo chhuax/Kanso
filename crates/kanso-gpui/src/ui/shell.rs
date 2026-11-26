@@ -103,6 +103,11 @@ pub(crate) struct ShellView {
     subs: HashMap<SessionId, Subscription>,
     _window_subs: Vec<Subscription>,
     pub(super) sidebar_visible: bool,
+    /// 左侧栏当前显示「标签」还是「会话」（ui-shell.md §2.1）。
+    pub(super) sidebar_page: super::sidebar::SidebarPage,
+    /// 嵌入左侧栏「会话」页的常驻启动器实体（按需懒创建）。
+    pub(super) sidebar_sessions: Option<Entity<LauncherView>>,
+    pub(super) sidebar_sessions_sub: Option<Subscription>,
     /// 标签栏位置为顶部（ui-shell.md §2.5）。跟随外观设置，设置变化时同步。
     pub(super) tab_bar_top: bool,
     /// 顶部模式下标签条是否显示（"显示 / 隐藏标签栏"在顶部模式下切换它）。
@@ -224,6 +229,9 @@ impl ShellView {
             subs: HashMap::new(),
             _window_subs: Vec::new(),
             sidebar_visible: panels.sidebar_visible,
+            sidebar_page: super::sidebar::SidebarPage::Tabs,
+            sidebar_sessions: None,
+            sidebar_sessions_sub: None,
             tab_bar_top,
             top_tab_bar_visible: panels.top_tab_bar_visible,
             sidebar_preferred_width: panels.sidebar_width,
@@ -599,7 +607,7 @@ impl ShellView {
         cx: &mut Context<Self>,
     ) {
         // 菜单或对话框打开时是模态的：快捷键不穿透。
-        if self.modal_open() {
+        if self.modal_open(cx) {
             return;
         }
         match command {
@@ -1415,7 +1423,7 @@ impl ShellView {
             }
             self.focused = want;
         }
-        if self.modal_open() {
+        if self.modal_open(cx) {
             return;
         }
         if let Some(handle) = active
@@ -1454,7 +1462,7 @@ impl ShellView {
             return;
         }
         // 浮层（启动器、编辑对话框、提示框）打开时键盘归浮层。
-        if self.modal_open() {
+        if self.modal_open(cx) {
             return;
         }
         let ks = &ev.keystroke;
@@ -1969,7 +1977,17 @@ impl Render for ShellView {
             .children(completion_el)
             .children(self.render_palette(th, window, cx))
             .children(self.menu.clone())
+            .children(
+                self.sidebar_sessions
+                    .as_ref()
+                    .and_then(|v| v.read(cx).overlay_menu()),
+            )
             .children(self.dialog.clone())
+            .children(
+                self.sidebar_sessions
+                    .as_ref()
+                    .and_then(|v| v.read(cx).overlay_dialog()),
+            )
             .children(self.filer.dialog.clone())
             .children(self.git.dialog.clone())
             .children(self.launcher.clone())

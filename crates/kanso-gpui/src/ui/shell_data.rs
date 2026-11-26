@@ -225,6 +225,7 @@ impl ShellView {
             |this, _v, SshImportEvent::Close: &SshImportEvent, window, cx| {
                 this.ssh_import = None;
                 this.ssh_import_sub = None;
+                this.reload_sidebar_sessions(cx);
                 this.sync_focus(window, cx);
                 cx.notify();
             },

@@ -23,7 +23,7 @@ use super::widgets::dialog::{Dialog, DialogEvent};
 
 impl ShellView {
     /// 有浮层（启动器、编辑对话框、提示框）在显示：应用级快捷键让路。
-    pub(super) fn modal_open(&self) -> bool {
+    pub(super) fn modal_open(&self, cx: &gpui::App) -> bool {
         self.palette.is_some()
             || self.launcher.is_some()
             || self.editor.is_some()
@@ -33,13 +33,95 @@ impl ShellView {
             || self.filer.dialog.is_some()
             || self.git.dialog.is_some()
             || self.menu.is_some()
+            || self
+                .sidebar_sessions
+                .as_ref()
+                .is_some_and(|v| v.read(cx).has_overlay())
     }
 
-    // ---- 启动器 ----
+    // ---- 侧栏会话页与启动器 ----
 
-    /// 打开会话启动器（空白处右键、命令面板）。
+    /// 左侧栏切回「标签」页。
+    pub(super) fn show_sidebar_tabs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(view) = &self.sidebar_sessions {
+            self.collapsed_launcher_groups = view.read(cx).collapsed_groups().clone();
+        }
+        self.sidebar_page = super::sidebar::SidebarPage::Tabs;
+        self.sync_focus(window, cx);
+        cx.notify();
+    }
+
+    /// 左侧栏切到「会话」页，并刷新列表。
+    pub(super) fn show_sidebar_sessions(
+        &mut self,
+        focus_search: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.sidebar_visible {
+            self.sidebar_visible = true;
+            self.save_panels();
+        }
+        let view = if let Some(existing) = self.sidebar_sessions.clone() {
+            existing.update(cx, |v, cx| v.reload(cx));
+            existing
+        } else {
+            let core = self.core.clone();
+            let collapsed = self.collapsed_launcher_groups.clone();
+            let v = cx.new(|cx| LauncherView::new_embedded(core, collapsed, window, cx));
+            self.sidebar_sessions_sub =
+                Some(
+                    cx.subscribe_in(&v, window, |this, _l, ev: &LauncherEvent, window, cx| {
+                        this.on_sidebar_sessions_event(ev.clone(), window, cx)
+                    }),
+                );
+            self.sidebar_sessions = Some(v.clone());
+            v
+        };
+        self.sidebar_page = super::sidebar::SidebarPage::Sessions;
+        if focus_search {
+            view.read(cx).focus_search(window, cx);
+        }
+        cx.notify();
+    }
+
+    /// 刷新已创建的侧栏「会话」页（会话新增/编辑/导入后调用）。
+    pub(super) fn reload_sidebar_sessions(&mut self, cx: &mut Context<Self>) {
+        if let Some(view) = &self.sidebar_sessions {
+            view.update(cx, |v, cx| v.reload(cx));
+        }
+    }
+
+    fn on_sidebar_sessions_event(
+        &mut self,
+        ev: LauncherEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match ev {
+            LauncherEvent::Close => self.sync_focus(window, cx),
+            LauncherEvent::CustomizeShell => self.present_editor(None, true, window, cx),
+            LauncherEvent::OpenLocal => {
+                self.open_tab(window, cx);
+                self.show_sidebar_tabs(window, cx);
+            }
+            LauncherEvent::NewSession => self.open_editor(None, window, cx),
+            LauncherEvent::Connect(id) => {
+                self.connect_profile(id, window, cx);
+                self.show_sidebar_tabs(window, cx);
+            }
+            LauncherEvent::Edit(id) => self.open_editor(Some(id), window, cx),
+            LauncherEvent::ImportSshConfig => self.open_ssh_import(window, cx),
+        }
+    }
+
+    /// 打开会话管理：左侧标签栏模式下直接展开并切到「会话」页；顶部标签条模式下以浮层弹出。
     pub(super) fn open_launcher(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.modal_open() {
+        if self.modal_open(cx) {
+            return;
+        }
+        if !self.tab_bar_top {
+            self.show_sidebar_sessions(true, window, cx);
             return;
         }
         let core = self.core.clone();
@@ -147,8 +229,10 @@ impl ShellView {
                 }
                 if let Some((id, connect)) = saved {
                     log(&format!("会话已保存 {id}"));
+                    this.reload_sidebar_sessions(cx);
                     if connect {
                         this.connect_profile(id, window, cx);
+                        this.show_sidebar_tabs(window, cx);
                     }
                 }
                 this.sync_focus(window, cx);

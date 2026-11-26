@@ -7,7 +7,6 @@
 
 use gpui::{Context, Hsla, MouseButton, MouseDownEvent, div, prelude::*, px, rgb};
 use kanso_gpui::app::i18n::t;
-use kanso_gpui::app::shortcuts::AppCommand;
 use kanso_gpui::app::status_bar::state_text;
 use kanso_gpui::app::tab::{
     TabConnection, TabDescriptions, TabItem, TabKind, TabPresentation, truncate_keep_tail,
@@ -25,6 +24,13 @@ const SESSION_COLORS: [u32; 8] = [
 
 /// 平均一个字符约占的像素宽（13px 界面字体，中英混排的经验值），用来估算主标题能放几个字符。
 pub(super) const CELL_PX: f32 = 7.4;
+
+/// 左侧栏当前显示的页面：已打开的实时标签，或已保存的会话管理。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SidebarPage {
+    Tabs,
+    Sessions,
+}
 
 fn session_color(item: &TabItem) -> Hsla {
     let rgb_hex = match item.color {
@@ -53,6 +59,144 @@ impl ShellView {
         let show_headers = ws.shows_section_headers();
         let active_pane = ws.active_pane();
         let active_session = ws.active_session();
+        let tab_count: usize = sections.iter().map(|s| s.tabs.len()).sum();
+        let has_unread = sections
+            .iter()
+            .flat_map(|s| s.tabs.iter())
+            .any(|item| item.unread_done);
+        let on_tabs = self.sidebar_page == SidebarPage::Tabs;
+        let radius_sm = number("radius", "sm");
+
+        // 顶部「标签 / 会话」双段切换栏：4px 外圆角 / 3px 选中块，与 macOS 侧保持一致。
+        let mode_switch = div().px(px(8.0)).pt(px(8.0)).flex_none().child(
+            div()
+                .h(px(26.0))
+                .p(px(2.0))
+                .rounded(px(radius_sm))
+                .bg(th.c("bg.field"))
+                .border_1()
+                .border_color(th.c("border.field"))
+                .flex()
+                .items_center()
+                .child(
+                    div()
+                        .id("sidebar-tab-tabs")
+                        .flex_1()
+                        .h_full()
+                        .rounded(px((radius_sm - 1.0).max(2.0)))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .gap(px(4.0))
+                        .cursor_pointer()
+                        .text_size(px(number("font", "ui.caption")))
+                        .text_color(if on_tabs {
+                            th.c("text.primary")
+                        } else {
+                            th.c("text.secondary")
+                        })
+                        .when(on_tabs, |d| {
+                            d.bg(th.c("bg.tabSelected"))
+                                .border_1()
+                                .border_color(th.c("border.subtle"))
+                        })
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _: &MouseDownEvent, window, cx| {
+                                cx.stop_propagation();
+                                if this.sidebar_page != SidebarPage::Tabs {
+                                    this.show_sidebar_tabs(window, cx);
+                                }
+                            }),
+                        )
+                        .child(t(&Message::UiSidebarTabs {}))
+                        .when(tab_count > 0, |d| {
+                            d.child(
+                                div()
+                                    .text_size(px(10.0))
+                                    .text_color(th.c("text.tertiary"))
+                                    .child(tab_count.to_string()),
+                            )
+                        })
+                        .when(!on_tabs && has_unread, |d| {
+                            d.child(
+                                div()
+                                    .w(px(6.0))
+                                    .h(px(6.0))
+                                    .rounded(px(3.0))
+                                    .bg(th.c("status.unreadDone")),
+                            )
+                        }),
+                )
+                .child(
+                    div()
+                        .id("sidebar-tab-sessions")
+                        .flex_1()
+                        .h_full()
+                        .rounded(px((radius_sm - 1.0).max(2.0)))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .cursor_pointer()
+                        .text_size(px(number("font", "ui.caption")))
+                        .text_color(if !on_tabs {
+                            th.c("text.primary")
+                        } else {
+                            th.c("text.secondary")
+                        })
+                        .when(!on_tabs, |d| {
+                            d.bg(th.c("bg.tabSelected"))
+                                .border_1()
+                                .border_color(th.c("border.subtle"))
+                        })
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _: &MouseDownEvent, window, cx| {
+                                cx.stop_propagation();
+                                if this.sidebar_page != SidebarPage::Sessions {
+                                    this.show_sidebar_sessions(false, window, cx);
+                                }
+                            }),
+                        )
+                        .child(t(&Message::UiSidebarSessions {})),
+                ),
+        );
+
+        let resize_handle = div()
+            .id("sidebar-resize")
+            .absolute()
+            .right_0()
+            .top_0()
+            .bottom_0()
+            .w(px(5.))
+            .cursor(gpui::CursorStyle::ResizeLeftRight)
+            .occlude()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                    this.sidebar_resizing = true;
+                    cx.stop_propagation();
+                }),
+            );
+
+        if !on_tabs {
+            return div()
+                .absolute()
+                .left_0()
+                .top(px(super::toolbar::HEIGHT))
+                .bottom_0()
+                .w(px(width))
+                .flex()
+                .flex_col()
+                .bg(th.c("bg.sidebar"))
+                .border_r_1()
+                .border_color(th.c("border.subtle"))
+                .child(mode_switch)
+                .children(self.sidebar_sessions.clone())
+                .child(resize_handle)
+                .into_any_element();
+        }
+
         let title_cells = (((width - 12.0 - 20.0 - 28.0 - 24.0 - 16.0) / CELL_PX) as usize).max(8);
 
         let mut list = div()
@@ -71,13 +215,6 @@ impl ShellView {
                     if ev.click_count == 2 {
                         this.duplicate_active_tab_clicked(window, cx);
                     }
-                }),
-            )
-            // 标签栏空白处右键：打开会话启动器（标签行的右键会先拦下，不会走到这里）。
-            .on_mouse_down(
-                MouseButton::Right,
-                cx.listener(|this, _: &MouseDownEvent, window, cx| {
-                    this.run_command(AppCommand::OpenLauncher, window, cx)
                 }),
             );
 
@@ -179,6 +316,7 @@ impl ShellView {
             .bg(th.c("bg.sidebar"))
             .border_r_1()
             .border_color(th.c("border.subtle"))
+            .child(mode_switch)
             // 顶部工具条：路径筛选 + 新建按钮。
             .child(
                 div()
@@ -222,24 +360,7 @@ impl ShellView {
                     ),
             )
             .child(list)
-            .child(
-                div()
-                    .id("sidebar-resize")
-                    .absolute()
-                    .right_0()
-                    .top_0()
-                    .bottom_0()
-                    .w(px(5.))
-                    .cursor(gpui::CursorStyle::ResizeLeftRight)
-                    .occlude()
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                            this.sidebar_resizing = true;
-                            cx.stop_propagation();
-                        }),
-                    ),
-            )
+            .child(resize_handle)
             .into_any_element()
     }
 

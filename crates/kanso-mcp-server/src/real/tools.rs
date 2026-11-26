@@ -404,8 +404,14 @@ pub(super) struct SendParams {
 /// `kanso_list_sessions` 的参数。
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub(super) struct ListSessionsParams {
-    #[schemars(description = "Only sessions whose name contains this text (case-insensitive).")]
+    #[schemars(
+        description = "Only sessions whose saved name contains this text (case-insensitive). Does not match tab titles; use `title` for that."
+    )]
     name: Option<String>,
+    #[schemars(
+        description = "Only tabs whose title contains this text (case-insensitive). Sessions without a matching tab are omitted, and only matching tabs are returned."
+    )]
+    title: Option<String>,
     #[schemars(description = "Only sessions in the group with exactly this name.")]
     group: Option<String>,
 }
@@ -1068,6 +1074,8 @@ impl KansoHandler {
         let mut args = ArgsSummary::new();
         args.push_str("name=")
             .push_str(params.name.as_deref().unwrap_or(""))
+            .push_str(", title=")
+            .push_str(params.title.as_deref().unwrap_or(""))
             .push_str(", group=")
             .push_str(params.group.as_deref().unwrap_or(""));
         let core = self.shared.core.clone();
@@ -1996,6 +2004,7 @@ fn list_sessions(
     // 一次调用内共用一个 probe：祖先链最多读一次，下一次调用会重新读。
     let probe = identity.probe();
     let name_filter = params.name.as_deref().map(str::to_lowercase);
+    let title_filter = params.title.as_deref().map(str::to_lowercase);
 
     let mut out = Vec::new();
     for profile in core.profiles() {
@@ -2038,8 +2047,22 @@ fn list_sessions(
         let tab_items: Vec<Value> = tabs
             .iter()
             .filter(|s| s.profile == Some(profile.id))
+            // 标题优先取自定义名，与 tab_json 的 `title` 字段保持一致。
+            .filter(|s| {
+                title_filter.as_ref().is_none_or(|f| {
+                    s.custom_title
+                        .as_deref()
+                        .unwrap_or(&s.name)
+                        .to_lowercase()
+                        .contains(f)
+                })
+            })
             .map(|s| tab_json(core, s, &probe, mcp_tabs, access, gate))
             .collect();
+        // 指定了 title 却没有命中的标签时，不返回空壳会话。
+        if title_filter.is_some() && tab_items.is_empty() {
+            continue;
+        }
         item["tabs"] = Value::Array(tab_items);
         out.push(item);
     }
@@ -2504,6 +2527,80 @@ mod tests {
             CancellationToken::new(),
             Arc::new(identity),
         ))
+    }
+
+    #[test]
+    fn list_sessions_filters_by_tab_title() {
+        let e = env(ClientIdentity::unknown());
+        let second = e
+            .core
+            .open_session(OpenTarget::Profile(e.web), GridSize { cols: 80, rows: 24 })
+            .unwrap();
+        e.core.set_session_title(e.tab, Some("58.190".into()));
+
+        let by_title = |title: &str| {
+            list_sessions(
+                &e.core,
+                &ListSessionsParams {
+                    name: None,
+                    title: Some(title.into()),
+                    group: None,
+                },
+                &ClientIdentity::unknown(),
+                &e.handler.shared.tabs,
+                &e.handler.shared.gate,
+            )
+            .unwrap()
+        };
+
+        let v = by_title("58.19");
+        let sessions = v["sessions"].as_array().unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0]["name"], "web-01");
+        let tabs = sessions[0]["tabs"].as_array().unwrap();
+        assert_eq!(tabs.len(), 1);
+        assert_eq!(tabs[0]["id"], e.tab.raw());
+        assert_eq!(tabs[0]["title"], "58.190");
+
+        // 另一个标签仍叫 web-01，大小写不敏感匹配到它。
+        let v = by_title("WEB-01");
+        let tabs = v["sessions"][0]["tabs"].as_array().unwrap();
+        assert_eq!(tabs.len(), 1);
+        assert_eq!(tabs[0]["id"], second.raw());
+
+        // 没有命中的标签时不返回空壳会话。
+        assert!(
+            by_title("不存在")["sessions"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+
+        // name 与 title 取交集：两者都命中时只返回命中的标签。
+        let by_name_and_title = |title: &str| {
+            list_sessions(
+                &e.core,
+                &ListSessionsParams {
+                    name: Some("web-01".into()),
+                    title: Some(title.into()),
+                    group: None,
+                },
+                &ClientIdentity::unknown(),
+                &e.handler.shared.tabs,
+                &e.handler.shared.gate,
+            )
+            .unwrap()
+        };
+        let v = by_name_and_title("58.190");
+        assert_eq!(v["sessions"][0]["tabs"].as_array().unwrap().len(), 1);
+
+        // name 命中（web-01 会话）但 title 不命中时为空：两个标签都不含这个标题。
+        assert!(
+            by_name_and_title("no-such-title")["sessions"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[tokio::test]
