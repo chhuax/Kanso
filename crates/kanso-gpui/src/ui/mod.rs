@@ -32,6 +32,7 @@ mod git_selftest;
 mod launcher;
 mod mcp;
 mod memory;
+mod monitor_panel;
 #[cfg(windows)]
 mod os_drag;
 mod remote_edit_selftest;
@@ -45,6 +46,7 @@ mod shell_completion;
 mod shell_data;
 mod shell_filer;
 mod shell_git;
+mod shell_monitor;
 
 mod shell_keys;
 mod shell_launcher;

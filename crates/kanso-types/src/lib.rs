@@ -25,6 +25,7 @@ pub mod ids;
 pub mod input;
 pub mod mcp;
 pub mod message;
+pub mod monitor;
 pub mod profile;
 pub mod prompt;
 pub mod secret;
@@ -40,5 +41,6 @@ pub use input::{
     TimestampMode,
 };
 pub use message::Message;
+pub use monitor::{DiskUse, HostSample, NetCounter};
 pub use profile::Profile;
 pub use prompt::{PromptRequest, PromptResponse};

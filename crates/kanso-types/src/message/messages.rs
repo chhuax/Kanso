@@ -1535,4 +1535,36 @@ messages! {
     WinMcpAuditUnconfirmed = "win-mcp-audit-unconfirmed" {},
     /// 刷新已翻页的 MCP 审计记录。
     WinMcpAuditRefresh = "win-mcp-audit-refresh" {},
+    /// 服务器监控：本地会话不支持采样。
+    MonitorNoSsh = "monitor-no-ssh" {},
+    /// 服务器监控：会话尚未连接或已断开。
+    MonitorUnavailable = "monitor-unavailable" {},
+    /// 服务器监控：远端主机没有 /proc。
+    MonitorUnsupported = "monitor-unsupported" {},
+    /// 服务器监控：采样失败。
+    MonitorFailed = "monitor-failed" { detail: String },
+    /// 标题栏右侧按钮：监控。
+    UiRightMonitor = "ui-right-monitor" {},
+    /// 监控面板标题。
+    UiMonitorTitle = "ui-monitor-title" {},
+    /// 监控面板关闭按钮提示。
+    UiMonitorClose = "ui-monitor-close" {},
+    /// 监控面板空状态说明。
+    UiMonitorEmpty = "ui-monitor-empty" {},
+    /// 监控面板首次采样提示。
+    UiMonitorLoading = "ui-monitor-loading" {},
+    /// 监控面板：负载。
+    UiMonitorLoad = "ui-monitor-load" {},
+    /// 监控面板：CPU。
+    UiMonitorCpu = "ui-monitor-cpu" {},
+    /// 监控面板：内存。
+    UiMonitorMemory = "ui-monitor-memory" {},
+    /// 监控面板：交换区。
+    UiMonitorSwap = "ui-monitor-swap" {},
+    /// 监控面板：磁盘。
+    UiMonitorDisk = "ui-monitor-disk" {},
+    /// 监控面板：网络。
+    UiMonitorNet = "ui-monitor-net" {},
+    /// 视图菜单项：服务器监控。
+    UiMonitorMenu = "ui-monitor-menu" {},
 }

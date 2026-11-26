@@ -512,6 +512,11 @@ RustBuffer uniffi_kanso_ffi_fn_method_kansocore_groups(uint64_t ptr, RustCallSta
 int8_t uniffi_kanso_ffi_fn_method_kansocore_has_selection(uint64_t ptr, uint64_t session_id, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_HOST_SAMPLE
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_HOST_SAMPLE
+uint64_t uniffi_kanso_ffi_fn_method_kansocore_host_sample(uint64_t ptr, uint64_t session_id
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_HYPERLINK_URL
 #define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_HYPERLINK_URL
 RustBuffer uniffi_kanso_ffi_fn_method_kansocore_hyperlink_url(uint64_t ptr, uint64_t session_id, uint32_t id, RustCallStatus *_Nonnull out_status
@@ -1494,6 +1499,12 @@ uint16_t uniffi_kanso_ffi_checksum_method_kansocore_groups(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_HAS_SELECTION
 #define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_HAS_SELECTION
 uint16_t uniffi_kanso_ffi_checksum_method_kansocore_has_selection(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_HOST_SAMPLE
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_HOST_SAMPLE
+uint16_t uniffi_kanso_ffi_checksum_method_kansocore_host_sample(void
     
 );
 #endif

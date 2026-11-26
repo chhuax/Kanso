@@ -367,6 +367,7 @@ const KNOWN: &[(&str, AppCommand, Group)] = &[
     ("toggleFiler", AppCommand::ToggleFiler, Group::View),
     ("toggleSender", AppCommand::ToggleSender, Group::View),
     ("toggleGit", AppCommand::ToggleGit, Group::View),
+    ("toggleMonitor", AppCommand::ToggleMonitor, Group::View),
     ("commandPalette", AppCommand::OpenPalette, Group::View),
     (
         "locateWorkingDirectory",
@@ -619,6 +620,7 @@ pub fn command_label(entry: &Entry) -> String {
         C::ToggleFiler => Message::UiKeysCmdToggleFiler {},
         C::ToggleSender => Message::UiKeysCmdToggleSender {},
         C::ToggleGit => Message::UiGitMenuView {},
+        C::ToggleMonitor => Message::UiMonitorMenu {},
         C::OpenPalette => Message::UiKeysCmdOpenPalette {},
         C::LocateFiler => Message::UiFilerMenuLocate {},
         C::SplitRight => Message::UiSplitRight {},

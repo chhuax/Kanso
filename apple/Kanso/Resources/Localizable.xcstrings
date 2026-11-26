@@ -3477,6 +3477,72 @@
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Tabs" } },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "标签" } }
       }
+    },
+    "Monitor" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Monitor" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "监控" } }
+      }
+    },
+    "Server Monitor" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Server Monitor" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "服务器监控" } }
+      }
+    },
+    "Close Monitor" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Close Monitor" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "关闭监控" } }
+      }
+    },
+    "Connect an SSH session to see CPU, memory, disks, and network." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connect an SSH session to see CPU, memory, disks, and network." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "连上 SSH 会话后，这里显示 CPU、内存、磁盘和网络。" } }
+      }
+    },
+    "Sampling…" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sampling…" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "正在采样…" } }
+      }
+    },
+    "Load" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Load" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "负载" } }
+      }
+    },
+    "CPU" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "CPU" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "CPU" } }
+      }
+    },
+    "Memory" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Memory" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "内存" } }
+      }
+    },
+    "Swap" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Swap" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "交换区" } }
+      }
+    },
+    "Disks" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Disks" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "磁盘" } }
+      }
+    },
+    "Network" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Network" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "网络" } }
+      }
     }
   },
   "version" : "1.0"

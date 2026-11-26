@@ -71,6 +71,7 @@ pub fn encode(command: AppCommand) -> String {
         AppCommand::ClearCommandHistory => "clear-command-history".into(),
         AppCommand::ToggleFiler => "toggle-filer".into(),
         AppCommand::ToggleGit => "toggle-git".into(),
+        AppCommand::ToggleMonitor => "toggle-monitor".into(),
         AppCommand::LocateFiler => "locate-filer".into(),
         AppCommand::XmodemSend => "xmodem-send".into(),
         AppCommand::XmodemSend1K => "xmodem-send-1k".into(),
@@ -174,6 +175,7 @@ pub fn decode(id: &str) -> Option<AppCommand> {
         "clear-command-history" => AppCommand::ClearCommandHistory,
         "toggle-filer" => AppCommand::ToggleFiler,
         "toggle-git" => AppCommand::ToggleGit,
+        "toggle-monitor" => AppCommand::ToggleMonitor,
         "locate-filer" => AppCommand::LocateFiler,
         "xmodem-send" => AppCommand::XmodemSend,
         "xmodem-send-1k" => AppCommand::XmodemSend1K,
@@ -322,6 +324,8 @@ pub struct AppMenuState {
     pub filer_visible: bool,
     /// Git 改动面板是否显示。
     pub git_visible: bool,
+    /// 服务器监控面板是否显示。
+    pub monitor_visible: bool,
     /// 全局时间栏设置。
     pub gutter_mode: super::settings::GutterMode,
     /// 外观的设置值（包括跟随系统）。
@@ -453,6 +457,8 @@ pub fn app_menu(state: AppMenuState) -> Vec<MenuItem> {
                     .checked(state.filer_visible),
                 item(&msg(Message::UiGitMenuView {}), AppCommand::ToggleGit)
                     .checked(state.git_visible),
+                item(&msg(Message::UiMonitorMenu {}), AppCommand::ToggleMonitor)
+                    .checked(state.monitor_visible),
                 MenuItem::separator(),
                 item(
                     label(Message::UiFilerMenuLocate {}),
@@ -576,6 +582,7 @@ mod tests {
             AppCommand::ZoomOut,
             AppCommand::ToggleFiler,
             AppCommand::ToggleGit,
+            AppCommand::ToggleMonitor,
             AppCommand::LocateFiler,
             AppCommand::XmodemSend,
             AppCommand::XmodemSend1K,
@@ -622,6 +629,7 @@ mod tests {
             command_suggestions: true,
             filer_visible: false,
             git_visible: false,
+            monitor_visible: false,
             gutter_mode: super::super::settings::GutterMode::Off,
             theme_mode: super::super::settings::ThemeMode::System,
             tab_count: 2,
@@ -735,6 +743,7 @@ mod tests {
             command_suggestions: true,
             filer_visible: true,
             git_visible: false,
+            monitor_visible: false,
             gutter_mode: super::super::settings::GutterMode::Off,
             theme_mode: super::super::settings::ThemeMode::System,
             tab_count: 2,
