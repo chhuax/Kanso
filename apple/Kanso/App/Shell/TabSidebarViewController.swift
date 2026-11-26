@@ -92,10 +92,6 @@ final class TabSidebarViewController: NSViewController, NSTextFieldDelegate {
             guard let self else { return }
             controller.perform { try controller.duplicateActiveTab() }
         }
-        // 空白处右键直接切到「会话」页并聚焦搜索框。
-        list.onBlankRightClick = { [weak self] _ in
-            self?.showSessionsPage(focusSearch: true)
-        }
         list.rowMenuProvider = { [weak self] id in self?.makeRowMenu(for: id) }
         list.onDragFinished = { [weak self] in
             guard let self, needsRebuild else { return }
