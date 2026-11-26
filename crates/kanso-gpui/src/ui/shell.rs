@@ -36,6 +36,7 @@ use kanso_gpui::app::blocks::BlockPart;
 use kanso_gpui::app::confirm::{CloseRequest, close_dialog_spec, is_confirmed};
 use kanso_gpui::app::controller::{AppController, Effects, FALLBACK_GRID};
 use kanso_gpui::app::gutter::{GutterPolicy, ToggleOutcome, core_mode};
+use kanso_gpui::app::launcher::core_error_text;
 use kanso_gpui::app::layout::{LayoutDivider, PaneId, Rect, SplitAxis};
 use kanso_gpui::app::menus::{
     AppMenuState, TabMenuContext, app_menu, decode, tab_menu, terminal_menu,
@@ -691,6 +692,15 @@ impl ShellView {
                     self.open_editor(Some(p), window, cx);
                 }
             }
+            AppCommand::ReconnectTab(id) => match self.ctl.reconnect_session(id, FALLBACK_GRID) {
+                Ok(Some(new)) => {
+                    self.attach_session(new, window, cx);
+                    // 旧标签走完整关闭流程：清终端/文件面板/MCP 引用后再移除标签。
+                    self.close_now(&[id], window, cx);
+                }
+                Ok(None) => {}
+                Err(e) => self.show_notice_str(&core_error_text(&e), cx),
+            },
             AppCommand::CopyMcpTab(id) => {
                 let reference = format!("tab={}", id.raw());
                 cx.write_to_clipboard(ClipboardItem::new_string(reference));
@@ -1004,9 +1014,13 @@ impl ShellView {
         let ws = self.ctl.workspace();
         let has = |scope| !ws.close_targets(scope, session).is_empty();
         let profile = ws.item(session).and_then(|item| item.profile);
+        let disconnected = ws
+            .item(session)
+            .is_some_and(|item| matches!(item.connection, TabConnection::Closed(_)));
         let ctx = TabMenuContext {
             session,
             from_profile: profile.is_some(),
+            disconnected,
             mcp_addressable: profile
                 .is_some_and(|profile| self.mcp.read(cx).can_address_tab(profile)),
             has_others: has(CloseScope::Others),

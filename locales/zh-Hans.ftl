@@ -518,6 +518,8 @@ ui-quit = 退出
 
 ui-edit-session-2 = 编辑会话…
 
+ui-reconnect = 重新连接
+
 ui-close = 关闭
 
 ui-close-others = 关闭其他

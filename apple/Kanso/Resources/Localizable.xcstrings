@@ -1531,6 +1531,12 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "重命名…" } }
       }
     },
+    "Reconnect" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Reconnect" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "重新连接" } }
+      }
+    },
     "New Group" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "New Group" } },

@@ -39,6 +39,7 @@ pub fn encode(command: AppCommand) -> String {
         }
         AppCommand::RenameTab(s) => format!("rename-tab:{}", s.raw()),
         AppCommand::EditSession(s) => format!("edit-session:{}", s.raw()),
+        AppCommand::ReconnectTab(s) => format!("reconnect-tab:{}", s.raw()),
         AppCommand::CopyMcpTab(s) => format!("copy-mcp-tab:{}", s.raw()),
         AppCommand::ToggleRightClickMenu => "toggle-right-click-menu".into(),
         AppCommand::ToggleCopyOnSelect => "toggle-copy-on-select".into(),
@@ -114,6 +115,9 @@ pub fn decode(id: &str) -> Option<AppCommand> {
     }
     if let Some(rest) = id.strip_prefix("edit-session:") {
         return session(rest).map(AppCommand::EditSession);
+    }
+    if let Some(rest) = id.strip_prefix("reconnect-tab:") {
+        return session(rest).map(AppCommand::ReconnectTab);
     }
     if let Some(rest) = id.strip_prefix("copy-mcp-tab:") {
         return session(rest).map(AppCommand::CopyMcpTab);
@@ -234,6 +238,8 @@ pub struct TabMenuContext {
     pub session: SessionId,
     /// 标签来自已保存的会话（才显示“编辑会话”）。
     pub from_profile: bool,
+    /// 标签已断开（才显示“重新连接”；且需要来自已保存会话）。
+    pub disconnected: bool,
     /// MCP 服务正在运行且标签所属会话已授权。
     pub mcp_addressable: bool,
     /// 同组里是否有可关闭的“其他”标签。
@@ -260,6 +266,12 @@ pub fn tab_menu(ctx: TabMenuContext) -> Vec<MenuItem> {
         items.push(MenuItem::action(
             encode(AppCommand::EditSession(s)),
             label(Message::UiEditSession2 {}),
+        ));
+    }
+    if ctx.disconnected && ctx.from_profile {
+        items.push(MenuItem::action(
+            encode(AppCommand::ReconnectTab(s)),
+            label(Message::UiReconnect {}),
         ));
     }
     if ctx.mcp_addressable {
@@ -596,6 +608,7 @@ mod tests {
         let ctx = TabMenuContext {
             session: sid(1),
             from_profile: true,
+            disconnected: true,
             mcp_addressable: true,
             has_others: true,
             has_above: true,
@@ -670,6 +683,7 @@ mod tests {
         let base = TabMenuContext {
             session: sid(5),
             from_profile: false,
+            disconnected: false,
             mcp_addressable: false,
             has_others: false,
             has_above: false,
@@ -697,6 +711,14 @@ mod tests {
         }));
         assert!(b.iter().any(|x| x.0 == "edit-session:5"));
         assert!(b.iter().any(|x| x.0 == "copy-mcp-tab:5"));
+        // “重新连接”只在已断开的已保存会话标签上出现。
+        assert!(!b.iter().any(|x| x.0 == "reconnect-tab:5"));
+        let c = all(&tab_menu(TabMenuContext {
+            from_profile: true,
+            disconnected: true,
+            ..base
+        }));
+        assert!(c.iter().any(|x| x.0 == "reconnect-tab:5"));
         let enabled = |id: &str| b.iter().find(|x| x.0 == id).map(|x| x.1);
         assert_eq!(enabled("close-group:others:5"), Some(true));
         assert_eq!(enabled("close-group:above:5"), Some(false));
