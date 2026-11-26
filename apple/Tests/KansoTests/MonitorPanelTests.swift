@@ -6,7 +6,7 @@ import XCTest
 
 @MainActor
 final class MonitorPanelTests: XCTestCase {
-    private func makeSample(rx: UInt64, tx: UInt64, cpu: UInt8? = 35) -> FfiHostSample {
+    private nonisolated static func makeSample(rx: UInt64, tx: UInt64, cpu: UInt8? = 35) -> FfiHostSample {
         FfiHostSample(
             load1: 0.25,
             load5: 0.50,
@@ -22,7 +22,7 @@ final class MonitorPanelTests: XCTestCase {
     }
 
     func testFollowFiltersLocalAndDisconnectedSessions() {
-        let model = MonitorPanelModel(fetcher: { _ in self.makeSample(rx: 0, tx: 0) })
+        let model = MonitorPanelModel(fetcher: { _ in Self.makeSample(rx: 0, tx: 0) })
         let local = TabItem(id: 1, kind: .local, name: "zsh", connection: .connected)
         model.follow(local)
         XCTAssertNil(model.targetSession)
@@ -46,8 +46,8 @@ final class MonitorPanelTests: XCTestCase {
     }
 
     func testNetRateCalculatedAcrossSamplesAndGuardsWraparound() {
-        let model = MonitorPanelModel(fetcher: { _ in self.makeSample(rx: 0, tx: 0) })
-        model.apply(makeSample(rx: 1000, tx: 500), at: 10.0)
+        let model = MonitorPanelModel(fetcher: { _ in Self.makeSample(rx: 0, tx: 0) })
+        model.apply(Self.makeSample(rx: 1000, tx: 500), at: 10.0)
         // 第一拍没有速率，只有累计值。
         XCTAssertNil(model.snapshot?.nets.first?.rxPerSec)
         XCTAssertNil(model.snapshot?.nets.first?.txPerSec)
@@ -55,20 +55,20 @@ final class MonitorPanelTests: XCTestCase {
         XCTAssertEqual(model.snapshot?.swapUsed, 1 * 1024 * 1024 * 1024)
 
         // 2 秒后增加 4096 / 2048 字节 -> 2048 B/s、1024 B/s。
-        model.apply(makeSample(rx: 5096, tx: 2548), at: 12.0)
+        model.apply(Self.makeSample(rx: 5096, tx: 2548), at: 12.0)
         XCTAssertEqual(model.snapshot?.nets.first?.rxPerSec, 2048)
         XCTAssertEqual(model.snapshot?.nets.first?.txPerSec, 1024)
 
         // 计数器回绕 / 重置时保护为 nil，不崩溃。
-        model.apply(makeSample(rx: 100, tx: 50), at: 14.0)
+        model.apply(Self.makeSample(rx: 100, tx: 50), at: 14.0)
         XCTAssertNil(model.snapshot?.nets.first?.rxPerSec)
         XCTAssertNil(model.snapshot?.nets.first?.txPerSec)
     }
 
     func testStaleSampleDiscardedAfterTabSwitch() async {
         let firstGate = AsyncGate()
-        let sample1 = makeSample(rx: 100, tx: 100, cpu: 11)
-        let sample2 = makeSample(rx: 200, tx: 200, cpu: 99)
+        let sample1 = Self.makeSample(rx: 100, tx: 100, cpu: 11)
+        let sample2 = Self.makeSample(rx: 200, tx: 200, cpu: 99)
         let model = MonitorPanelModel(fetcher: { session in
             if session == 1 {
                 await firstGate.wait()
@@ -78,7 +78,7 @@ final class MonitorPanelTests: XCTestCase {
         })
         model.follow(TabItem(id: 1, kind: .ssh, name: "a", connection: .connected))
         let slowTask = Task { @MainActor in await model.sampleOnce() }
-        await Task.yield()
+        await firstGate.waitUntilEntered()
         // 切到会话 2 后，会话 1 的迟到结果不能画回来。
         model.follow(TabItem(id: 2, kind: .ssh, name: "b", connection: .connected))
         await model.sampleOnce()
@@ -90,7 +90,7 @@ final class MonitorPanelTests: XCTestCase {
 
     func testSampleFailureReportsErrorInPlace() async {
         let model = MonitorPanelModel(fetcher: { _ in
-            throw FfiCoreError.User(message: .monitorUnsupported)
+            throw FfiCoreError.User(message: FfiMessage(key: "monitor-unsupported", args: []))
         })
         model.follow(TabItem(id: 1, kind: .ssh, name: "mac", connection: .connected))
         await model.sampleOnce()
@@ -106,17 +106,27 @@ final class MonitorPanelTests: XCTestCase {
 }
 
 private actor AsyncGate {
+    private var entered = false
+    private var enteredWaiters: [CheckedContinuation<Void, Never>] = []
     private var opened = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var openWaiters: [CheckedContinuation<Void, Never>] = []
 
     func wait() async {
+        entered = true
+        for waiter in enteredWaiters { waiter.resume() }
+        enteredWaiters.removeAll()
         if opened { return }
-        await withCheckedContinuation { waiters.append($0) }
+        await withCheckedContinuation { openWaiters.append($0) }
+    }
+
+    func waitUntilEntered() async {
+        if entered { return }
+        await withCheckedContinuation { enteredWaiters.append($0) }
     }
 
     func open() {
         opened = true
-        for waiter in waiters { waiter.resume() }
-        waiters.removeAll()
+        for waiter in openWaiters { waiter.resume() }
+        openWaiters.removeAll()
     }
 }
