@@ -520,6 +520,13 @@ impl KansoCore {
         Ok(self.inner.working_directory(session(session_id)).await?)
     }
 
+    // ---- 服务器监控 ----
+
+    /// 采一拍当前 SSH / SFTP 会话的主机资源概览（host-monitor.md）。
+    pub async fn host_sample(&self, session_id: u64) -> Result<FfiHostSample, FfiCoreError> {
+        Ok(self.inner.host_sample(session(session_id)).await?.into())
+    }
+
     // ---- SFTP ----
 
     /// 远端用户主目录。

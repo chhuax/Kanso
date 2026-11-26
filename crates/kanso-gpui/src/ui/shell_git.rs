@@ -225,12 +225,22 @@ impl ShellView {
 
     // ---- 显隐 ----
 
-    /// 视图菜单 / 状态栏按钮：显示或收起。没有专用默认快捷键。
+    /// 视图菜单 / 状态栏按钮：显示或收起。打开时互斥收起监控面板。
     pub(super) fn toggle_git(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.git.layout.visible = !self.git.layout.visible;
-        if !self.git.layout.visible {
+        if self.git.layout.visible {
+            if self.monitor.visible() {
+                self.set_monitor_visible(false, window, cx);
+            }
+        } else {
             self.sync_focus(window, cx);
         }
+        cx.notify();
+    }
+
+    /// 监控面板复用右侧栏的宽度拖动。
+    pub(super) fn start_right_drag(&mut self, x: f32, cx: &mut Context<Self>) {
+        self.git.drag = Some((x, self.git.layout.width));
         cx.notify();
     }
 

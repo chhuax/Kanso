@@ -115,6 +115,8 @@ pub enum AppCommand {
     ToggleFiler,
     /// 显示 / 隐藏 Git 改动面板（没有默认快捷键）。
     ToggleGit,
+    /// 显示 / 隐藏右侧服务器监控面板（没有默认快捷键）。
+    ToggleMonitor,
     /// 在 Filer 中显示活动 shell 的工作目录（Ctrl+Shift+J，filer.md §2）。
     LocateFiler,
     /// 用 XMODEM（128 字节块）发送文件。

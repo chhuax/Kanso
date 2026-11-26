@@ -11,6 +11,7 @@ pub mod api;
 pub mod git;
 pub mod mcp;
 mod mock;
+mod monitor;
 pub mod platform;
 mod real;
 pub mod sender;

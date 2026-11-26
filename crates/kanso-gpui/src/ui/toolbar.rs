@@ -547,7 +547,9 @@ impl ShellView {
                     .flex()
                     .flex_none()
                     .items_center()
-                    .child(self.git_status_item(th, cx)),
+                    .gap(px(4.))
+                    .child(self.git_status_item(th, cx))
+                    .child(self.monitor_status_item(th, cx)),
             )
     }
 

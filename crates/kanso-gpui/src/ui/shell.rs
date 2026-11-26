@@ -174,6 +174,8 @@ pub(crate) struct ShellView {
     pub(super) filer: super::shell_filer::FilerState,
     /// Git 改动面板（终端右侧），见 `shell_git.rs`。
     pub(super) git: super::shell_git::GitState,
+    /// 服务器监控面板（终端右侧，与 Git 互斥），见 `shell_monitor.rs`。
+    pub(super) monitor: super::shell_monitor::MonitorState,
 }
 
 impl ShellView {
@@ -222,6 +224,7 @@ impl ShellView {
         let filer = super::shell_filer::new_state(&core, window, cx);
         let panels = super::window_layout::PanelLayout::load(&core);
         let git = super::shell_git::new_state(panels.git_width, window, cx);
+        let monitor = super::shell_monitor::new_state(core.clone(), window, cx);
         let tab_bar_top = settings.read(cx).appearance().tab_bar_position == TabBarPosition::Top;
         let mut this = ShellView {
             ctl: AppController::new(core.clone(), home),
@@ -276,6 +279,7 @@ impl ShellView {
             pending_data: None,
             filer,
             git,
+            monitor,
         };
         {
             let timeline = *this.settings.read(cx).timeline();
@@ -569,6 +573,7 @@ impl ShellView {
             fx.merge(self.ctl.handle_event(ev));
         }
         self.git_after_events(&git_sessions, cx);
+        self.sync_monitor(cx);
         if fx.terminal {
             for id in self.ctl.take_dirty() {
                 if let Some(t) = self.terminals.get(&id) {
@@ -730,6 +735,7 @@ impl ShellView {
             AppCommand::ImportSshConfig => self.open_ssh_import(window, cx),
             AppCommand::ToggleFiler => self.toggle_filer(window, cx),
             AppCommand::ToggleGit => self.toggle_git(window, cx),
+            AppCommand::ToggleMonitor => self.toggle_monitor(window, cx),
             AppCommand::LocateFiler => self.locate_terminal_dir(true, window, cx),
             AppCommand::XmodemSend => self.run_xmodem(Some(kanso_core::XmodemBlock::Bytes128), cx),
             AppCommand::XmodemSend1K => self.run_xmodem(Some(kanso_core::XmodemBlock::Bytes1K), cx),
@@ -1044,6 +1050,7 @@ impl ShellView {
             command_suggestions: self.completion.enabled,
             filer_visible: self.filer.visible(),
             git_visible: self.git.visible(),
+            monitor_visible: self.monitor.visible(),
             gutter_mode: self.gutter_policy.global().mode,
             theme_mode: self.settings.read(cx).appearance().mode,
             tab_count: self.ctl.workspace().sidebar_order().len(),
@@ -1401,6 +1408,7 @@ impl ShellView {
     pub(super) fn sync_focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.sync_filer_session(window, cx);
         self.sync_git(cx);
+        self.sync_monitor(cx);
         // 纯 SFTP 标签：键盘焦点交给它的双栏面板。
         if let Some(panel) = self
             .ctl
@@ -1571,8 +1579,8 @@ impl ShellView {
     pub(super) fn split_area(&self, window: &Window) -> Rect {
         let size = window.viewport_size();
         let x = f64::from(self.sidebar_width(window) + self.filer_width(window));
-        // 右侧的 Git 面板也从分屏区里扣掉。
-        let w = f64::from(f32::from(size.width)) - f64::from(self.git_width(window));
+        // 右侧面板（Git / 监控）也从分屏区里扣掉。
+        let w = f64::from(f32::from(size.width)) - f64::from(self.right_panel_width(window));
         // 顶部留给标题栏，底部留给状态栏与发送区。
         let top = super::toolbar::HEIGHT;
         let h =
@@ -1920,6 +1928,7 @@ impl Render for ShellView {
         let completion_el = self.render_completion(area, th, cx);
         let filer_panels = self.render_filer(th, window, cx);
         let git_panels = self.render_git(th, window, cx);
+        let monitor_panels = self.render_monitor(th, window, cx);
         let notice = self
             .notice
             .as_ref()
@@ -1949,6 +1958,7 @@ impl Render for ShellView {
             .children(sidebar)
             .children(filer_panels)
             .children(git_panels)
+            .children(monitor_panels)
             .children(panes)
             .children(tab_strips)
             .child(status_bar)

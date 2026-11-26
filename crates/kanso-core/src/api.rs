@@ -45,8 +45,9 @@ use kanso_types::profile::{Group, LocalProfile, Profile, SessionKind, Snippet};
 use kanso_types::secret::SecretString;
 use kanso_types::transfer::ConflictPolicy;
 use kanso_types::{
-    DirEntry, GridSize, GroupId, KeyEvent, Message, Modifiers, MouseEvent, PasteContent, ProfileId,
-    PromptId, PromptResponse, SessionId, TerminalOptions, TimestampMode, TransferId, ViewportPoint,
+    DirEntry, GridSize, GroupId, HostSample, KeyEvent, Message, Modifiers, MouseEvent,
+    PasteContent, ProfileId, PromptId, PromptResponse, SessionId, TerminalOptions, TimestampMode,
+    TransferId, ViewportPoint,
 };
 
 use crate::mcp::{
@@ -1108,6 +1109,16 @@ impl Core {
     /// - 规格：ssh.md §10、local-shell.md §6。实现：I1（本地）、I2（SSH 的 OSC 7 部分）、T6b（远端 exec 查询）。
     pub async fn working_directory(&self, session: SessionId) -> Result<String> {
         dispatch_async!(self, working_directory(session))
+    }
+
+    // ---- 服务器监控（host-monitor.md）----
+
+    /// 采一拍当前 SSH / SFTP 连接的资源概览（负载、CPU、内存、磁盘、网络）。
+    ///
+    /// - 本地会话返回 `User(MonitorNoSsh)`；未连接或已断开返回 `User(MonitorUnavailable)`；
+    /// - 远端没有 `/proc` 返回 `User(MonitorUnsupported)`；输出超限、超时或解析失败返回 `User(MonitorFailed)`。
+    pub async fn host_sample(&self, session: SessionId) -> Result<HostSample> {
+        dispatch_async!(self, host_sample(session))
     }
 
     // ---- SFTP（会话为 SSH 或 SFTP 类型）----

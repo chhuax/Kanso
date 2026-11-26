@@ -1566,6 +1566,47 @@ impl RealCore {
         Err(CoreError::User(Message::CwdUnavailable {}))
     }
 
+    /// 采一拍服务器资源（host-monitor.md）。本地会话与未连接的会话不采样。
+    pub(crate) async fn host_sample(&self, session: SessionId) -> Result<kanso_types::HostSample> {
+        let ssh = match self.session(session)? {
+            Session::Ssh(ssh) => ssh,
+            Session::Local(_) => return Err(CoreError::User(Message::MonitorNoSsh {})),
+        };
+        if ssh.state() != kanso_types::event::SessionState::Connected {
+            return Err(CoreError::User(Message::MonitorUnavailable {}));
+        }
+        let joined = self
+            .handle
+            .spawn(async move {
+                ssh.capture_exec(
+                    crate::monitor::SAMPLE_COMMAND,
+                    crate::monitor::SAMPLE_TIMEOUT,
+                    crate::monitor::SAMPLE_MAX_BYTES,
+                )
+                .await
+            })
+            .await;
+        let bytes = match joined {
+            Ok(Ok(bytes)) => bytes,
+            Ok(Err(e)) => return Err(CoreError::User(e.to_message())),
+            Err(_) => {
+                return Err(CoreError::User(Message::MonitorFailed {
+                    detail: "interrupted".into(),
+                }));
+            }
+        };
+        let text = String::from_utf8_lossy(&bytes);
+        match crate::monitor::parse_sample(&text) {
+            Ok(sample) => Ok(sample),
+            Err(crate::monitor::SampleParse::Unsupported) => {
+                Err(CoreError::User(Message::MonitorUnsupported {}))
+            }
+            Err(crate::monitor::SampleParse::Bad(detail)) => {
+                Err(CoreError::User(Message::MonitorFailed { detail }))
+            }
+        }
+    }
+
     // ---- SFTP（T7b）----
     //
     // 每个 SSH / 纯 SFTP 会话一个 `SftpClient`（在会话里，首次使用时创建）。本组方法对本地会话返回

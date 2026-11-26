@@ -44,14 +44,27 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// 辅助 Filer（位于标签栏与分屏区之间，可收起；filer.md §1.1）。
     private let filerItem: NSSplitViewItem
     let filer: FilerCoordinator
+    enum RightPanel: Equatable {
+        case git
+        case monitor
+    }
+
     let gitModel = GitPanelModel()
+    let monitorModel: MonitorPanelModel
     private let gitItem: NSSplitViewItem
+    private(set) var activeRightPanel: RightPanel?
     private lazy var gitPanel: GitPanelView = {
         let panel = GitPanelView(model: gitModel, settings: controller.settings)
-        panel.onClose = { [weak self] in self?.setGitCollapsed(true) }
+        panel.onClose = { [weak self] in self?.setRightPanel(nil) }
+        return panel
+    }()
+    private lazy var monitorPanel: MonitorPanelView = {
+        let panel = MonitorPanelView(model: monitorModel)
+        panel.onClose = { [weak self] in self?.setRightPanel(nil) }
         return panel
     }()
     private let gitButton = GitTitlebarButton()
+    private let monitorButton = KButton(symbol: "waveform.path.ecg", style: .icon)
     private let sidebarButton = KButton(symbol: "sidebar.left", style: .icon)
     private let gitReadsEnabled: Bool
     static let gitDefaultWidth: CGFloat = 480
@@ -102,6 +115,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         let dispatcher = CoreEventDispatcher()
         let (core, dataDirectory) = try Self.makeCore(useMock: useMockCore, listener: dispatcher)
         PerformanceProbe.mark("core")
+        monitorModel = MonitorPanelModel(core: core)
         let bundleId = Bundle.main.bundleIdentifier ?? "com.chhuax.kanso"
         let mcp = McpCoordinator(
             core: core,
@@ -285,18 +299,29 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         self.sidebarAccessory = sidebarAccessory
         gitButton.onPress = { [weak self] in
             guard let self else { return }
-            self.setGitCollapsed(!self.gitItem.isCollapsed)
+            self.setRightPanel(self.activeRightPanel == .git ? nil : .git)
         }
-        // 右侧：分支图标 + 改动统计；附件宽度随统计文字变化。
+        monitorButton.toolTip = String(localized: "Monitor")
+        monitorButton.setAccessibilityLabel(String(localized: "Monitor"))
+        monitorButton.onPress = { [weak self] in
+            guard let self else { return }
+            self.setRightPanel(self.activeRightPanel == .monitor ? nil : .monitor)
+        }
+        // 右侧：改动按钮 + 监控按钮；附件宽度随改动统计文字变化（ui-shell.md §1）。
         let gitAccessory = NSTitlebarAccessoryViewController()
         gitAccessory.layoutAttribute = .right
-        let gitHost = NSView(frame: NSRect(x: 0, y: 0, width: gitButton.fittingWidth + 12, height: 28))
+        let monitorW: CGFloat = 28
+        let rightGap: CGFloat = 4
+        let gitHost = NSView(frame: NSRect(x: 0, y: 0, width: gitButton.fittingWidth + rightGap + monitorW + 12, height: 28))
         gitAccessory.view = gitHost
         gitButton.frame = NSRect(x: 4, y: 2, width: gitButton.fittingWidth, height: 24)
+        monitorButton.frame = NSRect(x: gitButton.frame.maxX + rightGap, y: 2, width: monitorW, height: 24)
         gitHost.addSubview(gitButton)
-        gitButton.onSizeChange = { [weak gitHost, weak gitButton] width in
-            gitHost?.setFrameSize(NSSize(width: width + 12, height: 28))
+        gitHost.addSubview(monitorButton)
+        gitButton.onSizeChange = { [weak gitHost, weak gitButton, weak monitorButton] width in
+            gitHost?.setFrameSize(NSSize(width: width + rightGap + monitorW + 12, height: 28))
             gitButton?.frame.size.width = width
+            monitorButton?.frame.origin.x = 4 + width + rightGap
         }
         window.addTitlebarAccessoryViewController(gitAccessory)
         let previousGitChange = gitModel.onChange
@@ -432,7 +457,21 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
         install(senderPanel, in: senderItem)
         install(filer.panel, in: filerItem)
-        install(gitPanel, in: gitItem)
+        if !gitItem.isCollapsed, let activeRightPanel {
+            let container = gitItem.viewController.view
+            let target: NSView = switch activeRightPanel {
+            case .git: gitPanel
+            case .monitor: monitorPanel
+            }
+            if target.superview !== container {
+                target.frame = container.bounds
+                target.autoresizingMask = [.width, .height]
+                container.addSubview(target)
+            }
+            for child in container.subviews {
+                child.isHidden = child !== target
+            }
+        }
     }
 
     var isFilerCollapsed: Bool { filerItem.isCollapsed }
@@ -453,18 +492,31 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         fitAuxiliaryPanels()
     }
 
-    var isGitCollapsed: Bool { gitItem.isCollapsed }
+    var isGitCollapsed: Bool { gitItem.isCollapsed || activeRightPanel != .git }
 
-    /// 展开时每次都显式恢复宽度：Git 面板的 holdingPriority 最低，交给分栏自己分配时
-    /// 它总是先被压缩，常常只剩最小宽度（2026-11-16 用户反馈"每次打开都太窄"）。
     func setGitCollapsed(_ collapsed: Bool) {
+        setRightPanel(collapsed ? nil : .git)
+    }
+
+    func toggleMonitor() {
+        setRightPanel(activeRightPanel == .monitor ? nil : .monitor)
+    }
+
+    /// 切换右侧栏内容（ui-shell.md §1：改动 / 监控互斥，nil 收起整栏，共用宽度记忆）。
+    /// 展开时每次都显式恢复宽度：右侧面板的 holdingPriority 最低，交给分栏自己分配时
+    /// 它总是先被压缩，常常只剩最小宽度（2026-11-16 用户反馈"每次打开都太窄"）。
+    func setRightPanel(_ panel: RightPanel?) {
         let split = splitController.splitView
-        if collapsed, !gitItem.isCollapsed, gitItem.viewController.view.frame.width >= Self.gitMinWidth {
+        let wasCollapsed = gitItem.isCollapsed
+        let collapsed = panel == nil
+        if collapsed, !wasCollapsed, gitItem.viewController.view.frame.width >= Self.gitMinWidth {
             defaults.set(Double(gitItem.viewController.view.frame.width), forKey: Self.gitWidthKey)
         }
+        activeRightPanel = panel
         gitItem.isCollapsed = collapsed
         loadVisiblePanels()
-        if !collapsed {
+        monitorModel.isVisible = panel == .monitor
+        if !collapsed, wasCollapsed {
             split.layoutSubtreeIfNeeded()
             let stored = defaults.double(forKey: Self.gitWidthKey)
             // 给分屏区留出最小宽度，侧栏与 Filer 按当前实际宽度计算。
@@ -486,7 +538,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
         if required() > width, !filerItem.isCollapsed { filerItem.isCollapsed = true }
         if required() > width, !sidebarItem.isCollapsed { sidebarItem.isCollapsed = true }
-        if required() > width, !gitItem.isCollapsed { gitItem.isCollapsed = true }
+        if required() > width, !gitItem.isCollapsed {
+            gitItem.isCollapsed = true
+            activeRightPanel = nil
+            monitorModel.isVisible = false
+        }
     }
 
     func windowDidResize(_ notification: Notification) { fitAuxiliaryPanels() }
@@ -538,6 +594,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         let workspace = controller.workspace
         let active = workspace.activeSession.flatMap { workspace.item($0) }
         gitModel.follow(gitReadsEnabled ? active : nil)
+        monitorModel.follow(active)
         if let active {
             window?.title = TabPresentation.primaryTitle(active, homeDirectory: NSHomeDirectory())
         } else {

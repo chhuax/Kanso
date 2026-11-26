@@ -5,7 +5,9 @@ use kanso_core::{
     PurchaseOutcome, SearchQuery, SearchStatus, SecretKind, SessionInfo, SshConfigCandidate,
     SshConfigImportReport, SshConfigScan, XmodemBlock,
 };
-use kanso_types::{CursorShape, DirEntry, SessionId, TerminalOptions};
+use kanso_types::{
+    CursorShape, DirEntry, DiskUse, HostSample, NetCounter, SessionId, TerminalOptions,
+};
 
 use super::event::FfiSessionState;
 use super::message::FfiMessage;
@@ -142,6 +144,93 @@ impl From<kanso_core::CompletionSuggestions> for FfiCompletionSuggestions {
             needs_kube_names: suggestions.needs_kube_names,
             needs_cwd: suggestions.needs_cwd,
             needs_home: suggestions.needs_home,
+        }
+    }
+}
+
+/// 单个挂载点的空间使用量（字节）。
+#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
+pub struct FfiDiskUse {
+    /// 挂载点路径。
+    pub mount: String,
+    /// 总容量（字节）。
+    pub size: u64,
+    /// 已用空间（字节）。
+    pub used: u64,
+    /// 使用百分比（0–100）。
+    pub percent: u8,
+}
+
+impl From<DiskUse> for FfiDiskUse {
+    fn from(d: DiskUse) -> Self {
+        Self {
+            mount: d.mount,
+            size: d.size,
+            used: d.used,
+            percent: d.percent,
+        }
+    }
+}
+
+/// 网卡自开机以来的累计收发字节。
+#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
+pub struct FfiNetCounter {
+    /// 接口名称。
+    pub iface: String,
+    /// 接收字节。
+    pub rx: u64,
+    /// 发送字节。
+    pub tx: u64,
+}
+
+impl From<NetCounter> for FfiNetCounter {
+    fn from(n: NetCounter) -> Self {
+        Self {
+            iface: n.iface,
+            rx: n.rx,
+            tx: n.tx,
+        }
+    }
+}
+
+/// 服务器监控单次采样结果（host-monitor.md）。
+#[derive(Clone, Debug, PartialEq, uniffi::Record)]
+pub struct FfiHostSample {
+    /// 1 分钟负载。
+    pub load1: f32,
+    /// 5 分钟负载。
+    pub load5: f32,
+    /// 15 分钟负载。
+    pub load15: f32,
+    /// CPU 占用百分比（0–100），无法计算时为 None。
+    pub cpu_percent: Option<u8>,
+    /// 内存总量（字节）。
+    pub mem_total: u64,
+    /// 可用内存（字节）。
+    pub mem_available: u64,
+    /// 交换区总量（字节）。
+    pub swap_total: u64,
+    /// 空闲交换区（字节）。
+    pub swap_free: u64,
+    /// 各挂载点用量。
+    pub disks: Vec<FfiDiskUse>,
+    /// 各网卡累计收发计数。
+    pub nets: Vec<FfiNetCounter>,
+}
+
+impl From<HostSample> for FfiHostSample {
+    fn from(s: HostSample) -> Self {
+        Self {
+            load1: s.load[0],
+            load5: s.load[1],
+            load15: s.load[2],
+            cpu_percent: s.cpu_percent,
+            mem_total: s.mem_total,
+            mem_available: s.mem_available,
+            swap_total: s.swap_total,
+            swap_free: s.swap_free,
+            disks: s.disks.into_iter().map(FfiDiskUse::from).collect(),
+            nets: s.nets.into_iter().map(FfiNetCounter::from).collect(),
         }
     }
 }

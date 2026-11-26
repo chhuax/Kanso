@@ -2100,6 +2100,11 @@ public protocol KansoCoreProtocol: AnyObject, Sendable {
     func hasSelection(sessionId: UInt64)  -> Bool
     
     /**
+     * 采一拍当前 SSH / SFTP 会话的主机资源概览（host-monitor.md）。
+     */
+    func hostSample(sessionId: UInt64) async throws  -> FfiHostSample
+    
+    /**
      * 由帧里的超链接 id（OSC 8）取 URL；id 无效或会话不存在为 `None`。
      */
     func hyperlinkUrl(sessionId: UInt64, id: UInt32)  -> String?
@@ -2816,6 +2821,25 @@ open func hasSelection(sessionId: UInt64) -> Bool  {
         FfiConverterUInt64.lower(sessionId),uniffiCallStatus
     )
 })
+}
+    
+    /**
+     * 采一拍当前 SSH / SFTP 会话的主机资源概览（host-monitor.md）。
+     */
+open func hostSample(sessionId: UInt64)async throws  -> FfiHostSample  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_kanso_ffi_fn_method_kansocore_host_sample(
+                        self.uniffiCloneHandle(),FfiConverterUInt64.lower(sessionId)
+                )
+            },
+            pollFunc: ffi_kanso_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_kanso_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_kanso_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeFfiHostSample_lift,
+            errorHandler: FfiConverterTypeFfiCoreError_lift
+        )
 }
     
     /**
@@ -5210,6 +5234,95 @@ public func FfiConverterTypeFfiDirEntry_lower(_ value: FfiDirEntry) -> RustBuffe
 
 
 /**
+ * 单个挂载点的空间使用量（字节）。
+ */
+public struct FfiDiskUse: Equatable, Hashable {
+    /**
+     * 挂载点路径。
+     */
+    public var mount: String
+    /**
+     * 总容量（字节）。
+     */
+    public var size: UInt64
+    /**
+     * 已用空间（字节）。
+     */
+    public var used: UInt64
+    /**
+     * 使用百分比（0–100）。
+     */
+    public var percent: UInt8
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * 挂载点路径。
+         */mount: String, 
+        /**
+         * 总容量（字节）。
+         */size: UInt64, 
+        /**
+         * 已用空间（字节）。
+         */used: UInt64, 
+        /**
+         * 使用百分比（0–100）。
+         */percent: UInt8) {
+        self.mount = mount
+        self.size = size
+        self.used = used
+        self.percent = percent
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiDiskUse: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiDiskUse: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiDiskUse {
+        return
+            try FfiDiskUse(
+                mount: FfiConverterString.read(from: &buf), 
+                size: FfiConverterUInt64.read(from: &buf), 
+                used: FfiConverterUInt64.read(from: &buf), 
+                percent: FfiConverterUInt8.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiDiskUse, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.mount, into: &buf)
+        FfiConverterUInt64.write(value.size, into: &buf)
+        FfiConverterUInt64.write(value.used, into: &buf)
+        FfiConverterUInt8.write(value.percent, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiDiskUse_lift(_ buf: RustBuffer) throws -> FfiDiskUse {
+    return try FfiConverterTypeFfiDiskUse.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiDiskUse_lower(_ value: FfiDiskUse) -> RustBuffer {
+    return FfiConverterTypeFfiDiskUse.lower(value)
+}
+
+
+/**
  * 连接对象（经过跳板机时附带跳板链）。
  */
 public struct FfiEndpoint: Equatable, Hashable {
@@ -5907,6 +6020,155 @@ public func FfiConverterTypeFfiGroup_lift(_ buf: RustBuffer) throws -> FfiGroup 
 #endif
 public func FfiConverterTypeFfiGroup_lower(_ value: FfiGroup) -> RustBuffer {
     return FfiConverterTypeFfiGroup.lower(value)
+}
+
+
+/**
+ * 服务器监控单次采样结果（host-monitor.md）。
+ */
+public struct FfiHostSample: Equatable, Hashable {
+    /**
+     * 1 分钟负载。
+     */
+    public var load1: Float
+    /**
+     * 5 分钟负载。
+     */
+    public var load5: Float
+    /**
+     * 15 分钟负载。
+     */
+    public var load15: Float
+    /**
+     * CPU 占用百分比（0–100），无法计算时为 None。
+     */
+    public var cpuPercent: UInt8?
+    /**
+     * 内存总量（字节）。
+     */
+    public var memTotal: UInt64
+    /**
+     * 可用内存（字节）。
+     */
+    public var memAvailable: UInt64
+    /**
+     * 交换区总量（字节）。
+     */
+    public var swapTotal: UInt64
+    /**
+     * 空闲交换区（字节）。
+     */
+    public var swapFree: UInt64
+    /**
+     * 各挂载点用量。
+     */
+    public var disks: [FfiDiskUse]
+    /**
+     * 各网卡累计收发计数。
+     */
+    public var nets: [FfiNetCounter]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * 1 分钟负载。
+         */load1: Float, 
+        /**
+         * 5 分钟负载。
+         */load5: Float, 
+        /**
+         * 15 分钟负载。
+         */load15: Float, 
+        /**
+         * CPU 占用百分比（0–100），无法计算时为 None。
+         */cpuPercent: UInt8?, 
+        /**
+         * 内存总量（字节）。
+         */memTotal: UInt64, 
+        /**
+         * 可用内存（字节）。
+         */memAvailable: UInt64, 
+        /**
+         * 交换区总量（字节）。
+         */swapTotal: UInt64, 
+        /**
+         * 空闲交换区（字节）。
+         */swapFree: UInt64, 
+        /**
+         * 各挂载点用量。
+         */disks: [FfiDiskUse], 
+        /**
+         * 各网卡累计收发计数。
+         */nets: [FfiNetCounter]) {
+        self.load1 = load1
+        self.load5 = load5
+        self.load15 = load15
+        self.cpuPercent = cpuPercent
+        self.memTotal = memTotal
+        self.memAvailable = memAvailable
+        self.swapTotal = swapTotal
+        self.swapFree = swapFree
+        self.disks = disks
+        self.nets = nets
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiHostSample: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiHostSample: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiHostSample {
+        return
+            try FfiHostSample(
+                load1: FfiConverterFloat.read(from: &buf), 
+                load5: FfiConverterFloat.read(from: &buf), 
+                load15: FfiConverterFloat.read(from: &buf), 
+                cpuPercent: FfiConverterOptionUInt8.read(from: &buf), 
+                memTotal: FfiConverterUInt64.read(from: &buf), 
+                memAvailable: FfiConverterUInt64.read(from: &buf), 
+                swapTotal: FfiConverterUInt64.read(from: &buf), 
+                swapFree: FfiConverterUInt64.read(from: &buf), 
+                disks: FfiConverterSequenceTypeFfiDiskUse.read(from: &buf), 
+                nets: FfiConverterSequenceTypeFfiNetCounter.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiHostSample, into buf: inout [UInt8]) {
+        FfiConverterFloat.write(value.load1, into: &buf)
+        FfiConverterFloat.write(value.load5, into: &buf)
+        FfiConverterFloat.write(value.load15, into: &buf)
+        FfiConverterOptionUInt8.write(value.cpuPercent, into: &buf)
+        FfiConverterUInt64.write(value.memTotal, into: &buf)
+        FfiConverterUInt64.write(value.memAvailable, into: &buf)
+        FfiConverterUInt64.write(value.swapTotal, into: &buf)
+        FfiConverterUInt64.write(value.swapFree, into: &buf)
+        FfiConverterSequenceTypeFfiDiskUse.write(value.disks, into: &buf)
+        FfiConverterSequenceTypeFfiNetCounter.write(value.nets, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiHostSample_lift(_ buf: RustBuffer) throws -> FfiHostSample {
+    return try FfiConverterTypeFfiHostSample.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiHostSample_lower(_ value: FfiHostSample) -> RustBuffer {
+    return FfiConverterTypeFfiHostSample.lower(value)
 }
 
 
@@ -7282,6 +7544,85 @@ public func FfiConverterTypeFfiMouseEvent_lift(_ buf: RustBuffer) throws -> FfiM
 #endif
 public func FfiConverterTypeFfiMouseEvent_lower(_ value: FfiMouseEvent) -> RustBuffer {
     return FfiConverterTypeFfiMouseEvent.lower(value)
+}
+
+
+/**
+ * 网卡自开机以来的累计收发字节。
+ */
+public struct FfiNetCounter: Equatable, Hashable {
+    /**
+     * 接口名称。
+     */
+    public var iface: String
+    /**
+     * 接收字节。
+     */
+    public var rx: UInt64
+    /**
+     * 发送字节。
+     */
+    public var tx: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * 接口名称。
+         */iface: String, 
+        /**
+         * 接收字节。
+         */rx: UInt64, 
+        /**
+         * 发送字节。
+         */tx: UInt64) {
+        self.iface = iface
+        self.rx = rx
+        self.tx = tx
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiNetCounter: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiNetCounter: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiNetCounter {
+        return
+            try FfiNetCounter(
+                iface: FfiConverterString.read(from: &buf), 
+                rx: FfiConverterUInt64.read(from: &buf), 
+                tx: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiNetCounter, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.iface, into: &buf)
+        FfiConverterUInt64.write(value.rx, into: &buf)
+        FfiConverterUInt64.write(value.tx, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiNetCounter_lift(_ buf: RustBuffer) throws -> FfiNetCounter {
+    return try FfiConverterTypeFfiNetCounter.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiNetCounter_lower(_ value: FfiNetCounter) -> RustBuffer {
+    return FfiConverterTypeFfiNetCounter.lower(value)
 }
 
 
@@ -13560,6 +13901,30 @@ public func FfiConverterTypeFfiXmodemBlock_lower(_ value: FfiXmodemBlock) -> Rus
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionUInt8: FfiConverterRustBuffer {
+    typealias SwiftType = UInt8?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterUInt8.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterUInt8.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionUInt32: FfiConverterRustBuffer {
     typealias SwiftType = UInt32?
 
@@ -14143,6 +14508,31 @@ fileprivate struct FfiConverterSequenceTypeFfiDirEntry: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeFfiDiskUse: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiDiskUse]
+
+    public static func write(_ value: [FfiDiskUse], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiDiskUse.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiDiskUse] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiDiskUse]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiDiskUse.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeFfiGitFile: FfiConverterRustBuffer {
     typealias SwiftType = [FfiGitFile]
 
@@ -14385,6 +14775,31 @@ fileprivate struct FfiConverterSequenceTypeFfiMessageArg: FfiConverterRustBuffer
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeFfiMessageArg.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiNetCounter: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiNetCounter]
+
+    public static func write(_ value: [FfiNetCounter], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiNetCounter.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiNetCounter] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiNetCounter]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiNetCounter.read(from: &buf))
         }
         return seq
     }
@@ -14715,6 +15130,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_kanso_ffi_checksum_method_kansocore_has_selection() != 62335) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_kanso_ffi_checksum_method_kansocore_host_sample() != 41593) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_kanso_ffi_checksum_method_kansocore_hyperlink_url() != 27882) {

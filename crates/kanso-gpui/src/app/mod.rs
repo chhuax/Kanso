@@ -54,6 +54,7 @@ pub mod layout;
 pub mod links;
 pub mod local_fs;
 pub mod menus;
+pub mod monitor_panel;
 pub mod os_drag;
 pub mod prompt_dialogs;
 pub mod prompts;

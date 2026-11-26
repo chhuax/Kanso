@@ -603,6 +603,58 @@ impl SshSession {
         lock(&self.shared.connection).clone()
     }
 
+    /// 在已有连接上执行一条只读命令并收集 stdout（host-monitor.md §2）。
+    ///
+    /// 连接只在这次调用里克隆，返回前随通道一起放下，不另存一份（见模块文档）。
+    /// 不请求 PTY；整次调用共用同一截止时间，超时或输出超出 `max_bytes` 时关闭通道并报错。
+    pub async fn capture_exec(
+        &self,
+        command: &str,
+        timeout: Duration,
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, SshError> {
+        let Some(conn) = self.connection() else {
+            return Err(SshError::SharedConnectionClosed {
+                endpoint: self.launch.endpoint.clone(),
+            });
+        };
+        let endpoint = self.launch.endpoint.clone();
+        let deadline = tokio::time::Instant::now() + timeout;
+        let mut channel = match tokio::time::timeout_at(deadline, conn.open_exec(command)).await {
+            Ok(Ok(channel)) => channel,
+            Ok(Err(e)) => return Err(e),
+            Err(_) => {
+                return Err(SshError::ChannelFailed {
+                    endpoint,
+                    detail: "timed out".into(),
+                });
+            }
+        };
+        let endpoint_for_read = endpoint.clone();
+        let read = async {
+            let mut out = Vec::new();
+            while let Some(chunk) = channel.read().await {
+                if out.len().saturating_add(chunk.len()) > max_bytes {
+                    let _ = channel.close().await;
+                    return Err(SshError::ChannelFailed {
+                        endpoint: endpoint_for_read,
+                        detail: "output exceeded limit".into(),
+                    });
+                }
+                out.extend_from_slice(&chunk);
+            }
+            let _ = channel.close().await;
+            Ok(out)
+        };
+        match tokio::time::timeout_at(deadline, read).await {
+            Ok(res) => res,
+            Err(_) => Err(SshError::ChannelFailed {
+                endpoint,
+                detail: "timed out".into(),
+            }),
+        }
+    }
+
     // ---- 输入（约定同本地会话：调用线程编码、丢进写通道、永不阻塞，会话结束后丢弃）----
 
     /// 一次按键。

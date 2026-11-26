@@ -1046,6 +1046,34 @@ impl MockCore {
         Ok(s.cwd.clone())
     }
 
+    // ---- 服务器监控 ----
+
+    pub(crate) async fn host_sample(&self, session: SessionId) -> Result<kanso_types::HostSample> {
+        let st = self.lock();
+        let info = st
+            .sessions
+            .iter()
+            .find(|s| s.info.id == session)
+            .map(|s| s.info.clone())
+            .ok_or(CoreError::NoSuchSession(session))?;
+        if info.kind == SessionKind::Local {
+            return Err(CoreError::User(Message::MonitorNoSsh {}));
+        }
+        if info.state != SessionState::Connected {
+            return Err(CoreError::User(Message::MonitorUnavailable {}));
+        }
+        Ok(kanso_types::HostSample {
+            load: [0.1, 0.2, 0.3],
+            cpu_percent: Some(12),
+            mem_total: 1024,
+            mem_available: 512,
+            swap_total: 0,
+            swap_free: 0,
+            disks: Vec::new(),
+            nets: Vec::new(),
+        })
+    }
+
     // ---- SFTP ----
 
     pub(crate) async fn sftp_home(&self, session: SessionId) -> Result<String> {
