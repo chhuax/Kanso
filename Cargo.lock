@@ -3727,7 +3727,7 @@ dependencies = [
 
 [[package]]
 name = "kanso-bench"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "alacritty_terminal",
  "criterion",
@@ -3740,7 +3740,7 @@ dependencies = [
 
 [[package]]
 name = "kanso-complete"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "kanso-types",
  "yaml-rust2",
@@ -3748,7 +3748,7 @@ dependencies = [
 
 [[package]]
 name = "kanso-core"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "kanso-complete",
  "kanso-encoding",
@@ -3770,7 +3770,7 @@ dependencies = [
 
 [[package]]
 name = "kanso-encoding"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "encoding_rs",
  "kanso-types",
@@ -3778,7 +3778,7 @@ dependencies = [
 
 [[package]]
 name = "kanso-ffi"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "kanso-core",
  "kanso-frame",
@@ -3793,7 +3793,7 @@ dependencies = [
 
 [[package]]
 name = "kanso-frame"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "bytemuck",
  "kanso-types",
@@ -3801,7 +3801,7 @@ dependencies = [
 
 [[package]]
 name = "kanso-gpui"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "futures",
  "getrandom 0.4.3",
@@ -3827,7 +3827,7 @@ dependencies = [
 
 [[package]]
 name = "kanso-l10n"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "fluent-bundle",
  "kanso-types",
@@ -3836,14 +3836,14 @@ dependencies = [
 
 [[package]]
 name = "kanso-license"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "kanso-types",
 ]
 
 [[package]]
 name = "kanso-mcp"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "kanso-core",
  "kanso-mcp-server",
@@ -3856,7 +3856,7 @@ dependencies = [
 
 [[package]]
 name = "kanso-mcp-server"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "base64",
  "kanso-core",
@@ -3876,7 +3876,7 @@ dependencies = [
 
 [[package]]
 name = "kanso-pty"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "kanso-types",
  "libc",
@@ -3887,7 +3887,7 @@ dependencies = [
 
 [[package]]
 name = "kanso-secret"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "kanso-types",
  "secret-service",
@@ -3897,7 +3897,7 @@ dependencies = [
 
 [[package]]
 name = "kanso-session"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "kanso-encoding",
  "kanso-frame",
@@ -3913,7 +3913,7 @@ dependencies = [
 
 [[package]]
 name = "kanso-ssh"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "base64",
  "bytes",
@@ -3929,7 +3929,7 @@ dependencies = [
 
 [[package]]
 name = "kanso-sshconfig"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "kanso-types",
  "tempfile",
@@ -3937,7 +3937,7 @@ dependencies = [
 
 [[package]]
 name = "kanso-store"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "kanso-sshconfig",
  "kanso-types",
@@ -3950,7 +3950,7 @@ dependencies = [
 
 [[package]]
 name = "kanso-term"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "alacritty_terminal",
  "kanso-frame",
@@ -3963,7 +3963,7 @@ dependencies = [
 
 [[package]]
 name = "kanso-types"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "serde",
  "serde_json",
@@ -3972,7 +3972,7 @@ dependencies = [
 
 [[package]]
 name = "kanso-xfer"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "kanso-types",
  "tempfile",
@@ -7757,7 +7757,7 @@ dependencies = [
 
 [[package]]
 name = "uniffi-bindgen"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "uniffi",
 ]
@@ -9037,7 +9037,7 @@ checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
 
 [[package]]
 name = "xtask"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "fluent-syntax",
  "kanso-types",
