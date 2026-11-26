@@ -39,7 +39,8 @@ final class CommandBlockTests: XCTestCase {
                 // 失败的可折叠块在 gutter 与正文之间绘制红色 [-]/树形引导线，不侵入 gutter 或正文。
                 XCTAssertGreaterThan(redCountInColumn(centerX), layout.metrics.cellHeight)
                 XCTAssertEqual(redCountInColumn(centerX - boxHalf), boxSize)
-                XCTAssertEqual(redCountInColumn(centerX + boxHalf), boxSize)
+                // 右框线与末行 └ 尾部在 centerX + boxHalf 列相接，共 boxSize + 1 像素。
+                XCTAssertEqual(redCountInColumn(centerX + boxHalf), boxSize + 1)
                 XCTAssertEqual(redCountInColumn(layout.gutterWidth + 1), 0)
                 XCTAssertEqual(redCountInColumn(layout.originX - 1), 0)
             }
