@@ -119,9 +119,8 @@ final class EditActionsTests: XCTestCase {
         XCTAssertEqual(copied, ["selected"])
         XCTAssertEqual(notices, 1)
 
-        // 单击无选区：即使选中了命令块也不触发"选中即复制"。
+        // 单击无选区：不触发"选中即复制"。
         actions.hasSelection = false
-        view.selectedCommandBlock = 42
         view.mouseDown(with: InputFixtures.mouse(.leftMouseDown, at: at(col: 1, row: 1)))
         view.mouseUp(with: InputFixtures.mouse(.leftMouseUp, at: at(col: 1, row: 1)))
         XCTAssertEqual(copied.count, 1)

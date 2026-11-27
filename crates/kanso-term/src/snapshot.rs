@@ -84,12 +84,42 @@ impl Core {
         self.links.begin_frame();
 
         let alt = self.alt;
+        let folded = self.has_folded();
+        let (viewport, offset, hist) = if folded {
+            self.viewport_map()
+        } else {
+            let g = self.term.grid();
+            (Vec::new(), g.display_offset(), g.history_size())
+        };
         let grid = self.term.grid();
-        let offset = grid.display_offset();
-        let hist = grid.history_size();
-        let first_abs_line = self.table.screen_top_abs() - offset as u64;
+        let screen_top = self.table.screen_top_abs();
+        let first_abs_line = if folded {
+            viewport
+                .iter()
+                .flatten()
+                .next()
+                .copied()
+                .unwrap_or(screen_top)
+        } else {
+            screen_top - offset as u64
+        };
+        let last_abs_line = if folded {
+            viewport
+                .iter()
+                .rev()
+                .flatten()
+                .next()
+                .copied()
+                .unwrap_or(first_abs_line)
+        } else {
+            first_abs_line + u64::from(rows).saturating_sub(1)
+        };
         let semantic = if self.semantic_enabled && !alt {
-            self.semantic.frame(grid, first_abs_line)
+            if folded {
+                self.semantic.frame_viewport(grid, screen_top, &viewport)
+            } else {
+                self.semantic.frame(grid, first_abs_line)
+            }
         } else {
             Vec::new()
         };
@@ -97,7 +127,15 @@ impl Core {
         let mode = *self.term.mode();
         let style = self.term.cursor_style();
         let cur = grid.cursor.point;
-        let cursor_row = cur.line.0 + offset as i32;
+        let cursor_row: i32 = if folded {
+            let cur_abs = (screen_top as i64 + i64::from(cur.line.0)) as u64;
+            viewport
+                .iter()
+                .position(|&v| v == Some(cur_abs))
+                .map_or(-1, |r| r as i32)
+        } else {
+            cur.line.0 + offset as i32
+        };
         let cursor_in_view = cursor_row >= 0 && (cursor_row as usize) < self.rows;
         let mut flags = 0;
         if alt {
@@ -144,8 +182,25 @@ impl Core {
         let sel_on = !overlays.selection.is_empty();
         let match_on = !overlays.matches.is_empty() || overlays.current_match.is_some();
         for r in 0..rows {
-            let abs = first_abs_line + u64::from(r);
-            let row = &grid[Line(i32::from(r) - offset as i32)];
+            let (abs, grid_line) = if folded {
+                match viewport[usize::from(r)] {
+                    Some(abs) => (abs, Line((abs as i64 - screen_top as i64) as i32)),
+                    None => {
+                        if let Some(m) = b.line_meta_mut(r) {
+                            m.abs_line = last_abs_line.saturating_add(1 + u64::from(r));
+                            m.timestamp_ms = 0;
+                            m.flags = LINE_DIRTY | LINE_BLANK;
+                        }
+                        continue;
+                    }
+                }
+            } else {
+                (
+                    first_abs_line + u64::from(r),
+                    Line(i32::from(r) - offset as i32),
+                )
+            };
+            let row = &grid[grid_line];
             let prompt = self.blocks.prompt_columns(AbsLine(abs), cols);
 
             // ---- 行元数据
@@ -306,7 +361,7 @@ impl Core {
             }
         }
         let mut frame = b.finish();
-        frame.command_blocks = self.visible_blocks(first_abs_line, rows);
+        frame.command_blocks = self.visible_blocks(first_abs_line, last_abs_line);
         frame
     }
 }

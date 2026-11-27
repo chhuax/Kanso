@@ -27,12 +27,15 @@ struct Block {
     exit_code: Option<i32>,
     has_command: bool,
     clipped: bool,
+    folded: bool,
 }
 
 #[derive(Default)]
 pub(crate) struct Blocks {
     entries: VecDeque<Block>,
     next_id: u64,
+    /// 有折叠块时使用的视口滚动偏移（单位：可见行，0 为贴底）。
+    pub(crate) fold_offset: usize,
 }
 
 #[derive(Default)]
@@ -83,6 +86,7 @@ impl Blocks {
 
     pub fn clear(&mut self) {
         self.entries.clear();
+        self.fold_offset = 0;
     }
 
     pub fn remap(
@@ -158,6 +162,7 @@ impl Blocks {
                 };
                 block.clipped = true;
                 block.input = None;
+                block.folded = false;
                 true
             } else {
                 false
@@ -267,6 +272,7 @@ impl Core {
                     exit_code: None,
                     has_command: false,
                     clipped: false,
+                    folded: false,
                 });
             }
             Osc133::InputStart => {
@@ -337,44 +343,194 @@ impl Core {
             };
             block.input = None;
             block.clipped = true;
+            block.folded = false;
         }
     }
 
-    pub(crate) fn visible_blocks(&self, first: u64, rows: u16) -> Vec<CommandBlock> {
-        if self.alt {
+    fn block_command_line(block: &Block) -> Option<u64> {
+        block
+            .execution
+            .filter(|_| block.has_command)
+            .map(|execution| {
+                execution.line.0.saturating_sub(u64::from(
+                    execution.col == 0 && execution.line > block.start.line,
+                ))
+            })
+    }
+
+    fn block_end_line(block: &Block, now: CellPoint) -> u64 {
+        let end = block.end.unwrap_or(now);
+        end.line
+            .0
+            .saturating_sub(u64::from(end.col == 0 && end.line > block.start.line))
+            .max(block.start.line.0)
+    }
+
+    /// 块可折叠时返回被隐藏的输出绝对行范围（含端点）：`(command_line + 1, end_line)`。
+    fn block_fold_range(block: &Block, now: CellPoint) -> Option<(u64, u64)> {
+        let running = block.has_command && block.finish.is_none() && block.end.is_none();
+        if running || !block.has_command || block.clipped {
+            return None;
+        }
+        let cmd = Self::block_command_line(block)?;
+        let end_line = Self::block_end_line(block, now);
+        (end_line > cmd).then_some((cmd + 1, end_line))
+    }
+
+    /// 当前是否存在任何已折叠的命令块（全屏期间视为无）。
+    pub(crate) fn has_folded(&self) -> bool {
+        !self.alt && self.blocks.entries.iter().any(|b| b.folded)
+    }
+
+    /// 返回按绝对行号升序排列、互不重叠的隐藏行区间（含端点），裁剪到当前缓冲范围内。
+    pub(crate) fn hidden_ranges(&self) -> Vec<(u64, u64)> {
+        if !self.has_folded() {
             return Vec::new();
         }
+        let first = self.table.first_abs();
+        let last = self.table.screen_top_abs() + self.rows as u64 - 1;
+        let now = self.block_point();
+        let mut ranges = Vec::new();
+        for block in &self.blocks.entries {
+            if !block.folded {
+                continue;
+            }
+            if let Some((s, e)) = Self::block_fold_range(block, now)
+                && s <= last
+                && e >= first
+            {
+                ranges.push((s.max(first), e.min(last)));
+            }
+        }
+        ranges
+    }
+
+    /// 计算当前视口每一行对应的绝对行号（折叠导致可见总行数少于视口时末尾补 `None`），
+    /// 同时返回 `(visual_offset, max_visual_offset)`。
+    pub(crate) fn viewport_map(&self) -> (Vec<Option<u64>>, usize, usize) {
+        let rows = self.rows;
+        let hist = self.term.grid().history_size();
+        let hidden = self.hidden_ranges();
+        if hidden.is_empty() {
+            let off = self.term.grid().display_offset();
+            let top = self.table.screen_top_abs() - off as u64;
+            let lines = (0..rows).map(|r| Some(top + r as u64)).collect();
+            return (lines, off, hist);
+        }
+        let first = self.table.first_abs();
+        let last = self.table.screen_top_abs() + rows as u64 - 1;
+        let total_logical = hist + rows;
+        let total_hidden: usize = hidden.iter().map(|&(s, e)| (e - s + 1) as usize).sum();
+        let total_visible = total_logical.saturating_sub(total_hidden);
+        let max_off = total_visible.saturating_sub(rows);
+        let off = self.blocks.fold_offset.min(max_off);
+        let mut skip = max_off - off;
+        let mut lines = Vec::with_capacity(rows);
+        let mut cur = first;
+        let mut hi = 0usize;
+        while cur <= last && lines.len() < rows {
+            if hi < hidden.len() && cur >= hidden[hi].0 {
+                cur = hidden[hi].1.saturating_add(1);
+                hi += 1;
+                continue;
+            }
+            let seg_end = if hi < hidden.len() {
+                hidden[hi].0.saturating_sub(1).min(last)
+            } else {
+                last
+            };
+            let seg_len = (seg_end - cur + 1) as usize;
+            if skip >= seg_len {
+                skip -= seg_len;
+                cur = seg_end.saturating_add(1);
+                continue;
+            }
+            cur += skip as u64;
+            skip = 0;
+            let take = ((seg_end - cur + 1) as usize).min(rows - lines.len());
+            for i in 0..take {
+                lines.push(Some(cur + i as u64));
+            }
+            cur += take as u64;
+        }
+        lines.resize(rows, None);
+        (lines, off, max_off)
+    }
+
+    /// 计算绝对行 `abs` 在可见行序列里的下标（隐藏行夹到它前面最近的可见行）。
+    pub(crate) fn visible_index_of(&self, abs: u64, hidden: &[(u64, u64)]) -> usize {
+        let first = self.table.first_abs();
+        if abs <= first {
+            return 0;
+        }
+        let mut hidden_before = 0u64;
+        for &(s, e) in hidden {
+            if s > abs {
+                break;
+            }
+            let hi = e.min(abs);
+            if hi >= s {
+                hidden_before += hi - s + 1;
+            }
+        }
+        (abs - first).saturating_sub(hidden_before) as usize
+    }
+
+    /// 若 `abs` 落在某个已折叠块的隐藏输出里，展开该块并返回 true。
+    pub(crate) fn unfold_line(&mut self, abs: u64) -> bool {
+        if !self.has_folded() {
+            return false;
+        }
+        let now = self.block_point();
+        let mut changed = false;
+        for block in &mut self.blocks.entries {
+            if block.folded
+                && let Some((s, e)) = Self::block_fold_range(block, now)
+                && (s..=e).contains(&abs)
+            {
+                block.folded = false;
+                changed = true;
+            }
+        }
+        if changed && !self.has_folded() {
+            let target = self.blocks.fold_offset.min(self.term.grid().history_size());
+            let cur = self.term.grid().display_offset();
+            if target != cur {
+                self.term
+                    .scroll_display(Scroll::Delta(target as i32 - cur as i32));
+                self.drain_events();
+            }
+        }
+        changed
+    }
+
+    pub(crate) fn visible_blocks(&self, first: u64, last: u64) -> Vec<CommandBlock> {
+        if self.alt || first > last {
+            return Vec::new();
+        }
+        let now = self.block_point();
         let entries = &self.blocks.entries;
         let index =
             entries.partition_point(|block| block.end.is_some_and(|end| end.line.0 <= first));
         entries
             .iter()
             .skip(index)
-            .take_while(|block| block.start.line.0 < first + u64::from(rows))
+            .take_while(|block| block.start.line.0 <= last)
             .filter_map(|block| {
-                let end = block.end.unwrap_or(self.block_point());
-                let end_line = end
-                    .line
-                    .0
-                    .saturating_sub(u64::from(end.col == 0 && end.line > block.start.line));
-                let command_line = block
-                    .execution
-                    .filter(|_| block.has_command)
-                    .map(|execution| {
-                        execution.line.0.saturating_sub(u64::from(
-                            execution.col == 0 && execution.line > block.start.line,
-                        ))
-                    });
-                if end_line.max(block.start.line.0) < first {
+                let end_line = Self::block_end_line(block, now);
+                let command_line = Self::block_command_line(block);
+                if end_line < first {
                     return None;
                 }
+                let running = block.has_command && block.finish.is_none() && block.end.is_none();
+                let foldable = Self::block_fold_range(block, now).is_some();
                 Some(CommandBlock {
                     id: block.id,
                     latest: block.id == self.blocks.next_id,
                     start_line: block.start.line.0,
-                    end_line: end_line.max(block.start.line.0),
+                    end_line,
                     command_line,
-                    running: block.has_command && block.finish.is_none() && block.end.is_none(),
+                    running,
                     exit_code: block.has_command.then_some(block.exit_code).flatten(),
                     duration: block
                         .has_command
@@ -382,6 +538,8 @@ impl Core {
                         .flatten(),
                     can_copy_command: block.has_command && !block.clipped && block.input.is_some(),
                     can_copy_output: block.has_command,
+                    foldable,
+                    folded: block.folded && foldable,
                 })
             })
             .collect()
@@ -460,12 +618,55 @@ impl Terminal {
         }
     }
 
+    /// 切换指定命令块的折叠状态；块不存在或没有可折叠输出时返回 false。
+    pub fn toggle_command_block_fold(&mut self, id: u64) -> bool {
+        if self.core.alt {
+            return false;
+        }
+        let was_folded = self.core.has_folded();
+        if !was_folded {
+            self.core.blocks.fold_offset = self.core.term.grid().display_offset();
+        }
+        let now = self.core.block_point();
+        let Some(block) = self
+            .core
+            .blocks
+            .entries
+            .iter_mut()
+            .find(|block| block.id == id)
+        else {
+            return false;
+        };
+        if Core::block_fold_range(block, now).is_none() {
+            return false;
+        }
+        block.folded = !block.folded;
+        let (_, off, _) = self.core.viewport_map();
+        self.core.blocks.fold_offset = off;
+        if !self.core.has_folded() {
+            let cur = self.core.term.grid().display_offset();
+            if off != cur {
+                self.core
+                    .term
+                    .scroll_display(Scroll::Delta(off as i32 - cur as i32));
+                self.core.drain_events();
+            }
+        }
+        self.dirty = true;
+        true
+    }
+
     /// 将上一个或下一个完整块的提示符滚动到视口顶部附近。
     pub fn jump_command_block(&mut self, forward: bool) -> Option<u64> {
         if self.core.alt {
             return None;
         }
-        let top = self.core.table.screen_top_abs() - self.core.term.grid().display_offset() as u64;
+        let (viewport, cur_off, max_off) = self.core.viewport_map();
+        let top = viewport
+            .first()
+            .copied()
+            .flatten()
+            .unwrap_or(self.core.table.screen_top_abs());
         let entries = &self.core.blocks.entries;
         let target = if forward {
             entries
@@ -479,14 +680,19 @@ impl Terminal {
         };
         if let Some(target) = target {
             let id = target.id;
-            let offset = self
+            let hidden = self.core.hidden_ranges();
+            let target_off = if hidden.is_empty() {
+                self.core
+                    .table
+                    .screen_top_abs()
+                    .saturating_sub(target.start.line.0) as usize
+            } else {
+                let vis_idx = self.core.visible_index_of(target.start.line.0, &hidden);
+                max_off.saturating_sub(vis_idx)
+            };
+            self.dirty |= self
                 .core
-                .table
-                .screen_top_abs()
-                .saturating_sub(target.start.line.0) as usize;
-            self.dirty |= self.core.scroll_display(Scroll::Delta(
-                offset as i32 - self.core.term.grid().display_offset() as i32,
-            ));
+                .scroll_display(Scroll::Delta(target_off as i32 - cur_off as i32));
             return Some(id);
         }
         None
@@ -871,5 +1077,44 @@ mod tests {
         assert!(term.command_block_text(id, 1).unwrap().len() < 50);
         term.resize(GridSize { cols: 20, rows: 8 });
         assert!(term.command_block_text(id, 1).unwrap().contains('y'));
+    }
+
+    #[test]
+    fn folding_hides_output_preserves_copy_and_unfolds_on_search() {
+        let mut term = terminal(40, 10, 100);
+        // 块 1：有 3 行输出 → 可折叠；块 2：无输出 → 不可折叠。
+        run(&mut term, "ls", "alpha\r\nbeta\r\ngamma\r\n", ";0");
+        run(&mut term, "cd /tmp", "", ";0");
+        let f0 = term.snapshot(None);
+        assert!(f0.command_blocks[0].foldable);
+        assert!(!f0.command_blocks[0].folded);
+        assert!(!f0.command_blocks[1].foldable);
+        let id1 = f0.command_blocks[0].id;
+        let id2 = f0.command_blocks[1].id;
+        assert!(!term.toggle_command_block_fold(id2));
+
+        // 折叠块 1：视口行数拉紧（块 2 紧跟块 1 命令行），完整输出仍可复制。
+        assert!(term.toggle_command_block_fold(id1));
+        let f1 = term.snapshot(None);
+        assert!(f1.command_blocks[0].folded);
+        let view1 = f1.view().unwrap();
+        assert_eq!(view1.line_meta(0).unwrap().abs_line, 0);
+        assert_eq!(view1.line_meta(1).unwrap().abs_line, 4);
+        assert_eq!(
+            term.command_block_text(id1, 1).as_deref(),
+            Some("alpha\nbeta\ngamma")
+        );
+
+        // 搜索命中的隐藏行会自动展开该块。
+        let status = term.search(&crate::SearchQuery {
+            text: "beta".into(),
+            regex: false,
+            case_sensitive: false,
+        });
+        assert_eq!(status.total, 1);
+        let f2 = term.snapshot(None);
+        assert!(!f2.command_blocks[0].folded);
+        let view2 = f2.view().unwrap();
+        assert_eq!(view2.line_meta(1).unwrap().abs_line, 1);
     }
 }

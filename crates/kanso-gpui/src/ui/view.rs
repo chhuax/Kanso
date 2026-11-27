@@ -19,7 +19,7 @@ use kanso_types::input::{
 };
 use kanso_types::{CellSide, GridSize, SessionId, ViewportPoint};
 
-use kanso_gpui::app::blocks::{BlockMenu, BlockPart, BlockSelection, has_command, menu_for};
+use kanso_gpui::app::blocks::{BlockMenu, BlockPart, has_command, menu_for};
 use kanso_gpui::app::find::{FindResult, FindState, Throttle, TimerAction};
 use kanso_gpui::app::links::{LinkHit, is_openable, url_at};
 use kanso_gpui::app::settings::{
@@ -150,8 +150,6 @@ pub(crate) struct TerminalView {
     pub find: FindState,
     find_bar: Option<Entity<FindBar>>,
     find_sub: Option<Subscription>,
-    /// 命令块选中状态（command-blocks.md §2）。
-    pub block_sel: BlockSelection,
     /// 右键菜单对应的块（复制命令 / 输出作用于它）。
     menu_block: Option<u64>,
     menu_block_menu: Option<BlockMenu>,
@@ -159,8 +157,6 @@ pub(crate) struct TerminalView {
     hover: Option<LinkHit>,
     hover_cell: Option<(u16, u16)>,
     ctrl_down: bool,
-    /// 左键按下时所在的单元格（判断是否开始拖选）。
-    down_cell: Option<(u16, u16)>,
 }
 
 impl EventEmitter<TerminalEvent> for TerminalView {}
@@ -229,13 +225,11 @@ impl TerminalView {
             find: FindState::default(),
             find_bar: None,
             find_sub: None,
-            block_sel: BlockSelection::default(),
             menu_block: None,
             menu_block_menu: None,
             hover: None,
             hover_cell: None,
             ctrl_down: false,
-            down_cell: None,
         }
     }
 
@@ -261,7 +255,6 @@ impl TerminalView {
             gutter_mode: self.gutter_mode,
             gutter_w: self.gutter_width(),
             blocks: self.blocks().to_vec(),
-            selected_block: self.block_sel.selected(),
             hover: self.hover.clone(),
             tz_offset_min: super::tz::local_offset_minutes(),
         })
@@ -369,10 +362,6 @@ impl TerminalView {
             Err(e) => log(&format!("帧解析失败：{e}")),
         }
         self.frame = Some(frame);
-        // 进入全屏程序：块选中取消，退出后不恢复。
-        if self.grid.as_ref().is_some_and(|g| g.alt_screen) {
-            self.block_sel.on_alt_screen(true);
-        }
         // 内容变了，悬停的链接位置可能已经不对；下一次鼠标移动时重新识别。
         if self.hover.take().is_some() {
             self.hover_cell = None;
@@ -423,7 +412,6 @@ impl TerminalView {
             ));
         }
         self.snap_to_bottom();
-        self.block_sel.clear();
         if let Err(e) = self.core.key(self.session, event) {
             log(&format!("key 失败：{e}"));
         }
@@ -434,7 +422,6 @@ impl TerminalView {
             log(&format!("textInput {text:?}"));
         }
         self.snap_to_bottom();
-        self.block_sel.clear();
         if let Err(e) = self.core.text_input(self.session, text) {
             log(&format!("text_input 失败：{e}"));
         }
@@ -449,13 +436,11 @@ impl TerminalView {
         });
     }
 
-    /// 复制：有普通选区复制选区；没有选区但选中了命令块，复制整块（command-blocks.md §3）。
+    /// 复制：复制当前文本选区。
     pub(crate) fn copy(&mut self, cx: &mut Context<Self>) {
         if let Some(text) = self.core.selection_text(self.session) {
             cx.write_to_clipboard(ClipboardItem::new_string(text));
             let _ = self.core.clear_selection(self.session);
-        } else if let Some(id) = self.block_sel.selected() {
-            self.copy_block_part(id, BlockPart::All, cx);
         }
     }
 
@@ -501,13 +486,10 @@ impl TerminalView {
         self.menu_block_menu
     }
 
-    /// 跳到上一个 / 下一个命令块并选中它（command-blocks.md §4）。
+    /// 跳到上一个 / 下一个命令块（command-blocks.md §4）。
     pub(crate) fn jump_block(&mut self, forward: bool, cx: &mut Context<Self>) {
         match self.core.jump_command_block(self.session, forward) {
-            Ok(Some(id)) => {
-                self.block_sel.select(id);
-                cx.notify();
-            }
+            Ok(Some(_)) => cx.notify(),
             Ok(None) => {}
             Err(e) => log(&format!("jump_command_block 失败：{e}")),
         }
@@ -742,18 +724,45 @@ impl TerminalView {
         }
     }
 
-    // ---- 命令块点击（command-blocks.md §2）----
+    // ---- 命令块定位（command-blocks.md §2）----
 
     fn block_at_row(&self, row: u16) -> Option<&CommandBlock> {
         decor::block_for_row(self.grid.as_deref()?, self.blocks(), row)
     }
 
-    fn click_block(&mut self, pos: Point<Pixels>, click_count: usize, cx: &mut Context<Self>) {
-        let row = self.grid_point(pos).row;
-        let hit = self.block_at_row(row).cloned();
-        if self.block_sel.click(hit.as_ref(), click_count) {
-            cx.notify();
+    fn try_toggle_fold(&mut self, pos: Point<Pixels>, cx: &mut Context<Self>) -> bool {
+        let Some(origin) = self.origin else {
+            return false;
+        };
+        let Some(grid) = self.grid.as_deref() else {
+            return false;
+        };
+        if grid.alt_screen {
+            return false;
         }
+        let x = f32::from(pos.x);
+        let text_left = f32::from(origin.x);
+        if x < text_left - 18.0 || x >= text_left {
+            return false;
+        }
+        let row = self.grid_point(pos).row;
+        let Some(info) = grid.lines.get(usize::from(row)) else {
+            return false;
+        };
+        let abs = info.abs_line;
+        let Some(id) = self.blocks().iter().find_map(|b| {
+            (b.foldable && b.command_line.unwrap_or(b.start_line) == abs).then_some(b.id)
+        }) else {
+            return false;
+        };
+        if matches!(
+            self.core.toggle_command_block_fold(self.session, id),
+            Ok(true)
+        ) {
+            cx.notify();
+            return true;
+        }
+        false
     }
 
     pub(crate) fn has_selection(&self) -> bool {
@@ -767,7 +776,6 @@ impl TerminalView {
     }
 
     pub(crate) fn clear_buffer(&mut self) {
-        self.block_sel.clear();
         if let Err(e) = self.core.clear_buffer(self.session) {
             log(&format!("clear_buffer 失败：{e}"));
         }
@@ -776,7 +784,6 @@ impl TerminalView {
     pub(crate) fn paste(&mut self, cx: &mut Context<Self>) {
         if let Some(content) = super::clipboard::read_terminal_paste(cx) {
             self.snap_to_bottom();
-            self.block_sel.clear();
             if let Err(e) = self.core.paste(self.session, content) {
                 log(&format!("paste 失败：{e}"));
             }
@@ -796,7 +803,6 @@ impl TerminalView {
         }
         window.focus(&self.focus);
         self.snap_to_bottom();
-        self.block_sel.clear();
         if let Err(e) = self.core.paste(self.session, PasteContent::Files(paths)) {
             log(&format!("拖入路径失败：{e}"));
         }
@@ -918,16 +924,16 @@ impl TerminalView {
         self.focus.focus(window);
         match ev.button {
             MouseButton::Left => {
-                // 程序没有接管鼠标（或按住 Shift 绕过）时，终端自己处理：Ctrl+点击开链接，单击选 / 取消命令块。
+                // 程序没有接管鼠标（或按住 Shift 绕过）时，终端自己处理：左侧折叠按钮、Ctrl+点击开链接。
                 let reporting = self.mouse_reporting() && !ev.modifiers.shift;
                 if !reporting {
+                    if ev.click_count == 1 && self.try_toggle_fold(ev.position, cx) {
+                        return;
+                    }
                     if ev.modifiers.control && self.try_open_link(ev.position, cx) {
                         return;
                     }
-                    self.click_block(ev.position, ev.click_count, cx);
                 }
-                let p = self.grid_point(ev.position);
-                self.down_cell = Some((p.row, p.col));
                 self.left_down = true;
                 self.local_select = !reporting;
                 self.send_mouse(
@@ -1037,11 +1043,6 @@ impl TerminalView {
 
     fn on_mouse_move(&mut self, ev: &MouseMoveEvent, _window: &mut Window, cx: &mut Context<Self>) {
         if self.left_down && ev.pressed_button == Some(MouseButton::Left) {
-            // 开始拖动文本选区：取消块选中（同一个单元格内的抖动不算）。
-            let p = self.grid_point(ev.position);
-            if self.down_cell.is_some_and(|c| c != (p.row, p.col)) && self.block_sel.clear() {
-                cx.notify();
-            }
             self.send_mouse(
                 MouseEventKind::Drag,
                 KButton::Left,
@@ -1259,7 +1260,7 @@ pub(crate) fn compute_grid(
     gutter_w: f32,
 ) -> Option<GridSize> {
     grid_size(
-        width - gutter_w - 2.0 * PAD,
+        width - gutter_w - 18.0 - PAD,
         height - 2.0 * PAD,
         m.cell_w,
         m.cell_h,

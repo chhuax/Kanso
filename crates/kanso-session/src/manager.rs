@@ -183,6 +183,8 @@ forward! {
     fn command_block_text(&self, id: u64, part: u8) -> Option<String>;
     /// 滚动到相邻命令块。
     fn jump_command_block(&self, forward: bool) -> Option<u64>;
+    /// 切换指定命令块的输出折叠状态。
+    fn toggle_command_block_fold(&self, id: u64) -> bool;
     /// 选中单词。
     fn select_word_at(&self, at: ViewportPoint);
     /// 全选。

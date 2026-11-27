@@ -893,6 +893,10 @@ impl MockCore {
         terminal(&mut self.lock(), session).map(|_| None)
     }
 
+    pub(crate) fn toggle_command_block_fold(&self, session: SessionId, _id: u64) -> Result<bool> {
+        terminal(&mut self.lock(), session).map(|_| false)
+    }
+
     pub(crate) fn selection_text(&self, session: SessionId) -> Option<String> {
         self.lock()
             .sessions

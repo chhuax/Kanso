@@ -2363,6 +2363,11 @@ public protocol KansoCoreProtocol: AnyObject, Sendable {
     func textInput(sessionId: UInt64, text: String) throws 
     
     /**
+     * 切换指定命令块的输出折叠状态。
+     */
+    func toggleCommandBlockFold(sessionId: UInt64, id: UInt64) throws  -> Bool
+    
+    /**
      * 上传本地文件或目录到远端目录；约定同 `download`。
      */
     func upload(sessionId: UInt64, localPath: String, remoteDir: String, conflict: FfiConflictPolicy) throws  -> UInt64
@@ -3557,6 +3562,20 @@ open func textInput(sessionId: UInt64, text: String)throws   {try rustCallWithEr
 }
     
     /**
+     * 切换指定命令块的输出折叠状态。
+     */
+open func toggleCommandBlockFold(sessionId: UInt64, id: UInt64)throws  -> Bool  {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_kanso_ffi_fn_method_kansocore_toggle_command_block_fold(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(sessionId),
+        FfiConverterUInt64.lower(id),uniffiCallStatus
+    )
+})
+}
+    
+    /**
      * 上传本地文件或目录到远端目录；约定同 `download`。
      */
 open func upload(sessionId: UInt64, localPath: String, remoteDir: String, conflict: FfiConflictPolicy)throws  -> UInt64  {
@@ -4342,6 +4361,14 @@ public struct FfiCommandBlock: Equatable, Hashable {
      * 是否存在输出范围。
      */
     public var canCopyOutput: Bool
+    /**
+     * 是否有可折叠的输出行。
+     */
+    public var foldable: Bool
+    /**
+     * 输出当前是否已折叠。
+     */
+    public var folded: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -4375,7 +4402,13 @@ public struct FfiCommandBlock: Equatable, Hashable {
          */canCopyCommand: Bool, 
         /**
          * 是否存在输出范围。
-         */canCopyOutput: Bool) {
+         */canCopyOutput: Bool, 
+        /**
+         * 是否有可折叠的输出行。
+         */foldable: Bool, 
+        /**
+         * 输出当前是否已折叠。
+         */folded: Bool) {
         self.id = id
         self.latest = latest
         self.startLine = startLine
@@ -4386,6 +4419,8 @@ public struct FfiCommandBlock: Equatable, Hashable {
         self.duration = duration
         self.canCopyCommand = canCopyCommand
         self.canCopyOutput = canCopyOutput
+        self.foldable = foldable
+        self.folded = folded
     }
 
     
@@ -4413,7 +4448,9 @@ public struct FfiConverterTypeFfiCommandBlock: FfiConverterRustBuffer {
                 exitCode: FfiConverterOptionInt32.read(from: &buf), 
                 duration: FfiConverterOptionTypeFfiMessage.read(from: &buf), 
                 canCopyCommand: FfiConverterBool.read(from: &buf), 
-                canCopyOutput: FfiConverterBool.read(from: &buf)
+                canCopyOutput: FfiConverterBool.read(from: &buf), 
+                foldable: FfiConverterBool.read(from: &buf), 
+                folded: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -4428,6 +4465,8 @@ public struct FfiConverterTypeFfiCommandBlock: FfiConverterRustBuffer {
         FfiConverterOptionTypeFfiMessage.write(value.duration, into: &buf)
         FfiConverterBool.write(value.canCopyCommand, into: &buf)
         FfiConverterBool.write(value.canCopyOutput, into: &buf)
+        FfiConverterBool.write(value.foldable, into: &buf)
+        FfiConverterBool.write(value.folded, into: &buf)
     }
 }
 
@@ -14868,6 +14907,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_kanso_ffi_checksum_method_kansocore_text_input() != 5399) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_kanso_ffi_checksum_method_kansocore_toggle_command_block_fold() != 61932) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_kanso_ffi_checksum_method_kansocore_upload() != 34395) {

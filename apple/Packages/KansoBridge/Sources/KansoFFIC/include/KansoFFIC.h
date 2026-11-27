@@ -767,6 +767,11 @@ RustBuffer uniffi_kanso_ffi_fn_method_kansocore_take_frame(uint64_t ptr, uint64_
 void uniffi_kanso_ffi_fn_method_kansocore_text_input(uint64_t ptr, uint64_t session_id, RustBuffer text, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_TOGGLE_COMMAND_BLOCK_FOLD
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_TOGGLE_COMMAND_BLOCK_FOLD
+int8_t uniffi_kanso_ffi_fn_method_kansocore_toggle_command_block_fold(uint64_t ptr, uint64_t session_id, uint64_t id, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_UPLOAD
 #define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_FN_METHOD_KANSOCORE_UPLOAD
 uint64_t uniffi_kanso_ffi_fn_method_kansocore_upload(uint64_t ptr, uint64_t session_id, RustBuffer local_path, RustBuffer remote_dir, RustBuffer conflict, RustCallStatus *_Nonnull out_status
@@ -1800,6 +1805,12 @@ uint16_t uniffi_kanso_ffi_checksum_method_kansocore_take_frame(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_TEXT_INPUT
 #define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_TEXT_INPUT
 uint16_t uniffi_kanso_ffi_checksum_method_kansocore_text_input(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_TOGGLE_COMMAND_BLOCK_FOLD
+#define UNIFFI_FFIDEF_UNIFFI_KANSO_FFI_CHECKSUM_METHOD_KANSOCORE_TOGGLE_COMMAND_BLOCK_FOLD
+uint16_t uniffi_kanso_ffi_checksum_method_kansocore_toggle_command_block_fold(void
     
 );
 #endif

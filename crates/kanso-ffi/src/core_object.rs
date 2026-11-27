@@ -397,6 +397,17 @@ impl KansoCore {
             .jump_command_block(session(session_id), forward)?)
     }
 
+    /// 切换指定命令块的输出折叠状态。
+    pub fn toggle_command_block_fold(
+        &self,
+        session_id: u64,
+        id: u64,
+    ) -> Result<bool, FfiCoreError> {
+        Ok(self
+            .inner
+            .toggle_command_block_fold(session(session_id), id)?)
+    }
+
     /// 选区文本；没有选区或会话不存在为 `None`。
     pub fn selection_text(&self, session_id: u64) -> Option<String> {
         self.inner.selection_text(session(session_id))

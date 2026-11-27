@@ -214,6 +214,114 @@ impl SemanticColors {
         self.cache = retained;
         colors
     }
+
+    /// 折叠模式下的视口语义着色：按 `viewport` 给出的每一可见行绝对行号映射网格行。
+    pub fn frame_viewport(
+        &mut self,
+        grid: &Grid<Cell>,
+        screen_top: u64,
+        viewport: &[Option<u64>],
+    ) -> Vec<u8> {
+        let cols = grid.columns();
+        let rows = viewport.len();
+        let min_line = -(grid.history_size() as i32);
+        let max_line = grid.screen_lines() as i32 - 1;
+        let wraps = |line: i32| {
+            grid[Line(line)][Column(cols - 1)]
+                .flags
+                .contains(Flags::WRAPLINE)
+        };
+        let mut colors = vec![NONE; rows * cols];
+        let mut retained = BTreeMap::new();
+        let mut row_by_physical = BTreeMap::new();
+        for (r, slot) in viewport.iter().enumerate() {
+            if let Some(abs) = *slot {
+                let p = (abs as i64 - screen_top as i64) as i32;
+                if (min_line..=max_line).contains(&p) {
+                    row_by_physical.insert(p, r);
+                }
+            }
+        }
+        let mut visited_starts = BTreeMap::new();
+        for &physical in row_by_physical.keys() {
+            let mut start = physical;
+            let lower = (physical - MARGIN).max(min_line);
+            while start > lower && wraps(start - 1) {
+                start -= 1;
+            }
+            if visited_starts.contains_key(&start) {
+                continue;
+            }
+            visited_starts.insert(start, ());
+            let incomplete_start = start == lower && start > min_line && wraps(start - 1);
+            let mut end = physical;
+            let upper = (physical + MARGIN).min(max_line);
+            while end < upper && wraps(end) {
+                end += 1;
+            }
+            if incomplete_start || wraps(end) || (end - start + 1) as usize * cols > MAX_CELLS {
+                continue;
+            }
+            let abs = (screen_top as i64 + i64::from(start)) as u64;
+            if (start..=end).contains(&grid.cursor.point.line.0) {
+                if let Some(cached) = self.cache.remove(&abs) {
+                    retained.insert(abs, cached);
+                }
+                continue;
+            }
+            let mut text = String::new();
+            let mut positions = Vec::new();
+            for p in start..=end {
+                let row = &grid[Line(p)];
+                let vis_row = row_by_physical.get(&p).copied();
+                for column in 0..cols {
+                    let cell = &row[Column(column)];
+                    if cell
+                        .flags
+                        .intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER)
+                    {
+                        continue;
+                    }
+                    let byte = text.len();
+                    text.push(cell.c);
+                    if let Some(extra) = cell.zerowidth() {
+                        text.extend(extra);
+                    }
+                    if let Some(vr) = vis_row {
+                        positions.push((byte, vr * cols + column));
+                    }
+                }
+            }
+            if text.trim_end().is_empty() {
+                continue;
+            }
+            let cached = match self.cache.remove(&abs) {
+                Some(cached) if cached.text == text => cached,
+                _ => {
+                    #[cfg(test)]
+                    {
+                        self.calculations += 1;
+                    }
+                    let spans = recognize(text.trim_end());
+                    CachedLine { text, spans }
+                }
+            };
+            let mut span_index = 0;
+            for (byte, position) in positions {
+                while span_index < cached.spans.len() && cached.spans[span_index].1 <= byte {
+                    span_index += 1;
+                }
+                if let Some(&(from, to, class)) = cached.spans.get(span_index)
+                    && (from..to).contains(&byte)
+                {
+                    colors[position] = class;
+                }
+            }
+            retained.insert(abs, cached);
+        }
+        self.cache = retained;
+        colors
+    }
 }
 
 #[cfg(test)]

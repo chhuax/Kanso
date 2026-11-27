@@ -3,7 +3,8 @@
 # 本文件由 Kanso 自动生成，每次启动应用时按内容比对后才会重写，请勿手工修改。
 # 它的核心是加载用户自己的 .zshrc（用户设置过 ZDOTDIR 就用它，否则用 HOME），
 # 保证任何一个启动文件都不会因为 ZDOTDIR 被指向这里而被跳过。
-# 除此之外它还做两件事：把 HISTFILE 改回用户原来的位置，以及注册提示符集成的 precmd / preexec hook。
+# 除此之外它只做两件事：把 HISTFILE 改回用户原来的位置，以及注册静默的 OSC 133 / OSC 7 钩子
+# （保留用户原有的 PS1 样式不动，不覆盖用户的主题或提示符文字）。
 # 删除整个 shim 目录即可彻底移除，不会在用户的任何文件里留下东西。
 
 __kanso_shim_dir=$ZDOTDIR
@@ -19,24 +20,9 @@ if [[ ${KANSO_SHELL_INTEGRATION:-1} != 0 ]]; then
   # __kanso_first：还没有输出过第一个提示符；__kanso_cmd_ran：preexec 之后还没发过 D。
   # 用 preexec 置位而不是看 $?：空回车不会触发 preexec，也就不会发出没有对应命令的 D。
   typeset -g __kanso_first=1 __kanso_cmd_ran=0
-  # __kanso_have：是否已经捕获过用户 PS1；__kanso_last_ps1：我们上次写入的 PS1，
-  # 用来判断 PS1 是否被用户或主题改写过；__kanso_ins_chips：上次插入的标签行，
-  # 用来在别的脚本基于我们的 PS1 二次改写时把我们的部分准确摘掉，避免叠加。
-  typeset -g __kanso_have=0 __kanso_last_ps1= __kanso_ins_chips= __kanso_transient_ps1=
-  # 对用户 PS1 的分析结果：__kanso_core 是去掉目录转义 / 用户名后的正文，
-  # __kanso_trail 表示原提示符末尾有空格。
-  typeset -g __kanso_core= __kanso_trail=0
-  # 提示符里展示的目录 / 分支（已转义 %），promptsubst 开启时通过变量引用插入，见 __kanso_build_ps1。
-  typeset -g __kanso_p_dir= __kanso_p_branch= __kanso_p_node=
-  # Node 版本只在目录或 PATH 变化后重新查询。
-  typeset -g __kanso_node_dir= __kanso_node_path= __kanso_node_version=
-  # OSC 7 编码结果缓存：PWD 没变时不重复编码。
-  typeset -g __kanso_enc_src= __kanso_enc_out=
   # 提示符末尾的 OSC 133 B。放进 %{ %} 告诉 zsh 这段是零宽度，否则 zsh 会把转义序列的字符
   # 算进提示符宽度，导致光标位置和换行计算出错。
   typeset -g __kanso_bmark=$'%{\e]133;B\a%}'
-  typeset -g __kanso_chip_start=$'%{\e]777;kanso-chip;start\a%}'
-  typeset -g __kanso_chip_end=$'%{\e]777;kanso-chip;end\a%}'
 
   # 百分号编码（RFC 3986 的 unreserved 字符与 / 不编码），结果放在 REPLY。
   # 逐字节编码以得到合法的 UTF-8 百分号序列，所以关掉 multibyte；用 $(( #ch )) 取字节值，
@@ -61,223 +47,14 @@ if [[ ${KANSO_SHELL_INTEGRATION:-1} != 0 ]]; then
     REPLY=$out
   }
 
-  # 从 PWD 逐级向上找 .git，直接读 HEAD，不启动 git 进程；结果（分支名或提交号前 7 位）放在 REPLY，
-  # 找不到或内容不认识时 REPLY 为空。
-  __kanso_git_branch() {
-    emulate -L zsh
-    setopt extended_glob
-    REPLY=
-    local dir=$PWD gitpath line head gd
-    while :; do
-      gitpath=$dir/.git
-      if [[ -d $gitpath ]]; then
-        head=$gitpath/HEAD
-        break
-      elif [[ -f $gitpath ]]; then
-        # worktree / submodule：.git 是文件，内容 `gitdir: <路径>`；相对路径以 .git 文件所在目录为基准。
-        line=
-        IFS= read -r line < $gitpath 2>/dev/null
-        line=${line%%[[:space:]]#}
-        [[ $line == 'gitdir: '* ]] || return 0
-        gd=${line#gitdir: }
-        [[ $gd == /* ]] || gd=$dir/$gd
-        head=$gd/HEAD
-        break
-      fi
-      [[ $dir == / || -z $dir ]] && return 0
-      dir=${dir:h}
-    done
-    line=
-    IFS= read -r line < $head 2>/dev/null
-    line=${line%%[[:space:]]#}
-    if [[ $line == 'ref: '* ]]; then
-      line=${line#ref: }
-      line=${line#refs/heads/}
-      # HEAD 是数据，可能含控制字符（ESC 等）；直接放进提示符会被终端当成转义序列，所以全部丢弃。
-      REPLY=${line//[[:cntrl:]]/}
-    elif [[ ${#line} -eq 40 || ${#line} -eq 64 ]] && [[ $line == [0-9a-fA-F]## ]]; then
-      REPLY=${line[1,7]}
+  # 保持用户原有的 PS1 不动，只在末尾确保附带零宽度的 OSC 133 B 标记。
+  __kanso_ensure_bmark() {
+    if [[ $PS1 != *"$__kanso_bmark" ]]; then
+      PS1=${PS1//"$__kanso_bmark"/}$__kanso_bmark
     fi
   }
 
-  # 目录显示文本放在 REPLY：~ 缩写主目录；超过 36 个字符只保留尾部若干完整路径段，前面加 `.../`
-  # （含 `.../` 在内不超过 36，最后一段本身超长时也完整保留）。
-  __kanso_fmt_dir() {
-    emulate -L zsh
-    setopt extended_glob
-    local d=$PWD
-    if [[ -n $HOME && $HOME != / ]]; then
-      if [[ $d == $HOME ]]; then
-        d='~'
-      elif [[ $d == $HOME/* ]]; then
-        d='~'${d#$HOME}
-      fi
-    fi
-    # 目录名是数据，且可能含控制字符；替换成 ?，避免终端把它当转义序列。
-    d=${d//[[:cntrl:]]/\?}
-    # 只有超过终端宽度一半才按整段截断，平时显示完整路径（标签行有整行空间）。
-    local max=$(( ${COLUMNS:-80} / 2 ))
-    (( max < 20 )) && max=20
-    if (( ${#d} > max )); then
-      local -a segs=( ${(s:/:)d} )
-      local tail=${segs[-1]} i
-      for (( i = ${#segs} - 1; i >= 1; --i )); do
-        (( ${#tail} + ${#segs[i]} + 5 > max )) && break
-        tail=${segs[i]}/$tail
-      done
-      d=.../$tail
-    fi
-    REPLY=$d
-  }
-
-  # 只在当前项目范围内存在 package.json 时查询 Node，结果放在 REPLY。
-  __kanso_node() {
-    emulate -L zsh
-    setopt extended_glob
-    REPLY=
-    local dir=$PWD
-    while [[ ! -f $dir/package.json ]]; do
-      [[ -e $dir/.git || $dir == $HOME || $dir == / ]] && return 0
-      dir=${dir:h}
-    done
-    if [[ $__kanso_node_dir != $PWD || $__kanso_node_path != $PATH ]]; then
-      __kanso_node_dir=$PWD
-      __kanso_node_path=$PATH
-      __kanso_node_version=
-      if (( $+commands[node] )); then
-        __kanso_node_version=$(command node --version 2>/dev/null)
-        __kanso_node_version=${__kanso_node_version//[[:cntrl:]]/}
-      fi
-    fi
-    REPLY=$__kanso_node_version
-  }
-
-  # 分析用户 PS1，更新 __kanso_core / __kanso_trail。
-  # 逐个 token 扫描（而不是整串做替换），这样 `%%~`（字面的 % 加 ~）不会被误当成 `%~`。
-  __kanso_analyze_ps1() {
-    emulate -L zsh
-    setopt extended_glob
-    local src=$1 out= tok c
-    local strip_dir=1
-    __kanso_trail=0
-    [[ $src == *' ' ]] && __kanso_trail=1
-    # 用户自己用 $PWD 之类表达式显示目录：保留原表达式。
-    if [[ $src == *'$PWD'* || $src == *'${PWD'* || $src == *'$(pwd'* || $src == *'`pwd'* ]]; then
-      strip_dir=0
-    fi
-    while (( ${#src} )); do
-      if [[ $src =~ '^@%-?[0-9]*[mM]' ]]; then
-        # `@%m` / `@%M`：与用户名相连的主机名，整体丢弃。
-        src=${src[${#MATCH}+1,-1]}
-      elif [[ $src =~ '^%-?[0-9]*(.)' ]]; then
-        tok=$MATCH
-        c=$match[1]
-        src=${src[${#tok}+1,-1]}
-        case $c in
-          # 目录转义（含 %1~、%-3~、%2d 等带数字写法）。%c / %C / %. 是"目录尾部若干段"
-          # 的写法（zshmisc 提示符转义），同样会与我们前置的目录重复显示——
-          # oh-my-zsh 默认主题 robbyrussell 就用 %c，不去掉会出现 `~ ➜ repo` 这样的重复。
-          '~'|d|'/'|c|C|'.') (( strip_dir )) || out+=$tok ;;
-          n|N) ;;                                       # 用户名
-          *) out+=$tok ;;
-        esac
-      else
-        out+=${src[1]}
-        src=${src[2,-1]}
-      fi
-    done
-    out=${out//( )##/ }      # 合并连续空格
-    out=${out##( )##}        # 去掉开头空格
-    out=${out%%( )##}        # 末尾空格单独用 __kanso_trail 记录，组装时再补回
-    __kanso_core=$out
-  }
-
-  # 组装最终 PS1，结果放在 REPLY。目录与分支都是数据：先转义 `%`；promptsubst 开启时
-  # 提示符会先做参数 / 命令替换，数据里的 `$(...)` 会被执行，所以改为插入变量引用
-  # `${__kanso_p_dir}`（替换结果不会被再次解析），变量里的 `%` 同样要转义，
-  # 因为替换之后 zsh 还会再做一遍提示符转义。
-  __kanso_build_ps1() {
-    emulate -L zsh
-    setopt extended_glob
-    local dir_txt branch_txt node_txt dir_ins branch_ins node_ins pre= quiet_line line2 core=$__kanso_core out
-    __kanso_git_branch
-    branch_txt=${REPLY//\%/%%}
-    __kanso_fmt_dir
-    dir_txt=${REPLY//\%/%%}
-    __kanso_node
-    node_txt=${REPLY//\%/%%}
-    if [[ -o promptsubst ]]; then
-      __kanso_p_dir=$dir_txt
-      __kanso_p_branch=$branch_txt
-      __kanso_p_node=$node_txt
-      dir_ins='${__kanso_p_dir}'
-      branch_ins='${__kanso_p_branch}'
-      node_ins='${__kanso_p_node}'
-    else
-      dir_ins=$dir_txt
-      branch_ins=$branch_txt
-      node_ins=$node_txt
-    fi
-    # 图标由渲染器内置绘制；标签之间的空格不带 chip 属性。
-    # 标签首尾各带一个空格作为内边距，这两个空格也在 chip 范围内：渲染器按 chip 单元格原样画框、不外扩，
-    # 标签框左边因此与第二行的光标对齐。标签之间隔一个不带 chip 属性的空格。亮绿 = ANSI 10。
-    if [[ -n $node_txt ]]; then
-      pre+="$__kanso_chip_start %F{10}"$'\ue718'" ${node_ins}%f $__kanso_chip_end "
-    fi
-    pre+="$__kanso_chip_start %B%f"$'\uf07b'" ${dir_ins}%b $__kanso_chip_end"
-    if [[ -n $branch_txt ]]; then
-      pre+=" $__kanso_chip_start %F{10}"$'\ue0a0'" ${branch_ins}%f $__kanso_chip_end"
-    fi
-    __kanso_ins_chips=$pre$'\n'
-    quiet_line=$dir_ins
-    if [[ -n $branch_txt ]]; then
-      quiet_line+=" git:(${branch_ins})"
-    fi
-    if [[ -n $node_txt ]]; then
-      quiet_line+=" node:${node_ins}"
-    fi
-    if [[ ${core//[[:space:]]/} == '%#' ]]; then
-      # 去掉目录 / 用户名后只剩 `%#`（zsh 默认提示符就是这样）：目录已在标签行，普通用户的 `%` 没有信息量，
-      # 输入行留空让光标顶格；root 仍显示红色 `#` 提醒权限。用户自己写了别的内容时走下面的分支原样保留。
-      line2='%(!.%F{1}#%f .)'
-    else
-      # 只给第一个 `%#` 上色；替换文本放进变量，避免 `${…/…/…}` 里的花括号被当成参数展开的边界。
-      local red_mark='%F{1}%#%f'
-      core=${core/\%\#/$red_mark}
-      line2=$core
-      # 原提示符末尾的空格是光标与提示符的间距，保留；正文被全部去掉时不补，光标顶格。
-      (( __kanso_trail )) && [[ -n $core ]] && line2+=' '
-    fi
-    out=$__kanso_ins_chips$line2
-    __kanso_transient_ps1=$quiet_line$'\n'$line2
-    REPLY=$out$__kanso_bmark
-  }
-
-  # 更新 PS1。「用户原始 PS1」靠 __kanso_last_ps1 识别：当前 PS1 与我们上次写入的不同，
-  # 说明用户 / 主题（如 oh-my-zsh 在 precmd 里重设 PS1）或某个脚本改过它，重新捕获并分析；
-  # 相同则沿用上次的分析结果。若改写是基于我们的 PS1 叠加的（带有我们的 B 标记，
-  # 例如 virtualenv activate 在 PS1 前面加 `(venv) `），先把我们插入的标签行 / B 标记
-  # 摘掉再分析，避免目录与分支重复叠加。
-  __kanso_update_ps1() {
-    emulate -L zsh
-    setopt extended_glob
-    local p
-    if (( ! __kanso_have )) || [[ $PS1 != "$__kanso_last_ps1" ]]; then
-      p=$PS1
-      if [[ $p == *"$__kanso_bmark"* ]]; then
-        p=${p//"$__kanso_bmark"/}
-        [[ -n $__kanso_ins_chips ]] && p=${p/"$__kanso_ins_chips"/}
-      fi
-      __kanso_analyze_ps1 $p
-      __kanso_have=1
-    fi
-    __kanso_build_ps1
-    PS1=$REPLY
-    __kanso_last_ps1=$PS1
-  }
-
-  # precmd：D（上一条命令的退出码）→ OSC 7 → A（第一个提示符带 kanso=first 且不插空行；
-  # 之后先输出一个空行、发 A、再输出第二个空行，分隔线画在两个空行正中间）→ 更新 PS1（末尾带 B）。
+  # precmd：D（上一条命令的退出码）→ OSC 7 → A（0 空行，保留原生紧凑布局）→ 确保 PS1 末尾带 B。
   # 一次 print 输出，避免与别的输出交错。
   __kanso_precmd() {
     local ec=$?   # 必须是第一条语句：之后任何命令都会改写 $?
@@ -296,9 +73,9 @@ if [[ ${KANSO_SHELL_INTEGRATION:-1} != 0 ]]; then
       seq+=$'\e]133;A;kanso=first\a'
       __kanso_first=0
     else
-      seq+=$'\n\e]133;A\a\n'
+      seq+=$'\e]133;A\a'
     fi
-    __kanso_update_ps1
+    __kanso_ensure_bmark
     print -rn -- $seq
   }
 
@@ -308,17 +85,8 @@ if [[ ${KANSO_SHELL_INTEGRATION:-1} != 0 ]]; then
     print -rn -- $'\e]133;C\a'
   }
 
-  # 提交命令行时把标签行重绘成顶格纯文本（不带 chip 框、图标与内边距空格），
-  # 重绘后立即恢复 PS1，避免影响命令体内读取或改写 PS1。
-  # 注意：这里不能加 `emulate -L zsh`，否则会临时关掉用户的 promptsubst，导致变量引用原样输出。
-  __kanso_line_finish() {
-    [[ $PS1 == "$__kanso_last_ps1" && -n $__kanso_transient_ps1 ]] || return 0
-    PS1=$__kanso_transient_ps1
-    zle reset-prompt
-    zle -R
-    PS1=$__kanso_last_ps1
-  }
-
+  # 目录选择器静默切目录（状态栏点击目录时发送 ESC[9001~<hex>\n）：
+  # 保留半行输入与光标、不写历史、触发 chpwd、更新 OSC 7 并重绘提示符。
   __kanso_change_directory() {
     emulate -L zsh
     local encoded= key= escaped= target= i
@@ -336,7 +104,7 @@ if [[ ${KANSO_SHELL_INTEGRATION:-1} != 0 ]]; then
     builtin cd -- "$target" >/dev/null 2>&1 || return 0
     BUFFER=$saved_buffer
     CURSOR=$saved_cursor
-    __kanso_update_ps1
+    __kanso_ensure_bmark
     __kanso_urlencode $HOST
     local host=$REPLY
     __kanso_urlencode $PWD
@@ -380,10 +148,9 @@ ZDOTDIR=$__kanso_shim_dir
 if [[ ${KANSO_SHELL_INTEGRATION:-1} != 0 ]]; then
   # 在用户 .zshrc 加载完之后注册，使我们的 hook 排在用户已有 hook 之后：precmd 里才能看到
   # 用户 / 主题最终设置的 PS1。add-zsh-hook 只追加、不覆盖用户已有的 hook，重复注册也会去重。
-  autoload -Uz add-zsh-hook add-zle-hook-widget
+  autoload -Uz add-zsh-hook
   add-zsh-hook precmd __kanso_precmd
   add-zsh-hook preexec __kanso_preexec
-  add-zle-hook-widget line-finish __kanso_line_finish
   zle -N __kanso_change_directory
   bindkey -M emacs $'\e[9001~' __kanso_change_directory
   bindkey -M viins $'\e[9001~' __kanso_change_directory

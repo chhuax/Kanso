@@ -39,14 +39,23 @@ impl Core {
     ///
     /// 要减掉 `display_offset`：用户向上滚动后，视口第 0 行是回滚里的某一行。
     fn viewport_to_grid(&self, p: ViewportPoint) -> (Point, Side) {
-        let offset = self.term.grid().display_offset() as i32;
-        let row = i32::from(p.row).min(self.rows as i32 - 1);
+        let row = usize::from(p.row).min(self.rows - 1);
+        let line = if self.has_folded() {
+            let (viewport, _, _) = self.viewport_map();
+            match viewport[row] {
+                Some(abs) => Line((abs as i64 - self.table.screen_top_abs() as i64) as i32),
+                None => Line(self.rows as i32 - 1),
+            }
+        } else {
+            let offset = self.term.grid().display_offset() as i32;
+            Line(row as i32 - offset)
+        };
         let col = usize::from(p.col).min(self.cols - 1);
         let side = match p.side {
             CellSide::Left => Side::Left,
             CellSide::Right => Side::Right,
         };
-        (Point::new(Line(row - offset), Column(col)), side)
+        (Point::new(line, Column(col)), side)
     }
 
     /// 网格行 → 绝对行号。

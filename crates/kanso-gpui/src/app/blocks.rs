@@ -1,4 +1,4 @@
-//! 命令块（command-blocks.md）的纯逻辑：命中测试、可见行范围、选中状态机、右键菜单项。
+//! 命令块（command-blocks.md）的纯逻辑：命中测试、可见行范围、右键菜单项。
 //!
 //! 块边界由核心随输出增量维护，经帧里的 [`CommandBlock`] 列表（只含可见范围内的块）传过来；
 //! 块只是叠加在终端上的装饰，这里不碰网格内容。对照 mac 版 `TerminalKit/TerminalView+CommandBlocks`。
@@ -78,53 +78,6 @@ pub fn menu_for(block: Option<&CommandBlock>) -> Option<BlockMenu> {
     })
 }
 
-/// 选中块的状态机。
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct BlockSelection {
-    selected: Option<u64>,
-}
-
-impl BlockSelection {
-    /// 当前选中的块 id。
-    pub fn selected(&self) -> Option<u64> {
-        self.selected
-    }
-
-    /// 取消选中；返回是否有变化。
-    pub fn clear(&mut self) -> bool {
-        self.selected.take().is_some()
-    }
-
-    /// 直接选中（⌘↑ / ⌘↓ 跳转的目标）。
-    pub fn select(&mut self, id: u64) {
-        self.selected = Some(id);
-    }
-
-    /// 一次鼠标单击（`click_count` 为 1）落在 `hit` 上（`None` 为块外 / 全屏程序）。
-    /// - 有命令的块：再次点击同一块取消，点击另一块改选；
-    /// - 块外或无命令的块：取消；
-    /// - 双击 / 三击不触发块选中（仍按文本选词 / 选行），状态不变。
-    ///
-    /// 返回是否有变化。
-    pub fn click(&mut self, hit: Option<&CommandBlock>, click_count: usize) -> bool {
-        if click_count != 1 {
-            return false;
-        }
-        let before = self.selected;
-        self.selected = match hit.filter(|b| has_command(b)) {
-            Some(b) if before == Some(b.id) => None,
-            Some(b) => Some(b.id),
-            None => None,
-        };
-        before != self.selected
-    }
-
-    /// 进入备用屏幕时取消（退出后不恢复）。返回是否有变化。
-    pub fn on_alt_screen(&mut self, alt: bool) -> bool {
-        if alt { self.clear() } else { false }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -141,6 +94,8 @@ mod tests {
             duration: None,
             can_copy_command: true,
             can_copy_output: true,
+            foldable: end > start,
+            folded: false,
         }
     }
 
@@ -181,62 +136,6 @@ mod tests {
         assert_eq!(visible_rows(&b, 15, 5), None);
         assert_eq!(visible_rows(&b, 0, 10), None);
         assert_eq!(visible_rows(&b, 0, 0), None);
-    }
-
-    #[test]
-    fn click_selects_toggles_and_reselects() {
-        let (a, b) = (block(1, 0, 3), block(2, 4, 8));
-        let mut s = BlockSelection::default();
-        assert!(s.click(Some(&a), 1));
-        assert_eq!(s.selected(), Some(1));
-        // 再次单击同一块：取消。
-        assert!(s.click(Some(&a), 1));
-        assert_eq!(s.selected(), None);
-        // 选中后单击另一块：改选。
-        s.click(Some(&a), 1);
-        assert!(s.click(Some(&b), 1));
-        assert_eq!(s.selected(), Some(2));
-        // 块外：取消。
-        assert!(s.click(None, 1));
-        assert_eq!(s.selected(), None);
-        // 已经没选中，块外点击不算变化。
-        assert!(!s.click(None, 1));
-    }
-
-    #[test]
-    fn empty_prompt_blocks_cannot_be_selected() {
-        let mut empty = block(3, 9, 9);
-        empty.command_line = None;
-        empty.can_copy_output = false;
-        empty.can_copy_command = false;
-        let mut s = BlockSelection::default();
-        assert!(!s.click(Some(&empty), 1));
-        assert_eq!(s.selected(), None);
-        // 选中了别的块后点无命令块：取消。
-        s.select(1);
-        assert!(s.click(Some(&empty), 1));
-        assert_eq!(s.selected(), None);
-    }
-
-    #[test]
-    fn double_and_triple_click_do_not_touch_selection() {
-        let a = block(1, 0, 3);
-        let mut s = BlockSelection::default();
-        s.select(1);
-        assert!(!s.click(Some(&a), 2));
-        assert!(!s.click(None, 3));
-        assert_eq!(s.selected(), Some(1));
-    }
-
-    #[test]
-    fn alt_screen_clears_only_on_enter() {
-        let mut s = BlockSelection::default();
-        s.select(7);
-        assert!(!s.on_alt_screen(false));
-        assert_eq!(s.selected(), Some(7));
-        assert!(s.on_alt_screen(true));
-        assert_eq!(s.selected(), None);
-        assert!(!s.on_alt_screen(true));
     }
 
     #[test]

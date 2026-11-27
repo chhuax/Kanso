@@ -303,9 +303,30 @@ impl Terminal {
         Some(i.min(matches.len() - 1))
     }
 
-    /// 让绝对行 `abs` 出现在视口里：已经可见就不动，否则尽量把它放在视口中间。
+    /// 让绝对行 `abs` 出现在视口里：已经可见就不动，否则先展开所在折叠块再尽量放在视口中间。
     fn reveal_line(&mut self, abs: u64) {
         if self.core.alt {
+            return;
+        }
+        if self.core.unfold_line(abs) {
+            self.dirty = true;
+        }
+        if self.core.has_folded() {
+            let (viewport, off, max_off) = self.core.viewport_map();
+            if viewport.contains(&Some(abs)) {
+                return;
+            }
+            let hidden = self.core.hidden_ranges();
+            let idx = self.core.visible_index_of(abs, &hidden);
+            let half = self.core.rows / 2;
+            let desired_top = idx.saturating_sub(half);
+            let target = max_off.saturating_sub(desired_top);
+            if self
+                .core
+                .scroll_display(Scroll::Delta(target as i32 - off as i32))
+            {
+                self.dirty = true;
+            }
             return;
         }
         let grid = self.core.term.grid();

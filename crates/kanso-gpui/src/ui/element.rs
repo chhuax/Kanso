@@ -122,8 +122,9 @@ impl Element for TerminalElement {
                 v.gutter_width(),
             )
         };
-        // 正文区从时间戳栏右侧开始。
-        let origin = bounds.origin + point(px(gutter_w + PAD), px(PAD));
+        // 正文区从时间戳栏与左侧折叠栏右侧开始。
+        let left_pad = 18.0_f32;
+        let origin = bounds.origin + point(px(gutter_w + left_pad), px(PAD));
         // 输入法：每帧在绘制阶段把处理器交给窗口，候选框定位与组字回调都经由它。
         window.handle_input(
             &focus,
@@ -132,9 +133,8 @@ impl Element for TerminalElement {
         );
 
         if let Some(grid) = grid {
-            // 选中的命令块底色在文字背景之下。
             if let Some(d) = &decor {
-                decor::paint_block_highlight(d, bounds, origin, window);
+                decor::paint_prompt_backgrounds(d, bounds, origin, window);
             }
             paint_grid(&grid, &palette, &metrics, origin, window, cx);
             if let Some(d) = &decor {

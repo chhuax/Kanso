@@ -663,8 +663,11 @@ fn render_terminal_themes(t: &Tokens, light: &TerminalTheme, dark: &TerminalThem
             swift_rgba(token("terminal.commandSeparator", a))
         ));
         s.push_str(&format!(
-            "        blockSelection: {},\n        chipBackground: {},\n        chipBorder: {},\n        chipIcon: {}\n",
-            swift_rgba(token("terminal.blockSelection", a)),
+            "        promptBackground: {},\n",
+            swift_rgba(token("terminal.promptBackground", a))
+        ));
+        s.push_str(&format!(
+            "        chipBackground: {},\n        chipBorder: {},\n        chipIcon: {}\n",
             swift_rgba(token("terminal.chipBackground", a)),
             swift_rgba(token("terminal.chipBorder", a)),
             swift_rgba(token("terminal.chipIcon", a))
@@ -737,7 +740,7 @@ pub fn generate(args: &[String]) -> ExitCode {
         "terminal.gutterText",
         "terminal.gutterCursorLine",
         "terminal.commandSeparator",
-        "terminal.blockSelection",
+        "terminal.promptBackground",
         "terminal.chipBackground",
         "terminal.chipBorder",
         "terminal.chipIcon",

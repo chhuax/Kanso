@@ -50,6 +50,10 @@ pub struct FfiCommandBlock {
     pub can_copy_command: bool,
     /// 是否存在输出范围。
     pub can_copy_output: bool,
+    /// 是否有可折叠的输出行。
+    pub foldable: bool,
+    /// 输出当前是否已折叠。
+    pub folded: bool,
 }
 
 /// 一帧终端快照的所有权句柄。
@@ -165,6 +169,8 @@ impl FrameHandle {
                         duration: block.duration.as_ref().map(Into::into),
                         can_copy_command: block.can_copy_command,
                         can_copy_output: block.can_copy_output,
+                        foldable: block.foldable,
+                        folded: block.folded,
                     })
                     .collect()
             })
