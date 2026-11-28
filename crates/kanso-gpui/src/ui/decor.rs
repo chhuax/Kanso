@@ -58,19 +58,30 @@ pub(crate) fn paint_prompt_backgrounds(
     let tint = overlay(d.palette.decorations.prompt_background);
     let x = f32::from(bounds.origin.x) + d.gutter_w;
     let width = (f32::from(bounds.size.width) - d.gutter_w).max(0.0);
-    for (row, info) in d.grid.lines.iter().enumerate() {
-        let abs = info.abs_line;
-        let is_prompt = d.blocks.iter().any(|b| {
-            let end = b.command_line.unwrap_or(b.end_line);
-            b.start_line <= abs && abs <= end
-        });
-        if is_prompt {
-            let y0 = row_y(origin, &d.metrics, row as u16);
-            let y1 = row_y(origin, &d.metrics, row as u16 + 1);
-            window.paint_quad(fill(
-                Bounds::new(point(px(x), px(y0)), size(px(width), px(y1 - y0))),
-                tint,
-            ));
+    let bounds_top = f32::from(bounds.origin.y);
+    let bounds_bottom = bounds_top + f32::from(bounds.size.height);
+    let pad = 2.0_f32;
+    for b in &d.blocks {
+        let end = b.command_line.unwrap_or(b.end_line);
+        let mut range: Option<(usize, usize)> = None;
+        for (row, info) in d.grid.lines.iter().enumerate() {
+            let abs = info.abs_line;
+            if b.start_line <= abs && abs <= end {
+                range = Some(match range {
+                    Some((first, _)) => (first, row),
+                    None => (row, row),
+                });
+            }
+        }
+        if let Some((first_row, last_row)) = range {
+            let y0 = (row_y(origin, &d.metrics, first_row as u16) - pad).max(bounds_top);
+            let y1 = (row_y(origin, &d.metrics, last_row as u16 + 1) + pad).min(bounds_bottom);
+            if y1 > y0 {
+                window.paint_quad(fill(
+                    Bounds::new(point(px(x), px(y0)), size(px(width), px(y1 - y0))),
+                    tint,
+                ));
+            }
         }
     }
 }
