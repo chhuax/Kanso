@@ -109,10 +109,10 @@ fn decode(bytes: Vec<u8>) -> Result<SecretString, SecretError> {
 }
 
 fn wipe(buf: &mut [u8]) {
-    for b in buf {
-        // SAFETY 无需 unsafe：使用普通清零循环并在返回前写入。
+    for b in &mut *buf {
         *b = 0;
     }
+    std::hint::black_box(buf);
 }
 
 fn map_error(op: &str, err: security_framework::base::Error) -> SecretError {
