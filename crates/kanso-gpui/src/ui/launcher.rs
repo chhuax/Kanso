@@ -9,7 +9,7 @@
 //! 本视图只发事件（[`LauncherEvent`]），由 `ShellView` 决定怎么开标签 / 弹编辑对话框。
 
 use kanso_gpui::app::i18n::{label, t};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use gpui::{
@@ -110,6 +110,8 @@ pub(crate) struct LauncherView {
     pub(super) library_filter: LibraryFilter,
     /// 「未分组」分片是否折叠。
     pub(super) ungrouped_collapsed: bool,
+    /// 各会话的 MCP 授权级别缓存（仅在库重载或授权变更时刷新，避免每帧查 SQLite）。
+    pub(super) mcp_levels: HashMap<ProfileId, McpAccess>,
     /// 当前可用主内容区宽度（逻辑像素），用来动态计算多列卡片列数。
     pub(super) content_width: f32,
     embedded: bool,
@@ -202,6 +204,7 @@ impl LauncherView {
         }
         LauncherView {
             model: LauncherModel::with_collapsed_groups(core.clone(), collapsed_groups),
+            mcp_levels: Self::load_mcp_levels(&core),
             core,
             search,
             scroll: ScrollHandle::new(),
@@ -221,6 +224,16 @@ impl LauncherView {
         }
     }
 
+    fn load_mcp_levels(core: &Core) -> HashMap<ProfileId, McpAccess> {
+        if kanso_mcp_server::supported() {
+            core.mcp_accesses()
+                .map(|v| v.into_iter().collect())
+                .unwrap_or_default()
+        } else {
+            HashMap::new()
+        }
+    }
+
     pub(super) fn collapsed_groups(&self) -> &HashSet<GroupId> {
         self.model.collapsed_groups()
     }
@@ -228,6 +241,7 @@ impl LauncherView {
     /// 供会话库打开或库变更后主动刷新列表。
     pub(super) fn reload(&mut self, cx: &mut Context<Self>) {
         self.model.reload();
+        self.mcp_levels = Self::load_mcp_levels(&self.core);
         if let LibraryFilter::Group(gid) = self.library_filter
             && !self.model.groups().iter().any(|g| g.id == gid)
         {
@@ -239,13 +253,23 @@ impl LauncherView {
 
     fn library_visible_profiles(&self) -> Vec<&Profile> {
         let needle = self.model.query().trim();
+        let searching = !needle.is_empty();
         let group_ids: HashSet<GroupId> = self.model.groups().iter().map(|g| g.id).collect();
+        let collapsed = self.model.collapsed_groups();
         self.model
             .all_profiles()
             .iter()
             .filter(|p| profile_matches(p, needle))
             .filter(|p| match self.library_filter {
-                LibraryFilter::All => true,
+                LibraryFilter::All => {
+                    if searching {
+                        return true;
+                    }
+                    match p.group.filter(|g| group_ids.contains(g)) {
+                        Some(gid) => !collapsed.contains(&gid),
+                        None => !self.ungrouped_collapsed,
+                    }
+                }
                 LibraryFilter::Ungrouped => p.group.is_none_or(|g| !group_ids.contains(&g)),
                 LibraryFilter::Group(gid) => p.group == Some(gid),
             })
@@ -728,6 +752,7 @@ impl LauncherView {
                 first_error = Some(core_error_text(&e));
             }
         }
+        self.mcp_levels = Self::load_mcp_levels(&self.core);
         cx.emit(LauncherEvent::LibraryChanged);
         cx.notify();
         if let Some(err) = first_error {

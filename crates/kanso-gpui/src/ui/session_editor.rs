@@ -823,6 +823,10 @@ impl SessionEditorView {
         let Some(mut model) = self.model.take() else {
             return;
         };
+        if model.kind == SessionKind::Local {
+            model.group = None;
+            model.edit_mcp_access(McpAccess::Off);
+        }
         self.refresh_visible_from(&model);
         self.saving = true;
         self.mcp_access.update(cx, |d, cx| d.set_disabled(true, cx));

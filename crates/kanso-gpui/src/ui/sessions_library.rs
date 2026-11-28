@@ -3,7 +3,7 @@
 //! 无内层左分组栏：左侧永远留给活跃标签栏（或顶部标签条），本视图直接在主工作区内
 //! 以顶部轻筛选胶囊 + 可折叠分组分片 + 宽屏自适应多列卡片（单卡 ~260px，1–5 列）呈现。
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use gpui::{
     ClickEvent, Context, FontWeight, Hsla, MouseButton, MouseDownEvent, Render, Window, div,
@@ -335,15 +335,6 @@ impl LauncherView {
             }
         }
 
-        let mcp_levels: HashMap<ProfileId, McpAccess> = if kanso_mcp_server::supported() {
-            self.core
-                .mcp_accesses()
-                .map(|v| v.into_iter().collect())
-                .unwrap_or_default()
-        } else {
-            HashMap::new()
-        };
-
         let mut body = div()
             .id("library-body")
             .flex_1()
@@ -599,15 +590,20 @@ impl LauncherView {
                         for chunk in slice.profiles.chunks(cols) {
                             let mut row = div().flex().gap(px(10.0));
                             for p in chunk {
-                                row = row.child(self.render_library_card(
-                                    card_seq,
-                                    p,
-                                    mcp_levels.get(&p.id).copied().unwrap_or(McpAccess::Off),
-                                    card_w,
-                                    selected == Some(p.id),
-                                    th,
-                                    cx,
-                                ));
+                                row = row.child(
+                                    self.render_library_card(
+                                        card_seq,
+                                        p,
+                                        self.mcp_levels
+                                            .get(&p.id)
+                                            .copied()
+                                            .unwrap_or(McpAccess::Off),
+                                        card_w,
+                                        selected == Some(p.id),
+                                        th,
+                                        cx,
+                                    ),
+                                );
                                 card_seq += 1;
                             }
                             section = section.child(row);

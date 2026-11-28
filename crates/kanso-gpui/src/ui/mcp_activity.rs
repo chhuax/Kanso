@@ -132,19 +132,37 @@ impl McpActivityView {
             }),
             cx.observe_window_activation(window, |this, window, cx| {
                 if window.is_window_active() {
-                    this.refresh_from_start(cx);
-                }
-            }),
-            cx.subscribe(&client_input, |this, input, event, cx| {
-                if matches!(event, TextInputEvent::Submit(_) | TextInputEvent::Blur) {
-                    let name = input.read(cx).text().trim();
-                    let client = (!name.is_empty()).then(|| name.to_owned());
-                    if client != this.filter.client {
-                        this.filter.client = client;
+                    this.refresh_session_data(cx);
+                    if this.filter.before_id.is_none() {
                         this.load_page(true, cx);
+                    } else {
+                        cx.notify();
                     }
                 }
             }),
+            cx.subscribe_in(
+                &client_input,
+                window,
+                |this, input, event, window, cx| match event {
+                    TextInputEvent::Submit(_) | TextInputEvent::Blur => {
+                        let name = input.read(cx).text().trim();
+                        let client = (!name.is_empty()).then(|| name.to_owned());
+                        if client != this.filter.client {
+                            this.filter.client = client;
+                            this.load_page(true, cx);
+                        }
+                    }
+                    TextInputEvent::Escape => {
+                        if this.confirm_clear {
+                            this.confirm_clear = false;
+                            cx.notify();
+                        } else {
+                            window.remove_window();
+                        }
+                    }
+                    _ => {}
+                },
+            ),
             cx.subscribe(&session_picker, |this, _, event, cx| {
                 if let DropdownEvent::Change(i) = event {
                     this.filter.profile = i
