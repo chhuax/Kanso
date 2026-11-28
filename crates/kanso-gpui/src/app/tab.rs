@@ -309,6 +309,14 @@ impl TabPresentation {
         (fnv1a64(&key) % palette_count as u64) as usize
     }
 
+    /// 已保存会话没有配置颜色时的默认调色板下标（与打开后的标签行颜色一致）。
+    pub fn profile_color_index(id: ProfileId, palette_count: usize) -> usize {
+        if palette_count == 0 {
+            return 0;
+        }
+        (fnv1a64(&id.to_string()) % palette_count as u64) as usize
+    }
+
     /// 路径筛选：query 去首尾空白后为空 → 匹配全部；否则只匹配本地且 cwd 已知的标签
     /// （SSH / SFTP 不拿名称冒充路径）。不区分大小写，`\` 与 `/` 视为同一分隔符，子串匹配。
     pub fn matches_path_filter(item: &TabItem, query: &str) -> bool {

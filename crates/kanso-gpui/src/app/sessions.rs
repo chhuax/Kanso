@@ -254,6 +254,11 @@ impl<S: ProfileStore> LauncherModel<S> {
         self.profiles.iter().find(|p| p.id == id)
     }
 
+    /// 全部已保存会话（不受当前搜索词影响，按名称自然排序）。
+    pub fn all_profiles(&self) -> &[Profile] {
+        &self.profiles
+    }
+
     /// 全部分组（按名称排序），"移到分组"菜单用。
     pub fn groups(&self) -> &[Group] {
         &self.groups

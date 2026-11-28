@@ -14,7 +14,23 @@ use kanso_mcp_server::{
     McpActivity, McpClientInfo, McpClientKind, McpServer, McpServerConfig, McpServerDelegate,
     McpServerStatus, McpUnavailable, client_config, powershell_client_config,
 };
-use kanso_secret::PlatformSecretStore;
+#[cfg(not(target_os = "macos"))]
+use kanso_secret::PlatformSecretStore as TokenStore;
+#[cfg(target_os = "macos")]
+struct TokenStore(std::sync::Mutex<Option<SecretString>>);
+#[cfg(target_os = "macos")]
+impl TokenStore {
+    fn new(_service: impl Into<String>) -> Self {
+        Self(std::sync::Mutex::new(None))
+    }
+    fn mcp_token(&self) -> Result<Option<SecretString>, kanso_secret::SecretError> {
+        Ok(self.0.lock().unwrap_or_else(|e| e.into_inner()).clone())
+    }
+    fn set_mcp_token(&self, token: &SecretString) -> Result<(), kanso_secret::SecretError> {
+        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(token.clone());
+        Ok(())
+    }
+}
 use kanso_types::event::SessionState;
 use kanso_types::message::Message;
 use kanso_types::secret::SecretString;
@@ -59,6 +75,9 @@ impl McpServerDelegate for Delegate {
 
 pub(super) struct TabOpened(pub(super) SessionId);
 pub(super) struct AuditChanged;
+pub(super) struct ShowActivity;
+
+impl EventEmitter<ShowActivity> for McpModel {}
 
 #[derive(Default)]
 struct TabMark {
@@ -70,7 +89,7 @@ struct TabMark {
 pub(super) struct McpModel {
     core: Arc<Core>,
     server: McpServer,
-    tokens: PlatformSecretStore,
+    tokens: TokenStore,
     token: Option<SecretString>,
     status: McpServerStatus,
     clients: Vec<McpClientInfo>,
@@ -394,21 +413,17 @@ fn accessible_profiles(core: &Core) -> HashSet<ProfileId> {
     }
 }
 
-fn open_server(
-    core: &Arc<Core>,
-    delegate: Arc<dyn McpServerDelegate>,
-) -> (McpServer, PlatformSecretStore) {
+fn open_server(core: &Arc<Core>, delegate: Arc<dyn McpServerDelegate>) -> (McpServer, TokenStore) {
     #[cfg(all(debug_assertions, feature = "direct"))]
     if let Some(path) = std::env::var_os("KANSO_MCP_DIR") {
         // 界面实测与转发程序使用同一测试目录。测试令牌也使用独立的凭据名称。
         let dir = PathBuf::from(path);
-        let tokens =
-            PlatformSecretStore::new(format!("{}/mcp-test/{}", core.bundle_id(), dir.display()));
+        let tokens = TokenStore::new(format!("{}/mcp-test/{}", core.bundle_id(), dir.display()));
         return (McpServer::new_in_dir(core.clone(), delegate, dir), tokens);
     }
     (
         McpServer::new(core.clone(), delegate),
-        PlatformSecretStore::new(core.bundle_id()),
+        TokenStore::new(core.bundle_id()),
     )
 }
 

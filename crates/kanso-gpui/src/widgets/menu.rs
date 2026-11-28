@@ -19,6 +19,10 @@ pub const PAD_Y: f32 = 5.0;
 pub const PAD_X: f32 = 5.0;
 /// 条目内部左侧留给勾选标记的宽度。
 pub const CHECK_W: f32 = 22.0;
+/// 前置彩色协议徽标宽度与右侧间距。
+pub const BADGE_W: f32 = 38.0;
+/// 徽标与文字之间的间距。
+pub const BADGE_GAP: f32 = 8.0;
 /// 条目内部右侧留给子菜单箭头的宽度。
 pub const ARROW_W: f32 = 22.0;
 /// 文字与右侧快捷键提示之间的最小间距。
@@ -30,6 +34,28 @@ pub const COL_W: f32 = 7.0;
 /// 子菜单与父菜单重叠的宽度。
 pub const SUBMENU_OVERLAP: f32 = 4.0;
 
+/// 菜单项前置徽标语义色调（区分本地 / SSH / SFTP 或会话专属色）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MenuBadgeTone {
+    /// 本地终端。
+    Local,
+    /// SSH 远程会话（默认色调）。
+    Ssh,
+    /// SFTP 文件会话（默认色调）。
+    Sftp,
+    /// 会话专属 RGB 颜色（`0xRRGGBB`，与会话卡片及标签色条一致）。
+    Custom(u32),
+}
+
+/// 菜单项前置彩色徽标。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MenuBadge {
+    /// 简短标签文字（如「本地」「SSH」「SFTP」）。
+    pub text: String,
+    /// 语义色调。
+    pub tone: MenuBadgeTone,
+}
+
 /// 菜单项。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MenuItem {
@@ -39,6 +65,8 @@ pub enum MenuItem {
         id: String,
         /// 显示文字。
         label: String,
+        /// 前置彩色协议徽标（可选）。
+        badge: Option<MenuBadge>,
         /// 右侧快捷键提示（例如 `Ctrl+C`），只做显示。
         shortcut: Option<String>,
         /// 是否可用。
@@ -65,6 +93,7 @@ impl MenuItem {
         MenuItem::Action {
             id: id.into(),
             label: label.into(),
+            badge: None,
             shortcut: None,
             enabled: true,
             checked: false,
@@ -83,6 +112,17 @@ impl MenuItem {
             enabled: true,
             items,
         }
+    }
+
+    /// 设置前置彩色徽标（仅对普通项有效）。
+    pub fn badge(mut self, text: impl Into<String>, tone: MenuBadgeTone) -> MenuItem {
+        if let MenuItem::Action { badge, .. } = &mut self {
+            *badge = Some(MenuBadge {
+                text: text.into(),
+                tone,
+            });
+        }
+        self
     }
 
     /// 设置快捷键提示（仅对普通项有效）。
@@ -146,10 +186,14 @@ impl MenuItem {
         match self {
             MenuItem::Separator => 0.0,
             MenuItem::Action {
-                label, shortcut, ..
+                label,
+                badge,
+                shortcut,
+                ..
             } => {
+                let badge_w = badge.as_ref().map_or(0.0, |_| BADGE_W + BADGE_GAP);
                 let sc = shortcut.as_deref().map_or(0.0, |s| text(s) + SHORTCUT_GAP);
-                CHECK_W + text(label) + sc + ARROW_W
+                CHECK_W + badge_w + text(label) + sc + ARROW_W
             }
             MenuItem::Submenu { label, .. } => CHECK_W + text(label) + ARROW_W,
         }

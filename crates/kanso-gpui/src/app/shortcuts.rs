@@ -7,7 +7,7 @@
 //!
 //! 这张表是**默认值**；用户改绑后的生效表在 [`crate::app::keybindings`]，[`lookup`] / [`shortcut_text`] 读那边。
 
-use kanso_types::SessionId;
+use kanso_types::{ProfileId, SessionId};
 
 use crate::app::workspace::CloseScope;
 use crate::keys::KeyInput;
@@ -23,6 +23,8 @@ pub enum AppCommand {
     OpenPalette,
     /// 打开新建会话对话框（ui-shell.md §7：Alt+N）。
     NewSession,
+    /// 直接连接指定的已保存会话（侧栏空白右键常用会话快捷项）。
+    ConnectProfile(ProfileId),
     /// 关闭当前会话（本地 shell 有前台命令时需要确认）。
     CloseSession,
     /// 当前分屏的下一个标签（循环）。
@@ -73,6 +75,8 @@ pub enum AppCommand {
     OpenDisplaySettings,
     /// 从视图菜单直接打开键盘快捷键页。
     OpenKeyboardSettings,
+    /// 打开 MCP 活动记录独立窗口。
+    OpenMcpActivity,
     /// 导出数据（`.kanso` 文件，会话菜单）。
     ExportData,
     /// 导入数据（`.kanso` 文件，会话菜单）。

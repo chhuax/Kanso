@@ -60,7 +60,8 @@ impl ShellView {
         panes
             .into_iter()
             .filter(|(pane, _)| !self.ctl.workspace().tabs_in(*pane).is_empty())
-            .map(|(pane, r)| self.render_tab_strip(pane, r, th, cx))
+            .enumerate()
+            .map(|(idx, (pane, r))| self.render_tab_strip(pane, r, idx == 0, th, cx))
             .collect()
     }
 
@@ -68,6 +69,7 @@ impl ShellView {
         &self,
         pane: PaneId,
         r: Rect,
+        show_sessions_entry: bool,
         th: Theme,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
@@ -152,6 +154,60 @@ impl ShellView {
             .bg(th.c("bg.sidebar"))
             .border_b_1()
             .border_color(th.c("border.subtle"))
+            .when(show_sessions_entry, |bar| {
+                bar.child(
+                    div()
+                        .id("tab-strip-sessions")
+                        .flex_none()
+                        .h(px(24.0))
+                        .ml(px(6.0))
+                        .px(px(8.0))
+                        .rounded(px(kanso_gpui::widgets::style::number("radius", "sm")))
+                        .flex()
+                        .items_center()
+                        .gap(px(5.0))
+                        .cursor_pointer()
+                        .text_size(px(12.0))
+                        .text_color(if self.sessions_library_open {
+                            th.c("text.primary")
+                        } else {
+                            th.c("text.secondary")
+                        })
+                        .when(self.sessions_library_open, |d| {
+                            d.bg(th.c("bg.tabSelected"))
+                                .border_1()
+                                .border_color(th.c("border.subtle"))
+                        })
+                        .hover(|s| s.bg(th.c("bg.rowHover")).text_color(th.c("text.primary")))
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _: &MouseDownEvent, window, cx| {
+                                cx.stop_propagation();
+                                this.toggle_sessions_library(window, cx);
+                            }),
+                        )
+                        .child(icon(
+                            "server",
+                            13.0,
+                            if self.sessions_library_open {
+                                th.c("accent")
+                            } else {
+                                th.c("text.secondary")
+                            },
+                        ))
+                        .child(kanso_gpui::app::i18n::t(
+                            &kanso_types::message::Message::UiSessionManager {},
+                        )),
+                )
+                .child(
+                    div()
+                        .flex_none()
+                        .w(px(1.0))
+                        .h(px(14.0))
+                        .mx(px(4.0))
+                        .bg(th.c("border.subtle")),
+                )
+            })
             .child(list)
             .child(
                 div()

@@ -6,6 +6,7 @@
 use crate::app::i18n::{label, t};
 use kanso_core::{CoreError, DeleteImpact};
 use kanso_types::geometry::Rgb;
+use kanso_types::mcp::McpAccess;
 use kanso_types::message::Message;
 use kanso_types::profile::{AuthMethod, Group, Profile, SessionKind};
 use kanso_types::{GroupId, ProfileId};
@@ -90,12 +91,39 @@ pub enum ProfileAction {
     Edit,
     /// 移到分组（`None` = 不分组）。
     Move(Option<GroupId>),
+    /// 设置单个会话的 MCP 访问级别。
+    McpAccess(McpAccess),
     /// 删除（需确认）。
     Delete,
 }
 
-/// 会话行菜单：编辑、移到分组、删除（ui-shell.md §4）。单击行或回车才连接。
-pub fn profile_menu(profile: &Profile, groups: &[Group]) -> Vec<MenuItem> {
+fn mcp_level_label(level: McpAccess) -> &'static str {
+    match level {
+        McpAccess::Off => label(Message::WinMcpAccessOff {}),
+        McpAccess::ReadOnly => label(Message::WinMcpAccessReadOnly {}),
+        McpAccess::Full => label(Message::WinMcpAccessFull {}),
+    }
+}
+
+fn mcp_level_id(level: McpAccess) -> &'static str {
+    match level {
+        McpAccess::Off => "mcp:off",
+        McpAccess::ReadOnly => "mcp:read-only",
+        McpAccess::Full => "mcp:full",
+    }
+}
+
+fn parse_mcp_level(id: &str) -> Option<McpAccess> {
+    match id {
+        "mcp:off" => Some(McpAccess::Off),
+        "mcp:read-only" => Some(McpAccess::ReadOnly),
+        "mcp:full" => Some(McpAccess::Full),
+        _ => None,
+    }
+}
+
+/// 会话行菜单：移到分组、MCP 访问（支持时）、删除；编辑由卡片一键铅笔按钮触发。
+pub fn profile_menu(profile: &Profile, groups: &[Group], mcp: Option<McpAccess>) -> Vec<MenuItem> {
     let mut moves = vec![
         MenuItem::action("move:none", label(Message::UiNoGroup {}))
             .checked(profile.group.is_none()),
@@ -104,16 +132,27 @@ pub fn profile_menu(profile: &Profile, groups: &[Group]) -> Vec<MenuItem> {
         MenuItem::action(format!("move:{}", g.id), g.name.clone())
             .checked(profile.group == Some(g.id))
     }));
-    vec![
-        MenuItem::action("edit", label(Message::UiEdit {})),
-        MenuItem::submenu(label(Message::UiMoveToGroup {}), moves),
-        MenuItem::separator(),
-        MenuItem::action("delete", label(Message::UiDelete {})),
-    ]
+    let mut items = vec![MenuItem::submenu(label(Message::UiMoveToGroup {}), moves)];
+    if let Some(current) = mcp {
+        let levels = [McpAccess::Off, McpAccess::ReadOnly, McpAccess::Full]
+            .into_iter()
+            .map(|level| {
+                MenuItem::action(mcp_level_id(level), mcp_level_label(level))
+                    .checked(level == current)
+            })
+            .collect();
+        items.push(MenuItem::submenu(label(Message::WinMcpAccess {}), levels));
+    }
+    items.push(MenuItem::separator());
+    items.push(MenuItem::action("delete", label(Message::UiDelete {})));
+    items
 }
 
 /// 解析会话行菜单回传的 id。
 pub fn parse_profile_action(id: &str) -> Option<ProfileAction> {
+    if let Some(level) = parse_mcp_level(id) {
+        return Some(ProfileAction::McpAccess(level));
+    }
     match id {
         "edit" => Some(ProfileAction::Edit),
         "delete" => Some(ProfileAction::Delete),
@@ -130,20 +169,34 @@ pub fn parse_profile_action(id: &str) -> Option<ProfileAction> {
 pub enum GroupAction {
     /// 重命名。
     Rename,
+    /// 批量设置整组会话的 MCP 访问级别。
+    McpAccess(McpAccess),
     /// 删除（需确认）。
     Delete,
 }
 
-/// 分组菜单。
-pub fn group_menu() -> Vec<MenuItem> {
-    vec![
-        MenuItem::action("rename", label(Message::UiRename {})),
-        MenuItem::action("delete", label(Message::UiDelete {})),
-    ]
+/// 分组菜单。`current_mcp` 为整组会话一致的 MCP 级别（组内级别混合或空组时为 `None`）。
+pub fn group_menu(show_mcp: bool, current_mcp: Option<McpAccess>) -> Vec<MenuItem> {
+    let mut items = vec![MenuItem::action("rename", label(Message::UiRename {}))];
+    if show_mcp {
+        let levels = [McpAccess::Off, McpAccess::ReadOnly, McpAccess::Full]
+            .into_iter()
+            .map(|level| {
+                MenuItem::action(mcp_level_id(level), mcp_level_label(level))
+                    .checked(current_mcp == Some(level))
+            })
+            .collect();
+        items.push(MenuItem::submenu(label(Message::WinMcpAccess {}), levels));
+    }
+    items.push(MenuItem::action("delete", label(Message::UiDelete {})));
+    items
 }
 
 /// 解析分组菜单回传的 id。
 pub fn parse_group_action(id: &str) -> Option<GroupAction> {
+    if let Some(level) = parse_mcp_level(id) {
+        return Some(GroupAction::McpAccess(level));
+    }
     match id {
         "rename" => Some(GroupAction::Rename),
         "delete" => Some(GroupAction::Delete),
@@ -160,7 +213,7 @@ pub enum SavedAction {
     ImportSshConfig,
 }
 
-/// "已保存的会话"菜单。
+/// "已保存的会话"更多菜单（新建分组、导入 OpenSSH 配置）。
 pub fn saved_menu() -> Vec<MenuItem> {
     vec![
         MenuItem::action("new-group", label(Message::UiNewGroup {})),
@@ -348,10 +401,12 @@ mod tests {
     fn profile_menu_round_trips_ids() {
         let (m, g) = model();
         let p = m.visible_profiles()[1].clone();
-        let items = profile_menu(&p, m.groups());
-        assert_eq!(items.len(), 4);
-        let MenuItem::Submenu { items: moves, .. } = &items[1] else {
-            panic!("第二项应是子菜单");
+        let items = profile_menu(&p, m.groups(), None);
+        assert_eq!(items.len(), 3);
+        let with_mcp = profile_menu(&p, m.groups(), Some(McpAccess::ReadOnly));
+        assert_eq!(with_mcp.len(), 4);
+        let MenuItem::Submenu { items: moves, .. } = &items[0] else {
+            panic!("第一项应是子菜单");
         };
         // 不分组 + 两个分组；当前所在分组带勾。
         assert_eq!(moves.len(), 3);
@@ -375,6 +430,10 @@ mod tests {
             parse_profile_action("move:none"),
             Some(ProfileAction::Move(None))
         );
+        assert_eq!(
+            parse_profile_action("mcp:read-only"),
+            Some(ProfileAction::McpAccess(McpAccess::ReadOnly))
+        );
         assert_eq!(parse_profile_action("connect"), None);
         assert_eq!(parse_profile_action("edit"), Some(ProfileAction::Edit));
         assert_eq!(parse_profile_action("delete"), Some(ProfileAction::Delete));
@@ -386,13 +445,18 @@ mod tests {
     fn group_and_saved_menus_parse() {
         assert_eq!(parse_group_action("rename"), Some(GroupAction::Rename));
         assert_eq!(parse_group_action("delete"), Some(GroupAction::Delete));
+        assert_eq!(
+            parse_group_action("mcp:full"),
+            Some(GroupAction::McpAccess(McpAccess::Full))
+        );
         assert_eq!(parse_group_action("x"), None);
         assert_eq!(parse_saved_action("new-group"), Some(SavedAction::NewGroup));
         assert_eq!(
             parse_saved_action("import-ssh"),
             Some(SavedAction::ImportSshConfig)
         );
-        assert_eq!(group_menu().len(), 2);
+        assert_eq!(group_menu(false, None).len(), 2);
+        assert_eq!(group_menu(true, Some(McpAccess::Off)).len(), 3);
         assert_eq!(saved_menu().len(), 2);
     }
 
