@@ -490,3 +490,21 @@ fn ps1_rewritten_by_hooks_keeps_user_ps1_and_bmark() {
         "退出码被用户 hook 冲掉：{out:?}"
     );
 }
+
+#[test]
+fn prompt_chips_emit_inline_chips_when_enabled() {
+    require_zsh!();
+    let fx = Fixture::new();
+    fx.write(".zshrc", BASE_ZSHRC);
+    let repo = fx.home.join("demo-repo");
+    fs::create_dir_all(repo.join(".git")).unwrap();
+    fs::write(repo.join(".git/HEAD"), "ref: refs/heads/feat/test\n").unwrap();
+
+    let out = Run::start(&fx, true, &[("KANSO_PROMPT_CHIPS", "1")])
+        .run(&[&format!("cd '{}'", repo.display()), "true"]);
+
+    assert!(out.contains("\x1b]777;kanso-chip;start\x07"), "{out:?}");
+    assert!(out.contains("feat/test"), "{out:?}");
+    assert!(out.contains("\r\n\x1b]133;A\x07"), "{out:?}");
+    assert!(!out.contains("\r\n\x1b]133;A\x07\r\n"), "{out:?}");
+}
