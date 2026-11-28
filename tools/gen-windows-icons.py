@@ -16,7 +16,7 @@ from pathlib import Path
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
-SRC = ROOT / "apple/Kanso/Resources/Assets.xcassets/AppIcon.appiconset/icon_512x512@2x.png"
+SRC = ROOT / "packaging/macos/AppIcon.iconset/icon_512x512@2x.png"
 OUT = ROOT / "crates/kanso-gpui/windows"
 
 src = Image.open(SRC).convert("RGBA")

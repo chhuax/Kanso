@@ -17,37 +17,37 @@
 
 ### 认得出 AI 工具的标签
 
-![运行 AI 工具的标签](apple/Tests/Snapshots/tab-row-agents-dark.png)
+![运行 AI 工具的标签](docs/screenshots/tab-row-agents-dark.png)
 
 标签里运行 AI 命令行工具时，图标换成该工具自己的标识；运行中有小圆点，后台标签跑完后会标记"已完成未查看"，一眼知道该看哪个。全屏的 AI 界面运行时，时间戳栏自动隐藏。
 
 ### 命令分块
 
-![命令分块](apple/Tests/Snapshots/command-blocks-dark.png)
+![命令分块](docs/screenshots/command-blocks-dark.png)
 
 每条命令连同输出组成一个块（基于 OSC 133，自带 zsh 集成）。失败的命令左侧有红色竖条，右键可以复制命令或输出，⌘↑ / ⌘↓ 在块之间跳转。
 
 ### 双栏 SFTP 文件浏览器
 
-![双栏 SFTP 浏览器](apple/Tests/Snapshots/sftp-dual-dark.png)
+![双栏 SFTP 浏览器](docs/screenshots/sftp-dual-dark.png)
 
 浏览本机目录或当前 SSH 会话所在的远程主机，两栏之间互传，与访达互相拖放，冲突时明确让你选择。远程编辑：下载文件、用你的编辑器打开、保存时自动上传；如果服务器上的文件期间被改过，会先问你再覆盖。
 
 ### Git 改动一目了然
 
-![Git 改动面板](apple/Tests/Snapshots/git-panel-dark.png)
+![Git 改动面板](docs/screenshots/git-panel-dark.png)
 
 标题栏显示当前 shell 所在仓库的 `+新增 −删除` 行数。打开面板看每个文件的内联差异，行内改动部分单独高亮；可以逐个文件撤销改动，也可以直接提交，不用离开终端。
 
 ### 懂你常用工具的补全
 
-![补全弹窗](apple/Tests/Snapshots/completion-popup-dark.png)
+![补全弹窗](docs/screenshots/completion-popup-dark.png)
 
 候选来自命令历史、本地路径，以及内置的 `git`、`kubectl`、`docker`、`systemctl`、`journalctl` 常用写法，kubeconfig 里的上下文和命名空间也能补全。
 
 ### 更好读的输出
 
-![语义着色](apple/Tests/Snapshots/semantic-color-dark.png)
+![语义着色](docs/screenshots/semantic-color-dark.png)
 
 可选的语义着色会在普通命令输出里标出路径、文件名、哈希、IP、URL 和表头。可选的时间栏为每一行显示时间戳和行号。
 
@@ -74,16 +74,15 @@ xattr -dr com.apple.quarantine /Applications/Kanso.app
 
 ## 从源码构建
 
-安装 Xcode 16 或更高版本、[rustup](https://rustup.rs/) 和 XcodeGen。Rust **1.94.1** 和 `aarch64-apple-darwin`、`x86_64-apple-darwin` 两个目标已在 `rust-toolchain.toml` 中固定，会自动安装。
+安装 [rustup](https://rustup.rs/)。Rust **1.94.1** 和 `aarch64-apple-darwin`、`x86_64-apple-darwin` 两个目标已在 `rust-toolchain.toml` 中固定，会自动安装。
 
 ```sh
-brew install xcodegen
-cargo xtask apple-build --channel direct              # Debug 构建
+cargo build -p kanso-gpui                              # Debug 构建
 cargo xtask dmg                                       # Release 构建并在 target/dist/ 生成 arm64 dmg（Intel 包加 --arch x86_64）
 cargo install cargo-deny --locked && cargo xtask ci   # 全部检查、构建与测试
 ```
 
-Debug 版在 `target/apple/DerivedData.noindex/Build/Products/Debug-Direct/Kanso.app`（Intel 机器上是 `DerivedData-x86_64.noindex`；默认按本机架构构建）。依赖变化后运行 `cargo xtask notices` 重新生成 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。更多细节见 [docs/apple-build.md](docs/apple-build.md)。
+Release DMG 输出在 `target/dist/Kanso-<版本>-macOS-<架构>.dmg`（默认按本机架构构建）。依赖变化后运行 `cargo xtask notices` 重新生成 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 ## 路线图
 

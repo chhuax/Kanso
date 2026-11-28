@@ -35,11 +35,11 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-deny
-      - name: Check Rust, bindings, tokens and locales
-        run: cargo xtask ci --skip-apple
+      - name: Check Rust, tokens and locales
+        run: cargo xtask ci
 
   # Rust 核心三平台共享；Linux 同时构建 GPUI 并运行隔离窗口自检。
-  # 绑定校验、Apple 构建、渠道矩阵、c-abi 与 cargo deny 仅在 macOS job 中执行。
+  # 渠道矩阵测试与 cargo deny 仅在 macOS job 中执行。
   rust-portable:
     name: rust (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

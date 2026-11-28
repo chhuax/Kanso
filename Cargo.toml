@@ -28,7 +28,6 @@ kanso-complete = { path = "crates/kanso-complete" }
 kanso-license = { path = "crates/kanso-license", default-features = false }
 kanso-session = { path = "crates/kanso-session" }
 kanso-core = { path = "crates/kanso-core", default-features = false }
-kanso-ffi = { path = "crates/kanso-ffi" }
 kanso-mcp-server = { path = "crates/kanso-mcp-server", default-features = false }
 kanso-mcp = { path = "crates/kanso-mcp" }
 kanso-frame = { path = "crates/kanso-frame" }
@@ -48,9 +47,6 @@ rusqlite = { version = "0.41", features = ["bundled"] }
 tempfile = "3"
 # 帧快照的结构体与字节互转，避免手写 unsafe（许可：Zlib / MIT / Apache-2.0）。
 bytemuck = { version = "1", features = ["derive"] }
-# FFI 控制面（仅 kanso-ffi 与 uniffi-bindgen 使用；MPL-2.0，已在 deny.toml 放行，见 architecture §15）。
-# 关闭默认 feature：cargo-metadata 只在 bindgen 工具里用到，库侧不需要。
-uniffi = { version = "0.32", default-features = false }
 # 仅 xtask 用于解析 .ftl 做多语言校验（Apache-2.0 / MIT）。
 fluent-syntax = "0.12"
 # core 消息的运行时渲染（kanso-l10n）。许可：Apache-2.0 / MIT；用其 `concurrent` 版本以便跨线程共享。

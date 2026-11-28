@@ -1,9 +1,9 @@
 //! 发布辅助命令（`cargo xtask release`）：版本升级与带硬校验的标签推送。
 //!
 //! 之所以收进 xtask 而不是手工拼命令行，是为了在发版前强制检查所有易错点：
-//! - `bump` 同步更新 `Cargo.toml`、`apple/project.yml` 与 `Cargo.lock`，并用 `--locked` 兜底；
-//! - `tag` 强制先从远端拉取最新 `main`，直接从目标 commit 对象读取 `Cargo.toml`、
-//!   `apple/project.yml` 与 `Cargo.lock` 逐项核对版本号一致，并确认本地与远端都不存在同名标签，
+//! - `bump` 同步更新 `Cargo.toml` 与 `Cargo.lock`，并用 `--locked` 兜底；
+//! - `tag` 强制先从远端拉取最新 `main`，直接从目标 commit 对象读取 `Cargo.toml`
+//!   与 `Cargo.lock` 逐项核对版本号一致，并确认本地与远端都不存在同名标签，
 //!   任何一步失败即中止，避免打在过期提交或触发受保护标签误推。
 
 use std::fs;
@@ -27,8 +27,8 @@ pub fn dispatch(args: &[String]) -> ExitCode {
 fn release_usage() {
     eprintln!(
         "用法：\n  \
-         cargo xtask release bump <版本> [--build <构建号>]\n      \
-             更新 Cargo.toml、apple/project.yml 与 Cargo.lock（默认将 CURRENT_PROJECT_VERSION 加 1）\n  \
+         cargo xtask release bump <版本>\n      \
+             更新 Cargo.toml 与 Cargo.lock\n  \
          cargo xtask release tag <版本> [--remote <远端名>] [--dry-run]\n      \
              拉取远端 main，校验目标提交内版本号一致且标签不存在，再打 annotated tag 并推送"
     );
@@ -137,72 +137,6 @@ fn rewrite_workspace_version(content: &str, new_ver: &str) -> Result<String, Str
     Ok(out)
 }
 
-/// 从 `apple/project.yml` 文本中读取 `(MARKETING_VERSION, CURRENT_PROJECT_VERSION)`。
-fn parse_apple_versions(content: &str) -> Result<(String, u32), String> {
-    let mut marketing = None;
-    let mut build = None;
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("MARKETING_VERSION:") {
-            let val = rest.trim().trim_matches('"');
-            if !val.is_empty() {
-                marketing = Some(val.to_string());
-            }
-        } else if let Some(rest) = trimmed.strip_prefix("CURRENT_PROJECT_VERSION:") {
-            let val = rest.trim().trim_matches('"');
-            let num: u32 = val
-                .parse()
-                .map_err(|_| format!("apple/project.yml 构建号不是正整数：{val}"))?;
-            if num == 0 {
-                return Err("apple/project.yml 构建号必须大于 0".into());
-            }
-            build = Some(num);
-        }
-    }
-    let marketing =
-        marketing.ok_or_else(|| "apple/project.yml 中未找到 MARKETING_VERSION".to_string())?;
-    let build =
-        build.ok_or_else(|| "apple/project.yml 中未找到 CURRENT_PROJECT_VERSION".to_string())?;
-    Ok((marketing, build))
-}
-
-/// 替换 `apple/project.yml` 中的 `MARKETING_VERSION` 与 `CURRENT_PROJECT_VERSION`。
-fn rewrite_apple_versions(content: &str, new_ver: &str, new_build: u32) -> Result<String, String> {
-    let mut replaced_marketing = false;
-    let mut replaced_build = false;
-    let mut out = String::with_capacity(content.len() + 16);
-    for segment in content.split_inclusive('\n') {
-        let (line, ending) = match segment.strip_suffix("\r\n") {
-            Some(l) => (l, "\r\n"),
-            None => match segment.strip_suffix('\n') {
-                Some(l) => (l, "\n"),
-                None => (segment, ""),
-            },
-        };
-        let indent_len = line.len() - line.trim_start().len();
-        let indent = &line[..indent_len];
-        let trimmed = &line[indent_len..];
-        if !replaced_marketing && trimmed.starts_with("MARKETING_VERSION:") {
-            out.push_str(&format!("{indent}MARKETING_VERSION: \"{new_ver}\""));
-            out.push_str(ending);
-            replaced_marketing = true;
-            continue;
-        }
-        if !replaced_build && trimmed.starts_with("CURRENT_PROJECT_VERSION:") {
-            out.push_str(&format!("{indent}CURRENT_PROJECT_VERSION: \"{new_build}\""));
-            out.push_str(ending);
-            replaced_build = true;
-            continue;
-        }
-        out.push_str(line);
-        out.push_str(ending);
-    }
-    if !replaced_marketing || !replaced_build {
-        return Err("apple/project.yml 中缺少 MARKETING_VERSION 或 CURRENT_PROJECT_VERSION".into());
-    }
-    Ok(out)
-}
-
 /// 从 `Cargo.lock` 文本中读取指定工作区包的 `version`。
 fn parse_lock_package_version(content: &str, pkg_name: &str) -> Result<String, String> {
     let mut in_pkg = false;
@@ -241,49 +175,19 @@ fn bump(args: &[String]) -> ExitCode {
         eprintln!("参数错误：{e}");
         return ExitCode::FAILURE;
     }
-
-    let mut build_override: Option<u32> = None;
-    let mut i = 1;
-    while i < args.len() {
-        match args[i].as_str() {
-            "--build" => {
-                i += 1;
-                let Some(raw) = args.get(i) else {
-                    eprintln!("参数错误：--build 缺少正整数参数");
-                    return ExitCode::FAILURE;
-                };
-                match raw.parse::<u32>() {
-                    Ok(n) if n > 0 => build_override = Some(n),
-                    _ => {
-                        eprintln!("参数错误：--build 必须为正整数，收到 {raw}");
-                        return ExitCode::FAILURE;
-                    }
-                }
-            }
-            other => {
-                eprintln!("未知参数：{other}");
-                release_usage();
-                return ExitCode::FAILURE;
-            }
-        }
-        i += 1;
+    if let Some(other) = args.get(1) {
+        eprintln!("未知参数：{other}");
+        release_usage();
+        return ExitCode::FAILURE;
     }
 
     let root = repo_root();
     let cargo_path = root.join("Cargo.toml");
-    let apple_path = root.join("apple/project.yml");
 
     let cargo_text = match fs::read_to_string(&cargo_path) {
         Ok(t) => t,
         Err(e) => {
             eprintln!("无法读取 {}：{e}", cargo_path.display());
-            return ExitCode::FAILURE;
-        }
-    };
-    let apple_text = match fs::read_to_string(&apple_path) {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("无法读取 {}：{e}", apple_path.display());
             return ExitCode::FAILURE;
         }
     };
@@ -295,23 +199,8 @@ fn bump(args: &[String]) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let (old_apple_ver, old_build) = match parse_apple_versions(&apple_text) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("{e}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let new_build = build_override.unwrap_or(old_build + 1);
 
     let updated_cargo = match rewrite_workspace_version(&cargo_text, new_ver) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("{e}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let updated_apple = match rewrite_apple_versions(&apple_text, new_ver, new_build) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("{e}");
@@ -321,10 +210,6 @@ fn bump(args: &[String]) -> ExitCode {
 
     if let Err(e) = fs::write(&cargo_path, updated_cargo) {
         eprintln!("写入 {} 失败：{e}", cargo_path.display());
-        return ExitCode::FAILURE;
-    }
-    if let Err(e) = fs::write(&apple_path, updated_apple) {
-        eprintln!("写入 {} 失败：{e}", apple_path.display());
         return ExitCode::FAILURE;
     }
 
@@ -355,9 +240,8 @@ fn bump(args: &[String]) -> ExitCode {
 
     eprintln!(
         "\n版本已更新：\n  \
-         Cargo.toml:        {old_cargo_ver} -> {new_ver}\n  \
-         apple/project.yml: {old_apple_ver} (build {old_build}) -> {new_ver} (build {new_build})\n  \
-         Cargo.lock:        已同步并通过 --locked 校验\n\n\
+         Cargo.toml: {old_cargo_ver} -> {new_ver}\n  \
+         Cargo.lock: 已同步并通过 --locked 校验\n\n\
          下一步：检查 `git diff`、提交并经 PR 合并到 main，然后执行：\n  \
          cargo xtask release tag {new_ver}"
     );
@@ -442,7 +326,7 @@ fn tag(args: &[String]) -> ExitCode {
         }
     };
 
-    // 3. 直接从目标提交读取 Cargo.toml / apple/project.yml / Cargo.lock 校验版本号。
+    // 3. 直接从目标提交读取 Cargo.toml / Cargo.lock 校验版本号。
     let cargo_spec = format!("{sha}:Cargo.toml");
     let cargo_toml = match git_output(&root, &["show", &cargo_spec]) {
         Ok(s) => s,
@@ -462,28 +346,6 @@ fn tag(args: &[String]) -> ExitCode {
         eprintln!(
             "中止：远端 {remote}/main（{subject}）的 Cargo.toml 版本为 {cargo_ver}，与待打标签 {tag_name} 不一致。\n\
              请先通过 PR 合并版本更新提交到 main。"
-        );
-        return ExitCode::FAILURE;
-    }
-
-    let apple_spec = format!("{sha}:apple/project.yml");
-    let apple_yml = match git_output(&root, &["show", &apple_spec]) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("{e}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let (apple_ver, apple_build) = match parse_apple_versions(&apple_yml) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("目标提交 {sha} 的 apple/project.yml 校验失败：{e}");
-            return ExitCode::FAILURE;
-        }
-    };
-    if apple_ver != *ver {
-        eprintln!(
-            "中止：远端 {remote}/main（{subject}）的 apple/project.yml 版本为 {apple_ver}，与待打标签 {tag_name} 不一致。"
         );
         return ExitCode::FAILURE;
     }
@@ -539,12 +401,11 @@ fn tag(args: &[String]) -> ExitCode {
 
     eprintln!(
         "\n发布前校验全部通过：\n  \
-         目标分支:          {remote}/main\n  \
-         目标提交:          {subject} ({sha})\n  \
-         Cargo.toml:        {cargo_ver}\n  \
-         apple/project.yml: {apple_ver} (build {apple_build})\n  \
-         Cargo.lock:        kanso-core {lock_ver}\n  \
-         待建标签:          {tag_name}"
+         目标分支:   {remote}/main\n  \
+         目标提交:   {subject} ({sha})\n  \
+         Cargo.toml: {cargo_ver}\n  \
+         Cargo.lock: kanso-core {lock_ver}\n  \
+         待建标签:   {tag_name}"
     );
 
     if dry_run {
@@ -612,22 +473,6 @@ serde = { version = \"1\" }
         let dst = rewrite_workspace_version(src, "1.0.9").unwrap();
         assert_eq!(parse_workspace_version(&dst).unwrap(), "1.0.9");
         assert!(dst.contains("serde = { version = \"1\" }"));
-    }
-
-    #[test]
-    fn rewrite_apple_versions_preserves_indent() {
-        let src = "\
-settings:
-  base:
-    CODE_SIGN_STYLE: Manual
-    MARKETING_VERSION: \"1.0.10\"
-    CURRENT_PROJECT_VERSION: \"11\"
-";
-        assert_eq!(parse_apple_versions(src).unwrap(), ("1.0.10".into(), 11));
-        let dst = rewrite_apple_versions(src, "1.0.9", 10).unwrap();
-        assert_eq!(parse_apple_versions(&dst).unwrap(), ("1.0.9".into(), 10));
-        assert!(dst.contains("    MARKETING_VERSION: \"1.0.9\""));
-        assert!(dst.contains("    CURRENT_PROJECT_VERSION: \"10\""));
     }
 
     #[test]

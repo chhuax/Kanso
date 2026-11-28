@@ -213,50 +213,6 @@ fn check_source(file: &str, src: &str, expected: &Expected) -> Vec<String> {
     errors
 }
 
-/// 校验 `Localizable.xcstrings`：每个键都有 `en` 与 `zh-Hans`，且 `state` 为 `translated`。
-fn check_xcstrings(path: &std::path::Path) -> Vec<String> {
-    let raw = match fs::read_to_string(path) {
-        Ok(s) => s,
-        Err(e) => return vec![format!("{}：无法读取（{e}）", path.display())],
-    };
-    let value: serde_json::Value = match serde_json::from_str(&raw) {
-        Ok(v) => v,
-        Err(e) => return vec![format!("{}：JSON 无效（{e}）", path.display())],
-    };
-    let Some(strings) = value.get("strings").and_then(|v| v.as_object()) else {
-        return vec![format!("{}：缺少 strings 对象", path.display())];
-    };
-    let mut errors = vec![];
-    for (key, entry) in strings {
-        let locs = entry.get("localizations").and_then(|v| v.as_object());
-        let Some(locs) = locs else {
-            errors.push(format!("{key}：缺少 localizations"));
-            continue;
-        };
-        for lang in ["en", "zh-Hans"] {
-            let Some(unit) = locs
-                .get(lang)
-                .and_then(|v| v.get("stringUnit"))
-                .and_then(|v| v.as_object())
-            else {
-                errors.push(format!("{key}：缺少 {lang}"));
-                continue;
-            };
-            let state = unit.get("state").and_then(|v| v.as_str()).unwrap_or("");
-            let value = unit.get("value").and_then(|v| v.as_str());
-            if state != "translated" {
-                errors.push(format!(
-                    "{key}：{lang} 的 state 为 `{state}`，应为 translated"
-                ));
-            }
-            if value.is_none() {
-                errors.push(format!("{key}：{lang} 缺少 value"));
-            }
-        }
-    }
-    errors
-}
-
 /// `cargo xtask check-locales`。
 pub fn check() -> ExitCode {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -290,14 +246,9 @@ pub fn check() -> ExitCode {
         }
     }
 
-    let xcstrings = root.join("apple/Kanso/Resources/Localizable.xcstrings");
-    let xc_errors = check_xcstrings(&xcstrings);
-    let xc_ok = xc_errors.is_empty();
-    errors.extend(xc_errors);
-
     if errors.is_empty() {
         eprintln!(
-            "check-locales：通过（{} 种语言，{} 条消息；xcstrings 齐全）",
+            "check-locales：通过（{} 种语言，{} 条消息）",
             files.len(),
             expected.len()
         );
@@ -306,9 +257,6 @@ pub fn check() -> ExitCode {
         eprintln!("check-locales：发现 {} 个问题", errors.len());
         for e in &errors {
             eprintln!("  - {e}");
-        }
-        if !xc_ok {
-            eprintln!("  （含 Localizable.xcstrings）");
         }
         ExitCode::FAILURE
     }
