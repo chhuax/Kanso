@@ -370,6 +370,10 @@ messages! {
     UiPowerShellColorPrompt = "ui-powershell-color-prompt" {},
     /// 提示符样式对新会话生效的说明。
     UiPowerShellColorPromptHint = "ui-powershell-color-prompt-hint" {},
+    /// zsh 增强提示符（目录与 Git 分支）开关。
+    UiZshPromptChips = "ui-zsh-prompt-chips" {},
+    /// zsh 增强提示符对新会话生效的说明。
+    UiZshPromptChipsHint = "ui-zsh-prompt-chips-hint" {},
     /// GPUI 界面文字：界面语言
     UiInterfaceLanguage = "ui-interface-language" {},
     /// GPUI 界面文字：切换后立即生效；“跟随系统”按系统界面语言选择，不支持的语言显示英文。

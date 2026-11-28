@@ -16,8 +16,8 @@ mod shim;
 pub use command::{CommandSpec, Platform, resolve_command};
 pub use cwd::process_cwd;
 pub use env::{
-    ENV_SHELL_INTEGRATION, ENV_USER_ZDOTDIR, EnvChange, EnvOptions, EnvSnapshot, FORCED_ENV,
-    REMOVED_ALWAYS, REMOVED_WHEN_FALSEY, ZshIntegration, build_env,
+    ENV_PROMPT_CHIPS, ENV_SHELL_INTEGRATION, ENV_USER_ZDOTDIR, EnvChange, EnvOptions, EnvSnapshot,
+    FORCED_ENV, REMOVED_ALWAYS, REMOVED_WHEN_FALSEY, ZshIntegration, build_env,
 };
 pub use error::PtyError;
 pub use locale::{SystemLocaleInfo, decide_locale, system_locale_exists};

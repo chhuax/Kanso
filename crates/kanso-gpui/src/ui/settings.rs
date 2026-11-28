@@ -1393,6 +1393,28 @@ impl Render for SettingsView {
                             caption(&th, label(Message::UiPowerShellColorPromptHint {})),
                         ],
                     ));
+                } else {
+                    let enabled = self.model.read(cx).store.zsh_prompt_chips();
+                    cards.push(card(
+                        &th,
+                        label(Message::UiLocalShell {}),
+                        "square-terminal",
+                        vec![
+                            check_row(
+                                &th,
+                                render_message(&Message::UiZshPromptChips {}),
+                                checkbox(&th, cx, "zsh-prompt-chips", enabled, |this, on, cx| {
+                                    if let Err(error) =
+                                        this.model.read(cx).store.set_zsh_prompt_chips(on)
+                                    {
+                                        log(&format!("保存增强提示符设置失败：{error}"));
+                                    }
+                                    cx.notify();
+                                }),
+                            ),
+                            caption(&th, label(Message::UiZshPromptChipsHint {})),
+                        ],
+                    ));
                 }
                 cards
             }

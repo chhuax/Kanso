@@ -408,6 +408,8 @@ ui-follow-system = 跟随系统
 ui-language = 语言
 ui-powershell-color-prompt = 彩色 PowerShell 提示符
 ui-powershell-color-prompt-hint = 对新开的 PowerShell 会话生效。
+ui-zsh-prompt-chips = 增强提示符（目录与 Git 分支）
+ui-zsh-prompt-chips-hint = 仅对新打开的本地终端生效，不修改用户的 shell 配置文件。
 
 ui-interface-language = 界面语言
 

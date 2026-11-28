@@ -13,6 +13,8 @@ pub const ENV_USER_ZDOTDIR: &str = "KANSO_USER_ZDOTDIR";
 
 /// 提示符集成开关：`0` 时 shim 只加载用户文件，不注册 hook、不改提示符。
 pub const ENV_SHELL_INTEGRATION: &str = "KANSO_SHELL_INTEGRATION";
+/// 本地 zsh 增强提示符开关：`1` 时插入目录 / Git 分支等标签行，否则保留用户原 `PS1`。
+pub const ENV_PROMPT_CHIPS: &str = "KANSO_PROMPT_CHIPS";
 
 /// **覆盖**：无条件设置为固定值（不论父进程里是什么）。
 /// `TERM_PROGRAM_VERSION`、locale 与 zsh 集成的变量取决于调用方传入的选项，见 [`build_env`]。
