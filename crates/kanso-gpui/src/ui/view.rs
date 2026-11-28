@@ -7,9 +7,9 @@ use std::time::Duration;
 
 use gpui::{
     App, Bounds, ClipboardItem, Context, Entity, EntityInputHandler, EventEmitter, ExternalPaths,
-    FocusHandle, Focusable, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, Pixels, Point, ScrollWheelEvent, Subscription, UTF16Selection, Window, div,
-    point, prelude::*, px, rgb, size,
+    FocusHandle, Focusable, KeyDownEvent, ModifiersChangedEvent, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollWheelEvent, Subscription, UTF16Selection,
+    Window, div, point, prelude::*, px, rgb, size,
 };
 use kanso_core::{Core, CoreError};
 use kanso_frame::{CommandBlock, Frame};
@@ -102,6 +102,18 @@ fn kmods(m: &gpui::Modifiers) -> Modifiers {
         alt_right: false,
         meta: m.platform,
     }
+}
+
+fn link_modifier(mods: &gpui::Modifiers) -> bool {
+    if cfg!(target_os = "macos") {
+        mods.platform && !mods.control && !mods.alt
+    } else {
+        mods.control && !mods.platform && !mods.alt
+    }
+}
+
+fn link_hover_blocked(mouse_reporting: bool, mods: &gpui::Modifiers, active: bool) -> bool {
+    mouse_reporting && !(mods.shift || (cfg!(target_os = "macos") && active))
 }
 
 /// 终端视图向外壳报告的事件。
@@ -659,12 +671,16 @@ impl TerminalView {
     /// 指针下的链接：先看 OSC 8 超链接，再从屏幕文字里识别 URL。
     fn link_at(&self, pos: Point<Pixels>) -> Option<LinkHit> {
         let p = self.grid_point(pos);
+        self.link_at_cell(p.row, p.col)
+    }
+
+    fn link_at_cell(&self, row: u16, col: u16) -> Option<LinkHit> {
         let frame = self.frame.as_ref()?;
         let view = frame.view().ok()?;
-        if let Some(id) = hyperlink_at(&view, p.row, p.col) {
+        if let Some(id) = hyperlink_at(&view, row, col) {
             let url = self.core.hyperlink_url(self.session, id)?;
-            let same = |c: u16| hyperlink_at(&view, p.row, c) == Some(id);
-            let (mut c0, mut c1) = (p.col, p.col + 1);
+            let same = |c: u16| hyperlink_at(&view, row, c) == Some(id);
+            let (mut c0, mut c1) = (col, col + 1);
             while c0 > 0 && same(c0 - 1) {
                 c0 -= 1;
             }
@@ -673,13 +689,13 @@ impl TerminalView {
             }
             return Some(LinkHit {
                 url,
-                segments: vec![(p.row, c0, c1)],
+                segments: vec![(row, c0, c1)],
             });
         }
-        url_at(&line_texts(&view), usize::from(p.row), usize::from(p.col))
+        url_at(&line_texts(&view), usize::from(row), usize::from(col))
     }
 
-    /// Ctrl+点击：指针下有链接就用系统默认程序打开，返回是否处理了这次点击。
+    /// macOS ⌘+点击 / 其他平台 Ctrl+点击：指针下有链接就用系统默认程序打开，返回是否处理了这次点击。
     fn try_open_link(&mut self, pos: Point<Pixels>, cx: &mut Context<Self>) -> bool {
         let Some(link) = self.link_at(pos) else {
             return false;
@@ -699,27 +715,58 @@ impl TerminalView {
     }
 
     fn update_hover(&mut self, ev: &MouseMoveEvent, cx: &mut Context<Self>) {
-        let ctrl = ev.modifiers.control;
-        if ctrl != self.ctrl_down {
-            self.ctrl_down = ctrl;
-            if self.hover.is_some() {
-                cx.notify();
-            }
+        let active = link_modifier(&ev.modifiers);
+        let mod_changed = active != self.ctrl_down;
+        if mod_changed {
+            self.ctrl_down = active;
         }
         let p = self.grid_point(ev.position);
         let cell = (p.row, p.col);
-        if self.hover_cell == Some(cell) {
+        if self.hover_cell == Some(cell) && !(mod_changed && self.mouse_reporting()) {
+            if mod_changed && self.hover.is_some() {
+                cx.notify();
+            }
             return;
         }
         self.hover_cell = Some(cell);
-        let blocked = self.mouse_reporting() && !ev.modifiers.shift;
+        let blocked = link_hover_blocked(self.mouse_reporting(), &ev.modifiers, active);
         let new = if blocked {
             None
         } else {
-            self.link_at(ev.position)
+            self.link_at_cell(p.row, p.col)
         };
-        if new != self.hover {
+        if new != self.hover || (mod_changed && (new.is_some() || self.hover.is_some())) {
             self.hover = new;
+            cx.notify();
+        }
+    }
+
+    fn on_modifiers_changed(
+        &mut self,
+        ev: &ModifiersChangedEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let active = link_modifier(&ev.modifiers);
+        if active != self.ctrl_down {
+            self.ctrl_down = active;
+        }
+        let mut changed = false;
+        if self.mouse_reporting()
+            && let Some((row, col)) = self.hover_cell
+        {
+            let blocked = link_hover_blocked(true, &ev.modifiers, active);
+            let new = if blocked {
+                None
+            } else {
+                self.link_at_cell(row, col)
+            };
+            if new != self.hover {
+                self.hover = new;
+                changed = true;
+            }
+        }
+        if changed || self.hover.is_some() {
             cx.notify();
         }
     }
@@ -924,15 +971,16 @@ impl TerminalView {
         self.focus.focus(window);
         match ev.button {
             MouseButton::Left => {
-                // 程序没有接管鼠标（或按住 Shift 绕过）时，终端自己处理：左侧折叠按钮、Ctrl+点击开链接。
+                // 程序没有接管鼠标（或按住 Shift 绕过）时，终端自己处理：左侧折叠按钮、macOS ⌘+点击 / 其他平台 Ctrl+点击开链接。
                 let reporting = self.mouse_reporting() && !ev.modifiers.shift;
-                if !reporting {
-                    if ev.click_count == 1 && self.try_toggle_fold(ev.position, cx) {
-                        return;
-                    }
-                    if ev.modifiers.control && self.try_open_link(ev.position, cx) {
-                        return;
-                    }
+                if !reporting && ev.click_count == 1 && self.try_toggle_fold(ev.position, cx) {
+                    return;
+                }
+                if (!reporting || cfg!(target_os = "macos"))
+                    && link_modifier(&ev.modifiers)
+                    && self.try_open_link(ev.position, cx)
+                {
+                    return;
                 }
                 self.left_down = true;
                 self.local_select = !reporting;
@@ -1108,6 +1156,7 @@ impl Render for TerminalView {
             .key_context("Terminal")
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key_down))
+            .on_modifiers_changed(cx.listener(Self::on_modifiers_changed))
             .on_scroll_wheel(cx.listener(Self::on_scroll))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_down(MouseButton::Right, cx.listener(Self::on_mouse_down))
