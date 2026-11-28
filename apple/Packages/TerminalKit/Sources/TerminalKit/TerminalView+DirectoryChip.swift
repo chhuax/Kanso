@@ -5,6 +5,9 @@ extension TerminalView {
     public override func resetCursorRects() {
         super.resetCursorRects()
         addCursorRect(bounds, cursor: .iBeam)
+        for rect in linkCursorRects() {
+            addCursorRect(rect, cursor: .pointingHand)
+        }
         guard onDirectoryChipClick != nil, isDirectoryChangeAvailable,
               let frame = currentFrame, let block = frame.commandBlocks.last, let geometry = hitGeometry() else { return }
         for row in 0..<frame.rows {

@@ -40,6 +40,7 @@ final class TerminalHost {
         view.frameSource = frameSource
         view.inputSink = inputSink
         view.editActions = editActions
+        view.hyperlinkResolver = { core.hyperlinkUrl(sessionId: session, id: $0) }
         completion = CompletionController(view: view, sink: inputSink,
             reader: CompletionSourceReader.live(core: core, session: session, remote: remote,
                 environment: ProcessInfo.processInfo.environment,

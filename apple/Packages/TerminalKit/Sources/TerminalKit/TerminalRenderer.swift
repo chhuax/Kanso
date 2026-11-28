@@ -92,6 +92,7 @@ public final class TerminalRenderer {
     /// 只影响绘制，不改帧：闪烁不需要向 core 取新帧。
     public var isCursorPhaseVisible = true
     var selectedCommandBlock: UInt64?
+    var hoveredLink: TerminalLinkHit?
 
     /// 顶部让出的高度（pt）。全尺寸内容视图下标题栏会盖住顶部，由视图按 `safeAreaInsets.top` 设置。
     public var topInset: CGFloat = 0
@@ -668,6 +669,20 @@ public final class TerminalRenderer {
                     bgInstances.append(rect(x + 1, y + 1, right - x - 2, height - 2, Self.vec(palette.chipBackground), style: 4,
                                             params: SIMD4(0, max(0, radius - 1), 0, 0)))
                 }
+            }
+        }
+
+        // ---- 悬停链接下划线 ----
+        if let hoveredLink {
+            let color = Self.vec(palette.foreground)
+            for segment in hoveredLink.segments where segment.row >= 0 && segment.row < rows {
+                let start = max(0, segment.startCol)
+                let end = min(cols, segment.endCol)
+                guard end > start else { continue }
+                encodeUnderline(
+                    style: 1, x: l.originX + start * m.cellWidth, rowY: l.originY + segment.row * m.cellHeight,
+                    width: (end - start) * m.cellWidth, metrics: m, color: color
+                )
             }
         }
 

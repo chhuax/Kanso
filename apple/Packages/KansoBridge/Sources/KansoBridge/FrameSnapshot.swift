@@ -271,6 +271,17 @@ public final class FrameSnapshot {
         return extra.underline_color == 0 ? nil : FrameColor(raw: extra.underline_color)
     }
 
+    /// 单元格的 OSC 8 超链接 id（`CellExtra.hyperlink_id`）；没有超链接时为 nil。
+    public func hyperlinkId(for cell: FrameCell) -> UInt32? {
+        guard cell.extra != 0 else { return nil }
+        let h = header.pointee
+        let extra = (UnsafeRawPointer(header) + Int(h.extras_offset))
+            .assumingMemoryBound(to: KansoCellExtra.self)
+            .advanced(by: Int(cell.extra) - 1)
+            .pointee
+        return extra.hyperlink_id == 0 ? nil : extra.hyperlink_id
+    }
+
     private func rawCell(row: Int, col: Int) -> UnsafePointer<KansoCell> {
         precondition(row >= 0 && row < rows && col >= 0 && col < cols, "row / col 越界")
         return kanso_frame_row(header, UInt16(row)) + col

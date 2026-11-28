@@ -489,6 +489,13 @@ impl ShellView {
                     .absolute()
                     .inset_0()
                     .window_control_area(gpui::WindowControlArea::Drag)
+                    .when(cfg!(target_os = "macos"), |drag| {
+                        drag.on_click(|event, window, _| {
+                            if event.click_count() == 2 {
+                                window.titlebar_double_click();
+                            }
+                        })
+                    })
                     .when(cfg!(target_os = "linux"), |drag| {
                         drag.on_mouse_down(MouseButton::Left, |event, window, _| {
                             if event.click_count == 2 {

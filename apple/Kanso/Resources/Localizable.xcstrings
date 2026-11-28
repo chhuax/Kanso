@@ -817,6 +817,12 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "选中即复制" } }
       }
     },
+    "This kind of link can’t be opened." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "This kind of link can’t be opened." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "不支持打开这种链接。" } }
+      }
+    },
     "Couldn’t copy to the clipboard." : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Couldn’t copy to the clipboard." } },

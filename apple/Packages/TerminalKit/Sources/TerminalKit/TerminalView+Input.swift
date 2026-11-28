@@ -69,6 +69,7 @@ extension TerminalView {
     /// 旧实现的问题之一就是把 Shift 的 flagsChanged 当成了"重置"信号。
     public override func flagsChanged(with event: NSEvent) {
         _ = routeToInputMethod(event)
+        updateHoveredLink(location: currentHoveredLocation(), flags: event.modifierFlags)
     }
 
     /// 把按键转成 `TerminalKeyEvent` 发给 sink；返回是否发出。
@@ -117,6 +118,7 @@ extension TerminalView {
             clearMarkedText()
             pressedKeyCodes.removeAll()
             endAllDrags()
+            clearLinkHover()
             setFocus(false)
         }
         return accepted
@@ -125,7 +127,10 @@ extension TerminalView {
     func windowKeyStateChanged() {
         let isKey = window?.isKeyWindow ?? false
         // 窗口失去 key 状态时松开事件可能被别的窗口收走，拖动状态必须在这里结束（terminal.md §8.1）。
-        if !isKey { endAllDrags() }
+        if !isKey {
+            endAllDrags()
+            clearLinkHover()
+        }
         setFocus(isKey && window?.firstResponder === self)
         updateBlinking()
     }
@@ -219,7 +224,17 @@ extension TerminalView {
         currentFrame?.flags.contains(.mouseReporting) == true && !KeyModifiers(event.modifierFlags).contains(.shift)
     }
 
+    public override func mouseEntered(with event: NSEvent) {
+        updateHoveredLink(location: convert(event.locationInWindow, from: nil), flags: event.modifierFlags)
+    }
+
+    public override func mouseExited(with event: NSEvent) {
+        hoveredLocation = nil
+        hoveredLink = nil
+    }
+
     public override func mouseMoved(with event: NSEvent) {
+        updateHoveredLink(location: convert(event.locationInWindow, from: nil), flags: event.modifierFlags)
         guard let point = viewportPoint(for: event) else { return }
         inputSink?.mouse(TerminalMouseEvent(
             kind: .move, button: .none, point: point, mods: KeyModifiers(event.modifierFlags), clickCount: 0
@@ -228,6 +243,14 @@ extension TerminalView {
 
     private func pointerDown(_ event: NSEvent, button: TerminalMouseButton) {
         if button == .left {
+            if event.clickCount == 1, isLinkModifier(event.modifierFlags), let hit = link(at: event) {
+                clickedLink = hit
+                clickedCommandBlock = nil
+                clickedDirectoryChip = nil
+                leftDragIsSelection = false
+                return
+            }
+            clickedLink = nil
             leftDragIsSelection = currentFrame?.flags.contains(.mouseReporting) != true
                 || KeyModifiers(event.modifierFlags).contains(.shift)
             clickedCommandBlock = nil
@@ -257,6 +280,7 @@ extension TerminalView {
 
     private func pointerDragged(_ event: NSEvent, button: TerminalMouseButton) {
         if button == .left {
+            if clickedLink != nil { return }
             clickedCommandBlock = nil
             clickedDirectoryChip = nil
             selectedCommandBlock = nil
@@ -272,6 +296,13 @@ extension TerminalView {
     }
 
     private func pointerUp(_ event: NSEvent, button: TerminalMouseButton) {
+        if button == .left, let downLink = clickedLink {
+            clickedLink = nil
+            if let upLink = link(at: event), upLink.url == downLink.url {
+                openLink(upLink.url)
+            }
+            return
+        }
         var directoryAnchor: NSRect?
         let shouldAutoCopy = button == .left && copyOnSelect && leftDragIsSelection && activeButtons[button] != nil
         if button == .left {
@@ -306,6 +337,7 @@ extension TerminalView {
     /// 结束所有进行中的拖动：对每个未松开的按键补发 Up。失去 first responder、窗口失去 key 状态、
     /// 视图离开窗口时调用。
     func endAllDrags() {
+        clickedLink = nil
         clickedCommandBlock = nil
         leftDragIsSelection = false
         guard !activeButtons.isEmpty else { return }

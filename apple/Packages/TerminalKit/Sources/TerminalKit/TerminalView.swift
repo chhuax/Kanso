@@ -112,6 +112,11 @@ public final class TerminalView: NSView {
     /// 补全专用按键拦截；组字期间不会调用。
     public var completionKeyInterceptor: (@MainActor (NSEvent) -> Bool)?
     public var onDirectoryChipClick: (@MainActor (NSRect) -> Void)?
+    /// 根据帧里的 `hyperlinkId`（OSC 8）查询目标地址。
+    public var hyperlinkResolver: ((UInt32) -> String?)?
+    /// 打开链接的执行点；生产路径走系统默认程序，测试可注入替身。
+    public var openURL: (URL) -> Bool = { NSWorkspace.shared.open($0) }
+    var onOpenLinkRejected: ((String) -> Void)?
 
     /// 时间戳显示用的时区，默认本地时区。
     public var timeZone: TimeZone {
@@ -167,6 +172,7 @@ public final class TerminalView: NSView {
                 || !frame.commandBlocks.contains(where: { $0.id == id && $0.canCopyCommand }) {
                 selectedCommandBlock = nil
             }
+            refreshHoveredLink()
         }
     }
     var selectedCommandBlock: UInt64? {
@@ -175,6 +181,17 @@ public final class TerminalView: NSView {
             requestRedraw()
         }
     }
+    var hoveredLink: TerminalLinkHit? {
+        didSet {
+            guard hoveredLink != oldValue else { return }
+            renderer?.hoveredLink = hoveredLink
+            requestRedraw()
+            window?.invalidateCursorRects(for: self)
+        }
+    }
+    var commandKeyDown = false
+    var hoveredLocation: NSPoint?
+    var clickedLink: TerminalLinkHit?
     var clickedCommandBlock: UInt64?
     var clickedDirectoryChip: NSRect?
     private var needsFrame = false
@@ -447,6 +464,8 @@ public final class TerminalView: NSView {
         } else {
             destroyDisplayLink()
             endAllDrags()
+            clearLinkHover()
+            clickedLink = nil
             // Timer 由 run loop 持有，离开窗口后必须显式停掉，否则会话关闭后计时器仍在空转。
             cursorBlinker.setActive(false)
         }
