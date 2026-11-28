@@ -207,7 +207,11 @@ impl Chord {
     /// 解析存储文本；非 macOS 上拒绝 `cmd+`，格式不对返回 `None`。
     pub fn parse(text: &str) -> Option<Chord> {
         let mut rest = text;
-        let (mut cmd, mut ctrl, mut alt, mut shift) = (false, false, false, false);
+        #[cfg(target_os = "macos")]
+        let mut cmd = false;
+        #[cfg(not(target_os = "macos"))]
+        let cmd = false;
+        let (mut ctrl, mut alt, mut shift) = (false, false, false);
         'outer: loop {
             #[cfg(target_os = "macos")]
             if let Some(r) = rest.strip_prefix("cmd+")
