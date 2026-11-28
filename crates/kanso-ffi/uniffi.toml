@@ -1,8 +1,0 @@
-# Swift 绑定生成配置（`cargo xtask bindgen` 读取，library mode 按 crate 名查找本文件）。
-[bindings.swift]
-# 生成的 Swift 文件名为 KansoFFI.swift。
-module_name = "KansoFFI"
-# 对应 SwiftPM 的 C 目标 KansoFFIC（头文件 + modulemap）。
-ffi_module_name = "KansoFFIC"
-# 值类型（Record / Enum）标记为 Sendable，满足 Swift 6 严格并发。
-experimental_sendable_value_types = true

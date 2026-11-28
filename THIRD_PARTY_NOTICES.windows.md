@@ -161,7 +161,7 @@ Metadata comes from `cargo metadata`; `cargo tree` selects the normal dependency
 | foldhash | 0.1.5 | Zlib | https://github.com/orlp/foldhash |
 | foldhash | 0.2.0 | Zlib | https://github.com/orlp/foldhash |
 | fontdb | 0.23.0 | MIT | https://github.com/RazrFalcon/fontdb |
-| form_urlencoded | 1.2.2 | MIT OR Apache-2.0 | https://github.com/servo/rust-url |
+| form_urlencoded | 1.2.3 | MIT OR Apache-2.0 | https://github.com/servo/rust-url |
 | futf | 0.1.5 | MIT / Apache-2.0 | https://github.com/servo/futf |
 | futures | 0.3.34 | MIT OR Apache-2.0 | https://github.com/rust-lang/futures-rs |
 | futures-channel | 0.3.34 | MIT OR Apache-2.0 | https://github.com/rust-lang/futures-rs |
@@ -175,7 +175,6 @@ Metadata comes from `cargo metadata`; `cargo tree` selects the normal dependency
 | futures-task | 0.3.34 | MIT OR Apache-2.0 | https://github.com/rust-lang/futures-rs |
 | futures-util | 0.3.34 | MIT OR Apache-2.0 | https://github.com/rust-lang/futures-rs |
 | generic-array | 0.14.7 | MIT | https://github.com/fizyk20/generic-array.git |
-| generic-array | 1.4.5 | MIT | https://github.com/fizyk20/generic-array.git |
 | getrandom | 0.2.17 | MIT OR Apache-2.0 | https://github.com/rust-random/getrandom |
 | getrandom | 0.3.4 | MIT OR Apache-2.0 | https://github.com/rust-random/getrandom |
 | getrandom | 0.4.3 | MIT OR Apache-2.0 | https://github.com/rust-random/getrandom |
@@ -313,7 +312,7 @@ Metadata comes from `cargo metadata`; `cargo tree` selects the normal dependency
 | pin-project-lite | 0.2.17 | Apache-2.0 OR MIT | https://github.com/taiki-e/pin-project-lite |
 | pin-utils | 0.1.1 | MIT OR Apache-2.0 | https://github.com/rust-lang/pin-utils |
 | piper | 0.2.5 | MIT OR Apache-2.0 | https://github.com/smol-rs/piper |
-| pkcs1 | 0.8.0-rc.4 | Apache-2.0 OR MIT | https://github.com/RustCrypto/formats |
+| pkcs1 | 0.8.0 | Apache-2.0 OR MIT | https://github.com/RustCrypto/formats |
 | pkcs5 | 0.8.1 | Apache-2.0 OR MIT | https://github.com/RustCrypto/formats |
 | pkcs8 | 0.11.0 | Apache-2.0 OR MIT | https://github.com/RustCrypto/formats |
 | png | 0.17.16 | MIT OR Apache-2.0 | https://github.com/image-rs/image-png |
@@ -360,9 +359,9 @@ Metadata comes from `cargo metadata`; `cargo tree` selects the normal dependency
 | rmcp | 3.10.0 | Apache-2.0 | https://github.com/modelcontextprotocol/rust-sdk/ |
 | rmcp-macros | 3.10.0 | Apache-2.0 | https://github.com/modelcontextprotocol/rust-sdk/ |
 | roxmltree | 0.20.0 | MIT OR Apache-2.0 | https://github.com/RazrFalcon/roxmltree |
-| rsa | 0.10.0-rc.18 | MIT OR Apache-2.0 | https://github.com/RustCrypto/RSA |
+| rsa | 0.10.0 | MIT OR Apache-2.0 | https://github.com/RustCrypto/RSA |
 | rusqlite | 0.41.1 | MIT | https://github.com/rusqlite/rusqlite |
-| russh | 0.65.1 | Apache-2.0 | https://github.com/warp-tech/russh |
+| russh | 0.65.4 | Apache-2.0 | https://github.com/warp-tech/russh |
 | russh-cryptovec | 0.62.0 | Apache-2.0 | https://github.com/warp-tech/russh |
 | russh-util | 0.52.0 | Apache-2.0 | https://github.com/warp-tech/russh |
 | rust-embed | 8.14.0 | MIT | https://pyrossh.dev/repos/rust-embed |
@@ -424,7 +423,7 @@ Metadata comes from `cargo metadata`; `cargo tree` selects the normal dependency
 | sponge-cursor | 0.1.0 | MIT OR Apache-2.0 | https://github.com/RustCrypto/utils |
 | ssh-cipher | 0.3.0 | Apache-2.0 OR MIT | https://github.com/RustCrypto/SSH |
 | ssh-encoding | 0.3.0 | Apache-2.0 OR MIT | https://github.com/RustCrypto/SSH |
-| ssh-key | 0.7.0-rc.11 | Apache-2.0 OR MIT | https://github.com/RustCrypto/SSH |
+| ssh-key | 0.7.0-rc.12 | Apache-2.0 OR MIT | https://github.com/RustCrypto/SSH |
 | stable_deref_trait | 1.2.1 | MIT OR Apache-2.0 | https://github.com/storyyeller/stable_deref_trait |
 | stacker | 0.1.25 | MIT OR Apache-2.0 | https://github.com/rust-lang/stacker |
 | stacksafe | 0.1.4 | Apache-2.0 | https://github.com/fast/stacksafe |
@@ -489,7 +488,7 @@ Metadata comes from `cargo metadata`; `cargo tree` selects the normal dependency
 | unicode-width | 0.2.3 | MIT OR Apache-2.0 | https://github.com/unicode-rs/unicode-width |
 | universal-hash | 0.6.1 | MIT OR Apache-2.0 | https://github.com/RustCrypto/traits |
 | untrusted | 0.9.0 | ISC | https://github.com/briansmith/untrusted |
-| url | 2.5.8 | MIT OR Apache-2.0 | https://github.com/servo/rust-url |
+| url | 2.5.9 | MIT OR Apache-2.0 | https://github.com/servo/rust-url |
 | usvg | 0.45.1 | Apache-2.0 OR MIT | https://github.com/linebender/resvg |
 | utf-8 | 0.7.6 | MIT OR Apache-2.0 | https://github.com/SimonSapin/rust-utf8 |
 | utf8_iter | 1.1.0 | Apache-2.0 OR MIT | https://github.com/hsivonen/utf8_iter |
@@ -594,7 +593,7 @@ The following published crates contain no license file in their manifest directo
 - pageant@0.2.5 (Apache-2.0)
 - profiling@1.0.18 (MIT OR Apache-2.0)
 - profiling-procmacros@1.0.18 (MIT OR Apache-2.0)
-- russh@0.65.1 (Apache-2.0)
+- russh@0.65.4 (Apache-2.0)
 - russh-cryptovec@0.62.0 (Apache-2.0)
 - russh-util@0.52.0 (Apache-2.0)
 - seahash@4.1.0 (MIT)
@@ -7380,7 +7379,7 @@ Used by:
 
 - core_detect@1.0.0 — `LICENSE-APACHE`
 - gif@0.14.2 — `LICENSE-APACHE`
-- rsa@0.10.0-rc.18 — `LICENSE-APACHE`
+- rsa@0.10.0 — `LICENSE-APACHE`
 - weezl@0.1.12 — `LICENSE-APACHE`
 
 ```text
@@ -7637,7 +7636,7 @@ Used by:
 - filetime@0.2.29 — `LICENSE-APACHE`
 - flate2@1.1.11 — `LICENSE-APACHE`
 - fnv@1.0.7 — `LICENSE-APACHE`
-- form_urlencoded@1.2.2 — `LICENSE-APACHE`
+- form_urlencoded@1.2.3 — `LICENSE-APACHE`
 - futf@0.1.5 — `LICENSE-APACHE`
 - futures-lite@1.13.0 — `LICENSE-APACHE`
 - futures-lite@2.6.1 — `LICENSE-APACHE`
@@ -7706,7 +7705,7 @@ Used by:
 - unicode-segmentation@1.13.3 — `LICENSE-APACHE`
 - unicode-vo@0.1.0 — `LICENSE-APACHE`
 - unicode-width@0.2.3 — `LICENSE-APACHE`
-- url@2.5.8 — `LICENSE-APACHE`
+- url@2.5.9 — `LICENSE-APACHE`
 - uuid@1.26.1 — `LICENSE-APACHE`
 - value-bag-serde1@1.14.1 — `LICENSE-APACHE`
 - value-bag@1.14.1 — `LICENSE-APACHE`
@@ -8806,7 +8805,7 @@ Used by:
 - p521@0.14.0 — `LICENSE-APACHE`
 - pbkdf2@0.13.0 — `LICENSE-APACHE`
 - pem-rfc7468@1.0.0 — `LICENSE-APACHE`
-- pkcs1@0.8.0-rc.4 — `LICENSE-APACHE`
+- pkcs1@0.8.0 — `LICENSE-APACHE`
 - pkcs5@0.8.1 — `LICENSE-APACHE`
 - pkcs8@0.11.0 — `LICENSE-APACHE`
 - poly1305@0.9.1 — `LICENSE-APACHE`
@@ -8826,7 +8825,7 @@ Used by:
 - sponge-cursor@0.1.0 — `LICENSE-APACHE`
 - ssh-cipher@0.3.0 — `LICENSE-APACHE`
 - ssh-encoding@0.3.0 — `LICENSE-APACHE`
-- ssh-key@0.7.0-rc.11 — `LICENSE-APACHE`
+- ssh-key@0.7.0-rc.12 — `LICENSE-APACHE`
 - universal-hash@0.6.1 — `LICENSE-APACHE`
 - wnaf@0.14.1 — `LICENSE-APACHE`
 
@@ -12848,7 +12847,7 @@ Used by:
 - profiling@1.0.18 — SPDX standard text `Apache-2.0` (upstream license file missing)
 - russh-cryptovec@0.62.0 — SPDX standard text `Apache-2.0` (upstream license file missing)
 - russh-util@0.52.0 — SPDX standard text `Apache-2.0` (upstream license file missing)
-- russh@0.65.1 — SPDX standard text `Apache-2.0` (upstream license file missing)
+- russh@0.65.4 — SPDX standard text `Apache-2.0` (upstream license file missing)
 - spirv@0.3.0+sdk-1.3.268.0 — SPDX standard text `Apache-2.0` (upstream license file missing)
 - stacksafe-macro@0.1.4 — SPDX standard text `Apache-2.0` (upstream license file missing)
 - stacksafe@0.1.4 — SPDX standard text `Apache-2.0` (upstream license file missing)
@@ -13443,7 +13442,7 @@ SOFTWARE.
 
 Used by:
 
-- form_urlencoded@1.2.2 — `LICENSE-MIT`
+- form_urlencoded@1.2.3 — `LICENSE-MIT`
 
 ```text
 Copyright (c) 2013-2016 The rust-url developers
@@ -13480,7 +13479,7 @@ Used by:
 - data-url@0.3.2 — `LICENSE-MIT`
 - idna@1.1.0 — `LICENSE-MIT`
 - percent-encoding@2.3.2 — `LICENSE-MIT`
-- url@2.5.8 — `LICENSE-MIT`
+- url@2.5.9 — `LICENSE-MIT`
 
 ```text
 Copyright (c) 2013-2025 The rust-url developers
@@ -17150,7 +17149,6 @@ DEALINGS IN THE SOFTWARE.
 Used by:
 
 - pem-rfc7468@1.0.0 — `LICENSE-MIT`
-- pkcs1@0.8.0-rc.4 — `LICENSE-MIT`
 
 ```text
 Copyright (c) 2021-2025 The RustCrypto Project Developers
@@ -17221,12 +17219,13 @@ Used by:
 
 - argon2@0.6.0 — `LICENSE-MIT`
 - crypto-bigint@0.7.11 — `LICENSE-MIT`
+- pkcs1@0.8.0 — `LICENSE-MIT`
 - pkcs5@0.8.1 — `LICENSE-MIT`
 - scrypt@0.12.0 — `LICENSE-MIT`
 - sec1@0.8.1 — `LICENSE-MIT`
 - spki@0.8.1 — `LICENSE-MIT`
 - ssh-encoding@0.3.0 — `LICENSE-MIT`
-- ssh-key@0.7.0-rc.11 — `LICENSE-MIT`
+- ssh-key@0.7.0-rc.12 — `LICENSE-MIT`
 
 ```text
 Copyright (c) 2021-2026 The RustCrypto Project Developers
@@ -20280,7 +20279,7 @@ MIT OR Apache-2.0
 Used by:
 
 - flume@0.11.1 — `LICENSE-MIT`
-- rsa@0.10.0-rc.18 — `LICENSE-MIT`
+- rsa@0.10.0 — `LICENSE-MIT`
 - rustc-hash@2.1.3 — `LICENSE-MIT`
 
 ```text
@@ -22078,7 +22077,6 @@ SOFTWARE.
 Used by:
 
 - generic-array@0.14.7 — `LICENSE`
-- generic-array@1.4.5 — `LICENSE`
 
 ```text
 The MIT License (MIT)

@@ -17,37 +17,37 @@ Local shells, SSH with jump hosts, an SFTP file browser, a Git changes panel and
 
 ### AI-agent aware tabs
 
-![Tabs running AI command-line tools](apple/Tests/Snapshots/tab-row-agents-dark.png)
+![Tabs running AI command-line tools](docs/screenshots/tab-row-agents-dark.png)
 
 Kanso detects AI command-line tools running in a tab and shows the tool's own icon. A dot marks a working agent; a background tab that finished gets a "done, unread" marker so you know where to look next. The timestamp gutter hides itself automatically while a full-screen agent UI is running.
 
 ### Command blocks
 
-![Command blocks](apple/Tests/Snapshots/command-blocks-dark.png)
+![Command blocks](docs/screenshots/command-blocks-dark.png)
 
 Each command and its output form a block (via OSC 133; zsh integration is built in). Failed commands get a red bar in the margin, right-click copies the command or its output, and ⌘↑ / ⌘↓ jump from block to block.
 
 ### SFTP file browser, side by side
 
-![Dual-pane SFTP browser](apple/Tests/Snapshots/sftp-dual-dark.png)
+![Dual-pane SFTP browser](docs/screenshots/sftp-dual-dark.png)
 
 Browse local folders or the remote host of the current SSH session, transfer between two panes, drag to and from Finder, and resolve conflicts explicitly. Remote edit downloads a file, opens it in your editor and uploads it on save — and asks before overwriting if the server copy changed in the meantime.
 
 ### Git changes at a glance
 
-![Git changes panel](apple/Tests/Snapshots/git-panel-dark.png)
+![Git changes panel](docs/screenshots/git-panel-dark.png)
 
 The title bar shows `+added −deleted` for the repository of the current shell. Open the panel for per-file inline diffs with the changed part of each line highlighted, discard changes per file, or commit — without leaving the terminal.
 
 ### Completion that knows your tools
 
-![Completion popup](apple/Tests/Snapshots/completion-popup-dark.png)
+![Completion popup](docs/screenshots/completion-popup-dark.png)
 
 Suggestions from your command history, local paths, and built-in knowledge of `git`, `kubectl`, `docker`, `systemctl` and `journalctl`, including contexts and namespaces from your kubeconfig.
 
 ### Readable output
 
-![Semantic coloring](apple/Tests/Snapshots/semantic-color-dark.png)
+![Semantic coloring](docs/screenshots/semantic-color-dark.png)
 
 Optional semantic coloring highlights paths, file names, hashes, IPs, URLs and table headers in plain command output. An optional gutter shows timestamps and line numbers for every line.
 
@@ -74,16 +74,15 @@ xattr -dr com.apple.quarantine /Applications/Kanso.app
 
 ## Build from source
 
-Install Xcode 16 or later, [rustup](https://rustup.rs/) and XcodeGen. Rust **1.94.1** and the `aarch64-apple-darwin` and `x86_64-apple-darwin` targets are pinned in `rust-toolchain.toml` and installed automatically.
+Install [rustup](https://rustup.rs/). Rust **1.94.1** and the `aarch64-apple-darwin` and `x86_64-apple-darwin` targets are pinned in `rust-toolchain.toml` and installed automatically.
 
 ```sh
-brew install xcodegen
-cargo xtask apple-build --channel direct              # Debug build
+cargo build -p kanso-gpui                              # Debug build
 cargo xtask dmg                                       # Release build + arm64 dmg in target/dist/ (add --arch x86_64 for the Intel dmg)
 cargo install cargo-deny --locked && cargo xtask ci   # all checks, builds and tests
 ```
 
-The Debug app is at `target/apple/DerivedData.noindex/Build/Products/Debug-Direct/Kanso.app` (`DerivedData-x86_64.noindex` on Intel Macs; builds target the native architecture by default). Run `cargo xtask notices` after dependency changes to regenerate [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). More details: [docs/apple-build.md](docs/apple-build.md).
+The Release DMG is written to `target/dist/Kanso-<version>-macOS-<arch>.dmg` (builds target the native architecture by default). Run `cargo xtask notices` after dependency changes to regenerate [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Roadmap
 
