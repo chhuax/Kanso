@@ -256,7 +256,7 @@ impl FilerPanel {
                             Poll::Os(paths, super::os_drag::window_hwnd(window))
                         }
                     }
-                    #[cfg(target_os = "linux")]
+                    #[cfg(not(windows))]
                     {
                         let _ = window;
                         Poll::Continue

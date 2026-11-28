@@ -5,8 +5,8 @@
 //! 本文件不依赖窗口系统，三个平台都能编译与测试。
 
 use crate::app::i18n::label;
-use kanso_types::SessionId;
 use kanso_types::message::Message;
+use kanso_types::{ProfileId, SessionId};
 
 use crate::app::sender::t;
 
@@ -14,7 +14,7 @@ use crate::app::blocks::BlockMenu;
 use crate::app::filer_text::msg;
 use crate::app::shortcuts::{AppCommand, shortcut_text};
 use crate::app::workspace::CloseScope;
-use crate::widgets::menu::MenuItem;
+use crate::widgets::menu::{MenuBadgeTone, MenuItem};
 
 /// 命令 → 菜单项 `id`。
 pub fn encode(command: AppCommand) -> String {
@@ -49,7 +49,9 @@ pub fn encode(command: AppCommand) -> String {
         AppCommand::OpenSettings => "open-settings".into(),
         AppCommand::OpenDisplaySettings => "open-display-settings".into(),
         AppCommand::OpenKeyboardSettings => "open-keyboard-settings".into(),
+        AppCommand::OpenMcpActivity => "open-mcp-activity".into(),
         AppCommand::NewSession => "new-session".into(),
+        AppCommand::ConnectProfile(id) => format!("connect-profile:{id}"),
         AppCommand::ExportData => "export-data".into(),
         AppCommand::ImportData => "import-data".into(),
         AppCommand::ImportSshConfig => "import-ssh-config".into(),
@@ -107,6 +109,12 @@ pub fn decode(id: &str) -> Option<AppCommand> {
     if let Some(rest) = id.strip_prefix("select-tab:") {
         return rest.parse().ok().map(AppCommand::SelectTab);
     }
+    if let Some(rest) = id.strip_prefix("connect-profile:") {
+        return rest
+            .parse::<ProfileId>()
+            .ok()
+            .map(AppCommand::ConnectProfile);
+    }
     if let Some(rest) = id.strip_prefix("close-tab:") {
         return session(rest).map(AppCommand::CloseTab);
     }
@@ -154,6 +162,7 @@ pub fn decode(id: &str) -> Option<AppCommand> {
         "open-settings" => AppCommand::OpenSettings,
         "open-display-settings" => AppCommand::OpenDisplaySettings,
         "open-keyboard-settings" => AppCommand::OpenKeyboardSettings,
+        "open-mcp-activity" => AppCommand::OpenMcpActivity,
         "new-session" => AppCommand::NewSession,
         "export-data" => AppCommand::ExportData,
         "import-data" => AppCommand::ImportData,
@@ -305,6 +314,47 @@ pub fn tab_menu(ctx: TabMenuContext) -> Vec<MenuItem> {
     items
 }
 
+/// 左侧标签栏空白处右键里的常用会话摘要。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QuickSessionItem {
+    /// 会话 id。
+    pub id: ProfileId,
+    /// 会话名。
+    pub name: String,
+    /// 协议标签（`SSH` / `SFTP`）。
+    pub tag: &'static str,
+    /// 会话专属色（与卡片和标签色条一致）。
+    pub tone: MenuBadgeTone,
+    /// 右侧副信息（如主机地址）。
+    pub detail: Option<String>,
+}
+
+/// 左侧标签栏空白处的右键快速菜单：置顶本地 Shell，下方最多列出 5 个常用 SSH/SFTP 会话（前置会话专属色徽标 + 右侧主机），底部进入会话管理。
+pub fn sidebar_blank_menu(frequent_profiles: &[QuickSessionItem]) -> Vec<MenuItem> {
+    let mut items = vec![
+        item(label(Message::UiNewLocalShell {}), AppCommand::NewLocalTab)
+            .badge(label(Message::UiLocal {}), MenuBadgeTone::Local),
+    ];
+    if !frequent_profiles.is_empty() {
+        items.push(MenuItem::separator());
+        for p in frequent_profiles.iter().take(5) {
+            let mut entry =
+                MenuItem::action(encode(AppCommand::ConnectProfile(p.id)), p.name.clone())
+                    .badge(p.tag, p.tone);
+            if let Some(detail) = &p.detail {
+                entry = entry.shortcut(detail.clone());
+            }
+            items.push(entry);
+        }
+    }
+    items.push(MenuItem::separator());
+    items.push(item(
+        label(Message::UiMoreSessions {}),
+        AppCommand::OpenLauncher,
+    ));
+    items
+}
+
 /// 应用菜单的开关状态。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AppMenuState {
@@ -328,6 +378,8 @@ pub struct AppMenuState {
     pub theme_mode: super::settings::ThemeMode,
     /// 可选的前九个标签数量。
     pub tab_count: usize,
+    /// 当前渠道是否支持 MCP（决定菜单里是否出现 MCP 活动记录入口）。
+    pub mcp_supported: bool,
 }
 
 /// 窗口级应用菜单（Windows / Linux 没有系统菜单栏，spec §6 末段：放在应用内）。
@@ -489,7 +541,24 @@ pub fn app_menu(state: AppMenuState) -> Vec<MenuItem> {
                     label(Message::UiKeyboardSettingsMenu {}),
                     AppCommand::OpenKeyboardSettings,
                 ),
-            ],
+            ]
+            .into_iter()
+            .chain(
+                state
+                    .mcp_supported
+                    .then(|| {
+                        vec![
+                            MenuItem::separator(),
+                            item(
+                                label(Message::WinMcpActivityTitle {}),
+                                AppCommand::OpenMcpActivity,
+                            ),
+                        ]
+                    })
+                    .into_iter()
+                    .flatten(),
+            )
+            .collect(),
         ),
         MenuItem::separator(),
         item(label(Message::UiSettings2 {}), AppCommand::OpenSettings),
@@ -568,6 +637,7 @@ mod tests {
             AppCommand::OpenSettings,
             AppCommand::OpenDisplaySettings,
             AppCommand::OpenKeyboardSettings,
+            AppCommand::OpenMcpActivity,
             AppCommand::NewSession,
             AppCommand::ExportData,
             AppCommand::ImportData,
@@ -625,6 +695,7 @@ mod tests {
             gutter_mode: super::super::settings::GutterMode::Off,
             theme_mode: super::super::settings::ThemeMode::System,
             tab_count: 2,
+            mcp_supported: true,
         };
         for items in [
             terminal_menu(true, Some(BlockMenu { copy_command: true })),
@@ -738,6 +809,7 @@ mod tests {
             gutter_mode: super::super::settings::GutterMode::Off,
             theme_mode: super::super::settings::ThemeMode::System,
             tab_count: 2,
+            mcp_supported: true,
         });
         let flat = all(&items);
         for want in [

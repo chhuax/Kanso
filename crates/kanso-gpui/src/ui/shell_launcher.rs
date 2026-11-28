@@ -7,18 +7,27 @@
 //!   文件传输类提问（需要系统文件选择器）暂不支持，直接按取消回答，免得核心空等到超时。
 //! - 浮层打开期间不处理应用级快捷键（键盘归浮层）。
 
+use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use gpui::{Context, Window, prelude::*};
+use kanso_core::Core;
 use kanso_gpui::app::controller::FALLBACK_GRID;
 use kanso_gpui::app::i18n::{label, t};
 use kanso_gpui::app::launcher::core_error_text;
+use kanso_gpui::app::menus::QuickSessionItem;
 use kanso_gpui::app::prompt_dialogs::{response_for, spec_for};
+use kanso_gpui::app::tab::TabPresentation;
+use kanso_gpui::widgets::menu::MenuBadgeTone;
 use kanso_types::ProfileId;
 use kanso_types::message::Message;
+use kanso_types::profile::ProfileKind;
 
 use super::launcher::{LauncherEvent, LauncherView};
 use super::log;
 use super::session_editor::{EditorEvent, SessionEditorView};
 use super::shell::ShellView;
+use super::sidebar::SESSION_COLORS;
 use super::widgets::dialog::{Dialog, DialogEvent};
 
 impl ShellView {
@@ -39,29 +48,37 @@ impl ShellView {
                 .is_some_and(|v| v.read(cx).has_overlay())
     }
 
-    // ---- 侧栏会话页与启动器 ----
+    // ---- 全宽会话库与启动器 ----
 
-    /// 左侧栏切回「标签」页。
-    pub(super) fn show_sidebar_tabs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// 切换全宽会话库视图。
+    pub(super) fn toggle_sessions_library(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.sessions_library_open {
+            self.close_sessions_library(window, cx);
+        } else {
+            self.open_sessions_library(true, window, cx);
+        }
+    }
+
+    /// 关闭全宽会话库，回到当前终端。
+    pub(super) fn close_sessions_library(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(view) = &self.sidebar_sessions {
             self.collapsed_launcher_groups = view.read(cx).collapsed_groups().clone();
         }
-        self.sidebar_page = super::sidebar::SidebarPage::Tabs;
+        if !self.sessions_library_open {
+            return;
+        }
+        self.sessions_library_open = false;
         self.sync_focus(window, cx);
         cx.notify();
     }
 
-    /// 左侧栏切到「会话」页，并刷新列表。
-    pub(super) fn show_sidebar_sessions(
+    /// 打开全宽会话库，并刷新列表。
+    pub(super) fn open_sessions_library(
         &mut self,
         focus_search: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.sidebar_visible {
-            self.sidebar_visible = true;
-            self.save_panels();
-        }
         let view = if let Some(existing) = self.sidebar_sessions.clone() {
             existing.update(cx, |v, cx| v.reload(cx));
             existing
@@ -78,14 +95,14 @@ impl ShellView {
             self.sidebar_sessions = Some(v.clone());
             v
         };
-        self.sidebar_page = super::sidebar::SidebarPage::Sessions;
+        self.sessions_library_open = true;
         if focus_search {
             view.read(cx).focus_search(window, cx);
         }
         cx.notify();
     }
 
-    /// 刷新已创建的侧栏「会话」页（会话新增/编辑/导入后调用）。
+    /// 刷新已创建的会话库视图（会话新增/编辑/导入后调用）。
     pub(super) fn reload_sidebar_sessions(&mut self, cx: &mut Context<Self>) {
         if let Some(view) = &self.sidebar_sessions {
             view.update(cx, |v, cx| v.reload(cx));
@@ -99,44 +116,31 @@ impl ShellView {
         cx: &mut Context<Self>,
     ) {
         match ev {
-            LauncherEvent::Close => self.sync_focus(window, cx),
+            LauncherEvent::Close => self.close_sessions_library(window, cx),
             LauncherEvent::CustomizeShell => self.present_editor(None, true, window, cx),
             LauncherEvent::OpenLocal => {
                 self.open_tab(window, cx);
-                self.show_sidebar_tabs(window, cx);
+                self.close_sessions_library(window, cx);
             }
             LauncherEvent::NewSession => self.open_editor(None, window, cx),
             LauncherEvent::Connect(id) => {
                 self.connect_profile(id, window, cx);
-                self.show_sidebar_tabs(window, cx);
+                self.close_sessions_library(window, cx);
             }
             LauncherEvent::Edit(id) => self.open_editor(Some(id), window, cx),
             LauncherEvent::ImportSshConfig => self.open_ssh_import(window, cx),
+            LauncherEvent::LibraryChanged => {
+                self.mcp.update(cx, |_, cx| cx.notify());
+            }
         }
     }
 
-    /// 打开会话管理：左侧标签栏模式下直接展开并切到「会话」页；顶部标签条模式下以浮层弹出。
+    /// 打开会话管理：无论左侧或顶部标签栏，统一进入全宽会话库视图。
     pub(super) fn open_launcher(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.modal_open(cx) {
             return;
         }
-        if !self.tab_bar_top {
-            self.show_sidebar_sessions(true, window, cx);
-            return;
-        }
-        let core = self.core.clone();
-        let collapsed = self.collapsed_launcher_groups.clone();
-        let launcher = cx.new(|cx| LauncherView::new(core, collapsed, window, cx));
-        self.launcher_sub = Some(cx.subscribe_in(
-            &launcher,
-            window,
-            |this, _l, ev: &LauncherEvent, window, cx| {
-                this.on_launcher_event(ev.clone(), window, cx)
-            },
-        ));
-        self.launcher = Some(launcher);
-        log("启动器已打开");
-        cx.notify();
+        self.open_sessions_library(true, window, cx);
     }
 
     fn close_launcher(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -146,24 +150,6 @@ impl ShellView {
         self.launcher_sub = None;
         self.sync_focus(window, cx);
         cx.notify();
-    }
-
-    fn on_launcher_event(
-        &mut self,
-        ev: LauncherEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.close_launcher(window, cx);
-        match ev {
-            LauncherEvent::Close => {}
-            LauncherEvent::CustomizeShell => self.present_editor(None, true, window, cx),
-            LauncherEvent::OpenLocal => self.open_tab(window, cx),
-            LauncherEvent::NewSession => self.open_editor(None, window, cx),
-            LauncherEvent::Connect(id) => self.connect_profile(id, window, cx),
-            LauncherEvent::Edit(id) => self.open_editor(Some(id), window, cx),
-            LauncherEvent::ImportSshConfig => self.open_ssh_import(window, cx),
-        }
     }
 
     // ---- 编辑对话框 ----
@@ -232,7 +218,7 @@ impl ShellView {
                     this.reload_sidebar_sessions(cx);
                     if connect {
                         this.connect_profile(id, window, cx);
-                        this.show_sidebar_tabs(window, cx);
+                        this.close_sessions_library(window, cx);
                     }
                 }
                 this.sync_focus(window, cx);
@@ -258,6 +244,7 @@ impl ShellView {
         };
         match self.ctl.open_profile(id, None, FALLBACK_GRID) {
             Ok(sid) => {
+                record_profile_usage(&self.core, id);
                 log(&format!("已连接会话“{}”（{sid:?}）", profile.name));
                 self.attach_session(sid, window, cx);
                 self.after_change(window, cx);
@@ -271,6 +258,50 @@ impl ShellView {
                 self.show_notice_str(&text, cx);
             }
         }
+    }
+
+    /// 返回按使用频次与最近使用时间排序的前 `limit` 个非本地已保存会话（含会话专属色与主机地址）。
+    pub(super) fn frequent_profiles(&self, limit: usize) -> Vec<QuickSessionItem> {
+        let usage = load_profile_usage(&self.core);
+        let mut profiles: Vec<_> = self
+            .core
+            .profiles()
+            .into_iter()
+            .filter(|p| !matches!(p.kind, ProfileKind::Local(_)))
+            .collect();
+        profiles.sort_by(|a, b| {
+            let (ca, ta) = usage.get(&a.id.to_string()).copied().unwrap_or((0, 0));
+            let (cb, tb) = usage.get(&b.id.to_string()).copied().unwrap_or((0, 0));
+            cb.cmp(&ca)
+                .then_with(|| tb.cmp(&ta))
+                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        });
+        profiles
+            .into_iter()
+            .take(limit)
+            .map(|p| {
+                let rgb24 = match p.color {
+                    Some(c) => (u32::from(c.r) << 16) | (u32::from(c.g) << 8) | u32::from(c.b),
+                    None => {
+                        SESSION_COLORS
+                            [TabPresentation::profile_color_index(p.id, SESSION_COLORS.len())]
+                    }
+                };
+                let (tag, host) = match &p.kind {
+                    ProfileKind::Sftp(s) => ("SFTP", s.host.as_str()),
+                    ProfileKind::Ssh(s) => ("SSH", s.target.host.as_str()),
+                    ProfileKind::Local(_) => ("SSH", ""),
+                };
+                let detail = (!host.is_empty()).then(|| host.to_owned());
+                QuickSessionItem {
+                    id: p.id,
+                    name: p.name,
+                    tag,
+                    tone: MenuBadgeTone::Custom(rgb24),
+                    detail,
+                }
+            })
+            .collect()
     }
 
     // ---- 连接提示框 ----
@@ -331,5 +362,27 @@ impl ShellView {
             cx.notify();
             return;
         }
+    }
+}
+
+const PROFILE_USAGE_KEY: &str = "ui.profile_usage";
+
+fn load_profile_usage(core: &Core) -> HashMap<String, (u64, u64)> {
+    core.setting(PROFILE_USAGE_KEY)
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn record_profile_usage(core: &Core, id: ProfileId) {
+    let mut usage = load_profile_usage(core);
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let entry = usage.entry(id.to_string()).or_insert((0, 0));
+    entry.0 = entry.0.saturating_add(1);
+    entry.1 = now_ms;
+    if let Ok(json) = serde_json::to_string(&usage) {
+        let _ = core.set_setting(PROFILE_USAGE_KEY, json);
     }
 }

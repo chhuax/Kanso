@@ -22,8 +22,8 @@ pub(crate) fn local_offset_minutes() -> i32 {
     -(info.Bias + extra)
 }
 
-/// Linux 当前本地时区偏移，包含夏令时。
-#[cfg(target_os = "linux")]
+/// Unix 当前本地时区偏移，包含夏令时。
+#[cfg(unix)]
 pub(crate) fn local_offset_minutes() -> i32 {
     let mut local = std::mem::MaybeUninit::<libc::tm>::uninit();
     // 输出缓冲区有效；localtime_r 成功后才读取初始化后的 tm。

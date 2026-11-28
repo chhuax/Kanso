@@ -6,16 +6,16 @@
 // 此时日志与 panic 信息只写进 `%LOCALAPPDATA%\Kanso\kanso-gpui.log`（见 `ui::run_guarded`）。
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 mod ui;
 
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 fn main() {
     std::process::exit(ui::run_guarded());
 }
 
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 fn main() {
-    eprintln!("kanso-gpui: 本入口支持 Windows / Linux；macOS 请使用 AppKit 版。");
+    eprintln!("kanso-gpui: 当前平台暂不支持 GPUI 前端。");
     std::process::exit(2);
 }

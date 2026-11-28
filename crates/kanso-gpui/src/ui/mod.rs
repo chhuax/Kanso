@@ -31,6 +31,7 @@ mod git_panel;
 mod git_selftest;
 mod launcher;
 mod mcp;
+mod mcp_activity;
 mod memory;
 #[cfg(windows)]
 mod os_drag;
@@ -38,6 +39,7 @@ mod remote_edit_selftest;
 mod selftest;
 mod sender;
 mod session_editor;
+mod sessions_library;
 mod settings;
 mod sftp_bench;
 mod shell;
@@ -171,6 +173,10 @@ fn parse_args() -> Args {
         std::env::var_os("XDG_DATA_HOME").map(PathBuf::from),
         home_dir(),
     );
+    #[cfg(target_os = "macos")]
+    let default_dir = home_dir()
+        .map(|h| h.join("Library/Application Support/Kanso-GPUI"))
+        .unwrap_or_else(|| std::env::temp_dir().join("Kanso-GPUI"));
     let mut args = Args {
         selftest: false,
         timeout_secs: 30,
@@ -241,7 +247,7 @@ fn parse_args() -> Args {
 fn home_dir() -> Option<PathBuf> {
     #[cfg(windows)]
     let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"));
-    #[cfg(target_os = "linux")]
+    #[cfg(unix)]
     let home = std::env::var_os("HOME");
     home.map(PathBuf::from)
 }
@@ -285,9 +291,12 @@ impl EventSink for ChannelSink {
 fn build_core(args: &Args, tx: UnboundedSender<CoreEvent>) -> Result<Arc<Core>, String> {
     let config = CoreConfig::new(&args.data_dir, env!("CARGO_PKG_VERSION"), BUNDLE_ID);
     let mut platform = Platform::for_tests(Arc::new(ChannelSink(tx)));
-    // 自检使用内存替身；正常运行接入系统凭据库和核心的 known_hosts。
+    // 自检使用内存替身；正常运行接入系统凭据库和核心的 known_hosts（macOS 试验期暂用内存替身）。
     if !args.selftest && !SETTINGS_TEST.load(Ordering::Relaxed) {
-        platform.secrets = Arc::new(kanso_secret::PlatformSecretStore::new(BUNDLE_ID));
+        #[cfg(not(target_os = "macos"))]
+        {
+            platform.secrets = Arc::new(kanso_secret::PlatformSecretStore::new(BUNDLE_ID));
+        }
         platform.host_keys = None;
     }
     // 交互式桌面会话里通常没有 HOME，而核心按 `$HOME/.ssh/known_hosts` 找主机密钥：用 USERPROFILE 补上。
@@ -466,8 +475,8 @@ fn error_box(text: &str) {
     }
 }
 
-/// Linux 没有内置的模态框；崩溃信息已写进日志，这里只补一行 stderr。
-#[cfg(target_os = "linux")]
+/// Linux / macOS 崩溃信息已写进日志，这里补一行 stderr。
+#[cfg(unix)]
 fn error_box(text: &str) {
     eprintln!("{text}");
 }
@@ -578,7 +587,8 @@ pub fn run() -> i32 {
                     titlebar: Some(TitlebarOptions {
                         title: Some("Kanso".into()),
                         appears_transparent: true,
-                        ..Default::default()
+                        traffic_light_position: cfg!(target_os = "macos")
+                            .then_some(gpui::point(px(12.0), px(10.0))),
                     }),
                     app_id: Some(BUNDLE_ID.into()),
                     window_decorations: cfg!(target_os = "linux")

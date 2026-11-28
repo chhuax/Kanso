@@ -437,13 +437,14 @@ impl SessionEditorView {
             }
             (shell_commands, shell_items)
         };
-        #[cfg(target_os = "linux")]
+        #[cfg(not(windows))]
         let (shell_commands, mut shell_items) = {
             let mut commands = vec![String::new()];
             let mut items = vec![Item::option(render_message(&Message::UiShellDefault {}))];
             for (path, label) in [
-                ("/bin/bash", "Bash"),
                 ("/bin/zsh", "Zsh"),
+                ("/bin/bash", "Bash"),
+                ("/opt/homebrew/bin/fish", "Fish"),
                 ("/usr/bin/fish", "Fish"),
                 ("/bin/sh", "sh"),
             ] {
@@ -698,7 +699,7 @@ impl SessionEditorView {
     fn on_pick(&mut self, pick: Pick, index: usize, cx: &mut Context<Self>) {
         let Some(m) = self.model.as_mut() else { return };
         match pick {
-            Pick::Kind => m.kind = KINDS[index.clamp(usize::from(!self.editing), KINDS.len() - 1)],
+            Pick::Kind => m.kind = KINDS[index.min(KINDS.len() - 1)],
             Pick::Shell => {
                 if let Some(command) = self.shell_commands.get(index) {
                     m.shell_command = command.clone();
@@ -822,6 +823,10 @@ impl SessionEditorView {
         let Some(mut model) = self.model.take() else {
             return;
         };
+        if model.kind == SessionKind::Local {
+            model.group = None;
+            model.edit_mcp_access(McpAccess::Off);
+        }
         self.refresh_visible_from(&model);
         self.saving = true;
         self.mcp_access.update(cx, |d, cx| d.set_disabled(true, cx));
@@ -864,6 +869,8 @@ impl SessionEditorView {
             .copied()
             .filter(|f| {
                 model.is_visible(*f)
+                    && !(model.kind == SessionKind::Local
+                        && matches!(f, EditorField::Group | EditorField::McpAccess))
                     && (!custom_local
                         || matches!(
                             f,
@@ -1072,13 +1079,7 @@ impl SessionEditorView {
             } else {
                 1
             };
-            let next = if self.editing {
-                (current + delta) % KINDS.len()
-            } else if current == 1 {
-                2
-            } else {
-                1
-            };
+            let next = (current + delta) % KINDS.len();
             self.on_pick(Pick::Kind, next, cx);
             cx.stop_propagation();
             return;
@@ -1249,11 +1250,7 @@ impl Render for SessionEditorView {
             appearance: appearance(window),
         };
         if let Some(m) = &self.model {
-            self.visible = ALL_FIELDS
-                .iter()
-                .copied()
-                .filter(|f| m.is_visible(*f))
-                .collect();
+            self.visible = Self::visible_fields(m, self.custom_local);
         }
         use EditorField as F;
 
@@ -1265,12 +1262,7 @@ impl Render for SessionEditorView {
             .track_focus(&self.kind)
             .flex()
             .gap(px(8.0));
-        for (i, kind) in KINDS
-            .iter()
-            .copied()
-            .enumerate()
-            .skip(usize::from(!self.editing))
-        {
+        for (i, kind) in KINDS.iter().copied().enumerate() {
             let on = selected == kind;
             let symbol = ["square-terminal", "server", "folder"][i];
             kinds = kinds.child(
@@ -1332,12 +1324,14 @@ impl Render for SessionEditorView {
                 )
                 .into_any_element(),
             ),
-            (
+        ];
+        if self.vis(F::Group) {
+            rows.push((
                 Row::Group,
                 self.field(th, &tr(Message::UiGroup {}), self.group.clone())
                     .into_any_element(),
-            ),
-        ];
+            ));
+        }
         if self.vis(F::McpAccess) {
             rows.push((
                 Row::McpAccess,

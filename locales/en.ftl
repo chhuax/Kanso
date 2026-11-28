@@ -860,6 +860,9 @@ ui-palette-tabs = Tabs
 ui-palette-sessions = Sessions
 ui-sidebar-tabs = Tabs
 ui-sidebar-sessions = Sessions
+ui-all-sessions = All Sessions
+ui-ungrouped = Ungrouped
+ui-session-manager = Session Manager
 ui-palette-commands = Commands
 ui-palette-hint = Search tabs, sessions, commands, files
 ui-search-empty = No matches
@@ -1036,3 +1039,19 @@ win-mcp-audit-submitted = Sent
 win-mcp-audit-not-sent = Rejected before sending
 win-mcp-audit-unconfirmed = Sending unconfirmed
 win-mcp-audit-refresh = Refresh activity
+win-mcp-activity-title = MCP Activity
+win-mcp-activity-intro = Every action an AI tool takes through MCP is recorded here. Records stay on this device for 30 days.
+win-mcp-open-activity = Open Activity Log
+win-mcp-audit-clear-confirm-title = Clear the MCP activity log?
+win-mcp-audit-clear-confirm-body = All records of what AI tools did through MCP will be deleted. This can’t be undone.
+win-mcp-shell-command = Shell command
+win-mcp-token-history-shell = The AI tool stores the token in plain text in its configuration file. The command may also be saved in shell history.
+win-mcp-granted-none = No sessions granted yet. Configure access in Session Manager or Edit Session.
+win-mcp-granted-count = { $count ->
+    [one] 1 session granted. Configure access in Session Manager or Edit Session.
+   *[other] { $count } sessions granted. Configure access in Session Manager or Edit Session.
+    }
+win-mcp-grant-confirm-title = Allow AI tools to access via MCP?
+win-mcp-grant-confirm-body = Connected AI tools can read terminal output and commands, which may contain secrets, tokens, or other sensitive data.
+win-mcp-grant-confirm-action = Allow
+ui-more-sessions = More Sessions…

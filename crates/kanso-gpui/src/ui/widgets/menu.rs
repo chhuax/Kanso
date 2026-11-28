@@ -15,12 +15,12 @@
 //! 宿主的根元素必须铺满窗口且位于窗口原点（遮罩按窗口坐标定位）。
 
 use gpui::{
-    App, BoxShadow, Context, EventEmitter, FocusHandle, Focusable, Hsla, KeyDownEvent, MouseButton,
-    MouseDownEvent, Pixels, Point, Window, deferred, div, point, prelude::*, px, rgba,
+    App, BoxShadow, Context, EventEmitter, FocusHandle, Focusable, FontWeight, Hsla, KeyDownEvent,
+    MouseButton, MouseDownEvent, Pixels, Point, Window, deferred, div, point, prelude::*, px, rgba,
 };
 use kanso_gpui::widgets::menu::{
-    ARROW_W, CHECK_W, ITEM_H, LevelLayout, MenuItem, MenuKey, MenuOutcome, MenuState, PAD_X, PAD_Y,
-    SEP_H,
+    ARROW_W, BADGE_GAP, BADGE_W, CHECK_W, ITEM_H, LevelLayout, MenuBadge, MenuBadgeTone, MenuItem,
+    MenuKey, MenuOutcome, MenuState, PAD_X, PAD_Y, SEP_H,
 };
 use kanso_gpui::widgets::style::{Appearance, Rgba8, color, number};
 
@@ -182,6 +182,7 @@ fn fmt_rect(l: &LevelLayout) -> String {
 
 /// 菜单用到的颜色。
 struct Palette {
+    appearance: Appearance,
     bg: Hsla,
     border: Hsla,
     text: Hsla,
@@ -190,12 +191,20 @@ struct Palette {
     sep: Hsla,
     hl_bg: Hsla,
     hl_text: Hsla,
+    badge_local_fg: Hsla,
+    badge_local_bg: Hsla,
+    badge_ssh_fg: Hsla,
+    badge_ssh_bg: Hsla,
+    badge_sftp_fg: Hsla,
+    badge_sftp_bg: Hsla,
 }
 
 impl Palette {
     fn new(a: Appearance) -> Palette {
         let c = |n: &str| hsla(color(n, a));
+        let ca = |n: &str, alpha: u8| hsla(color(n, a).with_alpha(alpha));
         Palette {
+            appearance: a,
             bg: c("bg.popover"),
             border: c("border.strong"),
             text: c("text.primary"),
@@ -204,6 +213,12 @@ impl Palette {
             sep: c("border.subtle"),
             hl_bg: c("accent"),
             hl_text: c("text.onAccent"),
+            badge_local_fg: c("status.unreadDone"),
+            badge_local_bg: ca("status.unreadDone", 0x26),
+            badge_ssh_fg: c("accent"),
+            badge_ssh_bg: ca("accent", 0x26),
+            badge_sftp_fg: c("status.warning"),
+            badge_sftp_bg: ca("status.warning", 0x26),
         }
     }
 }
@@ -309,25 +324,35 @@ fn render_row(
             .into_any_element(),
         MenuItem::Action {
             label,
+            badge,
             shortcut,
             enabled,
             checked,
             ..
         } => row_base(id, level, row, *enabled, highlighted, pal, cx)
             .child(check_cell(*checked))
-            .child(div().flex_1().child(label.clone()))
-            .when_some(shortcut.clone(), |d, s| {
-                d.child(div().text_color(dim(*enabled, highlighted, pal)).child(s))
+            .when_some(badge.as_ref(), |d, b| {
+                d.child(badge_pill(b, highlighted, pal))
             })
-            .child(div().w(px(ARROW_W)))
+            .child(div().flex_1().whitespace_nowrap().child(label.clone()))
+            .when_some(shortcut.clone(), |d, s| {
+                d.child(
+                    div()
+                        .flex_none()
+                        .text_color(dim(*enabled, highlighted, pal))
+                        .child(s),
+                )
+            })
+            .child(div().w(px(ARROW_W)).flex_none())
             .into_any_element(),
         MenuItem::Submenu { label, enabled, .. } => {
             row_base(id, level, row, *enabled, highlighted, pal, cx)
                 .child(check_cell(false))
-                .child(div().flex_1().child(label.clone()))
+                .child(div().flex_1().whitespace_nowrap().child(label.clone()))
                 .child(
                     div()
                         .w(px(ARROW_W))
+                        .flex_none()
                         .flex()
                         .justify_end()
                         .text_color(dim(*enabled, highlighted, pal))
@@ -348,9 +373,52 @@ fn dim(enabled: bool, highlighted: bool, pal: &Palette) -> Hsla {
     }
 }
 
+fn badge_pill(badge: &MenuBadge, highlighted: bool, pal: &Palette) -> gpui::Div {
+    let (fg, bg) = if highlighted {
+        (pal.hl_text, pal.hl_text.opacity(0.18))
+    } else {
+        match badge.tone {
+            MenuBadgeTone::Local => (pal.badge_local_fg, pal.badge_local_bg),
+            MenuBadgeTone::Ssh => (pal.badge_ssh_fg, pal.badge_ssh_bg),
+            MenuBadgeTone::Sftp => (pal.badge_sftp_fg, pal.badge_sftp_bg),
+            MenuBadgeTone::Custom(rgb24) => {
+                // 亮色背景下适度压暗文字色保证对比度，深色背景保持原色。
+                let fg_rgb = match pal.appearance {
+                    Appearance::Light => {
+                        let r = (((rgb24 >> 16) & 0xFF) * 3) / 4;
+                        let g = (((rgb24 >> 8) & 0xFF) * 3) / 4;
+                        let b = ((rgb24 & 0xFF) * 3) / 4;
+                        (r << 16) | (g << 8) | b
+                    }
+                    Appearance::Dark => rgb24,
+                };
+                (
+                    rgba((fg_rgb << 8) | 0xFF).into(),
+                    rgba((rgb24 << 8) | 0x26).into(),
+                )
+            }
+        }
+    };
+    div()
+        .w(px(BADGE_W))
+        .h(px(18.0))
+        .mr(px(BADGE_GAP))
+        .flex_none()
+        .rounded(px(4.0))
+        .bg(bg)
+        .text_color(fg)
+        .text_size(px(10.0))
+        .font_weight(FontWeight::MEDIUM)
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(badge.text.clone())
+}
+
 fn check_cell(checked: bool) -> gpui::Div {
     div()
         .w(px(CHECK_W))
+        .flex_none()
         .flex()
         .items_center()
         .pl(px(4.))

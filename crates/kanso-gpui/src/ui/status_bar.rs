@@ -155,7 +155,7 @@ impl ShellView {
                 .text_color(th.c("accent"))
                 .cursor_pointer()
                 .hover(|d| d.bg(th.c("bg.rowHover")))
-                .on_click(cx.listener(|this, _, _, cx| this.open_mcp_settings(cx)))
+                .on_click(cx.listener(|this, _, _, cx| this.open_mcp_activity(cx)))
                 .child(icon("plug", 12.0, th.c("accent")))
                 .child(label)
         });
@@ -199,7 +199,7 @@ impl ShellView {
             .px(px(12.0))
             .bg(th.c("bg.statusBar"))
             .border_t_1()
-            .border_color(th.c("border.subtle"))
+            .border_color(th.divider())
             .text_size(px(kanso_gpui::widgets::style::number("font", "ui.caption")))
             .child(self.filer_toggle_item(th, width < 460., cx))
             .child(

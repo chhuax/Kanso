@@ -18,19 +18,12 @@ use super::shell::{ShellView, Theme};
 use super::widgets::icons::icon;
 
 /// 没有配置颜色的会话从这组色里按 id 稳定取一个（同一个会话每次都是同一个颜色）。
-const SESSION_COLORS: [u32; 8] = [
+pub(super) const SESSION_COLORS: [u32; 8] = [
     0x4F8EF7, 0x35C48B, 0xE0A030, 0xE0607E, 0x9B6BDF, 0x2BB5C9, 0xE07B39, 0x7DB84A,
 ];
 
 /// 平均一个字符约占的像素宽（13px 界面字体，中英混排的经验值），用来估算主标题能放几个字符。
 pub(super) const CELL_PX: f32 = 7.4;
-
-/// 左侧栏当前显示的页面：已打开的实时标签，或已保存的会话管理。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum SidebarPage {
-    Tabs,
-    Sessions,
-}
 
 fn session_color(item: &TabItem) -> Hsla {
     let rgb_hex = match item.color {
@@ -59,108 +52,6 @@ impl ShellView {
         let show_headers = ws.shows_section_headers();
         let active_pane = ws.active_pane();
         let active_session = ws.active_session();
-        let tab_count: usize = sections.iter().map(|s| s.tabs.len()).sum();
-        let has_unread = sections
-            .iter()
-            .flat_map(|s| s.tabs.iter())
-            .any(|item| item.unread_done);
-        let on_tabs = self.sidebar_page == SidebarPage::Tabs;
-        let radius_sm = number("radius", "sm");
-
-        // 顶部「标签 / 会话」双段切换栏：4px 外圆角 / 3px 选中块，与 macOS 侧保持一致。
-        let mode_switch = div().px(px(8.0)).pt(px(8.0)).flex_none().child(
-            div()
-                .h(px(26.0))
-                .p(px(2.0))
-                .rounded(px(radius_sm))
-                .bg(th.c("bg.field"))
-                .border_1()
-                .border_color(th.c("border.field"))
-                .flex()
-                .items_center()
-                .child(
-                    div()
-                        .id("sidebar-tab-tabs")
-                        .flex_1()
-                        .h_full()
-                        .rounded(px((radius_sm - 1.0).max(2.0)))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .gap(px(4.0))
-                        .cursor_pointer()
-                        .text_size(px(number("font", "ui.caption")))
-                        .text_color(if on_tabs {
-                            th.c("text.primary")
-                        } else {
-                            th.c("text.secondary")
-                        })
-                        .when(on_tabs, |d| {
-                            d.bg(th.c("bg.tabSelected"))
-                                .border_1()
-                                .border_color(th.c("border.subtle"))
-                        })
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(|this, _: &MouseDownEvent, window, cx| {
-                                cx.stop_propagation();
-                                if this.sidebar_page != SidebarPage::Tabs {
-                                    this.show_sidebar_tabs(window, cx);
-                                }
-                            }),
-                        )
-                        .child(t(&Message::UiSidebarTabs {}))
-                        .when(tab_count > 0, |d| {
-                            d.child(
-                                div()
-                                    .text_size(px(10.0))
-                                    .text_color(th.c("text.tertiary"))
-                                    .child(tab_count.to_string()),
-                            )
-                        })
-                        .when(!on_tabs && has_unread, |d| {
-                            d.child(
-                                div()
-                                    .w(px(6.0))
-                                    .h(px(6.0))
-                                    .rounded(px(3.0))
-                                    .bg(th.c("status.unreadDone")),
-                            )
-                        }),
-                )
-                .child(
-                    div()
-                        .id("sidebar-tab-sessions")
-                        .flex_1()
-                        .h_full()
-                        .rounded(px((radius_sm - 1.0).max(2.0)))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .cursor_pointer()
-                        .text_size(px(number("font", "ui.caption")))
-                        .text_color(if !on_tabs {
-                            th.c("text.primary")
-                        } else {
-                            th.c("text.secondary")
-                        })
-                        .when(!on_tabs, |d| {
-                            d.bg(th.c("bg.tabSelected"))
-                                .border_1()
-                                .border_color(th.c("border.subtle"))
-                        })
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(|this, _: &MouseDownEvent, window, cx| {
-                                cx.stop_propagation();
-                                if this.sidebar_page != SidebarPage::Sessions {
-                                    this.show_sidebar_sessions(false, window, cx);
-                                }
-                            }),
-                        )
-                        .child(t(&Message::UiSidebarSessions {})),
-                ),
-        );
 
         let resize_handle = div()
             .id("sidebar-resize")
@@ -179,24 +70,6 @@ impl ShellView {
                 }),
             );
 
-        if !on_tabs {
-            return div()
-                .absolute()
-                .left_0()
-                .top(px(super::toolbar::HEIGHT))
-                .bottom_0()
-                .w(px(width))
-                .flex()
-                .flex_col()
-                .bg(th.c("bg.sidebar"))
-                .border_r_1()
-                .border_color(th.c("border.subtle"))
-                .child(mode_switch)
-                .children(self.sidebar_sessions.clone())
-                .child(resize_handle)
-                .into_any_element();
-        }
-
         let title_cells = (((width - 12.0 - 20.0 - 28.0 - 24.0 - 16.0) / CELL_PX) as usize).max(8);
 
         let mut list = div()
@@ -205,8 +78,7 @@ impl ShellView {
             .overflow_y_scroll()
             .flex()
             .flex_col()
-            .border_t_1()
-            .border_color(th.c("border.subtle"))
+            .pt(px(2.0))
             .on_scroll_wheel(cx.listener(|this, _, _, cx| this.cancel_tab_reorder(cx)))
             .on_mouse_down(
                 MouseButton::Left,
@@ -215,6 +87,19 @@ impl ShellView {
                     if ev.click_count == 2 {
                         this.duplicate_active_tab_clicked(window, cx);
                     }
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|this, ev: &MouseDownEvent, window, cx| {
+                    this.cancel_tab_reorder(cx);
+                    let frequent = this.frequent_profiles(5);
+                    this.open_menu(
+                        kanso_gpui::app::menus::sidebar_blank_menu(&frequent),
+                        ev.position,
+                        window,
+                        cx,
+                    );
                 }),
             );
 
@@ -269,9 +154,9 @@ impl ShellView {
                     continue;
                 }
                 visible_count += 1;
-                let selected = active_session == Some(item.id);
+                let selected = !self.sessions_library_open && active_session == Some(item.id);
                 // 选中且在活动分屏：完整高亮；选中但分屏不活动：淡一点，表示“该分屏当前显示它”。
-                let in_active_pane = pane == active_pane;
+                let in_active_pane = !self.sessions_library_open && pane == active_pane;
                 let title = if item.custom_title.is_some() {
                     TabPresentation::primary_title(item, home)
                 } else {
@@ -282,14 +167,14 @@ impl ShellView {
                         .px(px(number("spacing", "tabRow.paddingX")))
                         .py(px(number("spacing", "tabRow.gap") / 2.0))
                         .border_b_1()
-                        .border_color(th.c("border.subtle"))
+                        .border_color(th.divider_soft())
                         .child(self.render_row(
                             item,
                             index,
                             title,
                             selected,
                             in_active_pane,
-                            ws.active_tab_in(pane) == Some(item.id),
+                            !self.sessions_library_open && ws.active_tab_in(pane) == Some(item.id),
                             None,
                             th,
                             cx,
@@ -305,6 +190,57 @@ impl ShellView {
                 ),
             ));
         }
+        let sessions_footer = div()
+            .flex_none()
+            .px(px(8.0))
+            .py(px(6.0))
+            .border_t_1()
+            .border_color(th.divider())
+            .child(
+                div()
+                    .id("sidebar-sessions-entry")
+                    .h(px(30.0))
+                    .px(px(10.0))
+                    .rounded(px(number("radius", "md")))
+                    .when(self.sessions_library_open, |d| d.bg(th.c("bg.tabSelected")))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .gap(px(6.0))
+                    .cursor_pointer()
+                    .text_size(px(number("font", "ui.body")))
+                    .text_color(if self.sessions_library_open {
+                        th.c("text.primary")
+                    } else {
+                        th.c("text.secondary")
+                    })
+                    .hover(|s| {
+                        s.bg(if self.sessions_library_open {
+                            th.c("bg.tabSelected")
+                        } else {
+                            th.c("bg.rowHover")
+                        })
+                        .text_color(th.c("text.primary"))
+                    })
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _: &MouseDownEvent, window, cx| {
+                            cx.stop_propagation();
+                            this.toggle_sessions_library(window, cx);
+                        }),
+                    )
+                    .child(icon(
+                        "server",
+                        14.0,
+                        if self.sessions_library_open {
+                            th.c("accent")
+                        } else {
+                            th.c("text.secondary")
+                        },
+                    ))
+                    .child(t(&Message::UiSessionManager {})),
+            );
+
         div()
             .absolute()
             .left_0()
@@ -315,13 +251,14 @@ impl ShellView {
             .flex_col()
             .bg(th.c("bg.sidebar"))
             .border_r_1()
-            .border_color(th.c("border.subtle"))
-            .child(mode_switch)
-            // 顶部工具条：路径筛选 + 新建按钮。
+            .border_color(th.divider())
+            // 顶部工具条：路径筛选 + 新建按钮，高度与会话管理顶栏齐平以共用一条连续细线。
             .child(
                 div()
-                    .h(px(40.0))
+                    .h(px(46.0))
                     .flex_none()
+                    .border_b_1()
+                    .border_color(th.divider())
                     .flex()
                     .items_center()
                     .justify_between()
@@ -360,6 +297,7 @@ impl ShellView {
                     ),
             )
             .child(list)
+            .child(sessions_footer)
             .child(resize_handle)
             .into_any_element()
     }

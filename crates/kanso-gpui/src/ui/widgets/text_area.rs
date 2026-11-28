@@ -113,6 +113,27 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("ctrl-y", Redo, c),
         KeyBinding::new("ctrl-shift-z", Redo, c),
     ]);
+    #[cfg(target_os = "macos")]
+    cx.bind_keys([
+        KeyBinding::new("alt-backspace", BackspaceWord, c),
+        KeyBinding::new("alt-delete", DeleteWord, c),
+        KeyBinding::new("alt-left", WordLeft, c),
+        KeyBinding::new("alt-right", WordRight, c),
+        KeyBinding::new("alt-shift-left", SelectWordLeft, c),
+        KeyBinding::new("alt-shift-right", SelectWordRight, c),
+        KeyBinding::new("cmd-left", Home, c),
+        KeyBinding::new("cmd-right", End, c),
+        KeyBinding::new("cmd-shift-left", SelectHome, c),
+        KeyBinding::new("cmd-shift-right", SelectEnd, c),
+        KeyBinding::new("cmd-up", DocStart, c),
+        KeyBinding::new("cmd-down", DocEnd, c),
+        KeyBinding::new("cmd-a", SelectAll, c),
+        KeyBinding::new("cmd-c", Copy, c),
+        KeyBinding::new("cmd-x", Cut, c),
+        KeyBinding::new("cmd-v", Paste, c),
+        KeyBinding::new("cmd-z", Undo, c),
+        KeyBinding::new("cmd-shift-z", Redo, c),
+    ]);
 }
 
 /// 向外发出的事件。

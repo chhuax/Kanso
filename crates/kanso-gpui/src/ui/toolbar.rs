@@ -14,6 +14,55 @@ use kanso_gpui::app::shortcuts::AppCommand;
 use kanso_gpui::widgets::menu::MenuItem;
 use kanso_types::{ProfileId, SessionId, message::Message};
 
+#[cfg(target_os = "macos")]
+#[derive(Clone, PartialEq, gpui::Action)]
+#[action(namespace = kanso, no_json)]
+pub(super) struct MenuCommand {
+    pub(super) id: String,
+}
+
+#[cfg(target_os = "macos")]
+fn convert_macos_items(items: Vec<MenuItem>) -> Vec<gpui::MenuItem> {
+    items
+        .into_iter()
+        .map(|item| match item {
+            MenuItem::Separator => gpui::MenuItem::separator(),
+            MenuItem::Submenu { label, items, .. } => gpui::MenuItem::submenu(gpui::Menu {
+                name: label.into(),
+                items: convert_macos_items(items),
+            }),
+            MenuItem::Action { id, label, .. } => gpui::MenuItem::action(label, MenuCommand { id }),
+        })
+        .collect()
+}
+
+/// 将 `app_menu` 同步到 macOS 屏幕顶部系统菜单栏，避免窗口标题栏出现 Windows 风格菜单。
+#[cfg(target_os = "macos")]
+pub(super) fn sync_macos_menus(state: kanso_gpui::app::menus::AppMenuState, cx: &mut gpui::App) {
+    let mut app_items = Vec::new();
+    let mut top_menus = Vec::new();
+    for item in app_menu(state) {
+        match item {
+            MenuItem::Submenu { label, items, .. } => {
+                top_menus.push(gpui::Menu {
+                    name: label.into(),
+                    items: convert_macos_items(items),
+                });
+            }
+            MenuItem::Action { id, label, .. } => {
+                app_items.push(gpui::MenuItem::action(label, MenuCommand { id }));
+            }
+            MenuItem::Separator => {}
+        }
+    }
+    let mut menus = vec![gpui::Menu {
+        name: "Kanso".into(),
+        items: app_items,
+    }];
+    menus.extend(top_menus);
+    cx.set_menus(menus);
+}
+
 pub(super) const HEIGHT: f32 = 34.0;
 const CAPTION_BUTTON_W: f32 = 44.0;
 
@@ -477,18 +526,33 @@ impl ShellView {
             .left_0()
             .w_full()
             .h(px(HEIGHT))
-            .pl(px(8.))
+            .pl(px(
+                if cfg!(target_os = "macos") && !window.is_fullscreen() {
+                    78.
+                } else {
+                    8.
+                },
+            ))
             .pr(px(controls + 4.))
             .flex()
             .items_center()
             .justify_between()
             .bg(th.c("bg.window"))
+            .border_b_1()
+            .border_color(th.divider())
             .child(
                 div()
                     .id("caption-drag")
                     .absolute()
                     .inset_0()
                     .window_control_area(gpui::WindowControlArea::Drag)
+                    .when(cfg!(target_os = "macos"), |drag| {
+                        drag.on_mouse_down(MouseButton::Left, |event, window, _| {
+                            if event.click_count == 2 {
+                                window.titlebar_double_click();
+                            }
+                        })
+                    })
                     .when(cfg!(target_os = "linux"), |drag| {
                         drag.on_mouse_down(MouseButton::Left, |event, window, _| {
                             if event.click_count == 2 {
@@ -514,7 +578,7 @@ impl ShellView {
                             }),
                         ))
                     })
-                    .child(menu_bar),
+                    .when(!cfg!(target_os = "macos"), |bar| bar.child(menu_bar)),
             )
             .child(
                 div()

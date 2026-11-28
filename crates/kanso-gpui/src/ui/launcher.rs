@@ -9,7 +9,7 @@
 //! 本视图只发事件（[`LauncherEvent`]），由 `ShellView` 决定怎么开标签 / 弹编辑对话框。
 
 use kanso_gpui::app::i18n::{label, t};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use gpui::{
@@ -20,7 +20,7 @@ use kanso_core::Core;
 use kanso_gpui::app::launcher::{
     self as logic, GroupAction, LauncherRow, ProfileAction, SavedAction, core_error_text,
 };
-use kanso_gpui::app::sessions::LauncherModel;
+use kanso_gpui::app::sessions::{LauncherModel, profile_matches};
 use kanso_gpui::widgets::dialog::{ButtonSpec, DialogResult, DialogSpec, InputSpec};
 use kanso_gpui::widgets::style::{Appearance, number};
 use kanso_types::profile::{Group, Profile};
@@ -32,6 +32,7 @@ use super::widgets::dialog::{Dialog, DialogEvent};
 use super::widgets::icons::icon;
 use super::widgets::menu::{ContextMenu, MenuEvent};
 use super::widgets::text_input::{TextInput, TextInputEvent};
+use kanso_types::mcp::McpAccess;
 use kanso_types::message::Message;
 
 /// 浮层宽度（mac 版 360）。
@@ -59,11 +60,13 @@ pub(crate) enum LauncherEvent {
     Edit(ProfileId),
     /// 导入 OpenSSH 配置（由外壳打开导入对话框）。
     ImportSshConfig,
+    /// 会话库或 MCP 授权发生变化（通知设置页等观察者刷新）。
+    LibraryChanged,
 }
 
 /// 弹出的菜单属于谁。
 #[derive(Clone)]
-enum MenuTarget {
+pub(super) enum MenuTarget {
     Profile(ProfileId),
     Group(Group),
     Saved,
@@ -76,21 +79,43 @@ enum Pending {
     RenameGroup(Group),
     DeleteGroup(Group),
     DeleteProfile(ProfileId),
+    SetMcpAccess {
+        ids: Vec<ProfileId>,
+        level: McpAccess,
+    },
     /// 只有"好"按钮的提示。
     Info,
 }
 
-/// 启动器视图。
+/// 全宽会话库当前选中的分组筛选。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum LibraryFilter {
+    All,
+    Ungrouped,
+    Group(GroupId),
+}
+
+/// 启动器视图（全宽分组分片 + 自适应多列卡片会话库）。
 pub(crate) struct LauncherView {
-    core: Arc<Core>,
-    model: LauncherModel<Arc<Core>>,
-    search: Entity<TextInput>,
-    scroll: ScrollHandle,
-    /// 鼠标悬停的会话行。行尾「…」只在这时或键盘高亮时才接收点击。
-    hovered_profile: Option<ProfileId>,
-    /// 嵌入左侧栏「会话」页时为 true：铺满父容器、小圆角，右键菜单与对话框交由 `ShellView` 顶层渲染。
+    pub(super) core: Arc<Core>,
+    pub(super) model: LauncherModel<Arc<Core>>,
+    pub(super) search: Entity<TextInput>,
+    pub(super) scroll: ScrollHandle,
+    pub(super) pills_scroll: ScrollHandle,
+    /// 鼠标悬停的会话卡片。操作按钮只在悬停或键盘高亮时响应，避免误触。
+    pub(super) hovered_profile: Option<ProfileId>,
+    /// 鼠标悬停的分组标题行（用于就地浮现分组操作按钮）。
+    pub(super) hovered_group_header: Option<GroupId>,
+    /// 顶部筛选胶囊当前选中的分组筛选。
+    pub(super) library_filter: LibraryFilter,
+    /// 「未分组」分片是否折叠。
+    pub(super) ungrouped_collapsed: bool,
+    /// 各会话的 MCP 授权级别缓存（仅在库重载或授权变更时刷新，避免每帧查 SQLite）。
+    pub(super) mcp_levels: HashMap<ProfileId, McpAccess>,
+    /// 当前可用主内容区宽度（逻辑像素），用来动态计算多列卡片列数。
+    pub(super) content_width: f32,
     embedded: bool,
-    root: FocusHandle,
+    pub(super) root: FocusHandle,
     menu: Option<(Entity<ContextMenu>, MenuTarget)>,
     dialog: Option<(Entity<Dialog>, Pending)>,
     _subs: Vec<Subscription>,
@@ -111,17 +136,7 @@ fn appearance(window: &Window) -> Appearance {
 }
 
 impl LauncherView {
-    /// 创建浮层启动器并聚焦搜索框。必须在窗口上下文里创建。
-    pub(crate) fn new(
-        core: Arc<Core>,
-        collapsed_groups: HashSet<GroupId>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
-        Self::build(core, collapsed_groups, false, window, cx)
-    }
-
-    /// 创建嵌入左侧栏「会话」页的常驻视图（不主动抢占终端焦点，由调用方按需聚焦搜索框）。
+    /// 创建全宽会话库视图（不主动抢占终端焦点，由调用方按需聚焦搜索框）。
     pub(crate) fn new_embedded(
         core: Arc<Core>,
         collapsed_groups: HashSet<GroupId>,
@@ -129,6 +144,11 @@ impl LauncherView {
         cx: &mut Context<Self>,
     ) -> Self {
         Self::build(core, collapsed_groups, true, window, cx)
+    }
+
+    /// 同步主工作区宽度，用来按宽屏尺寸自适应调整卡片列数。
+    pub(super) fn set_content_width(&mut self, width: f32) {
+        self.content_width = width;
     }
 
     fn build(
@@ -149,10 +169,20 @@ impl LauncherView {
             |this, input, ev: &TextInputEvent, window, cx| match ev {
                 TextInputEvent::Change(t) => {
                     this.model.set_query(t);
+                    this.sync_library_selection();
                     cx.notify();
                 }
                 TextInputEvent::Submit(_) => {
-                    if let Some(id) = this.model.selected() {
+                    let target = if this.embedded {
+                        this.library_visible_profiles()
+                            .into_iter()
+                            .find(|p| Some(p.id) == this.model.selected())
+                            .or_else(|| this.library_visible_profiles().into_iter().next())
+                            .map(|p| p.id)
+                    } else {
+                        this.model.selected()
+                    };
+                    if let Some(id) = target {
                         cx.emit(LauncherEvent::Connect(id));
                     }
                 }
@@ -160,6 +190,7 @@ impl LauncherView {
                     if this.embedded && !this.model.query().is_empty() {
                         input.update(cx, |i, cx| i.set_text("", cx));
                         this.model.set_query("");
+                        this.sync_library_selection();
                         cx.notify();
                     } else {
                         this.close(window, cx);
@@ -173,10 +204,16 @@ impl LauncherView {
         }
         LauncherView {
             model: LauncherModel::with_collapsed_groups(core.clone(), collapsed_groups),
+            mcp_levels: Self::load_mcp_levels(&core),
             core,
             search,
             scroll: ScrollHandle::new(),
+            pills_scroll: ScrollHandle::new(),
             hovered_profile: None,
+            hovered_group_header: None,
+            library_filter: LibraryFilter::All,
+            ungrouped_collapsed: false,
+            content_width: 900.0,
             embedded,
             root: cx.focus_handle(),
             menu: None,
@@ -187,14 +224,91 @@ impl LauncherView {
         }
     }
 
+    fn load_mcp_levels(core: &Core) -> HashMap<ProfileId, McpAccess> {
+        if kanso_mcp_server::supported() {
+            core.mcp_accesses()
+                .map(|v| v.into_iter().collect())
+                .unwrap_or_default()
+        } else {
+            HashMap::new()
+        }
+    }
+
     pub(super) fn collapsed_groups(&self) -> &HashSet<GroupId> {
         self.model.collapsed_groups()
     }
 
-    /// 供侧栏切回「会话」页或库变更后主动刷新列表。
+    /// 供会话库打开或库变更后主动刷新列表。
     pub(super) fn reload(&mut self, cx: &mut Context<Self>) {
         self.model.reload();
+        self.mcp_levels = Self::load_mcp_levels(&self.core);
+        if let LibraryFilter::Group(gid) = self.library_filter
+            && !self.model.groups().iter().any(|g| g.id == gid)
+        {
+            self.library_filter = LibraryFilter::All;
+        }
+        self.sync_library_selection();
         cx.notify();
+    }
+
+    fn library_visible_profiles(&self) -> Vec<&Profile> {
+        let needle = self.model.query().trim();
+        let searching = !needle.is_empty();
+        let group_ids: HashSet<GroupId> = self.model.groups().iter().map(|g| g.id).collect();
+        let collapsed = self.model.collapsed_groups();
+        self.model
+            .all_profiles()
+            .iter()
+            .filter(|p| profile_matches(p, needle))
+            .filter(|p| match self.library_filter {
+                LibraryFilter::All => {
+                    if searching {
+                        return true;
+                    }
+                    match p.group.filter(|g| group_ids.contains(g)) {
+                        Some(gid) => !collapsed.contains(&gid),
+                        None => !self.ungrouped_collapsed,
+                    }
+                }
+                LibraryFilter::Ungrouped => p.group.is_none_or(|g| !group_ids.contains(&g)),
+                LibraryFilter::Group(gid) => p.group == Some(gid),
+            })
+            .collect()
+    }
+
+    fn sync_library_selection(&mut self) {
+        if !self.embedded {
+            return;
+        }
+        let ids: Vec<ProfileId> = self
+            .library_visible_profiles()
+            .into_iter()
+            .map(|p| p.id)
+            .collect();
+        if !ids.iter().any(|id| Some(*id) == self.model.selected()) {
+            self.model.select(ids.first().copied());
+        }
+    }
+
+    fn move_library_selection(&mut self, delta: isize) {
+        let ids: Vec<ProfileId> = self
+            .library_visible_profiles()
+            .into_iter()
+            .map(|p| p.id)
+            .collect();
+        if ids.is_empty() {
+            self.model.select(None);
+            return;
+        }
+        let next = match self
+            .model
+            .selected()
+            .and_then(|id| ids.iter().position(|x| *x == id))
+        {
+            Some(i) => (i as isize + delta).clamp(0, ids.len() as isize - 1) as usize,
+            None => 0,
+        };
+        self.model.select(Some(ids[next]));
     }
 
     pub(super) fn has_overlay(&self) -> bool {
@@ -236,23 +350,153 @@ impl LauncherView {
         }
     }
 
+    pub(super) fn set_library_filter(&mut self, filter: LibraryFilter, cx: &mut Context<Self>) {
+        self.library_filter = filter;
+        self.sync_library_selection();
+        cx.notify();
+    }
+
+    pub(super) fn toggle_library_group(&mut self, id: GroupId, cx: &mut Context<Self>) {
+        self.model.toggle_group(id);
+        self.sync_library_selection();
+        cx.notify();
+    }
+
+    pub(super) fn toggle_library_ungrouped(&mut self, cx: &mut Context<Self>) {
+        self.ungrouped_collapsed = !self.ungrouped_collapsed;
+        self.sync_library_selection();
+        cx.notify();
+    }
+
+    pub(super) fn open_group_menu(
+        &mut self,
+        group: Group,
+        at: gpui::Point<gpui::Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.show_menu(MenuTarget::Group(group), at, window, cx);
+    }
+
+    pub(super) fn open_profile_menu(
+        &mut self,
+        pid: ProfileId,
+        at: gpui::Point<gpui::Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.model.select(Some(pid));
+        self.show_menu(MenuTarget::Profile(pid), at, window, cx);
+    }
+
+    pub(super) fn open_menu_target(
+        &mut self,
+        target: MenuTarget,
+        at: gpui::Point<gpui::Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.show_menu(target, at, window, cx);
+    }
+
+    pub(super) fn set_hovered_group_header(
+        &mut self,
+        gid: GroupId,
+        hovered: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if hovered {
+            if self.hovered_group_header != Some(gid) {
+                self.hovered_group_header = Some(gid);
+                cx.notify();
+            }
+        } else if self.hovered_group_header == Some(gid) {
+            self.hovered_group_header = None;
+            cx.notify();
+        }
+    }
+
+    pub(super) fn set_hovered_profile(
+        &mut self,
+        pid: ProfileId,
+        hovered: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if hovered {
+            if self.hovered_profile != Some(pid) {
+                self.hovered_profile = Some(pid);
+                cx.notify();
+            }
+        } else if self.hovered_profile == Some(pid) {
+            self.hovered_profile = None;
+            cx.notify();
+        }
+    }
+
+    pub(super) fn select_profile(&mut self, pid: ProfileId, cx: &mut Context<Self>) {
+        self.model.select(Some(pid));
+        cx.notify();
+    }
+
+    pub(super) fn select_and_connect(&mut self, pid: ProfileId, cx: &mut Context<Self>) {
+        self.model.select(Some(pid));
+        cx.emit(LauncherEvent::Connect(pid));
+    }
+
+    pub(super) fn open_saved_menu(
+        &mut self,
+        at: gpui::Point<gpui::Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.show_menu(MenuTarget::Saved, at, window, cx);
+    }
+
+    pub(super) fn drop_profile_to_group(
+        &mut self,
+        id: ProfileId,
+        group: Option<GroupId>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.model.profile(id).is_some_and(|p| p.group == group) {
+            return;
+        }
+        self.move_profile(id, group, window, cx);
+        self.sync_library_selection();
+        cx.notify();
+    }
+
     // ---- 键盘 ----
 
-    fn on_key_down(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn on_key_down(
+        &mut self,
+        ev: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let m = &ev.keystroke.modifiers;
         if self.menu.is_some() || self.dialog.is_some() || m.control || m.alt || m.platform {
             return;
         }
         match ev.keystroke.key.as_str() {
             "down" => {
-                self.model.move_selection(1);
-                self.reveal_selected();
+                if self.embedded {
+                    self.move_library_selection(1);
+                } else {
+                    self.model.move_selection(1);
+                    self.reveal_selected();
+                }
                 cx.notify();
                 cx.stop_propagation();
             }
             "up" => {
-                self.model.move_selection(-1);
-                self.reveal_selected();
+                if self.embedded {
+                    self.move_library_selection(-1);
+                } else {
+                    self.model.move_selection(-1);
+                    self.reveal_selected();
+                }
                 cx.notify();
                 cx.stop_propagation();
             }
@@ -278,10 +522,28 @@ impl LauncherView {
         }
         let items = match &target {
             MenuTarget::Profile(id) => match self.model.profile(*id) {
-                Some(p) => logic::profile_menu(p, self.model.groups()),
+                Some(p) => logic::profile_menu(
+                    p,
+                    self.model.groups(),
+                    kanso_mcp_server::supported().then(|| self.core.mcp_access(*id)),
+                ),
                 None => return,
             },
-            MenuTarget::Group(_) => logic::group_menu(),
+            MenuTarget::Group(group) => {
+                let show_mcp = kanso_mcp_server::supported();
+                let current_mcp = if show_mcp {
+                    let mut levels = self
+                        .model
+                        .all_profiles()
+                        .iter()
+                        .filter(|p| p.group == Some(group.id))
+                        .map(|p| self.core.mcp_access(p.id));
+                    levels.next().filter(|first| levels.all(|lv| lv == *first))
+                } else {
+                    None
+                };
+                logic::group_menu(show_mcp, current_mcp)
+            }
             MenuTarget::Saved => logic::saved_menu(),
         };
         let menu = cx.new(|cx| ContextMenu::new(items, at, window, cx));
@@ -314,11 +576,24 @@ impl LauncherView {
             MenuTarget::Profile(pid) => match logic::parse_profile_action(id) {
                 Some(ProfileAction::Edit) => cx.emit(LauncherEvent::Edit(*pid)),
                 Some(ProfileAction::Move(group)) => self.move_profile(*pid, group, window, cx),
+                Some(ProfileAction::McpAccess(level)) => {
+                    self.request_mcp_access(vec![*pid], level, window, cx)
+                }
                 Some(ProfileAction::Delete) => self.confirm_delete_profile(*pid, window, cx),
                 None => self.focus_search(window, cx),
             },
             MenuTarget::Group(group) => match logic::parse_group_action(id) {
                 Some(GroupAction::Rename) => self.rename_group_dialog(group.clone(), window, cx),
+                Some(GroupAction::McpAccess(level)) => {
+                    let ids: Vec<_> = self
+                        .model
+                        .all_profiles()
+                        .iter()
+                        .filter(|p| p.group == Some(group.id))
+                        .map(|p| p.id)
+                        .collect();
+                    self.request_mcp_access(ids, level, window, cx);
+                }
                 Some(GroupAction::Delete) => self.confirm_delete_group(group.clone(), window, cx),
                 None => self.focus_search(window, cx),
             },
@@ -430,6 +705,61 @@ impl LauncherView {
         self.show_dialog(spec, Pending::DeleteProfile(id), window, cx);
     }
 
+    fn request_mcp_access(
+        &mut self,
+        ids: Vec<ProfileId>,
+        level: McpAccess,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if ids.is_empty() {
+            return;
+        }
+        let raising_from_off = level != McpAccess::Off
+            && ids
+                .iter()
+                .any(|&id| self.core.mcp_access(id) == McpAccess::Off);
+        if raising_from_off {
+            let spec = DialogSpec::new(label(Message::WinMcpGrantConfirmTitle {}))
+                .text(label(Message::WinMcpGrantConfirmBody {}))
+                .button(
+                    ButtonSpec::secondary("cancel", label(Message::UiCancel {}))
+                        .cancel()
+                        .default_button(),
+                )
+                .button(ButtonSpec::primary(
+                    "allow",
+                    label(Message::WinMcpGrantConfirmAction {}),
+                ));
+            self.show_dialog(spec, Pending::SetMcpAccess { ids, level }, window, cx);
+        } else {
+            self.apply_mcp_access(&ids, level, window, cx);
+        }
+    }
+
+    fn apply_mcp_access(
+        &mut self,
+        ids: &[ProfileId],
+        level: McpAccess,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let mut first_error = None;
+        for &id in ids {
+            if let Err(e) = self.core.set_mcp_access(id, level)
+                && first_error.is_none()
+            {
+                first_error = Some(core_error_text(&e));
+            }
+        }
+        self.mcp_levels = Self::load_mcp_levels(&self.core);
+        cx.emit(LauncherEvent::LibraryChanged);
+        cx.notify();
+        if let Some(err) = first_error {
+            self.error_dialog(&err, window, cx);
+        }
+    }
+
     fn on_dialog_result(
         &mut self,
         pending: Pending,
@@ -439,6 +769,9 @@ impl LauncherView {
     ) {
         let button = r.button.as_deref();
         match pending {
+            Pending::SetMcpAccess { ids, level } if button == Some("allow") => {
+                self.apply_mcp_access(&ids, level, window, cx);
+            }
             Pending::NewGroup if button == Some("ok") => {
                 let name = r.value("name").unwrap_or_default();
                 if let Err(e) = self.model.create_group(name) {
@@ -456,11 +789,10 @@ impl LauncherView {
                 cx.spawn_in(window, async move |this, cx| {
                     let result = core.delete_group(group.id).await;
                     this.update_in(cx, |this, window, cx| {
-                        this.model.reload();
+                        this.reload(cx);
                         if let Err(e) = result {
                             this.error_dialog(&core_error_text(&e), window, cx);
                         }
-                        cx.notify();
                     })
                     .ok();
                 })
@@ -471,11 +803,10 @@ impl LauncherView {
                 cx.spawn_in(window, async move |this, cx| {
                     let result = core.delete_profile(id).await;
                     this.update_in(cx, |this, window, cx| {
-                        this.model.reload();
+                        this.reload(cx);
                         if let Err(e) = result {
                             this.error_dialog(&core_error_text(&e), window, cx);
                         }
-                        cx.notify();
                     })
                     .ok();
                 })
@@ -483,7 +814,7 @@ impl LauncherView {
             }
             _ => {}
         }
-        self.model.reload();
+        self.reload(cx);
     }
 
     fn move_profile(
@@ -537,7 +868,11 @@ impl LauncherView {
             .child(title)
     }
 
-    fn small_button(&self, id: impl Into<gpui::ElementId>, th: Theme) -> gpui::Stateful<gpui::Div> {
+    pub(super) fn small_button(
+        &self,
+        id: impl Into<gpui::ElementId>,
+        th: Theme,
+    ) -> gpui::Stateful<gpui::Div> {
         div()
             .id(id)
             .h(px(24.0))
@@ -789,95 +1124,7 @@ impl Render for LauncherView {
 
         if self.embedded {
             log_state(self);
-            return div()
-                .id("sidebar-sessions")
-                .key_context("Launcher")
-                .track_focus(&self.root)
-                .on_key_down(cx.listener(Self::on_key_down))
-                .flex_1()
-                .min_h_0()
-                .flex()
-                .flex_col()
-                .text_size(px(number("font", "ui.body")))
-                .text_color(th.c("text.primary"))
-                // 顶部搜索框 + ＋ 新建按钮，与「标签」页工具条等高对齐。
-                .child(
-                    div()
-                        .h(px(40.0))
-                        .flex_none()
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .px(px(8.0))
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .mr(px(4.0))
-                                .child(self.search.clone()),
-                        )
-                        .child(
-                            div()
-                                .id("sidebar-new-session")
-                                .w(px(24.0))
-                                .h(px(24.0))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .rounded(px(number("radius", "sm")))
-                                .cursor_pointer()
-                                .hover(|s| {
-                                    s.bg(th.c("bg.rowHover")).text_color(th.c("text.primary"))
-                                })
-                                .on_mouse_down(
-                                    MouseButton::Left,
-                                    cx.listener(|_, _, _, cx| {
-                                        cx.stop_propagation();
-                                        cx.emit(LauncherEvent::NewSession);
-                                    }),
-                                )
-                                .child(icon("plus", 16.0, th.c("text.secondary"))),
-                        ),
-                )
-                .child(
-                    div()
-                        .flex_none()
-                        .border_t_1()
-                        .border_color(th.c("border.subtle"))
-                        .pt(px(4.0))
-                        .flex()
-                        .items_center()
-                        .child(div().flex_1().min_w_0().child(self.render_action_row(
-                            "launcher-local",
-                            "square-terminal",
-                            logic::render_message(&Message::UiLocalSession {}),
-                            th,
-                            |_this, _w, cx| cx.emit(LauncherEvent::OpenLocal),
-                            cx,
-                        )))
-                        .child(
-                            div()
-                                .id("launcher-settings")
-                                .mr(px(8.0))
-                                .size(px(24.0))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .rounded(px(number("radius", "sm")))
-                                .cursor_pointer()
-                                .hover(|s| s.bg(th.c("bg.rowHover")))
-                                .on_mouse_down(
-                                    MouseButton::Left,
-                                    cx.listener(|_, _, _, cx| {
-                                        cx.stop_propagation();
-                                        cx.emit(LauncherEvent::CustomizeShell);
-                                    }),
-                                )
-                                .child(icon("sliders-horizontal", 15.0, th.c("text.secondary"))),
-                        ),
-                )
-                .child(saved_header)
-                .child(list);
+            return self.render_library(th, cx);
         }
 
         let panel = div()

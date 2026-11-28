@@ -254,6 +254,12 @@ messages! {
     UiSidebarTabs = "ui-sidebar-tabs" {},
     /// 左侧栏顶部切换：会话管理页。
     UiSidebarSessions = "ui-sidebar-sessions" {},
+    /// 会话库：全部会话分类。
+    UiAllSessions = "ui-all-sessions" {},
+    /// 会话库：未分组分类。
+    UiUngrouped = "ui-ungrouped" {},
+    /// 侧栏底部 / 顶部标签条入口：会话管理。
+    UiSessionManager = "ui-session-manager" {},
     /// 命令面板的命令分组。
     UiPaletteCommands = "ui-palette-commands" {},
     /// 命令面板搜索范围。
@@ -1535,4 +1541,30 @@ messages! {
     WinMcpAuditUnconfirmed = "win-mcp-audit-unconfirmed" {},
     /// 刷新已翻页的 MCP 审计记录。
     WinMcpAuditRefresh = "win-mcp-audit-refresh" {},
+    /// MCP 活动记录独立窗口标题与菜单项。
+    WinMcpActivityTitle = "win-mcp-activity-title" {},
+    /// MCP 活动记录独立窗口顶部说明。
+    WinMcpActivityIntro = "win-mcp-activity-intro" {},
+    /// 设置页打开 MCP 活动记录窗口的按钮。
+    WinMcpOpenActivity = "win-mcp-open-activity" {},
+    /// 清空 MCP 活动记录前的确认标题。
+    WinMcpAuditClearConfirmTitle = "win-mcp-audit-clear-confirm-title" {},
+    /// 清空 MCP 活动记录前的确认说明。
+    WinMcpAuditClearConfirmBody = "win-mcp-audit-clear-confirm-body" {},
+    /// macOS / Linux 接入命令字段标签。
+    WinMcpShellCommand = "win-mcp-shell-command" {},
+    /// macOS / Linux 令牌可能进入 shell 历史的提示。
+    WinMcpTokenHistoryShell = "win-mcp-token-history-shell" {},
+    /// 设置页还没有授权任何会话时的只读说明。
+    WinMcpGrantedNone = "win-mcp-granted-none" {},
+    /// 设置页已授权会话数的只读说明。
+    WinMcpGrantedCount = "win-mcp-granted-count" { count: i64 },
+    /// 从菜单开启会话 MCP 访问前的确认标题。
+    WinMcpGrantConfirmTitle = "win-mcp-grant-confirm-title" {},
+    /// 从菜单开启会话 MCP 访问前的确认说明。
+    WinMcpGrantConfirmBody = "win-mcp-grant-confirm-body" {},
+    /// 从菜单开启会话 MCP 访问前的确认按钮。
+    WinMcpGrantConfirmAction = "win-mcp-grant-confirm-action" {},
+    /// 左侧标签栏右键菜单底部跳转到会话管理页的入口。
+    UiMoreSessions = "ui-more-sessions" {},
 }

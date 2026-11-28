@@ -55,7 +55,8 @@ use kanso_types::{CoreEvent, PromptId, SessionId};
 
 use super::display;
 use super::launcher::LauncherView;
-use super::mcp::{McpModel, TabOpened};
+use super::mcp::{McpModel, ShowActivity, TabOpened};
+use super::mcp_activity::{self, McpActivityView};
 use super::session_editor::SessionEditorView;
 use super::settings::{self, SettingsEvent, SettingsModel, SettingsView};
 use super::shell_selftest::ShellSelfTest;
@@ -94,6 +95,22 @@ impl Theme {
     pub(crate) fn ca(&self, name: &str, alpha: u8) -> Hsla {
         rgba(color(name, self.appearance).with_alpha(alpha).to_u32()).into()
     }
+
+    /// 面板结构分隔线：亮色保持完整 `border.subtle` 保证可见度，深色适度降透明减少割裂感。
+    pub(crate) fn divider(&self) -> Hsla {
+        match self.appearance {
+            Appearance::Light => self.c("border.subtle"),
+            Appearance::Dark => self.ca("border.subtle", 0x99),
+        }
+    }
+
+    /// 列表行间更轻的细分隔线。
+    pub(crate) fn divider_soft(&self) -> Hsla {
+        match self.appearance {
+            Appearance::Light => self.ca("border.subtle", 0xB0),
+            Appearance::Dark => self.ca("border.subtle", 0x66),
+        }
+    }
 }
 
 /// 根视图。
@@ -104,11 +121,14 @@ pub(crate) struct ShellView {
     subs: HashMap<SessionId, Subscription>,
     _window_subs: Vec<Subscription>,
     pub(super) sidebar_visible: bool,
-    /// 左侧栏当前显示「标签」还是「会话」（ui-shell.md §2.1）。
-    pub(super) sidebar_page: super::sidebar::SidebarPage,
-    /// 嵌入左侧栏「会话」页的常驻启动器实体（按需懒创建）。
+    /// 全宽会话库视图是否正在主内容区显示。
+    pub(super) sessions_library_open: bool,
+    /// 全宽会话库视图实体（按需懒创建）。
     pub(super) sidebar_sessions: Option<Entity<LauncherView>>,
     pub(super) sidebar_sessions_sub: Option<Subscription>,
+    /// macOS 系统顶部菜单栏上次同步时的界面语言（避免每帧重建菜单）。
+    #[cfg(target_os = "macos")]
+    last_macos_menu_lang: Option<kanso_gpui::app::i18n::Lang>,
     /// 标签栏位置为顶部（ui-shell.md §2.5）。跟随外观设置，设置变化时同步。
     pub(super) tab_bar_top: bool,
     /// 顶部模式下标签条是否显示（"显示 / 隐藏标签栏"在顶部模式下切换它）。
@@ -139,6 +159,7 @@ pub(crate) struct ShellView {
     pub(super) settings: Entity<SettingsModel>,
     pub(super) mcp: Entity<McpModel>,
     settings_window: Option<WindowHandle<SettingsView>>,
+    mcp_activity_window: Option<WindowHandle<McpActivityView>>,
     window_active: bool,
     /// 最近一次通知核心“有输入焦点”的会话。
     focused: Option<SessionId>,
@@ -230,9 +251,11 @@ impl ShellView {
             subs: HashMap::new(),
             _window_subs: Vec::new(),
             sidebar_visible: panels.sidebar_visible,
-            sidebar_page: super::sidebar::SidebarPage::Tabs,
+            sessions_library_open: false,
             sidebar_sessions: None,
             sidebar_sessions_sub: None,
+            #[cfg(target_os = "macos")]
+            last_macos_menu_lang: None,
             tab_bar_top,
             top_tab_bar_visible: panels.top_tab_bar_visible,
             sidebar_preferred_width: panels.sidebar_width,
@@ -254,6 +277,7 @@ impl ShellView {
             settings,
             mcp,
             settings_window: None,
+            mcp_activity_window: None,
             window_active: true,
             focused: None,
             last_title: String::new(),
@@ -381,6 +405,9 @@ impl ShellView {
                 cx.notify();
             }
         });
+        let mcp_activity = cx.subscribe(&this.mcp, |this, _, _: &ShowActivity, cx| {
+            this.open_mcp_activity(cx);
+        });
         this._window_subs = vec![
             activation,
             appearance,
@@ -389,6 +416,7 @@ impl ShellView {
             sender_sub,
             mcp_sub,
             mcp_tabs,
+            mcp_activity,
         ];
         {
             let m = this.settings.read(cx);
@@ -616,6 +644,12 @@ impl ShellView {
             AppCommand::OpenPalette => self.open_palette(window, cx),
             AppCommand::OpenLauncher => self.open_launcher(window, cx),
             AppCommand::NewSession => self.open_editor(None, window, cx),
+            AppCommand::ConnectProfile(id) => {
+                self.connect_profile(id, window, cx);
+                if self.sessions_library_open {
+                    self.close_sessions_library(window, cx);
+                }
+            }
             AppCommand::CloseSession => {
                 if let Some(id) = self.ctl.workspace().active_session() {
                     self.request_close(id, window, cx);
@@ -719,6 +753,7 @@ impl ShellView {
                     });
                 }
             }
+            AppCommand::OpenMcpActivity => self.open_mcp_activity(cx),
             AppCommand::About => self.show_about(window, cx),
             AppCommand::OpenLicenses => self.open_licenses(window, cx),
             AppCommand::ResetSettings => self.request_reset_settings(window, cx),
@@ -748,8 +783,10 @@ impl ShellView {
         self.show_settings(false, cx);
     }
 
-    pub(super) fn open_mcp_settings(&mut self, cx: &mut Context<Self>) {
-        self.show_settings(true, cx);
+    /// 打开或前置 MCP 活动记录独立窗口。
+    pub(super) fn open_mcp_activity(&mut self, cx: &mut Context<Self>) {
+        self.mcp_activity_window =
+            mcp_activity::open_window(self.mcp_activity_window, self.mcp.clone(), cx);
     }
 
     fn show_settings(&mut self, mcp: bool, cx: &mut Context<Self>) {
@@ -1047,6 +1084,7 @@ impl ShellView {
             gutter_mode: self.gutter_policy.global().mode,
             theme_mode: self.settings.read(cx).appearance().mode,
             tab_count: self.ctl.workspace().sidebar_order().len(),
+            mcp_supported: kanso_mcp_server::supported(),
         }
     }
 
@@ -1072,6 +1110,7 @@ impl ShellView {
     }
 
     pub(super) fn open_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.sessions_library_open = false;
         self.open_shell(None, window, cx);
     }
 
@@ -1362,14 +1401,31 @@ impl ShellView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let closed_library = self.sessions_library_open;
+        self.sessions_library_open = false;
         if self.ctl.workspace().active_session() == Some(id) {
             // 已经是活动标签：只确保焦点在它的终端里。
             self.sync_focus(window, cx);
+            if closed_library {
+                cx.notify();
+            }
             return;
         }
         self.ctl.edit(|w| w.activate(id));
         self.sync_focus(window, cx);
         cx.notify();
+    }
+
+    #[cfg(target_os = "macos")]
+    fn on_menu_command(
+        &mut self,
+        action: &super::toolbar::MenuCommand,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(cmd) = kanso_gpui::app::menus::decode(&action.id) {
+            self.run_command(cmd, window, cx);
+        }
     }
 
     pub(super) fn activate_pane(
@@ -1378,6 +1434,7 @@ impl ShellView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.sessions_library_open = false;
         self.ctl.edit(|w| w.activate_pane(pane));
         self.sync_focus(window, cx);
         cx.notify();
@@ -1925,7 +1982,38 @@ impl Render for ShellView {
             .filter(|(_, until)| *until > Instant::now())
             .map(|(text, _)| text.clone());
 
-        div()
+        #[cfg(target_os = "macos")]
+        {
+            let lang = kanso_gpui::app::i18n::lang();
+            if self.last_macos_menu_lang != Some(lang) {
+                super::toolbar::sync_macos_menus(self.app_menu_state(cx), cx);
+                self.last_macos_menu_lang = Some(lang);
+            }
+        }
+
+        let sessions_library = self
+            .sessions_library_open
+            .then(|| self.sidebar_sessions.clone())
+            .flatten()
+            .map(|view| {
+                view.update(cx, |v, _| v.set_content_width(area.width as f32));
+                let top_offset = if self.tab_strips_shown() {
+                    super::tab_strip::HEIGHT
+                } else {
+                    0.0
+                };
+                div()
+                    .absolute()
+                    .left(px(area.x as f32))
+                    .top(px(area.y as f32 + top_offset))
+                    .w(px(area.width as f32))
+                    .h(px((area.height as f32 - top_offset).max(0.0)))
+                    .bg(th.c("bg.window"))
+                    .occlude()
+                    .child(view)
+            });
+
+        let root = div()
             .relative()
             // 子元素均为绝对定位，根节点需要明确尺寸，避免百分比尺寸收缩成空绘制区域。
             .w(window.viewport_size().width)
@@ -1935,8 +2023,11 @@ impl Render for ShellView {
             .text_size(px(display::ui_font_size()))
             .text_color(th.c("text.primary"))
             .key_context("Shell")
-            .capture_key_down(cx.listener(Self::on_capture_key))
-            .on_mouse_move(cx.listener(Self::on_mouse_move))
+            .capture_key_down(cx.listener(Self::on_capture_key));
+        #[cfg(target_os = "macos")]
+        let root = root.on_action(cx.listener(Self::on_menu_command));
+
+        root.on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(
                 MouseButton::Left,
@@ -1950,6 +2041,7 @@ impl Render for ShellView {
             .children(git_panels)
             .children(panes)
             .children(tab_strips)
+            .children(sessions_library)
             .child(status_bar)
             .child(self.render_toolbar(th, window, cx))
             .children(notice.map(|text| {

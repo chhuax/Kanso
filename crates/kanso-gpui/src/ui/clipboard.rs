@@ -95,8 +95,8 @@ pub(super) fn read_terminal_paste(cx: &App) -> Option<PasteContent> {
     paths_or_text().or_else(|| text_or_image(cx))
 }
 
-/// Linux 只用 GPUI 的文本 / 图片通道。
-#[cfg(target_os = "linux")]
+/// Linux / macOS 只用 GPUI 的文本 / 图片通道。
+#[cfg(not(windows))]
 pub(super) fn read_terminal_paste(cx: &App) -> Option<PasteContent> {
     text_or_image(cx)
 }

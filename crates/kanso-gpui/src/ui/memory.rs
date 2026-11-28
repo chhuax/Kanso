@@ -43,6 +43,11 @@ fn working_set() -> Option<(usize, usize)> {
     Some((kib("VmRSS:")? * 1024, kib("VmHWM:")? * 1024))
 }
 
+#[cfg(target_os = "macos")]
+fn working_set() -> Option<(usize, usize)> {
+    None
+}
+
 /// 供日志用的一行描述。
 pub(crate) fn describe() -> String {
     match working_set() {

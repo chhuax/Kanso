@@ -23,6 +23,11 @@ const DEFAULT_TERMINAL_FONT: &str = "Cascadia Mono";
 pub(crate) const DEFAULT_UI_FONT: &str = "DejaVu Sans";
 #[cfg(target_os = "linux")]
 const DEFAULT_TERMINAL_FONT: &str = "DejaVu Sans Mono";
+/// macOS 使用系统字体与 Menlo。
+#[cfg(target_os = "macos")]
+pub(crate) const DEFAULT_UI_FONT: &str = ".SystemUIFont";
+#[cfg(target_os = "macos")]
+const DEFAULT_TERMINAL_FONT: &str = "Menlo";
 
 struct State {
     term_family: String,
@@ -126,6 +131,8 @@ pub(crate) fn terminal_font() -> Font {
         "Noto Sans CJK SC",
         "Noto Sans Symbols 2",
     ];
+    #[cfg(target_os = "macos")]
+    let platform_fonts = ["SF Mono", "Menlo", "PingFang SC", "Apple Symbols"];
     fallbacks.extend(platform_fonts.into_iter().map(str::to_owned));
     Font {
         family: family.into(),
@@ -195,8 +202,8 @@ pub(crate) fn system_languages() -> Vec<String> {
         .collect()
 }
 
-/// Linux 上按 POSIX 语言环境变量取界面语言。
-#[cfg(target_os = "linux")]
+/// Unix 上按 POSIX 语言环境变量取界面语言。
+#[cfg(unix)]
 pub(crate) fn system_languages() -> Vec<String> {
     ["LC_ALL", "LC_MESSAGES", "LANG"]
         .into_iter()
@@ -207,7 +214,7 @@ pub(crate) fn system_languages() -> Vec<String> {
 }
 
 /// `zh_CN.UTF-8` → `zh-CN`；`C`、`POSIX` 与空值不算偏好。
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 fn posix_locale(value: &str) -> Option<String> {
     let base = value.split(['.', '@']).next()?;
     let mut parts = base.split(['_', '-']);
@@ -273,8 +280,8 @@ pub(crate) fn apply_titlebar(window: &Window) {
     }
 }
 
-/// Linux 标题栏由窗口管理器负责；应用内工具栏直接使用当前主题。
-#[cfg(target_os = "linux")]
+/// Linux / macOS 标题栏由系统或应用内透明标题栏负责。
+#[cfg(not(windows))]
 pub(crate) fn apply_titlebar(_window: &Window) {}
 
 #[cfg(all(test, target_os = "linux"))]
