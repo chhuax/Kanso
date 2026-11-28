@@ -15,6 +15,7 @@ on:
       - "scripts/linux-package.sh"
       - "xtask/src/windows.rs"
       - "xtask/src/apple.rs"
+      - "packaging/macos/**"
       - "packaging/windows/**"
   workflow_dispatch:
     inputs:
@@ -110,8 +111,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: dmg-${{ matrix.arch }}
-      - name: Install XcodeGen
-        run: brew install xcodegen
       - name: Build DMG
         run: cargo xtask dmg --arch ${{ matrix.arch }}
       - name: Write SHA-256
