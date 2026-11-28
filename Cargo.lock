@@ -3891,6 +3891,7 @@ version = "1.0.11"
 dependencies = [
  "kanso-types",
  "secret-service",
+ "security-framework",
  "windows-sys 0.61.2",
  "zbus",
 ]

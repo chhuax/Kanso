@@ -414,6 +414,8 @@ ui-follow-system = Follow system
 ui-language = Language
 ui-powershell-color-prompt = Colorful PowerShell prompt
 ui-powershell-color-prompt-hint = Applies to newly opened PowerShell sessions.
+ui-zsh-prompt-chips = Enhanced prompt (directory & Git branch)
+ui-zsh-prompt-chips-hint = Applies to new local terminal tabs only; does not modify your shell config files.
 
 ui-interface-language = Interface language
 

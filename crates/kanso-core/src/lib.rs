@@ -39,3 +39,5 @@ pub use validate::validate_profile;
 
 /// Windows 彩色 PowerShell 提示符的设置键。
 pub const POWERSHELL_COLOR_PROMPT: &str = "powershell-color-prompt";
+/// macOS / Linux 本地 zsh 增强提示符（目录、Git 分支等标签行）的设置键。
+pub const ZSH_PROMPT_CHIPS: &str = "zsh-prompt-chips";

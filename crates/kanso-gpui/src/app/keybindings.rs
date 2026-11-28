@@ -23,7 +23,11 @@ use crate::app::shortcuts::{AppCommand, DEFAULT_BINDINGS};
 use crate::keys::KeyInput;
 use kanso_types::message::Message;
 
+/// 设置表里的 key（macOS 用 `keybindings`，Windows / Linux 用 `keybindings-win`）。
+#[cfg(target_os = "macos")]
+pub const SETTING_KEY: &str = "keybindings";
 /// 设置表里的 key（Windows / Linux 专用，与 mac 的 `keybindings` 区分）。
+#[cfg(not(target_os = "macos"))]
 pub const SETTING_KEY: &str = "keybindings-win";
 /// 存储版本。
 pub const VERSION: u32 = 1;
@@ -33,6 +37,8 @@ pub const VERSION: u32 = 1;
 /// 一个组合键：修饰键 + 规范化的键名。
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Chord {
+    /// Command（macOS）。
+    pub cmd: bool,
     /// Ctrl。
     pub ctrl: bool,
     /// Alt。
@@ -145,9 +151,15 @@ pub enum Invalid {
 }
 
 impl Chord {
-    /// 构造（键名会被规范化）。
+    /// 构造（不含 Command，键名会被规范化）。
     pub fn new(ctrl: bool, alt: bool, shift: bool, key: &str) -> Chord {
+        Self::with_cmd(false, ctrl, alt, shift, key)
+    }
+
+    /// 构造（含 Command，键名会被规范化）。
+    pub fn with_cmd(cmd: bool, ctrl: bool, alt: bool, shift: bool, key: &str) -> Chord {
         Chord {
+            cmd,
             ctrl,
             alt,
             shift,
@@ -155,17 +167,30 @@ impl Chord {
         }
     }
 
-    /// 由按键事件构造；Win 键组合与纯修饰键返回 `None`。
+    /// 由按键事件构造；纯修饰键及非 macOS 上的 Win 键组合返回 `None`。
     pub fn from_input(input: &KeyInput<'_>) -> Option<Chord> {
-        if input.platform || input.key.is_empty() || is_modifier_name(&input.key.to_lowercase()) {
+        if (!cfg!(target_os = "macos") && input.platform)
+            || input.key.is_empty()
+            || is_modifier_name(&input.key.to_lowercase())
+        {
             return None;
         }
-        Some(Chord::new(input.ctrl, input.alt, input.shift, input.key))
+        let cmd = cfg!(target_os = "macos") && input.platform;
+        Some(Chord::with_cmd(
+            cmd,
+            input.ctrl,
+            input.alt,
+            input.shift,
+            input.key,
+        ))
     }
 
-    /// 存储文本，如 `ctrl+shift+\`。
+    /// 存储文本，如 `ctrl+shift+\`、`cmd+t`。
     pub fn storage(&self) -> String {
         let mut s = String::new();
+        if self.cmd {
+            s.push_str("cmd+");
+        }
         if self.ctrl {
             s.push_str("ctrl+");
         }
@@ -179,11 +204,23 @@ impl Chord {
         s
     }
 
-    /// 解析存储文本；格式不对（含 mac 的 `cmd+`）返回 `None`。
+    /// 解析存储文本；非 macOS 上拒绝 `cmd+`，格式不对返回 `None`。
     pub fn parse(text: &str) -> Option<Chord> {
         let mut rest = text;
+        #[cfg(target_os = "macos")]
+        let mut cmd = false;
+        #[cfg(not(target_os = "macos"))]
+        let cmd = false;
         let (mut ctrl, mut alt, mut shift) = (false, false, false);
         'outer: loop {
+            #[cfg(target_os = "macos")]
+            if let Some(r) = rest.strip_prefix("cmd+")
+                && !r.is_empty()
+            {
+                cmd = true;
+                rest = r;
+                continue 'outer;
+            }
             for (token, flag) in [
                 ("ctrl+", &mut ctrl),
                 ("alt+", &mut alt),
@@ -205,6 +242,7 @@ impl Chord {
                 || is_function_key(&key)
                 || key.chars().count() == 1);
         valid.then_some(Chord {
+            cmd,
             ctrl,
             alt,
             shift,
@@ -212,9 +250,12 @@ impl Chord {
         })
     }
 
-    /// 界面显示，如 `Ctrl+Shift+\`、`Ctrl+Alt+Left`、`F3`。
+    /// 界面显示，如 `Cmd+T`、`Ctrl+Shift+\`、`Ctrl+Alt+Left`、`F3`。
     pub fn display(&self) -> String {
         let mut parts: Vec<String> = Vec::new();
+        if self.cmd {
+            parts.push("Cmd".into());
+        }
         if self.ctrl {
             parts.push("Ctrl".into());
         }
@@ -238,22 +279,22 @@ impl Chord {
     }
 
     fn has_modifier(&self) -> bool {
-        self.ctrl || self.alt || self.shift
+        self.cmd || self.ctrl || self.alt || self.shift
     }
 
     /// 能不能作为绑定。
     ///
     /// - 功能键（F1–F24）可以不带修饰键（默认的 F3 就是）；
     /// - 导航键（方向键、Home 等）至少带一个修饰键；
-    /// - 其余键必须带 Ctrl 或 Alt（只带 Shift 会让输入文字变成快捷键，terminal.md §9）。
-    /// - Alt+1–Alt+9（固定的切换标签）和 Alt+F4（系统关闭窗口）保留。
+    /// - 其余键必须带 Cmd / Ctrl / Alt（只带 Shift 会让输入文字变成快捷键，terminal.md §9）。
+    /// - Alt+1–Alt+9 / Alt+F4 与 macOS 上的 Cmd+1–Cmd+9 / Cmd+Q 保留。
     pub fn validate(&self) -> Result<(), Invalid> {
         let ok = if is_function_key(&self.key) {
             true
         } else if is_navigation_key(&self.key) {
             self.has_modifier()
         } else {
-            self.ctrl || self.alt
+            self.cmd || self.ctrl || self.alt
         };
         if !ok {
             return Err(Invalid::NeedsModifier);
@@ -266,7 +307,14 @@ impl Chord {
 
     fn is_reserved(&self) -> bool {
         let digit = self.key.len() == 1 && matches!(self.key.as_bytes()[0], b'1'..=b'9');
-        self.alt && !self.ctrl && !self.shift && (digit || self.key == "f4")
+        let alt_reserved =
+            self.alt && !self.cmd && !self.ctrl && !self.shift && (digit || self.key == "f4");
+        #[cfg(target_os = "macos")]
+        let cmd_reserved =
+            self.cmd && !self.ctrl && !self.alt && !self.shift && (digit || self.key == "q");
+        #[cfg(not(target_os = "macos"))]
+        let cmd_reserved = false;
+        alt_reserved || cmd_reserved
     }
 }
 
@@ -384,7 +432,7 @@ const KNOWN: &[(&str, AppCommand, Group)] = &[
 fn default_chords(command: AppCommand) -> Vec<Chord> {
     let mut out: Vec<Chord> = Vec::new();
     for bd in DEFAULT_BINDINGS.iter().filter(|b| b.command == command) {
-        let c = Chord::new(bd.ctrl, bd.alt, bd.shift, bd.key);
+        let c = Chord::with_cmd(bd.cmd, bd.ctrl, bd.alt, bd.shift, bd.key);
         if !out.contains(&c) {
             out.push(c);
         }
@@ -674,10 +722,13 @@ impl Keymap {
                 push(c, entry.command);
             }
         }
-        // Alt+1–9 固定。
+        // Alt+1–9 / Cmd+1–9 固定。
         for bd in DEFAULT_BINDINGS {
             if matches!(bd.command, AppCommand::SelectTab(_)) {
-                push(Chord::new(bd.ctrl, bd.alt, bd.shift, bd.key), bd.command);
+                push(
+                    Chord::with_cmd(bd.cmd, bd.ctrl, bd.alt, bd.shift, bd.key),
+                    bd.command,
+                );
             }
         }
         Keymap { chords }
@@ -724,16 +775,26 @@ pub fn install(settings: &KeybindingSettings) {
 mod tests {
     use super::*;
 
-    fn input(key: &'static str, ctrl: bool, alt: bool, shift: bool) -> KeyInput<'static> {
+    fn input_with(
+        key: &'static str,
+        cmd: bool,
+        ctrl: bool,
+        alt: bool,
+        shift: bool,
+    ) -> KeyInput<'static> {
         KeyInput {
             key,
             key_char: None,
             ctrl,
             alt,
             shift,
-            platform: false,
+            platform: cmd,
             is_held: false,
         }
+    }
+
+    fn input(key: &'static str, ctrl: bool, alt: bool, shift: bool) -> KeyInput<'static> {
+        input_with(key, false, ctrl, alt, shift)
     }
 
     #[test]
@@ -749,6 +810,13 @@ mod tests {
             let c = Chord::parse(text).unwrap_or_else(|| panic!("{text}"));
             assert_eq!(c.storage(), text);
         }
+        #[cfg(target_os = "macos")]
+        {
+            for text in ["cmd+t", "cmd+shift+]", "cmd+alt+left"] {
+                let c = Chord::parse(text).unwrap_or_else(|| panic!("{text}"));
+                assert_eq!(c.storage(), text);
+            }
+        }
         // 键本身是 `+`：靠修饰键白名单区分。
         let c = Chord::parse("ctrl++").unwrap();
         assert_eq!((c.ctrl, c.key.as_str()), (true, "+"));
@@ -757,11 +825,16 @@ mod tests {
 
     #[test]
     fn parse_rejects_bad_text() {
-        for bad in [
-            "", "cmd+t", "ctrl+", "ctrl+ab", "ctrl+T", "ctrl+f99", "meta+x",
-        ] {
+        for bad in ["", "ctrl+", "ctrl+ab", "ctrl+T", "ctrl+f99", "meta+x"] {
             assert!(Chord::parse(bad).is_none(), "{bad}");
         }
+        #[cfg(not(target_os = "macos"))]
+        assert!(Chord::parse("cmd+t").is_none());
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            Chord::parse("cmd+t"),
+            Some(Chord::with_cmd(true, false, false, false, "t"))
+        );
     }
 
     #[test]
@@ -840,9 +913,19 @@ mod tests {
             record(&input("control", true, false, false)),
             Recorded::Ignore
         );
-        let mut win = input("t", true, false, true);
-        win.platform = true;
-        assert_eq!(record(&win), Recorded::Ignore);
+        #[cfg(not(target_os = "macos"))]
+        {
+            let mut win = input("t", true, false, true);
+            win.platform = true;
+            assert_eq!(record(&win), Recorded::Ignore);
+        }
+        #[cfg(target_os = "macos")]
+        {
+            assert_eq!(
+                record(&input_with("t", true, false, false, false)),
+                Recorded::Chord(Chord::with_cmd(true, false, false, false, "t"))
+            );
+        }
         assert_eq!(
             record(&input("t", true, false, true)),
             Recorded::Chord(Chord::new(true, false, true, "t"))
@@ -885,20 +968,30 @@ mod tests {
                 ctrl: bd.ctrl,
                 alt: bd.alt,
                 shift: bd.shift,
-                platform: false,
+                platform: bd.cmd,
                 is_held: false,
             };
             assert_eq!(km.lookup(&i), Some(bd.command), "{bd:?}");
         }
-        // Ctrl+Shift+= 在美式键盘上报 `+`，仍然是放大。
-        assert_eq!(
-            km.lookup(&input("+", true, false, true)),
-            Some(AppCommand::ZoomIn)
-        );
-        assert_eq!(
-            km.lookup(&input("|", true, false, true)),
-            Some(AppCommand::SplitRight)
-        );
+        #[cfg(not(target_os = "macos"))]
+        {
+            // Ctrl+Shift+= 在美式键盘上报 `+`，仍然是放大。
+            assert_eq!(
+                km.lookup(&input("+", true, false, true)),
+                Some(AppCommand::ZoomIn)
+            );
+            assert_eq!(
+                km.lookup(&input("|", true, false, true)),
+                Some(AppCommand::SplitRight)
+            );
+        }
+        #[cfg(target_os = "macos")]
+        {
+            assert_eq!(
+                km.lookup(&input_with("+", true, false, false, true)),
+                Some(AppCommand::ZoomIn)
+            );
+        }
     }
 
     #[test]
@@ -924,9 +1017,10 @@ mod tests {
             km.lookup(&input("j", true, false, false)),
             Some(AppCommand::NextTab)
         );
-        // 原来的 Alt+] 与 Ctrl+Tab 都失效（不能新旧同时生效）。
+        // 原来的别名全部失效（不能新旧同时生效）。
         assert_eq!(km.lookup(&input("]", false, true, false)), None);
         assert_eq!(km.lookup(&input("tab", true, false, false)), None);
+        assert_eq!(km.lookup(&input_with("]", true, false, false, true)), None);
         assert_eq!(km.text(AppCommand::NextTab).as_deref(), Some("Ctrl+J"));
     }
 
@@ -935,15 +1029,26 @@ mod tests {
         let mut s = KeybindingSettings::default();
         s.assign("find", &Chord::new(true, false, false, "f"));
         assert!(s.is_customized("find"));
+        #[cfg(not(target_os = "macos"))]
         s.assign("find", &Chord::new(true, false, true, "f"));
+        #[cfg(target_os = "macos")]
+        s.assign("find", &Chord::with_cmd(true, false, false, false, "f"));
         assert!(!s.is_customized("find"));
     }
 
     #[test]
     fn conflict_detected_and_replaced() {
         let mut s = KeybindingSettings::default();
-        // Ctrl+Shift+T 默认属于 newLocalShell。
-        let c = Chord::new(true, false, true, "t");
+        #[cfg(not(target_os = "macos"))]
+        let (c, hit) = (
+            Chord::new(true, false, true, "t"),
+            input("t", true, false, true),
+        );
+        #[cfg(target_os = "macos")]
+        let (c, hit) = (
+            Chord::with_cmd(true, false, false, false, "t"),
+            input_with("t", true, false, false, false),
+        );
         assert_eq!(
             s.assign("find", &c),
             AssignResult::Conflict("newLocalShell".into())
@@ -951,10 +1056,7 @@ mod tests {
         assert!(!s.is_customized("find"));
         assert_eq!(s.assign_replacing("find", &c), AssignResult::Assigned);
         let km = s.keymap();
-        assert_eq!(
-            km.lookup(&input("t", true, false, true)),
-            Some(AppCommand::Find)
-        );
+        assert_eq!(km.lookup(&hit), Some(AppCommand::Find));
         assert_eq!(
             s.overrides.get("newLocalShell").map(String::as_str),
             Some("")
@@ -965,75 +1067,110 @@ mod tests {
     #[test]
     fn replacing_one_alias_keeps_the_other() {
         let mut s = KeybindingSettings::default();
-        // Ctrl+Tab 是 nextSession 的别名之一。
-        let c = Chord::new(true, false, false, "tab");
-        assert_eq!(s.assign_replacing("find", &c), AssignResult::Assigned);
+        #[cfg(not(target_os = "macos"))]
+        let (alias, alias_hit, other_hit) = (
+            Chord::new(true, false, false, "tab"),
+            input("tab", true, false, false),
+            input("]", false, true, false),
+        );
+        #[cfg(target_os = "macos")]
+        let (alias, alias_hit, other_hit) = (
+            Chord::new(false, true, false, "tab"),
+            input("tab", false, true, false),
+            input_with("]", true, false, false, true),
+        );
+        assert_eq!(s.assign_replacing("find", &alias), AssignResult::Assigned);
         let km = s.keymap();
-        assert_eq!(
-            km.lookup(&input("tab", true, false, false)),
-            Some(AppCommand::Find)
-        );
-        assert_eq!(
-            km.lookup(&input("]", false, true, false)),
-            Some(AppCommand::NextTab)
-        );
+        assert_eq!(km.lookup(&alias_hit), Some(AppCommand::Find));
+        assert_eq!(km.lookup(&other_hit), Some(AppCommand::NextTab));
     }
 
     #[test]
     fn clipboard_actions_drop_old_aliases_and_keep_menu_labels_in_sync() {
         let mut settings = KeybindingSettings::default();
-        let shift_ins = Chord::new(false, false, true, "insert");
-        assert_eq!(
-            settings.assign("copy", &shift_ins),
-            AssignResult::Conflict("paste".into())
-        );
-        assert_eq!(
-            settings.assign_replacing("copy", &shift_ins),
-            AssignResult::Assigned
-        );
-        settings.clear("selectAll");
-        let keymap = KeybindingSettings::decode(Some(&settings.encode())).keymap();
-        assert_eq!(
-            keymap.lookup(&input("insert", false, false, true)),
-            Some(AppCommand::Copy)
-        );
-        assert_eq!(
-            keymap.lookup(&input("v", true, false, true)),
-            Some(AppCommand::Paste)
-        );
-        assert_eq!(keymap.lookup(&input("c", true, false, true)), None);
-        assert_eq!(keymap.lookup(&input("a", true, false, true)), None);
-        assert_eq!(keymap.text(AppCommand::Copy), Some(shift_ins.display()));
-        assert_eq!(
-            keymap.text(AppCommand::Paste).as_deref(),
-            Some("Ctrl+Shift+V")
-        );
-        settings.clear("paste");
-        assert_eq!(settings.keymap().text(AppCommand::Paste), None);
-        settings.restore("paste");
-        assert_eq!(
-            settings
-                .keymap()
-                .lookup(&input("insert", false, false, true)),
-            Some(AppCommand::Copy)
-        );
-        assert_eq!(
-            settings.keymap().lookup(&input("v", true, false, true)),
-            Some(AppCommand::Paste)
-        );
-        let paste = catalog()
-            .into_iter()
-            .find(|entry| entry.command == AppCommand::Paste)
-            .unwrap();
-        assert_eq!(
-            settings.chords_of(&paste),
-            vec![Chord::new(true, false, true, "v")]
-        );
-        settings.restore_all();
-        assert_eq!(
-            settings.keymap().lookup(&input("a", true, false, true)),
-            Some(AppCommand::SelectAll)
-        );
+        #[cfg(not(target_os = "macos"))]
+        {
+            let shift_ins = Chord::new(false, false, true, "insert");
+            assert_eq!(
+                settings.assign("copy", &shift_ins),
+                AssignResult::Conflict("paste".into())
+            );
+            assert_eq!(
+                settings.assign_replacing("copy", &shift_ins),
+                AssignResult::Assigned
+            );
+            settings.clear("selectAll");
+            let keymap = KeybindingSettings::decode(Some(&settings.encode())).keymap();
+            assert_eq!(
+                keymap.lookup(&input("insert", false, false, true)),
+                Some(AppCommand::Copy)
+            );
+            assert_eq!(
+                keymap.lookup(&input("v", true, false, true)),
+                Some(AppCommand::Paste)
+            );
+            assert_eq!(keymap.lookup(&input("c", true, false, true)), None);
+            assert_eq!(keymap.lookup(&input("a", true, false, true)), None);
+            assert_eq!(keymap.text(AppCommand::Copy), Some(shift_ins.display()));
+            assert_eq!(
+                keymap.text(AppCommand::Paste).as_deref(),
+                Some("Ctrl+Shift+V")
+            );
+            settings.clear("paste");
+            assert_eq!(settings.keymap().text(AppCommand::Paste), None);
+            settings.restore("paste");
+            assert_eq!(
+                settings
+                    .keymap()
+                    .lookup(&input("insert", false, false, true)),
+                Some(AppCommand::Copy)
+            );
+            assert_eq!(
+                settings.keymap().lookup(&input("v", true, false, true)),
+                Some(AppCommand::Paste)
+            );
+            let paste = catalog()
+                .into_iter()
+                .find(|entry| entry.command == AppCommand::Paste)
+                .unwrap();
+            assert_eq!(
+                settings.chords_of(&paste),
+                vec![Chord::new(true, false, true, "v")]
+            );
+            settings.restore_all();
+            assert_eq!(
+                settings.keymap().lookup(&input("a", true, false, true)),
+                Some(AppCommand::SelectAll)
+            );
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let alt_v = Chord::new(false, true, false, "v");
+            assert_eq!(settings.assign("paste", &alt_v), AssignResult::Assigned);
+            let cmd_v = Chord::with_cmd(true, false, false, false, "v");
+            assert_eq!(settings.assign("copy", &cmd_v), AssignResult::Assigned);
+            settings.clear("selectAll");
+            let keymap = KeybindingSettings::decode(Some(&settings.encode())).keymap();
+            assert_eq!(
+                keymap.lookup(&input_with("v", true, false, false, false)),
+                Some(AppCommand::Copy)
+            );
+            assert_eq!(
+                keymap.lookup(&input("v", false, true, false)),
+                Some(AppCommand::Paste)
+            );
+            assert_eq!(
+                keymap.lookup(&input_with("a", true, false, false, false)),
+                None
+            );
+            settings.restore_all();
+            assert_eq!(
+                settings
+                    .keymap()
+                    .lookup(&input_with("a", true, false, false, false)),
+                Some(AppCommand::SelectAll)
+            );
+        }
     }
 
     #[test]
@@ -1058,13 +1195,14 @@ mod tests {
     fn clear_restore_and_restore_all() {
         let mut s = KeybindingSettings::default();
         s.clear("clearBuffer");
-        assert_eq!(s.keymap().lookup(&input("k", false, true, false)), None);
+        #[cfg(not(target_os = "macos"))]
+        let clear_hit = input("k", false, true, false);
+        #[cfg(target_os = "macos")]
+        let clear_hit = input_with("k", true, false, false, false);
+        assert_eq!(s.keymap().lookup(&clear_hit), None);
         s.assign("find", &Chord::new(true, false, false, "f"));
         s.restore("clearBuffer");
-        assert_eq!(
-            s.keymap().lookup(&input("k", false, true, false)),
-            Some(AppCommand::ClearBuffer)
-        );
+        assert_eq!(s.keymap().lookup(&clear_hit), Some(AppCommand::ClearBuffer));
         assert!(s.is_customized("find"));
         s.restore_all();
         assert!(s.overrides.is_empty());
@@ -1090,10 +1228,11 @@ mod tests {
     fn fixed_tab_shortcuts_survive_any_override() {
         let mut s = KeybindingSettings::default();
         s.clear("nextSession");
-        assert_eq!(
-            s.keymap().lookup(&input("1", false, true, false)),
-            Some(AppCommand::SelectTab(0))
-        );
+        #[cfg(not(target_os = "macos"))]
+        let hit = input("1", false, true, false);
+        #[cfg(target_os = "macos")]
+        let hit = input_with("1", true, false, false, false);
+        assert_eq!(s.keymap().lookup(&hit), Some(AppCommand::SelectTab(0)));
     }
 
     #[test]
@@ -1124,11 +1263,12 @@ mod tests {
 
     #[test]
     fn unparsable_override_falls_back_to_default() {
-        let s = KeybindingSettings::decode(Some(r#"{"bindings":{"find":"cmd+f"}}"#));
-        assert_eq!(
-            s.keymap().lookup(&input("f", true, false, true)),
-            Some(AppCommand::Find)
-        );
+        let s = KeybindingSettings::decode(Some(r#"{"bindings":{"find":"bad+f"}}"#));
+        #[cfg(not(target_os = "macos"))]
+        let hit = input("f", true, false, true);
+        #[cfg(target_os = "macos")]
+        let hit = input_with("f", true, false, false, false);
+        assert_eq!(s.keymap().lookup(&hit), Some(AppCommand::Find));
     }
 
     #[test]

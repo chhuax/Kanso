@@ -910,6 +910,20 @@ impl<B: SettingsBackend> SettingsStore<B> {
             .set_setting(kanso_core::POWERSHELL_COLOR_PROMPT, enabled.to_string())
     }
 
+    /// 是否为新开的 macOS / Linux 本地终端启用增强提示符（目录与 Git 分支）。
+    pub fn zsh_prompt_chips(&self) -> bool {
+        self.backend
+            .setting(kanso_core::ZSH_PROMPT_CHIPS)
+            .as_deref()
+            != Some("false")
+    }
+
+    /// 保存新开的 macOS / Linux 本地终端是否启用增强提示符。
+    pub fn set_zsh_prompt_chips(&self, enabled: bool) -> Result<(), String> {
+        self.backend
+            .set_setting(kanso_core::ZSH_PROMPT_CHIPS, enabled.to_string())
+    }
+
     /// 从后端载入，并把终端选项下发给核心（核心的默认值未必与用户保存的一致）。
     pub fn load(backend: B) -> Self {
         let display = DisplaySettings::decode(backend.setting(Section::Display.key()).as_deref());
@@ -1364,7 +1378,11 @@ mod tests {
             k.overrides.insert("find".into(), "ctrl+f".into());
         });
         assert_eq!(section, Some(Section::Keybindings));
-        assert!(mem.map.borrow().contains_key("keybindings-win"));
+        assert!(
+            mem.map
+                .borrow()
+                .contains_key(crate::app::keybindings::SETTING_KEY)
+        );
         // 值没变：不写、不通知。
         assert_eq!(
             store.update_keybindings(|k| {

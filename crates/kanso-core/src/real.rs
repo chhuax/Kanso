@@ -1048,12 +1048,14 @@ impl RealCore {
                 OpenRequest::Duplicate(src)
             }
         };
-        let color_prompt = !cfg!(windows)
-            || matches!(
-                &request,
-                OpenRequest::Ssh(_) | OpenRequest::SshShared { .. }
-            )
-            || self.setting(crate::POWERSHELL_COLOR_PROMPT).as_deref() != Some("false");
+        let color_prompt = matches!(
+            &request,
+            OpenRequest::Ssh(_) | OpenRequest::SshShared { .. }
+        ) || if cfg!(windows) {
+            self.setting(crate::POWERSHELL_COLOR_PROMPT).as_deref() != Some("false")
+        } else {
+            self.setting(crate::ZSH_PROMPT_CHIPS).as_deref() != Some("false")
+        };
         let id = self
             .sessions
             .open_with_powershell_prompt(request, size, color_prompt)

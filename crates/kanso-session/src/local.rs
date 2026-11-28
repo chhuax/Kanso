@@ -477,11 +477,22 @@ impl LocalSession {
                 zsh,
             },
         );
-        if cfg.shell_integration
-            && let Some(prompt) =
+        if cfg.shell_integration {
+            if let Some(prompt) =
                 configure_windows_prompt(&mut command, platform, &base, color_prompt)
-        {
-            changes.push(prompt);
+            {
+                changes.push(prompt);
+            }
+            if !cfg!(windows) {
+                changes.push((
+                    std::ffi::OsString::from(kanso_pty::ENV_PROMPT_CHIPS),
+                    Some(std::ffi::OsString::from(if color_prompt {
+                        "1"
+                    } else {
+                        "0"
+                    })),
+                ));
+            }
         }
         let env = base.apply(&changes);
 
