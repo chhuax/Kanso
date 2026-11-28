@@ -140,22 +140,23 @@ fn c_abi() -> bool {
         eprintln!("步骤失败：c-abi（找不到 {lib}；若设置了 CARGO_TARGET_DIR 需要相应调整）");
         return false;
     }
-    // 静态库里的 Rust std 在 macOS 上不需要额外 framework；若以后 kanso-ffi 引入
-    // 系统库依赖，需要在这里补充对应的 -framework / -l 参数。
-    if !run(
-        "c-abi 编译冒烟测试",
-        Command::new("clang").args([
-            "-std=c11",
-            "-Wall",
-            "-Werror",
-            "-I",
-            "crates/kanso-ffi/include",
-            "crates/kanso-ffi/tests/c/frame_smoke.c",
-            lib,
-            "-o",
-            "target/frame_smoke",
-        ]),
-    ) {
+    // kanso-secret 在 macOS 上依赖 Security / CoreFoundation framework，随静态库一起链接。
+    let mut smoke = Command::new("clang");
+    smoke.args([
+        "-std=c11",
+        "-Wall",
+        "-Werror",
+        "-I",
+        "crates/kanso-ffi/include",
+        "crates/kanso-ffi/tests/c/frame_smoke.c",
+        lib,
+        "-o",
+        "target/frame_smoke",
+    ]);
+    if cfg!(target_os = "macos") {
+        smoke.args(["-framework", "Security", "-framework", "CoreFoundation"]);
+    }
+    if !run("c-abi 编译冒烟测试", &mut smoke) {
         return false;
     }
     run(

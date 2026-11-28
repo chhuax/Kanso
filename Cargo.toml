@@ -115,6 +115,7 @@ windows-sys = { version = "0.61", default-features = false, features = ["Win32_F
 # 只用来匹配 D-Bus 错误类型（secret-service 不重新导出 zbus）；运行时 feature 由 secret-service 开启。
 zbus = { version = "5", default-features = false }
 secret-service = { version = "5", default-features = false, features = ["rt-async-io-crypto-rust"] }
+security-framework = "3"
 
 [workspace.lints.rust]
 missing_docs = "warn"

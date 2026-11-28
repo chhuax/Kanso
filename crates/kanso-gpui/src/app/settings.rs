@@ -1378,7 +1378,11 @@ mod tests {
             k.overrides.insert("find".into(), "ctrl+f".into());
         });
         assert_eq!(section, Some(Section::Keybindings));
-        assert!(mem.map.borrow().contains_key("keybindings-win"));
+        assert!(
+            mem.map
+                .borrow()
+                .contains_key(crate::app::keybindings::SETTING_KEY)
+        );
         // 值没变：不写、不通知。
         assert_eq!(
             store.update_keybindings(|k| {

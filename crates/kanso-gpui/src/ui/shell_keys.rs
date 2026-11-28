@@ -71,14 +71,14 @@ impl ShellView {
         use kanso_gpui::app::shortcuts::{AppCommand, lookup, shortcut_text};
         use kanso_gpui::keys::KeyInput;
 
-        let press = |key: &'static str, ctrl: bool, alt: bool, shift: bool| {
+        let press = |cmd: bool, key: &'static str, ctrl: bool, alt: bool, shift: bool| {
             lookup(&KeyInput {
                 key,
                 key_char: None,
                 ctrl,
                 alt,
                 shift,
-                platform: false,
+                platform: cmd,
                 is_held: false,
             })
         };
@@ -88,38 +88,88 @@ impl ShellView {
                 fails.push(name);
             }
         };
-        check(
-            "默认 Ctrl+Shift+F = 查找",
-            press("f", true, false, true) == Some(AppCommand::Find),
-        );
-        let chord = Chord::new(true, true, false, "f");
-        self.settings.update(cx, |m, cx| {
-            m.update_keybindings(cx, |k| {
-                k.assign("find", &chord);
-            })
-        });
-        check(
-            "改绑后新键生效",
-            press("f", true, true, false) == Some(AppCommand::Find),
-        );
-        check("改绑后旧键失效", press("f", true, false, true).is_none());
-        check(
-            "菜单提示更新",
-            shortcut_text(AppCommand::Find).as_deref() == Some("Ctrl+Alt+F"),
-        );
-        check(
-            "已写入核心",
-            self.core
-                .setting(SETTING_KEY)
-                .is_some_and(|s| s.contains("ctrl+alt+f")),
-        );
-        let reset = self.settings.update(cx, |m, cx| m.reset_to_defaults(cx));
-        check("恢复默认成功", reset.is_ok());
-        check(
-            "恢复后旧键回来",
-            press("f", true, false, true) == Some(AppCommand::Find),
-        );
-        check("恢复后新键失效", press("f", true, true, false).is_none());
+        #[cfg(not(target_os = "macos"))]
+        {
+            check(
+                "默认 Ctrl+Shift+F = 查找",
+                press(false, "f", true, false, true) == Some(AppCommand::Find),
+            );
+            let chord = Chord::new(true, true, false, "f");
+            self.settings.update(cx, |m, cx| {
+                m.update_keybindings(cx, |k| {
+                    k.assign("find", &chord);
+                })
+            });
+            check(
+                "改绑后新键生效",
+                press(false, "f", true, true, false) == Some(AppCommand::Find),
+            );
+            check(
+                "改绑后旧键失效",
+                press(false, "f", true, false, true).is_none(),
+            );
+            check(
+                "菜单提示更新",
+                shortcut_text(AppCommand::Find).as_deref() == Some("Ctrl+Alt+F"),
+            );
+            check(
+                "已写入核心",
+                self.core
+                    .setting(SETTING_KEY)
+                    .is_some_and(|s| s.contains("ctrl+alt+f")),
+            );
+            let reset = self.settings.update(cx, |m, cx| m.reset_to_defaults(cx));
+            check("恢复默认成功", reset.is_ok());
+            check(
+                "恢复后旧键回来",
+                press(false, "f", true, false, true) == Some(AppCommand::Find),
+            );
+            check(
+                "恢复后新键失效",
+                press(false, "f", true, true, false).is_none(),
+            );
+        }
+        #[cfg(target_os = "macos")]
+        {
+            check(
+                "默认 Cmd+F = 查找",
+                press(true, "f", false, false, false) == Some(AppCommand::Find),
+            );
+            let chord = Chord::with_cmd(true, false, true, false, "f");
+            self.settings.update(cx, |m, cx| {
+                m.update_keybindings(cx, |k| {
+                    k.assign("find", &chord);
+                })
+            });
+            check(
+                "改绑后新键生效",
+                press(true, "f", false, true, false) == Some(AppCommand::Find),
+            );
+            check(
+                "改绑后旧键失效",
+                press(true, "f", false, false, false).is_none(),
+            );
+            check(
+                "菜单提示更新",
+                shortcut_text(AppCommand::Find).as_deref() == Some("Cmd+Alt+F"),
+            );
+            check(
+                "已写入核心",
+                self.core
+                    .setting(SETTING_KEY)
+                    .is_some_and(|s| s.contains("cmd+alt+f")),
+            );
+            let reset = self.settings.update(cx, |m, cx| m.reset_to_defaults(cx));
+            check("恢复默认成功", reset.is_ok());
+            check(
+                "恢复后旧键回来",
+                press(true, "f", false, false, false) == Some(AppCommand::Find),
+            );
+            check(
+                "恢复后新键失效",
+                press(true, "f", false, true, false).is_none(),
+            );
+        }
         check(
             "恢复后设置表已清空",
             self.core.setting(SETTING_KEY).is_none(),

@@ -1,7 +1,7 @@
 //! 进程内存读数（只用于启动日志）。
 
-// Windows 工作集查询需要原生 API；Linux 直接读取当前进程的 procfs。
-#![cfg_attr(windows, allow(unsafe_code))]
+// Windows 工作集与 macOS 峰值内存查询需要原生 API；Linux 直接读取当前进程的 procfs。
+#![cfg_attr(any(windows, target_os = "macos"), allow(unsafe_code))]
 
 #[cfg(windows)]
 use windows_sys::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
@@ -45,6 +45,15 @@ fn working_set() -> Option<(usize, usize)> {
 
 #[cfg(target_os = "macos")]
 fn working_set() -> Option<(usize, usize)> {
+    // SAFETY: `rusage` 是 POD 输出结构，全零初始化后传给 POSIX `getrusage(RUSAGE_SELF, ...)` 安全。
+    unsafe {
+        let mut usage: libc::rusage = std::mem::zeroed();
+        if libc::getrusage(libc::RUSAGE_SELF, &mut usage) == 0 && usage.ru_maxrss > 0 {
+            // macOS 上 `ru_maxrss` 单位是字节。
+            let rss = usage.ru_maxrss as usize;
+            return Some((rss, rss));
+        }
+    }
     None
 }
 

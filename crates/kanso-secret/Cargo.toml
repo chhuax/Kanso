@@ -16,5 +16,8 @@ windows-sys.workspace = true
 secret-service.workspace = true
 zbus.workspace = true
 
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework.workspace = true
+
 [lints]
 workspace = true
