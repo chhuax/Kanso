@@ -14,23 +14,7 @@ use kanso_mcp_server::{
     McpActivity, McpClientInfo, McpClientKind, McpServer, McpServerConfig, McpServerDelegate,
     McpServerStatus, McpUnavailable, client_config, powershell_client_config,
 };
-#[cfg(not(target_os = "macos"))]
 use kanso_secret::PlatformSecretStore as TokenStore;
-#[cfg(target_os = "macos")]
-struct TokenStore(std::sync::Mutex<Option<SecretString>>);
-#[cfg(target_os = "macos")]
-impl TokenStore {
-    fn new(_service: impl Into<String>) -> Self {
-        Self(std::sync::Mutex::new(None))
-    }
-    fn mcp_token(&self) -> Result<Option<SecretString>, kanso_secret::SecretError> {
-        Ok(self.0.lock().unwrap_or_else(|e| e.into_inner()).clone())
-    }
-    fn set_mcp_token(&self, token: &SecretString) -> Result<(), kanso_secret::SecretError> {
-        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(token.clone());
-        Ok(())
-    }
-}
 use kanso_types::event::SessionState;
 use kanso_types::message::Message;
 use kanso_types::secret::SecretString;

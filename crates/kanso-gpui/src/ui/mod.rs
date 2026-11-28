@@ -175,8 +175,8 @@ fn parse_args() -> Args {
     );
     #[cfg(target_os = "macos")]
     let default_dir = home_dir()
-        .map(|h| h.join("Library/Application Support/Kanso-GPUI"))
-        .unwrap_or_else(|| std::env::temp_dir().join("Kanso-GPUI"));
+        .map(|h| h.join("Library/Application Support/Kanso"))
+        .unwrap_or_else(|| std::env::temp_dir().join("Kanso"));
     let mut args = Args {
         selftest: false,
         timeout_secs: 30,
@@ -291,12 +291,9 @@ impl EventSink for ChannelSink {
 fn build_core(args: &Args, tx: UnboundedSender<CoreEvent>) -> Result<Arc<Core>, String> {
     let config = CoreConfig::new(&args.data_dir, env!("CARGO_PKG_VERSION"), BUNDLE_ID);
     let mut platform = Platform::for_tests(Arc::new(ChannelSink(tx)));
-    // 自检使用内存替身；正常运行接入系统凭据库和核心的 known_hosts（macOS 试验期暂用内存替身）。
+    // 自检使用内存替身；正常运行接入系统凭据库和核心的 known_hosts。
     if !args.selftest && !SETTINGS_TEST.load(Ordering::Relaxed) {
-        #[cfg(not(target_os = "macos"))]
-        {
-            platform.secrets = Arc::new(kanso_secret::PlatformSecretStore::new(BUNDLE_ID));
-        }
+        platform.secrets = Arc::new(kanso_secret::PlatformSecretStore::new(BUNDLE_ID));
         platform.host_keys = None;
     }
     // 交互式桌面会话里通常没有 HOME，而核心按 `$HOME/.ssh/known_hosts` 找主机密钥：用 USERPROFILE 补上。

@@ -159,6 +159,8 @@ impl AppCommand {
 /// 一条按键绑定。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Binding {
+    /// Command（仅 macOS 使用；Windows / Linux 恒为 `false`）。
+    pub cmd: bool,
     /// Ctrl。
     pub ctrl: bool,
     /// Alt。
@@ -171,8 +173,29 @@ pub struct Binding {
     pub command: AppCommand,
 }
 
+#[cfg(not(target_os = "macos"))]
 const fn b(ctrl: bool, alt: bool, shift: bool, key: &'static str, command: AppCommand) -> Binding {
     Binding {
+        cmd: false,
+        ctrl,
+        alt,
+        shift,
+        key,
+        command,
+    }
+}
+
+#[cfg(target_os = "macos")]
+const fn m(
+    cmd: bool,
+    ctrl: bool,
+    alt: bool,
+    shift: bool,
+    key: &'static str,
+    command: AppCommand,
+) -> Binding {
+    Binding {
+        cmd,
         ctrl,
         alt,
         shift,
@@ -182,6 +205,7 @@ const fn b(ctrl: bool, alt: bool, shift: bool, key: &'static str, command: AppCo
 }
 
 /// 默认绑定表。同一命令可以有多行（别名）。
+#[cfg(not(target_os = "macos"))]
 pub const DEFAULT_BINDINGS: &[Binding] = &[
     // 编辑快捷键在外壳捕获阶段按当前绑定执行，文本框仍走自己的编辑路径。
     b(true, false, true, "c", AppCommand::Copy),
@@ -243,6 +267,59 @@ pub const DEFAULT_BINDINGS: &[Binding] = &[
     b(true, false, true, "down", AppCommand::NextBlock),
 ];
 
+/// macOS 默认绑定表（使用 `⌘` 组合键，避免抢占终端 `Ctrl` / `Option` 控制键）。
+#[cfg(target_os = "macos")]
+pub const DEFAULT_BINDINGS: &[Binding] = &[
+    // 编辑快捷键（输入框获得焦点时外壳会放行，由输入框自己处理）。
+    m(true, false, false, false, "c", AppCommand::Copy),
+    m(true, false, false, false, "v", AppCommand::Paste),
+    m(true, false, false, false, "a", AppCommand::SelectAll),
+    // 标签与窗口
+    m(true, false, false, false, "t", AppCommand::NewLocalTab),
+    m(true, false, false, false, "n", AppCommand::NewSession),
+    m(true, false, false, false, "w", AppCommand::CloseSession),
+    m(true, false, false, false, "q", AppCommand::Quit),
+    m(true, false, false, false, "p", AppCommand::OpenPalette),
+    m(true, false, false, true, "p", AppCommand::OpenPalette),
+    m(true, false, false, true, "]", AppCommand::NextTab),
+    m(true, false, false, true, "[", AppCommand::PrevTab),
+    m(false, true, false, false, "tab", AppCommand::NextTab),
+    m(false, true, false, true, "tab", AppCommand::PrevTab),
+    // 分屏
+    m(true, false, false, false, "d", AppCommand::SplitRight),
+    m(true, false, false, true, "d", AppCommand::SplitDown),
+    m(true, false, false, false, "]", AppCommand::NextPane),
+    m(true, false, false, false, "[", AppCommand::PrevPane),
+    // ⌘1–⌘9：按侧栏顺序切到第 N 个标签。
+    m(true, false, false, false, "1", AppCommand::SelectTab(0)),
+    m(true, false, false, false, "2", AppCommand::SelectTab(1)),
+    m(true, false, false, false, "3", AppCommand::SelectTab(2)),
+    m(true, false, false, false, "4", AppCommand::SelectTab(3)),
+    m(true, false, false, false, "5", AppCommand::SelectTab(4)),
+    m(true, false, false, false, "6", AppCommand::SelectTab(5)),
+    m(true, false, false, false, "7", AppCommand::SelectTab(6)),
+    m(true, false, false, false, "8", AppCommand::SelectTab(7)),
+    m(true, false, false, false, "9", AppCommand::SelectTab(8)),
+    // 面板显隐与定位
+    m(true, false, true, false, "left", AppCommand::ToggleSidebar),
+    m(true, false, true, false, "down", AppCommand::ToggleSender),
+    m(true, false, true, false, "right", AppCommand::ToggleFiler),
+    m(true, false, false, false, "j", AppCommand::LocateFiler),
+    // 清屏、设置、字号
+    m(true, false, false, false, "k", AppCommand::ClearBuffer),
+    m(true, false, false, false, ",", AppCommand::OpenSettings),
+    m(true, false, false, false, "=", AppCommand::ZoomIn),
+    m(true, false, false, true, "+", AppCommand::ZoomIn),
+    m(true, false, false, false, "-", AppCommand::ZoomOut),
+    m(true, false, false, false, "0", AppCommand::ZoomReset),
+    // 查找与命令块跳转
+    m(true, false, false, false, "f", AppCommand::Find),
+    m(true, false, false, false, "g", AppCommand::FindNext),
+    m(true, false, false, true, "g", AppCommand::FindPrev),
+    m(true, false, false, false, "up", AppCommand::PrevBlock),
+    m(true, false, false, false, "down", AppCommand::NextBlock),
+];
+
 /// 查表（默认值 + 用户覆盖，见 [`crate::app::keybindings`]）。Win 键组合属于系统，永远不命中。
 pub fn lookup(input: &KeyInput<'_>) -> Option<AppCommand> {
     crate::app::keybindings::current().lookup(input)
@@ -257,18 +334,30 @@ pub fn shortcut_text(command: AppCommand) -> Option<String> {
 mod tests {
     use super::*;
 
-    fn press(key: &'static str, ctrl: bool, alt: bool, shift: bool) -> Option<AppCommand> {
+    fn press_with(
+        key: &'static str,
+        cmd: bool,
+        ctrl: bool,
+        alt: bool,
+        shift: bool,
+    ) -> Option<AppCommand> {
         lookup(&KeyInput {
             key,
             key_char: None,
             ctrl,
             alt,
             shift,
-            platform: false,
+            platform: cmd,
             is_held: false,
         })
     }
 
+    #[cfg(not(target_os = "macos"))]
+    fn press(key: &'static str, ctrl: bool, alt: bool, shift: bool) -> Option<AppCommand> {
+        press_with(key, false, ctrl, alt, shift)
+    }
+
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn spec_defaults() {
         assert_eq!(press("t", true, false, true), Some(AppCommand::NewLocalTab));
@@ -297,6 +386,69 @@ mod tests {
         assert_eq!(press("tab", true, false, true), Some(AppCommand::PrevTab));
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn spec_defaults() {
+        assert_eq!(
+            press_with("t", true, false, false, false),
+            Some(AppCommand::NewLocalTab)
+        );
+        assert_eq!(
+            press_with("w", true, false, false, false),
+            Some(AppCommand::CloseSession)
+        );
+        assert_eq!(
+            press_with("q", true, false, false, false),
+            Some(AppCommand::Quit)
+        );
+        assert_eq!(
+            press_with("d", true, false, false, false),
+            Some(AppCommand::SplitRight)
+        );
+        assert_eq!(
+            press_with("d", true, false, false, true),
+            Some(AppCommand::SplitDown)
+        );
+        assert_eq!(
+            press_with("]", true, false, false, true),
+            Some(AppCommand::NextTab)
+        );
+        assert_eq!(
+            press_with("[", true, false, false, true),
+            Some(AppCommand::PrevTab)
+        );
+        assert_eq!(
+            press_with("]", true, false, false, false),
+            Some(AppCommand::NextPane)
+        );
+        assert_eq!(
+            press_with("[", true, false, false, false),
+            Some(AppCommand::PrevPane)
+        );
+        assert_eq!(
+            press_with("1", true, false, false, false),
+            Some(AppCommand::SelectTab(0))
+        );
+        assert_eq!(
+            press_with("9", true, false, false, false),
+            Some(AppCommand::SelectTab(8))
+        );
+        assert_eq!(
+            press_with("n", true, false, false, false),
+            Some(AppCommand::NewSession)
+        );
+        assert_eq!(press_with("enter", false, false, true, false), None);
+        assert_eq!(
+            press_with("tab", false, true, false, false),
+            Some(AppCommand::NextTab)
+        );
+        assert_eq!(
+            press_with("tab", false, true, false, true),
+            Some(AppCommand::PrevTab)
+        );
+    }
+
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn settings_and_zoom_defaults() {
         assert_eq!(
@@ -310,6 +462,30 @@ mod tests {
         assert!(!AppCommand::OpenSettings.repeatable());
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn settings_and_zoom_defaults() {
+        assert_eq!(
+            press_with(",", true, false, false, false),
+            Some(AppCommand::OpenSettings)
+        );
+        assert_eq!(
+            press_with("=", true, false, false, false),
+            Some(AppCommand::ZoomIn)
+        );
+        assert_eq!(
+            press_with("-", true, false, false, false),
+            Some(AppCommand::ZoomOut)
+        );
+        assert_eq!(
+            press_with("0", true, false, false, false),
+            Some(AppCommand::ZoomReset)
+        );
+        assert!(AppCommand::ZoomIn.repeatable());
+        assert!(!AppCommand::OpenSettings.repeatable());
+    }
+
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn sender_toggle_default() {
         assert_eq!(
@@ -324,25 +500,41 @@ mod tests {
         assert!(!AppCommand::ToggleSender.repeatable());
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn sender_toggle_default() {
+        assert_eq!(
+            press_with("down", true, false, true, false),
+            Some(AppCommand::ToggleSender)
+        );
+        assert_eq!(press_with("down", false, false, true, false), None);
+        assert_eq!(
+            shortcut_text(AppCommand::ToggleSender).as_deref(),
+            Some("Cmd+Alt+Down")
+        );
+        assert!(!AppCommand::ToggleSender.repeatable());
+    }
+
     #[test]
     fn plain_ctrl_and_alt_letters_are_never_intercepted() {
         for k in ["a", "c", "d", "t", "w", "z", "l", "b", "f"] {
-            assert_eq!(press(k, true, false, false), None, "Ctrl+{k}");
-            assert_eq!(press(k, false, true, false), None, "Alt+{k}");
+            assert_eq!(press_with(k, false, true, false, false), None, "Ctrl+{k}");
+            assert_eq!(press_with(k, false, false, true, false), None, "Alt+{k}");
         }
         // Alt+方向键、Alt+Shift+数字属于 shell / 程序。
-        assert_eq!(press("left", false, true, false), None);
-        assert_eq!(press("1", false, true, true), None);
-        assert_eq!(press("1", false, false, false), None);
+        assert_eq!(press_with("left", false, false, true, false), None);
+        assert_eq!(press_with("1", false, false, true, true), None);
+        assert_eq!(press_with("1", false, false, false, false), None);
     }
 
     #[test]
     fn modifiers_must_match_exactly() {
-        assert_eq!(press("t", true, true, true), None);
-        assert_eq!(press("t", true, false, false), None);
-        assert_eq!(press("w", false, false, true), None);
+        assert_eq!(press_with("t", false, true, true, true), None);
+        assert_eq!(press_with("t", false, true, false, false), None);
+        assert_eq!(press_with("w", false, false, false, true), None);
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn windows_key_never_matches() {
         let hit = lookup(&KeyInput {
@@ -362,13 +554,15 @@ mod tests {
         for (i, a) in DEFAULT_BINDINGS.iter().enumerate() {
             for c in &DEFAULT_BINDINGS[i + 1..] {
                 assert!(
-                    (a.ctrl, a.alt, a.shift, a.key) != (c.ctrl, c.alt, c.shift, c.key),
+                    (a.cmd, a.ctrl, a.alt, a.shift, a.key)
+                        != (c.cmd, c.ctrl, c.alt, c.shift, c.key),
                     "重复按键 {a:?}"
                 );
             }
         }
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn find_and_block_shortcuts() {
         assert_eq!(press("f", true, false, true), Some(AppCommand::Find));
@@ -387,6 +581,36 @@ mod tests {
         assert!(AppCommand::FindNext.repeatable());
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn find_and_block_shortcuts() {
+        assert_eq!(
+            press_with("f", true, false, false, false),
+            Some(AppCommand::Find)
+        );
+        assert_eq!(
+            press_with("g", true, false, false, false),
+            Some(AppCommand::FindNext)
+        );
+        assert_eq!(
+            press_with("g", true, false, false, true),
+            Some(AppCommand::FindPrev)
+        );
+        assert_eq!(
+            press_with("up", true, false, false, false),
+            Some(AppCommand::PrevBlock)
+        );
+        assert_eq!(
+            press_with("down", true, false, false, false),
+            Some(AppCommand::NextBlock)
+        );
+        // 普通 Ctrl+F / Ctrl+Up 仍然属于 shell。
+        assert_eq!(press_with("f", false, true, false, false), None);
+        assert_eq!(press_with("up", false, true, false, false), None);
+        assert!(!AppCommand::Find.repeatable());
+        assert!(AppCommand::FindNext.repeatable());
+    }
+
     #[test]
     fn only_switching_commands_repeat() {
         assert!(AppCommand::NextTab.repeatable());
@@ -397,17 +621,35 @@ mod tests {
 
     #[test]
     fn shortcut_text_is_readable() {
-        assert_eq!(
-            shortcut_text(AppCommand::NewLocalTab).as_deref(),
-            Some("Ctrl+Shift+T")
-        );
-        assert_eq!(
-            shortcut_text(AppCommand::ToggleSidebar).as_deref(),
-            Some("Ctrl+Alt+Left")
-        );
-        assert_eq!(
-            shortcut_text(AppCommand::SelectTab(2)).as_deref(),
-            Some("Alt+3")
-        );
+        #[cfg(not(target_os = "macos"))]
+        {
+            assert_eq!(
+                shortcut_text(AppCommand::NewLocalTab).as_deref(),
+                Some("Ctrl+Shift+T")
+            );
+            assert_eq!(
+                shortcut_text(AppCommand::ToggleSidebar).as_deref(),
+                Some("Ctrl+Alt+Left")
+            );
+            assert_eq!(
+                shortcut_text(AppCommand::SelectTab(2)).as_deref(),
+                Some("Alt+3")
+            );
+        }
+        #[cfg(target_os = "macos")]
+        {
+            assert_eq!(
+                shortcut_text(AppCommand::NewLocalTab).as_deref(),
+                Some("Cmd+T")
+            );
+            assert_eq!(
+                shortcut_text(AppCommand::ToggleSidebar).as_deref(),
+                Some("Cmd+Alt+Left")
+            );
+            assert_eq!(
+                shortcut_text(AppCommand::SelectTab(2)).as_deref(),
+                Some("Cmd+3")
+            );
+        }
     }
 }

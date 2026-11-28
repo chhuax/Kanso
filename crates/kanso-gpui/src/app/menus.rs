@@ -854,18 +854,34 @@ mod tests {
 
     #[test]
     fn shortcut_hints_come_from_the_binding_table() {
-        assert_eq!(
-            menu_shortcut(AppCommand::NewLocalTab).as_deref(),
-            Some("Ctrl+Shift+T")
-        );
-        assert_eq!(
-            menu_shortcut(AppCommand::Copy).as_deref(),
-            Some("Ctrl+Shift+C")
-        );
-        assert_eq!(
-            menu_shortcut(AppCommand::ClearBuffer).as_deref(),
-            Some("Alt+K")
-        );
-        assert_eq!(menu_shortcut(AppCommand::Quit), None);
+        #[cfg(not(target_os = "macos"))]
+        {
+            assert_eq!(
+                menu_shortcut(AppCommand::NewLocalTab).as_deref(),
+                Some("Ctrl+Shift+T")
+            );
+            assert_eq!(
+                menu_shortcut(AppCommand::Copy).as_deref(),
+                Some("Ctrl+Shift+C")
+            );
+            assert_eq!(
+                menu_shortcut(AppCommand::ClearBuffer).as_deref(),
+                Some("Alt+K")
+            );
+            assert_eq!(menu_shortcut(AppCommand::Quit), None);
+        }
+        #[cfg(target_os = "macos")]
+        {
+            assert_eq!(
+                menu_shortcut(AppCommand::NewLocalTab).as_deref(),
+                Some("Cmd+T")
+            );
+            assert_eq!(menu_shortcut(AppCommand::Copy).as_deref(), Some("Cmd+C"));
+            assert_eq!(
+                menu_shortcut(AppCommand::ClearBuffer).as_deref(),
+                Some("Cmd+K")
+            );
+            assert_eq!(menu_shortcut(AppCommand::Quit).as_deref(), Some("Cmd+Q"));
+        }
     }
 }
